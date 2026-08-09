@@ -1,5 +1,6 @@
 node_modules
 .env*
+!.env.example
 .eve
 .vercel
 .next
@@ -8,3 +9,6 @@ node_modules
 dist
 .DS_Store
 *.tsbuildinfo
+.env*.local
+.agents/
+skills-lock.json

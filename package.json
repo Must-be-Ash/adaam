@@ -13,13 +13,20 @@
     "typecheck": "tsc"
   },
   "dependencies": {
-    "@vercel/connect": "0.4.3",
+    "@ai-sdk/mcp": "^2.0.29",
+    "@chat-adapter/state-memory": "^4.37.0",
+    "@photon-ai/chat-adapter-imessage": "^3.2.0",
+    "@upstash/redis": "^1.38.2",
+    "@vercel/connect": "^0.6.1",
     "ai": "^7.0.38",
+    "chat": "^4.37.0",
     "eve": "^0.31.3",
+    "fast-xml-parser": "^5.10.1",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "24.x",
+    "just-bash": "^3.2.0",
     "typescript": "7.0.2"
   },
   "overrides": {
@@ -28,5 +35,4 @@
   "engines": {
     "node": "24.x"
   }
-
 }

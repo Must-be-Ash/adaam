@@ -1,7 +1,7 @@
 import { eveChannel } from "eve/channels/eve";
 import { localDev, placeholderAuth, vercelOidc } from "eve/channels/auth";
 
-export default eveChannel({
+export const eve = eveChannel({
   auth: [
     // Lets the eve TUI and your Vercel deployments reach the deployed agent.
     vercelOidc(),
@@ -12,4 +12,15 @@ export default eveChannel({
     // or use none() for a public demo.
     placeholderAuth(),
   ],
+  uploadPolicy: {
+    allowedMediaTypes: [
+      "application/pdf",
+      "image/*",
+      "text/markdown",
+      "text/plain",
+    ],
+    maxBytes: 20 * 1024 * 1024,
+  },
 });
+
+export default eve;
