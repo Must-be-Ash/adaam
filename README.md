@@ -52,6 +52,18 @@ The first Masterkey tool call for an Eve user may return an authorization link. 
 to Masterkey and approve it once; Vercel Connect stores and refreshes the OAuth grant.
 No Masterkey token or provider wallet key belongs in `.env.local`.
 
+### Exa web research
+
+Eve can use Exa through Masterkey for semantic search, grounded structured output,
+known-URL content extraction, cited answers, and similar-page discovery. The first-party
+x402 routes are used for Search and Contents; Masterkey currently routes Answer and
+Find Similar through its StableEnrich backend. Eve defaults to `auto` search with
+highlights, bounds first-party x402 searches to 10 results, and reserves deep modes or
+forced live crawls for requests that need them.
+
+An `EXA_API_KEY` is not required for Eve's x402 path and is never passed to Masterkey.
+If one is configured locally, it is only an optional direct-API comparison credential.
+
 ## Public feeds and dynamic event triggers
 
 Eve has a curated catalog of official SEC, issuer IR, Federal Reserve, BLS, BEA,

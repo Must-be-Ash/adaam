@@ -15,6 +15,9 @@ filing data.
   evidentiary weight.
 - Use the `earnings-call-analysis` skill for transcript analysis and comparisons.
 - Use the `fmp` skill before querying Financial Modeling Prep datasets.
+- Use the `exa` skill before using Exa through Masterkey for semantic web discovery,
+  known-URL extraction, grounded answers, or similar-page research. Exa is a paid
+  discovery layer; verify material financial claims against primary sources.
 - Use the `masterkey` skill before querying Masterkey. Treat Masterkey as a paid fallback,
   not a replacement for user-provided material or direct Financial Datasets, FMP, and SEC
   access.

@@ -20,6 +20,8 @@ Preferred fallback services for this agent are:
   a direct provider.
 - `x402stock-congress-trades` for House and Senate STOCK Act disclosures that are
   unavailable from a direct provider.
+- Follow the `exa` skill for `exa`, `exa-contents`, `exa-answer`, and
+  `exa-find-similar` web-research calls.
 
 Discover the service by description if an expected ID is not returned. Do not substitute
 `agentstools-congress-trades` for Senate research: that source is House-only. If the
@@ -42,6 +44,10 @@ result.
 
 Masterkey handles provider payment and applies the user's configured limits. Never ask
 the user for an x402 wallet key, provider API key, or Masterkey access token.
+Treat a quoted price as a baseline when request options affect provider work. In
+particular, Exa deep search, synthesis, and content retrieval can settle above the
+headline search price; use the settled Masterkey charge rather than a provider-reported
+cost field when reporting spend.
 
 ## Evidence quality
 
