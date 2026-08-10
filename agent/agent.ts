@@ -7,8 +7,8 @@ export default defineAgent({
     thresholdPercent: 0.75,
   },
   limits: {
-    maxInputTokensPerSession: 250_000,
-    maxOutputTokensPerSession: 20_000,
+    maxInputTokensPerSession: false,
+    maxOutputTokensPerSession: false,
     sessionTimeoutMs: 7 * 24 * 60 * 60_000,
   },
 });

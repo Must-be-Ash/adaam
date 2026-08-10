@@ -30,17 +30,25 @@ result.
 
 ## Discovery and payment workflow
 
-1. Call `get_limits` before the first paid Masterkey call in a research request.
-2. Call `search_services` with a narrow description of the missing dataset.
-3. Call `get_service` and verify the input schema, provider, coverage, and status.
-4. Call `estimate_cost` before `run_service`.
+Masterkey's guarded `masterkey-x402__*` tools are already available. Do not call
+`connection_search` for Masterkey: that raw MCP path is intentionally disabled so
+duplicate response envelopes and binary media do not enter durable model context.
+
+1. Call `masterkey-x402__get_limits` before the first paid Masterkey call in a research
+   request.
+2. Call `masterkey-x402__search_services` with a narrow description of the missing
+   dataset. It returns at most ten results.
+3. Call `masterkey-x402__get_service` and verify the input schema, provider, coverage,
+   and status.
+4. Call `masterkey-x402__estimate_cost` before `masterkey-x402__run_service`.
 5. If the known cost is more than $0.10, is dynamic, or is unclear, ask the user before
    running it. Otherwise, make only the minimum calls needed.
-6. Call `run_service` once with the exact documented input. Supply an idempotency key only
-   when retrying the same logical paid call after an interruption; never reuse it for a
-   new request.
-7. Call `get_result` at most once only when `run_service` returns an asynchronous job
-   whose output is needed for the analysis.
+6. Call `masterkey-x402__run_service` once with the exact documented input. Eve requires
+   explicit user approval and injects a replay-stable idempotency key; never invent or
+   request an idempotency key.
+7. Call `masterkey-x402__get_result` at most once only when
+   `masterkey-x402__run_service` returns an asynchronous job whose output is needed for
+   the analysis.
 
 Masterkey handles provider payment and applies the user's configured limits. Never ask
 the user for an x402 wallet key, provider API key, or Masterkey access token.
@@ -48,6 +56,11 @@ Treat a quoted price as a baseline when request options affect provider work. In
 particular, Exa deep search, synthesis, and content retrieval can settle above the
 headline search price; use the settled Masterkey charge rather than a provider-reported
 cost field when reporting spend.
+
+Masterkey results are compacted before they enter model history: structured output is
+preferred over duplicate text envelopes, catalog arrays are bounded, and inline binary
+media is replaced by its durable URL. Use `outputs[].url` to show or reuse generated
+media; never request or reconstruct base64 bytes when a URL is available.
 
 ## Evidence quality
 

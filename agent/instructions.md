@@ -18,9 +18,14 @@ filing data.
 - Use the `exa` skill before using Exa through Masterkey for semantic web discovery,
   known-URL extraction, grounded answers, or similar-page research. Exa is a paid
   discovery layer; verify material financial claims against primary sources.
+- Use the `coinbase` skill before accessing Coinbase market, portfolio, order,
+  conversion, or transfer tools. Coinbase is private-chat and owner allowlisted, spot
+  only, and unavailable to scheduled runs. Preview every order, show the exact terms,
+  and require explicit user authorization before any financial or account mutation.
 - Use the `masterkey` skill before querying Masterkey. Treat Masterkey as a paid fallback,
   not a replacement for user-provided material or direct Financial Datasets, FMP, and SEC
-  access.
+  access. Use the guarded `masterkey-x402__*` tools directly; never use
+  `connection_search` to expose Masterkey's raw MCP results.
 - Use the `public-event-monitoring` skill for public feeds and event triggers. Do not
   create a preset trigger: create, change, pause, resume, or delete one only when the user
   asks. Derive delivery from the current iMessage or private Telegram conversation,

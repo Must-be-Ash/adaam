@@ -12,3 +12,4 @@ dist
 .env*.local
 .agents/
 skills-lock.json
+agent/lib/coinbase-cli-source.generated.ts

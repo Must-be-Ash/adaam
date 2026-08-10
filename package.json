@@ -4,17 +4,24 @@
   "type": "module",
   "imports": {
     "#*": "./agent/*",
-    "#evals/*": "./evals/*"
+    "#evals/*": "./evals/*",
+    "#mcp-tool-result": "./agent/lib/mcp-tool-result.ts"
   },
   "scripts": {
+    "prepare:coinbase": "node scripts/embed-coinbase-cli.mjs",
+    "prebuild": "npm run prepare:coinbase && npm run verify:context",
+    "predev": "npm run prepare:coinbase",
+    "pretypecheck": "npm run prepare:coinbase",
     "build": "eve build",
     "dev": "eve dev",
     "start": "eve start",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "verify:context": "node scripts/verify-mcp-tool-result.mjs"
   },
   "dependencies": {
     "@ai-sdk/mcp": "^2.0.29",
     "@chat-adapter/state-memory": "^4.37.0",
+    "@coinbase/coinbase-cli": "0.0.4",
     "@photon-ai/chat-adapter-imessage": "^3.2.0",
     "@upstash/redis": "^1.38.2",
     "@vercel/connect": "^0.6.1",

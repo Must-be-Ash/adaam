@@ -52,6 +52,13 @@ The first Masterkey tool call for an Eve user may return an authorization link. 
 to Masterkey and approve it once; Vercel Connect stores and refreshes the OAuth grant.
 No Masterkey token or provider wallet key belongs in `.env.local`.
 
+Eve calls Masterkey through guarded local wrappers rather than exposing the raw MCP
+results. The wrappers keep one structured response, cap broad catalog results, bound
+oversized data, and remove inline base64 media while preserving durable output URLs.
+This prevents generated image bytes and duplicate response envelopes from being replayed
+through every later model call. No raw declarative Masterkey connection is registered,
+so connection discovery cannot fetch its catalog outside those transport bounds.
+
 ### Exa web research
 
 Eve can use Exa through Masterkey for semantic search, grounded structured output,
@@ -63,6 +70,41 @@ forced live crawls for requests that need them.
 
 An `EXA_API_KEY` is not required for Eve's x402 path and is never passed to Masterkey.
 If one is configured locally, it is only an optional direct-API comparison credential.
+
+### Coinbase for Agents
+
+Eve loads the official `@coinbase/coinbase-cli` MCP schemas through a local stdio bridge.
+This keeps Coinbase's market, account, order, portfolio, conversion, and transfer tool
+contracts current without hand-maintaining one wrapper per endpoint. The bridge starts a
+fresh credential-isolated MCP process for each call and disables CLI history. Every
+result passes through the shared MCP normalizer with a Coinbase policy that preserves
+exact financial identifiers, decimal strings, timestamps, and pagination cursors while
+bounding lists and removing unsafe data.
+
+Configure `COINBASE_KEY_ID` and `COINBASE_KEY_SECRET` from a CDP key scoped to a
+dedicated, minimally funded Advanced Trade portfolio. Then add the intended private-chat
+identities to `COINBASE_ALLOWED_PRINCIPALS`. From that iMessage or private Telegram
+conversation, ask Eve to call `coinbase_access_status`; it returns the exact principal
+ID without exposing credentials or account data. Copy the complete value, including its
+`imessage:` or `telegram:` prefix; a bare phone number is not a principal ID. This is
+Eve's separate owner allowlist, so the iMessage number does not need to be associated
+with the Coinbase account authenticated by the CDP key. Each fork configures its own
+credentials and allowed principals in its deployment environment—no owner's identity is
+hardcoded in the template.
+
+Market data is read-only. Private balances, portfolios, orders, and fills require human
+approval, as does every mutation. Live order creation uses Eve's separate
+preview-token flow: the user must review an exact preview and approve an unchanged order
+within five minutes. Native unguarded order creation, credential switching, and
+non-spot position closing are not exposed. Scheduled event checks cannot access
+Coinbase.
+
+### MCP adapter standard
+
+Every future HTTP or stdio MCP must follow
+[the mandatory adapter pattern](./MCP_ADAPTER_PATTERN.md). Raw MCP results must not enter
+Eve history directly. Each provider gets a small normalization policy and reuses the
+shared result sanitizer; HTTP providers also use the bounded streaming transport.
 
 ## Public feeds and dynamic event triggers
 
