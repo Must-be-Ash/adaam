@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 
 import {
+  coinbaseToolIsPrivateRead,
+  coinbaseToolRequiresApproval,
+} from "../agent/lib/coinbase-access.ts";
+import {
   createPhotonApprovalPrompt,
   isPhotonApprovalSupported,
   isUnscopedApprovalAlias,
@@ -57,12 +61,12 @@ const limitPrompt = createPhotonApprovalPrompt(
 );
 assert.match(limitPrompt.pollTitle, /^Buy 0\.25 BTC at 50000 USD\?/u);
 
-const balancePrompt = createPhotonApprovalPrompt(
-  approvalRequest("coinbase_balance"),
-);
-assert.match(balancePrompt.pollTitle, /^Show your Coinbase balances\?/u);
 assert.equal(
   isPhotonApprovalSupported(approvalRequest("coinbase_balance")),
+  false,
+);
+assert.equal(
+  isPhotonApprovalSupported(approvalRequest("coinbase_create_order")),
   true,
 );
 assert.equal(
@@ -75,6 +79,35 @@ assert.equal(
   ),
   false,
 );
+
+for (const toolName of [
+  "coinbase_balance",
+  "coinbase_convert_get",
+  "coinbase_convert_quote",
+  "coinbase_fees",
+  "coinbase_orders_fills",
+  "coinbase_orders_get",
+  "coinbase_orders_list",
+  "coinbase_portfolios_get",
+  "coinbase_portfolios_list",
+]) {
+  assert.equal(coinbaseToolIsPrivateRead(toolName), true, toolName);
+  assert.equal(coinbaseToolRequiresApproval(toolName), false, toolName);
+}
+for (const toolName of [
+  "coinbase_convert_execute",
+  "coinbase_create_order",
+  "coinbase_orders_cancel",
+  "coinbase_orders_edit",
+  "coinbase_portfolios_create",
+  "coinbase_portfolios_delete",
+  "coinbase_portfolios_edit",
+  "coinbase_transfer",
+]) {
+  assert.equal(coinbaseToolRequiresApproval(toolName), true, toolName);
+}
+assert.equal(coinbaseToolIsPrivateRead("coinbase_products_get"), false);
+assert.equal(coinbaseToolRequiresApproval("coinbase_products_get"), false);
 
 const genericPrompt = createPhotonApprovalPrompt(
   approvalRequest("delete_event_trigger", {

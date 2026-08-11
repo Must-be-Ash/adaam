@@ -16,8 +16,9 @@ chat.
 ## Safety boundary
 
 - Spot products only. Never trade perpetuals, futures, leverage, or margin.
-- Market-data reads do not require approval. Balances, portfolio details, orders, and
-  fills are private and require approval.
+- Read-only Coinbase calls do not require a separate approval prompt. Private balances,
+  portfolio details, orders, and fills remain restricted to the allowlisted owner in a
+  private chat.
 - Every state-changing action requires approval: create, edit, or cancel an order;
   execute a conversion; create, edit, or delete a portfolio; or transfer funds.
 - Never make a trade, transfer, conversion, or portfolio change from a scheduled check,

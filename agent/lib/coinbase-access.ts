@@ -1,6 +1,29 @@
 import type { SessionAuthContext, SessionContext } from "eve/context";
 import type { ApprovalContext, ApprovalStatus } from "eve/tools";
 
+const COINBASE_MUTATING_TOOLS = new Set([
+  "coinbase_convert_execute",
+  "coinbase_create_order",
+  "coinbase_orders_cancel",
+  "coinbase_orders_edit",
+  "coinbase_portfolios_create",
+  "coinbase_portfolios_delete",
+  "coinbase_portfolios_edit",
+  "coinbase_transfer",
+]);
+
+const COINBASE_PRIVATE_READ_TOOLS = new Set([
+  "coinbase_balance",
+  "coinbase_convert_get",
+  "coinbase_convert_quote",
+  "coinbase_fees",
+  "coinbase_orders_fills",
+  "coinbase_orders_get",
+  "coinbase_orders_list",
+  "coinbase_portfolios_get",
+  "coinbase_portfolios_list",
+]);
+
 export interface CoinbasePrincipal {
   channel: "imessage" | "telegram";
   id: string;
@@ -48,6 +71,14 @@ function configuredPrincipals(): ReadonlySet<string> {
 
 export function coinbasePrincipalAllowed(principal: CoinbasePrincipal): boolean {
   return configuredPrincipals().has(principal.id);
+}
+
+export function coinbaseToolIsPrivateRead(toolName: string): boolean {
+  return COINBASE_PRIVATE_READ_TOOLS.has(toolName);
+}
+
+export function coinbaseToolRequiresApproval(toolName: string): boolean {
+  return COINBASE_MUTATING_TOOLS.has(toolName);
 }
 
 export function requireCoinbaseAccess(ctx: SessionContext): CoinbasePrincipal {

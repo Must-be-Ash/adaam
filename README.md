@@ -100,13 +100,14 @@ with the Coinbase account authenticated by the CDP key. Each fork configures its
 credentials and allowed principals in its deployment environment—no owner's identity is
 hardcoded in the template.
 
-Market data is read-only. Private balances, portfolios, orders, and fills require human
-approval, as does every mutation. Live order creation uses Eve's separate
-preview-token flow: the user must review an exact preview and approve an unchanged order
-within five minutes. Code validates the preview token and exact order; model
-interpretation of general consent is not authorization. Native unguarded order
-creation, credential switching, and non-spot position closing are not exposed.
-Scheduled event checks cannot access Coinbase.
+Read-only Coinbase calls, including private balances, portfolios, orders, and fills, run
+without a separate approval prompt after the private-chat principal passes the owner's
+allowlist. Every mutation still requires human approval. Live order creation uses Eve's
+separate preview-token flow: the user must review an exact preview and approve an
+unchanged order within five minutes. Code validates the preview token and exact order;
+model interpretation of general consent is not authorization. Native unguarded order
+creation, credential switching, and non-spot position closing are not exposed. Scheduled
+event checks cannot access Coinbase.
 
 The current development MCP surface also includes approval-gated conversions,
 transfers, and portfolio mutations. These are not part of the initial core

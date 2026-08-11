@@ -4,6 +4,8 @@ import {
   coinbaseApproval,
   coinbasePrincipal,
   coinbasePrincipalAllowed,
+  coinbaseToolIsPrivateRead,
+  coinbaseToolRequiresApproval,
   requireCoinbaseAccess,
 } from "../lib/coinbase-access";
 import {
@@ -37,28 +39,6 @@ const ALLOWED_TOOLS = new Set([
   "coinbase_products_best_bid_ask",
   "coinbase_balance",
   "coinbase_transfer",
-  "coinbase_fees",
-]);
-
-const MUTATING_TOOLS = new Set([
-  "coinbase_convert_execute",
-  "coinbase_orders_edit",
-  "coinbase_orders_cancel",
-  "coinbase_portfolios_create",
-  "coinbase_portfolios_edit",
-  "coinbase_portfolios_delete",
-  "coinbase_transfer",
-]);
-
-const SENSITIVE_READ_TOOLS = new Set([
-  "coinbase_convert_quote",
-  "coinbase_convert_get",
-  "coinbase_orders_list",
-  "coinbase_orders_get",
-  "coinbase_orders_fills",
-  "coinbase_portfolios_list",
-  "coinbase_portfolios_get",
-  "coinbase_balance",
   "coinbase_fees",
 ]);
 
@@ -177,10 +157,10 @@ async function assertSpotOrderMutation(
 }
 
 function toolDescription(definition: CoinbaseMcpToolDefinition): string {
-  const effect = MUTATING_TOOLS.has(definition.name)
+  const effect = coinbaseToolRequiresApproval(definition.name)
     ? " This operation changes Coinbase state or moves funds and requires explicit user approval."
-    : SENSITIVE_READ_TOOLS.has(definition.name)
-      ? " This reads private account data and requires explicit user approval."
+    : coinbaseToolIsPrivateRead(definition.name)
+      ? " This reads private account data for the allowlisted owner without a separate approval prompt."
       : "";
   return `${definition.description ?? definition.name}${effect}`;
 }
@@ -198,9 +178,7 @@ export default defineDynamic({
       return Object.fromEntries(
         definitions.map((definition) => {
           const toolName = definition.name;
-          const requiresApproval =
-            MUTATING_TOOLS.has(toolName) ||
-            SENSITIVE_READ_TOOLS.has(toolName);
+          const requiresApproval = coinbaseToolRequiresApproval(toolName);
 
           return [
             toolName,
@@ -224,7 +202,7 @@ export default defineDynamic({
                   callCoinbaseMcpTool(toolName, toolInput, {
                     signal: toolCtx.abortSignal,
                   });
-                if (!MUTATING_TOOLS.has(toolName)) return operation();
+                if (!coinbaseToolRequiresApproval(toolName)) return operation();
                 return executeCoinbaseMutation({
                   callId: toolCtx.callId,
                   operation,

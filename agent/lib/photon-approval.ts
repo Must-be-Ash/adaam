@@ -10,16 +10,7 @@ const APPROVAL_WINDOW_MS = 10 * 60_000;
 const ORDER_APPROVAL_WINDOW_MS = 5 * 60_000;
 
 const PHOTON_SUPPORTED_COINBASE_APPROVALS = new Set([
-  "coinbase_balance",
-  "coinbase_convert_get",
-  "coinbase_convert_quote",
   "coinbase_create_order",
-  "coinbase_fees",
-  "coinbase_orders_fills",
-  "coinbase_orders_get",
-  "coinbase_orders_list",
-  "coinbase_portfolios_get",
-  "coinbase_portfolios_list",
 ]);
 
 export type PhotonApprovalDecision = "approve" | "deny";
@@ -155,8 +146,6 @@ function approvalSummary(request: InputRequest): string {
       }
       return summary;
     }
-    case "coinbase_balance":
-      return "Show your Coinbase balances?";
     case "delete_event_trigger": {
       const id = boundedString(
         input.id,
