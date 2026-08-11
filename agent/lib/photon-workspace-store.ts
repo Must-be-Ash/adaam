@@ -150,7 +150,7 @@ export interface PhotonWorkspaceStoreClient {
 
 export class PhotonWorkspaceConflictError extends Error {
   constructor() {
-    super("The workspace state changed. Refresh and try again.");
+    super("The session state changed. Refresh and try again.");
     this.name = "PhotonWorkspaceConflictError";
   }
 }
@@ -158,7 +158,7 @@ export class PhotonWorkspaceConflictError extends Error {
 export class PhotonWorkspaceApprovalBlockedError extends Error {
   constructor() {
     super(
-      "Finish or cancel the pending financial approval before changing workspaces.",
+      "Finish or cancel the pending financial approval before changing sessions.",
     );
     this.name = "PhotonWorkspaceApprovalBlockedError";
   }
@@ -432,7 +432,7 @@ export function normalizePhotonWorkspaceName(name: string): string {
     !/^[\p{L}\p{N}][\p{L}\p{N} &'().,_-]*$/u.test(normalized)
   ) {
     throw new PhotonWorkspaceValidationError(
-      "Use a 1–40 character workspace name made of letters, numbers, spaces, and simple punctuation.",
+      "Use a 1–40 character session name made of letters, numbers, spaces, and simple punctuation.",
     );
   }
   return normalized;
@@ -490,7 +490,7 @@ export async function createPhotonWorkspace(
     (registry) => {
       if (registry.workspaces.length >= MAX_WORKSPACES) {
         throw new PhotonWorkspaceValidationError(
-          `A conversation can have at most ${MAX_WORKSPACES} workspaces.`,
+          `A conversation can have at most ${MAX_WORKSPACES} sessions.`,
         );
       }
       if (
@@ -499,7 +499,7 @@ export async function createPhotonWorkspace(
         )
       ) {
         throw new PhotonWorkspaceValidationError(
-          `A workspace named “${name}” already exists.`,
+          `A session named “${name}” already exists.`,
         );
       }
       return {
@@ -534,7 +534,7 @@ export async function selectPhotonWorkspace(
       );
       if (!workspace || workspace.status !== "active") {
         throw new PhotonWorkspaceValidationError(
-          "That workspace is unavailable.",
+          "That session is unavailable.",
         );
       }
       return {
@@ -573,7 +573,7 @@ export async function renamePhotonWorkspace(
       );
       if (!target) {
         throw new PhotonWorkspaceValidationError(
-          "That workspace is unavailable.",
+          "That session is unavailable.",
         );
       }
       if (
@@ -584,7 +584,7 @@ export async function renamePhotonWorkspace(
         )
       ) {
         throw new PhotonWorkspaceValidationError(
-          `A workspace named “${name}” already exists.`,
+          `A session named “${name}” already exists.`,
         );
       }
       return {
@@ -629,7 +629,7 @@ export async function archivePhotonWorkspace(
       );
       if (!target || target.status !== "active") {
         throw new PhotonWorkspaceValidationError(
-          "That workspace is unavailable.",
+          "That session is unavailable.",
         );
       }
       const remaining = registry.workspaces.filter(
@@ -638,7 +638,7 @@ export async function archivePhotonWorkspace(
       );
       if (remaining.length === 0) {
         throw new PhotonWorkspaceValidationError(
-          "Create another workspace before archiving the only active workspace.",
+          "Create another session before archiving the only active session.",
         );
       }
       let activeWorkspaceId = registry.activeWorkspaceId;
@@ -648,7 +648,7 @@ export async function archivePhotonWorkspace(
         );
         if (!replacement) {
           throw new PhotonWorkspaceValidationError(
-            "Select a replacement before archiving the active workspace.",
+            "Select a replacement before archiving the active session.",
           );
         }
         activeWorkspaceId = replacement.id;
@@ -695,7 +695,7 @@ export async function restorePhotonWorkspace(
       );
       if (!target || target.status !== "archived") {
         throw new PhotonWorkspaceValidationError(
-          "That workspace is not archived.",
+          "That session is not archived.",
         );
       }
       return {
@@ -739,7 +739,7 @@ export async function startFreshPhotonWorkspace(
       );
       if (!target || target.status !== "active") {
         throw new PhotonWorkspaceValidationError(
-          "That workspace is unavailable.",
+          "That session is unavailable.",
         );
       }
       return {

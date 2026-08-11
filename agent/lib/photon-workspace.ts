@@ -28,6 +28,54 @@ const THREAD_ID_METHODS = new Set<PropertyKey>([
   "stream",
 ]);
 
+export function isPhotonSessionManagerRequest(text: string): boolean {
+  const request = text
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[.!?]+$/u, "")
+    .replace(/\s+/gu, " ");
+  if (
+    /^(?:sessions?|workspaces?|session manager|workspace manager|session settings|workspace settings|(?:current|active) (?:session|workspace))$/u.test(
+      request,
+    ) ||
+    /^(?:reset session|start fresh)$/u.test(request) ||
+    /^(?:manage|show|open|list|view|check)(?: me)?(?: my| the| all| current)? (?:sessions?|workspaces?|session manager|workspace manager)$/u.test(
+      request,
+    ) ||
+    /^(?:what|which) (?:session|workspace) (?:am i|are we) (?:currently )?(?:in|on|using)$/u.test(
+      request,
+    ) ||
+    /^(?:what|which) is (?:my|the|our) (?:current |active )?(?:session|workspace)$/u.test(
+      request,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:sessions?|workspaces?)\b/u.test(request) &&
+    /\b(?:active|another|archive|change|clear|create|current|different|list|manage|new|open|remove|rename|reset|restore|select|separate|show|start|switch|use|view|what|where|which)\b/u.test(
+      request,
+    )
+  ) {
+    return true;
+  }
+  return (
+    /\b(?:create|start|open|add|make)\s+(?:me\s+)?(?:a\s+)?(?:new\s+)?(?:session|workspace|conversation|chat|context)\b/u.test(
+      request,
+    ) ||
+    /\b(?:want|need)\s+(?:to\s+)?(?:create\s+)?(?:a\s+)?(?:new|different|separate)\s+(?:session|workspace|conversation|chat|context)\b/u.test(
+      request,
+    ) ||
+    /\b(?:switch|change|move|go|use|select)\s+(?:me\s+)?(?:to\s+)?(?:a\s+|the\s+)?(?:new\s+|different\s+|another\s+)?(?:session|workspace|conversation|chat|context)\b/u.test(
+      request,
+    ) ||
+    /\b(?:rename|archive|restore|delete|remove|reset|clear|manage)\s+(?:my\s+|the\s+|this\s+|current\s+)?(?:session|workspace|conversation|chat|context)\b/u.test(
+      request,
+    )
+  );
+}
+
 export function physicalPhotonThreadId(threadId: string): string {
   const markerIndex = threadId.lastIndexOf(WORKSPACE_THREAD_MARKER);
   if (markerIndex < 0) return threadId;
@@ -90,8 +138,8 @@ export function photonWorkspaceThread(
 
 export function photonWorkspaceContext(workspace: PhotonWorkspace): string {
   return (
-    `This private iMessage turn is routed to the isolated workspace ${JSON.stringify(workspace.name)}. ` +
-    "Use only this workspace's session history and do not infer context from other workspaces."
+    `This private iMessage turn is routed to the isolated session ${JSON.stringify(workspace.name)}. ` +
+    "Use only this session's history and do not infer context from other sessions. Refer to it as a session in user-facing replies."
   );
 }
 

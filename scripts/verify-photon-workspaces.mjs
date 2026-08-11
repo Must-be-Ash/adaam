@@ -18,12 +18,49 @@ import {
   startFreshPhotonWorkspace,
 } from "../agent/lib/photon-workspace-store.ts";
 import {
+  isPhotonSessionManagerRequest,
   photonWorkspaceThread,
   photonWorkspaceThreadId,
   parsePhotonWorkspaceThreadId,
   physicalPhotonThreadId,
   workspaceAwarePhotonAdapter,
 } from "../agent/lib/photon-workspace.ts";
+
+for (const request of [
+  "manage sessions",
+  "show my sessions",
+  "create a new session for images",
+  "I want to create a new workspace for image generation",
+  "I want to create a new workspace saying I want to create images",
+  "Can I have another session for image work?",
+  "Where is the active session?",
+  "switch to another session",
+  "change workspace to Images",
+  "what session am I in?",
+  "which workspace are we using?",
+  "rename my session",
+  "reset session",
+  "start fresh",
+]) {
+  assert.equal(
+    isPhotonSessionManagerRequest(request),
+    true,
+    `Expected session-manager intent: ${request}`,
+  );
+}
+
+for (const request of [
+  "create images of a sunset",
+  "show my Coinbase balance",
+  "explain browser session cookies",
+  "summarize the earnings call",
+]) {
+  assert.equal(
+    isPhotonSessionManagerRequest(request),
+    false,
+    `Unexpected session-manager intent: ${request}`,
+  );
+}
 
 class MemoryStore {
   values = new Map();

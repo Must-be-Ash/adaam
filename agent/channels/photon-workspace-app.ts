@@ -134,7 +134,7 @@ async function resetRetiredSession(
   if (!retiredSessionId) return false;
   try {
     await attachSession(retiredSessionId).reset({
-      reason: "The owner started a fresh Photon workspace session.",
+      reason: "The owner started a fresh Photon session.",
     });
     return true;
   } catch (error) {
@@ -152,9 +152,9 @@ function workspaceHtml(nonce: string): string {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <meta property="og:title" content="Manage Eve Workspaces">
-  <meta property="og:description" content="Create and switch isolated Eve workspaces.">
-  <title>Manage Eve Workspaces</title>
+  <meta property="og:title" content="Manage Eve Sessions">
+  <meta property="og:description" content="Create and switch isolated Eve sessions.">
+  <title>Manage Eve Sessions</title>
   <style nonce="${nonce}">
     :root {
       color-scheme: light dark;
@@ -260,19 +260,19 @@ function workspaceHtml(nonce: string): string {
   <main>
     <header>
       <p class="eyebrow">Eve · Control plane</p>
-      <h1>Manage Workspaces</h1>
+      <h1>Manage Sessions</h1>
     </header>
-    <p id="status" role="status" aria-live="polite">Loading your workspaces…</p>
+    <p id="status" role="status" aria-live="polite">Loading your sessions…</p>
     <section>
       <form id="create-form">
-        <input id="new-name" maxlength="40" autocomplete="off" placeholder="New workspace name" aria-label="New workspace name">
+        <input id="new-name" maxlength="40" autocomplete="off" placeholder="New session name" aria-label="New session name">
         <button class="primary" type="submit">Create</button>
       </form>
     </section>
     <section>
       <div id="workspaces"></div>
     </section>
-    <p class="note">Start fresh clears only that workspace's model history. Archive keeps its retained state and can be reversed. Permanent deletion is not offered here.</p>
+    <p class="note">Start fresh clears only that session's model history. Archive keeps it available for later and can be reversed.</p>
   </main>
   <script nonce="${nonce}">
     (() => {
@@ -333,7 +333,9 @@ function workspaceHtml(nonce: string): string {
           meta.textContent =
             workspace.status === "archived"
               ? "Archived"
-              : "Session generation " + workspace.generation;
+              : isActive
+                ? "Current session"
+                : "Available";
           titleWrap.append(title, meta);
           titleRow.append(titleWrap);
           if (isActive) {
@@ -369,7 +371,7 @@ function workspaceHtml(nonce: string): string {
 
       const load = async () => {
         if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
-          status.textContent = "This workspace manager link is unavailable. Ask Eve to open it again.";
+          status.textContent = "This session manager link is unavailable. Ask Eve to open it again.";
           form.hidden = true;
           return;
         }
@@ -378,12 +380,12 @@ function workspaceHtml(nonce: string): string {
             managerToken: token,
           });
           status.textContent =
-            "Active workspace: " +
+            "Active session: " +
             state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId).name;
           render();
         } catch (error) {
           status.textContent =
-            error instanceof Error ? error.message : "Could not load workspaces.";
+            error instanceof Error ? error.message : "Could not load sessions.";
         }
       };
 
@@ -391,7 +393,7 @@ function workspaceHtml(nonce: string): string {
         if (!state || busy) return;
         busy = true;
         render();
-        status.textContent = "Updating workspace routing…";
+        status.textContent = "Updating sessions…";
         try {
           state = await request("${PHOTON_WORKSPACE_APP_PATH}/action", {
             ...action,
@@ -400,11 +402,11 @@ function workspaceHtml(nonce: string): string {
           });
           status.textContent = state.cleanupPending
             ? "Fresh routing is active, but cleanup of the prior session could not be confirmed."
-            : "Active workspace: " +
+            : "Active session: " +
               state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId).name;
         } catch (error) {
           status.textContent =
-            error instanceof Error ? error.message : "Could not update workspaces.";
+            error instanceof Error ? error.message : "Could not update sessions.";
           if (error && error.status === 409) await load();
         } finally {
           busy = false;
@@ -414,13 +416,13 @@ function workspaceHtml(nonce: string): string {
 
       const handle = async (action, workspace) => {
         if (action === "rename") {
-          const name = prompt("Rename workspace", workspace.name);
+          const name = prompt("Rename session", workspace.name);
           if (!name || name === workspace.name) return;
           await mutate({ action, name, workspaceId: workspace.id });
           return;
         }
         if (action === "start-fresh") {
-          if (!confirm("Clear model history for “" + workspace.name + "”? Durable workspace settings are retained.")) return;
+          if (!confirm("Clear model history for “" + workspace.name + "”? The session name is retained.")) return;
         }
         if (action === "archive") {
           if (!confirm("Archive “" + workspace.name + "”?")) return;
@@ -458,7 +460,7 @@ export default defineChannel({
       const state = await getPhotonWorkspaceManagerState(body.managerToken);
       return state
         ? json(publicState(state))
-        : json({ error: "This workspace manager link expired." }, 410);
+        : json({ error: "This session manager link expired." }, 410);
     }),
     POST(
       `${PHOTON_WORKSPACE_APP_PATH}/action`,
@@ -467,7 +469,7 @@ export default defineChannel({
         if (body instanceof Response) return body;
         const scope = await getPhotonWorkspaceManagerScope(body.managerToken);
         if (!scope) {
-          return json({ error: "This workspace manager link expired." }, 410);
+          return json({ error: "This session manager link expired." }, 410);
         }
         const approvalActivity =
           await getCurrentPhotonApprovalActivity(scope).catch(() => "active");
@@ -475,7 +477,7 @@ export default defineChannel({
           return json(
             {
               error:
-                "Finish or cancel the pending financial approval before changing workspaces.",
+                "Finish or cancel the pending financial approval before changing sessions.",
             },
             409,
           );
@@ -487,7 +489,7 @@ export default defineChannel({
             action as PhotonWorkspaceAction,
           );
           if (!result) {
-            return json({ error: "This workspace manager link expired." }, 410);
+            return json({ error: "This session manager link expired." }, 410);
           }
           const retired =
             body.action === "start-fresh"
@@ -517,7 +519,7 @@ export default defineChannel({
           return json(
             {
               error:
-                "Eve could not confirm the workspace update. Refresh before trying another change.",
+                "Eve could not confirm the session update. Refresh before trying another change.",
             },
             503,
           );

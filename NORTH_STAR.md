@@ -58,7 +58,7 @@ active pointer.
 
 The target Photon experience combines two interaction patterns:
 
-1. A Spectrum **Manage Eve Workspaces** mini app for creating, selecting,
+1. A Spectrum **Manage Eve Sessions** mini app for creating, selecting,
    renaming, archiving, starting fresh, and explicitly deleting workspaces.
 2. A compact Spectrum mini-app card when a lightweight topic detector sees a
    high-confidence mismatch with the active workspace. Its actions are to stay,
@@ -185,11 +185,12 @@ isolation already exists.
   confirmed working session. Durable ingress assignment/dispatch receipts,
   quarantined uncertain delivery, bounded workspace briefs, and automatic topic
   mismatch detection are still not implemented.
-- The tap-to-open Spectrum **Manage Eve Workspaces** mini app now supports
+- The tap-to-open Spectrum **Manage Eve Sessions** mini app now supports
   create, select, rename, archive, restore, and start-fresh actions through an
-  owner-bound short-lived capability. Plain-text controls provide the fallback.
-  Compact topic-change cards, inline `live: true` rendering, and hard deletion
-  remain unimplemented.
+  owner-bound short-lived capability. Explicit session-management requests open
+  only this mini app; `workspace` remains an accepted input alias, while all
+  user-facing labels say `session`. Compact topic-change cards, inline
+  `live: true` rendering, and hard deletion remain unimplemented.
 - Telegram also maps a private chat directly to one continuation. It needs the
   same workspace broker before workspace routing is enabled there. Every channel
   must enforce the deployment owner allowlist; Coinbase's separate allowlist is

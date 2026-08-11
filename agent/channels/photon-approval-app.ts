@@ -470,7 +470,7 @@ export default defineChannel({
           return json(
             {
               error:
-                "The workspace that requested this approval is no longer active. No action was authorized.",
+                "The session that requested this approval is no longer active. No action was authorized.",
             },
             409,
           );

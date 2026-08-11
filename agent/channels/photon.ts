@@ -26,7 +26,6 @@ import {
   failPhotonApprovalDecision,
   getCurrentPhotonApprovalActivity,
   getPhotonApprovalView,
-  photonApprovalGuardKey,
   releasePhotonApprovalProcessing,
   savePhotonApproval,
   type PhotonApprovalProcessingRelease,
@@ -37,21 +36,14 @@ import {
   photonWorkspaceAppUrl,
 } from "../lib/photon-mini-app";
 import {
-  archivePhotonWorkspace,
-  createPhotonWorkspace,
-  findPhotonWorkspaceByName,
   getPhotonWorkspaceState,
   mintPhotonWorkspaceManager,
-  renamePhotonWorkspace,
   savePhotonWorkspaceSession,
-  selectPhotonWorkspace,
-  startFreshPhotonWorkspace,
   type PhotonWorkspace,
   type PhotonWorkspaceState,
-  PhotonWorkspaceApprovalBlockedError,
-  PhotonWorkspaceValidationError,
 } from "../lib/photon-workspace-store";
 import {
+  isPhotonSessionManagerRequest,
   photonWorkspaceContext,
   photonWorkspaceThread,
   parsePhotonWorkspaceThreadId,
@@ -67,80 +59,6 @@ const imessageAdapter = createiMessageAdapter({
     : { webhookVerifier: createConnectWebhookVerifier() }),
 });
 const routedImessageAdapter = workspaceAwarePhotonAdapter(imessageAdapter);
-
-function isPhotonSessionResetCommand(text: string): boolean {
-  const normalized = text
-    .trim()
-    .toLowerCase()
-    .replace(/[.!?]+$/u, "")
-    .replace(/\s+/gu, " ");
-  return normalized === "reset session" || normalized === "start fresh";
-}
-
-type PhotonWorkspaceControl =
-  | { action: "archive"; name: string }
-  | { action: "create"; name: string }
-  | { action: "list" }
-  | { action: "manage" }
-  | { action: "rename"; currentName: string; name: string }
-  | { action: "select"; name: string };
-
-function parsePhotonWorkspaceControl(
-  text: string,
-): PhotonWorkspaceControl | null {
-  const request = text.trim().replace(/[.!?]+$/u, "").trim();
-  if (
-    /^(?:manage|show|open)(?: my)? workspaces$/iu.test(request) ||
-    /^workspace settings$/iu.test(request)
-  ) {
-    return { action: "manage" };
-  }
-  if (/^list(?: my)? workspaces$/iu.test(request)) {
-    return { action: "list" };
-  }
-  let match = request.match(/^create(?: a)? workspace(?: called)? (.+)$/iu);
-  if (match?.[1]) {
-    return { action: "create", name: match[1] };
-  }
-  match = request.match(
-    /^(?:use|select|switch to)(?: the)? workspace (.+)$/iu,
-  );
-  if (match?.[1]) {
-    return { action: "select", name: match[1] };
-  }
-  match = request.match(/^switch workspace to (.+)$/iu);
-  if (match?.[1]) {
-    return { action: "select", name: match[1] };
-  }
-  match = request.match(/^rename workspace (.+?) to (.+)$/iu);
-  if (match?.[1] && match[2]) {
-    return {
-      action: "rename",
-      currentName: match[1],
-      name: match[2],
-    };
-  }
-  match = request.match(/^archive workspace (.+)$/iu);
-  if (match?.[1]) {
-    return { action: "archive", name: match[1] };
-  }
-  return null;
-}
-
-function photonWorkspaceListText(state: PhotonWorkspaceState): string {
-  const lines = state.workspaces.map((workspace) => {
-    const active =
-      workspace.id === state.activeWorkspace.id ? " · active" : "";
-    const archived = workspace.status === "archived" ? " · archived" : "";
-    return `• ${workspace.name}${active}${archived}`;
-  });
-  return [
-    "Eve control · Workspaces",
-    ...lines,
-    "",
-    "Send “manage workspaces” for the workspace manager.",
-  ].join("\n");
-}
 
 function approvalRequestText(prompt: PhotonApprovalPrompt): string {
   return `${prompt.approvalText}\n\nOpen the approval card to choose Approve or Deny. If the card does not open, reply YES or NO.`;
@@ -285,7 +203,7 @@ function photonWorkspaceLabeledText(
   workspaceName: string | null,
   text: string,
 ): string {
-  return `[Workspace: ${workspaceName ?? "unavailable"}]\n\n${text}`;
+  return `[Session: ${workspaceName ?? "unavailable"}]\n\n${text}`;
 }
 
 async function activePhotonWorkspaceForSession(input: {
@@ -416,7 +334,7 @@ const bridge = chatSdkChannel({
       await channel.thread.post(
         photonWorkspaceLabeledText(
           null,
-          "This workspace session failed and did not complete its request. Eve will not retry it automatically.",
+          "This session failed and did not complete its request. Eve will not retry it automatically.",
         ),
       );
     },
@@ -564,7 +482,7 @@ const bridge = chatSdkChannel({
       if (!approvalWorkspace) {
         await denyApprovalRequests({
           notice: labeled(
-            "I couldn't bind this approval to the active workspace. The action was denied; ask again from the intended workspace.",
+            "I couldn't bind this approval to the active session. The action was denied; ask again from the intended session.",
           ),
           requests: [request],
           sessionId: ctx.session.id,
@@ -633,7 +551,7 @@ const bridge = chatSdkChannel({
         }).catch(() => false);
         await denyApprovalRequests({
           notice: labeled(
-            "The workspace changed or could not be verified before this approval opened. The action was denied; ask again from the intended active workspace.",
+            "The session changed or could not be verified before this approval opened. The action was denied; ask again from the intended active session.",
           ),
           requests: [request],
           sessionId: ctx.session.id,
@@ -858,7 +776,7 @@ async function submitApprovalDecision(
       recordKey: claim.delivery.recordKey,
     }).catch(() => undefined);
     await thread.post(
-      "I couldn't match that approval to its workspace session. No action was authorized; ask Eve to prepare it again.",
+      "I couldn't match that approval to its session. No action was authorized; ask Eve to prepare it again.",
     );
     return true;
   }
@@ -930,34 +848,6 @@ async function submitApprovalDecision(
   return true;
 }
 
-async function invalidateCurrentPhotonApproval(input: {
-  principalId: string;
-  threadId: string;
-}): Promise<"cleared" | "processing"> {
-  const claim = await claimCurrentPhotonApprovalDecision({
-    decision: "deny",
-    principalId: input.principalId,
-    threadId: input.threadId,
-  });
-  if (claim.status === "deliver") {
-    await failPhotonApprovalDecision({
-      decision: claim.delivery.decision,
-      recordKey: claim.delivery.recordKey,
-    });
-    return "cleared";
-  }
-  if (claim.status === "delivered") {
-    return claim.decision === "approve" ? "processing" : "cleared";
-  }
-  if (claim.status === "conflict") {
-    return "processing";
-  }
-  if (claim.status === "processing") {
-    return claim.decision === "approve" ? "processing" : "cleared";
-  }
-  return "cleared";
-}
-
 async function isFirstApprovalEvent(input: {
   eventId: string;
   senderId: string;
@@ -970,197 +860,27 @@ async function isFirstApprovalEvent(input: {
   });
 }
 
-async function retirePhotonWorkspaceSession(input: {
+async function openPhotonSessionManager(input: {
   senderId: string;
-  thread: Thread;
-  workspace: PhotonWorkspace;
-}): Promise<boolean> {
-  try {
-    const session = await bridge.send(
-      {
-        context: [
-          "This is an internal workspace-session retirement command. Do not call tools, take actions, or produce a user-facing response.",
-        ],
-        message: "Retire this workspace session immediately.",
-      },
-      {
-        auth: photonAuth(input.senderId, input.thread.id),
-        thread: photonWorkspaceThread(input.thread, input.workspace),
-        turnPolicy: "experimental-steer",
-      },
-    );
-    await session.reset({
-      reason: "The iMessage owner started this workspace fresh.",
-    });
-    return true;
-  } catch (error) {
-    console.warn("[photon.workspace] Session retirement cleanup failed", {
-      error_type: error instanceof Error ? error.name : typeof error,
-    });
-    return false;
-  }
-}
-
-async function startFreshActivePhotonWorkspace(input: {
-  senderId: string;
-  thread: Thread;
-}): Promise<void> {
-  const principalId = photonPrincipalId(input.senderId);
-  const state = await getPhotonWorkspaceState({
-    principalId,
-    threadId: input.thread.id,
-  });
-  const result = await startFreshPhotonWorkspace({
-    approvalGuardKey: photonApprovalGuardKey({
-      principalId,
-      threadId: input.thread.id,
-    }),
-    expectedRevision: state.revision,
-    principalId,
-    threadId: input.thread.id,
-    workspaceId: state.activeWorkspace.id,
-  });
-  const retired = await retirePhotonWorkspaceSession({
-    senderId: input.senderId,
-    thread: input.thread,
-    workspace: state.activeWorkspace,
-  });
-  await input.thread.post(
-    retired
-      ? `Eve control · “${result.state.activeWorkspace.name}” started fresh. Its prior model history and pending requests are retired; other workspaces are unchanged.`
-      : `Eve control · “${result.state.activeWorkspace.name}” now routes to a fresh session, but cleanup of its prior session could not be confirmed. No pending financial approval from it can be used.`,
-  );
-}
-
-async function handlePhotonWorkspaceControl(input: {
-  control: PhotonWorkspaceControl;
-  senderId: string;
-  state: PhotonWorkspaceState;
   thread: Thread;
 }): Promise<void> {
   const scope = {
     principalId: photonPrincipalId(input.senderId),
     threadId: input.thread.id,
   };
-  const guardedScope = {
-    ...scope,
-    approvalGuardKey: photonApprovalGuardKey(scope),
-    expectedRevision: input.state.revision,
-  };
   try {
-    switch (input.control.action) {
-      case "manage": {
-        const manager = await mintPhotonWorkspaceManager(scope);
-        try {
-          await imessageAdapter.sendMiniApp(
-            input.thread.id,
-            photonWorkspaceAppUrl(manager.managerToken),
-          );
-          await input.thread.post(
-            "Eve control · Workspace manager opened. The link expires in 15 minutes.\n\nText fallback: “list workspaces”, “create workspace NAME”, “use workspace NAME”, “rename workspace OLD to NEW”, or “archive workspace NAME”.",
-          );
-        } catch {
-          await input.thread.post(
-            `${photonWorkspaceListText(input.state)}\n\nThe visual manager could not open. Use the text controls shown above.`,
-          );
-        }
-        return;
-      }
-      case "list":
-        await input.thread.post(photonWorkspaceListText(input.state));
-        return;
-      case "create": {
-        const state = await createPhotonWorkspace({
-          ...guardedScope,
-          name: input.control.name,
-          select: true,
-        });
-        await input.thread.post(
-          `Eve control · Created and selected “${state.activeWorkspace.name}”. New messages now use its isolated session.`,
-        );
-        return;
-      }
-      case "select": {
-        const workspace = findPhotonWorkspaceByName(
-          input.state,
-          input.control.name,
-        );
-        if (!workspace || workspace.status !== "active") {
-          throw new PhotonWorkspaceValidationError(
-            `No active workspace named “${input.control.name.trim()}” exists.`,
-          );
-        }
-        const state = await selectPhotonWorkspace({
-          ...guardedScope,
-          workspaceId: workspace.id,
-        });
-        await input.thread.post(
-          `Eve control · Switched to “${state.activeWorkspace.name}”. Its existing session context is now active.`,
-        );
-        return;
-      }
-      case "rename": {
-        const workspace = findPhotonWorkspaceByName(
-          input.state,
-          input.control.currentName,
-        );
-        if (!workspace) {
-          throw new PhotonWorkspaceValidationError(
-            `No workspace named “${input.control.currentName.trim()}” exists.`,
-          );
-        }
-        const state = await renamePhotonWorkspace({
-          ...guardedScope,
-          name: input.control.name,
-          workspaceId: workspace.id,
-        });
-        const renamed = state.workspaces.find(
-          (candidate) => candidate.id === workspace.id,
-        );
-        await input.thread.post(
-          `Eve control · Renamed the workspace to “${renamed?.name ?? input.control.name.trim()}”.`,
-        );
-        return;
-      }
-      case "archive": {
-        const workspace = findPhotonWorkspaceByName(
-          input.state,
-          input.control.name,
-        );
-        if (!workspace || workspace.status !== "active") {
-          throw new PhotonWorkspaceValidationError(
-            `No active workspace named “${input.control.name.trim()}” exists.`,
-          );
-        }
-        if (workspace.id === input.state.activeWorkspace.id) {
-          throw new PhotonWorkspaceValidationError(
-            "Switch to another workspace before archiving the active one.",
-          );
-        }
-        await archivePhotonWorkspace({
-          ...guardedScope,
-          workspaceId: workspace.id,
-        });
-        await input.thread.post(
-          `Eve control · Archived “${workspace.name}”. Its retained state was not deleted.`,
-        );
-      }
-    }
+    const manager = await mintPhotonWorkspaceManager(scope);
+    await imessageAdapter.sendMiniApp(
+      input.thread.id,
+      photonWorkspaceAppUrl(manager.managerToken),
+    );
   } catch (error) {
-    if (
-      error instanceof PhotonWorkspaceApprovalBlockedError ||
-      error instanceof PhotonWorkspaceValidationError
-    ) {
-      await input.thread.post(`Eve control · ${error.message}`);
-      return;
-    }
-    console.error("[photon.workspace] Text control failed", {
-      action: input.control.action,
+    console.warn("[photon.workspace] Session manager delivery failed", {
       error_type: error instanceof Error ? error.name : typeof error,
     });
-    await input.thread.post(
-      "Eve control · I couldn't confirm the workspace update. Send “list workspaces” before trying another change.",
-    );
+    await input.thread
+      .post("I couldn't open the session manager. Please try again.")
+      .catch(() => undefined);
   }
 }
 
@@ -1181,30 +901,6 @@ async function dispatch(
   if (message.author.isBot || !thread.isDM) return;
 
   const senderId = message.author.userId;
-  if (isPhotonSessionResetCommand(message.text)) {
-    try {
-      const invalidation = await invalidateCurrentPhotonApproval({
-        principalId: photonPrincipalId(senderId),
-        threadId: thread.id,
-      });
-      if (invalidation === "processing") {
-        await thread.post(
-          "An approved action is still processing. Wait for Eve's result before clearing this session.",
-        );
-        return;
-      }
-      await startFreshActivePhotonWorkspace({ senderId, thread });
-    } catch (error) {
-      console.error("[photon.workspace] User-requested reset failed", {
-        error_type: error instanceof Error ? error.name : typeof error,
-      });
-      await thread.post(
-        "Eve control · I couldn't confirm the start-fresh request. Send “list workspaces” before trying again.",
-      );
-    }
-    return;
-  }
-
   const textDecision = parsePhotonTextDecision(message.text);
   if (textDecision) {
     const decisionSentAtMs = message.metadata.dateSent.getTime();
@@ -1269,6 +965,11 @@ async function dispatch(
     return;
   }
 
+  if (isPhotonSessionManagerRequest(message.text)) {
+    await openPhotonSessionManager({ senderId, thread });
+    return;
+  }
+
   const principalId = photonPrincipalId(senderId);
   let workspaceState: PhotonWorkspaceState;
   try {
@@ -1281,19 +982,8 @@ async function dispatch(
       error_type: error instanceof Error ? error.name : typeof error,
     });
     await thread.post(
-      "Eve control · I couldn't verify the active workspace, so this message was not sent. Please try again.",
+      "I couldn't verify the active session, so this message was not sent. Please try again.",
     );
-    return;
-  }
-
-  const workspaceControl = parsePhotonWorkspaceControl(message.text);
-  if (workspaceControl) {
-    await handlePhotonWorkspaceControl({
-      control: workspaceControl,
-      senderId,
-      state: workspaceState,
-      thread,
-    });
     return;
   }
 
