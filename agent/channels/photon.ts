@@ -24,11 +24,11 @@ import {
   claimCurrentPhotonApprovalDecision,
   claimPhotonApprovalEvent,
   clearPhotonApproval,
+  completePhotonApprovalDecision,
   failPhotonApprovalDecision,
   getPhotonApprovalView,
   hasCurrentPhotonApproval,
   savePhotonApproval,
-  type PhotonApprovalDelivery,
 } from "../lib/photon-approval-store.js";
 import { photonAuth, photonPrincipalId } from "../lib/photon-auth";
 import { photonApprovalAppUrl } from "../lib/photon-mini-app";
@@ -125,51 +125,6 @@ async function respondToEveSession(
       if (attempt === 2) throw error;
     }
   }
-}
-
-async function deliverPhotonApprovalResponse(
-  delivery: PhotonApprovalDelivery,
-): Promise<"accepted" | "uncertain"> {
-  const host =
-    process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
-  const oidcToken = process.env.VERCEL_OIDC_TOKEN;
-  if (!host || !oidcToken) {
-    throw new Error("The internal Photon approval responder is unavailable.");
-  }
-  const baseUrl = host.startsWith("http") ? host : `https://${host}`;
-  const url = new URL(
-    "/eve/v1/internal/photon-approval-response",
-    baseUrl,
-  );
-
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      const response = await fetch(url, {
-        body: JSON.stringify({
-          decision: delivery.decision,
-          recordKey: delivery.recordKey,
-        }),
-        headers: {
-          authorization: `Bearer ${oidcToken}`,
-          "content-type": "application/json",
-        },
-        method: "POST",
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (response.ok) {
-        const body = (await response.json().catch(() => null)) as
-          | { status?: unknown }
-          | null;
-        return body?.status === "uncertain" ? "uncertain" : "accepted";
-      }
-      if (response.status < 500 || attempt === 2) {
-        throw new Error("Eve rejected the Photon approval response.");
-      }
-    } catch (error) {
-      if (attempt === 2) throw error;
-    }
-  }
-  throw new Error("Eve did not acknowledge the Photon approval response.");
 }
 
 async function denyApprovalRequests(input: {
@@ -508,18 +463,32 @@ async function submitApprovalDecision(
     return true;
   }
 
-  let acknowledgement =
+  const acknowledgement =
     claim.delivery.expired
       ? "That approval expired. No action was taken."
       : claim.delivery.decision === "approve"
         ? "Approved. Continuing…"
         : "Denied. No action will be taken.";
   try {
-    const deliveryStatus = await deliverPhotonApprovalResponse(claim.delivery);
-    if (deliveryStatus === "uncertain") {
-      acknowledgement =
-        "Approval status is uncertain. Check Coinbase before retrying this order.";
-    }
+    await bridge.send(
+      {
+        inputResponses: [
+          {
+            optionId: claim.delivery.decision,
+            requestId: claim.delivery.requestId,
+          },
+        ],
+      },
+      {
+        auth: photonAuth(senderId, thread.id),
+        thread,
+        turnPolicy: "queue",
+      },
+    );
+    await completePhotonApprovalDecision({
+      decision: claim.delivery.decision,
+      recordKey: claim.delivery.recordKey,
+    });
   } catch {
     await thread
       .post(
