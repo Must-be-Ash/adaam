@@ -791,7 +791,7 @@ async function dispatch(
     {
       auth: photonAuth(senderId, thread.id),
       thread,
-      turnPolicy: "queue",
+      turnPolicy: "experimental-steer",
     },
   );
   await savePhotonSessionBinding({
