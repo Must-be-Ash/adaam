@@ -1,11 +1,19 @@
 # Earnings Call Analyser
 
-An eve research agent that compares management language across earnings calls,
-quantifies linguistic shifts, cross-checks them against financial and SEC data, and
-monitors official public feeds for user-defined events.
+Eve is currently an earnings-call research agent that compares management
+language across calls, quantifies linguistic shifts, cross-checks them against
+financial and SEC data, and monitors official public feeds for user-defined
+events.
 
-It accepts public URLs and PDF, image, Markdown, or plain-text attachments through the
-HTTP API and Telegram. Photon-backed iMessage messages use the same agent workflow.
+The primary product direction is a single-owner iMessage agent. Optional HTTP
+and Telegram adapters accept public URLs and PDF, image, Markdown, or plain-text
+attachments through the same agent workflow.
+
+This repository is evolving into a forkable, single-owner investment-agent
+template. The durable product direction, workspace model, strategy-research
+index, and boundaries are defined in [Eve's north star](./NORTH_STAR.md);
+detailed strategy rules remain in separate source documents rather than being
+duplicated here.
 
 ## Configure
 
@@ -95,9 +103,16 @@ hardcoded in the template.
 Market data is read-only. Private balances, portfolios, orders, and fills require human
 approval, as does every mutation. Live order creation uses Eve's separate
 preview-token flow: the user must review an exact preview and approve an unchanged order
-within five minutes. Native unguarded order creation, credential switching, and
-non-spot position closing are not exposed. Scheduled event checks cannot access
-Coinbase.
+within five minutes. Code validates the preview token and exact order; model
+interpretation of general consent is not authorization. Native unguarded order
+creation, credential switching, and non-spot position closing are not exposed.
+Scheduled event checks cannot access Coinbase.
+
+The current development MCP surface also includes approval-gated conversions,
+transfers, and portfolio mutations. These are not part of the initial core
+template described in the north star; they must be disabled before a
+live-broker release or moved to a separately reviewed, disabled-by-default
+capability pack.
 
 ### MCP adapter standard
 
@@ -121,20 +136,23 @@ manage triggers. For example:
 - “Pause the Apple filing alert.”
 - “Delete that alert.”
 
-Rules are isolated by authenticated user and persisted in the `eve-feed-triggers`
-Upstash Redis resource. Vercel injects `KV_REST_API_URL` and `KV_REST_API_TOKEN`; do
-not put their values in source control. A single one-minute Vercel Cron dispatcher
-atomically leases due rules. Each check runs in a fresh task session with app identity,
-restricted tools, exact source fencing, and no access to the user's conversation history
-or OAuth grants. It advances its watermark only after every configured source succeeds,
-then posts a matching alert directly to the conversation where the rule was created.
+Rules are currently isolated by authenticated principal and persisted in the
+`eve-feed-triggers` Upstash Redis resource. The workspace architecture will map
+allowed channel-principal aliases to one deployment owner and make limits
+owner-global. Vercel injects `KV_REST_API_URL` and `KV_REST_API_TOKEN`; do not
+put their values in source control. A single one-minute Vercel Cron dispatcher
+atomically leases due rules. Each check runs as an isolated scheduled job with
+app identity, restricted tools, exact source fencing, and no access to the
+owner's conversation history or OAuth grants. It advances its watermark only
+after every configured source succeeds, then posts a matching alert directly to
+the conversation where the rule was created.
 
 Recurring checks have a 15-minute minimum cadence, expire after 90 days unless renewed,
-and are bounded by a 96-run aggregate daily capacity per user plus a global daily budget.
-Each user can keep at most 10 triggers, but Eve rejects a new cadence that would exceed
-that aggregate capacity. If a channel post succeeds but its Redis checkpoint is
-uncertain, Eve pauses the trigger for manual review instead of automatically risking a
-duplicate alert.
+and are bounded by a 96-run aggregate daily capacity per authenticated principal plus a
+global daily budget. Each principal can keep at most 10 triggers, but Eve rejects a new
+cadence that would exceed that aggregate capacity. If a channel post succeeds but its
+Redis checkpoint is uncertain, Eve pauses the trigger for manual review instead of
+automatically risking a duplicate alert.
 
 ## Run
 

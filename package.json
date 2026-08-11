@@ -9,13 +9,14 @@
   },
   "scripts": {
     "prepare:coinbase": "node scripts/embed-coinbase-cli.mjs",
-    "prebuild": "npm run prepare:coinbase && npm run verify:context",
+    "prebuild": "npm run prepare:coinbase && npm run verify:context && npm run verify:approvals",
     "predev": "npm run prepare:coinbase",
     "pretypecheck": "npm run prepare:coinbase",
     "build": "eve build",
     "dev": "eve dev",
     "start": "eve start",
     "typecheck": "tsc",
+    "verify:approvals": "node scripts/verify-photon-approval.mjs",
     "verify:context": "node scripts/verify-mcp-tool-result.mjs"
   },
   "dependencies": {
