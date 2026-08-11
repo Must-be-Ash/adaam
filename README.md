@@ -103,8 +103,11 @@ hardcoded in the template.
 Read-only Coinbase calls, including private balances, portfolios, orders, and fills, run
 without a separate approval prompt after the private-chat principal passes the owner's
 allowlist. Every mutation still requires human approval. Live order creation uses Eve's
-separate preview-token flow: the user must review an exact preview and approve an
-unchanged order within five minutes. Code validates the preview token and exact order;
+separate preview-token flow: the user reviews an exact, expiring order in a Photon
+Spectrum mini app and chooses Approve or Deny. A thread-bound `YES` or `NO` reply remains
+the fallback when the mini app cannot open. The mini-app URL carries only a short-lived,
+one-time capability in its fragment; the server derives the pending Eve request and
+unchanged order from durable state. Code validates the preview token and exact order;
 model interpretation of general consent is not authorization. Native unguarded order
 creation, credential switching, and non-spot position closing are not exposed. Scheduled
 event checks cannot access Coinbase.

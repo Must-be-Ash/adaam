@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 
 import {
   coinbaseToolIsPrivateRead,
@@ -6,11 +7,16 @@ import {
 } from "../agent/lib/coinbase-access.ts";
 import {
   createPhotonApprovalPrompt,
+  isPhotonApprovalAlias,
   isPhotonApprovalSupported,
-  isUnscopedApprovalAlias,
-  parsePhotonPollVote,
   parsePhotonTextDecision,
 } from "../agent/lib/photon-approval.ts";
+import {
+  claimCurrentPhotonApprovalDecision,
+  claimPhotonApprovalDecision,
+  getPhotonApprovalView,
+} from "../agent/lib/photon-approval-store.ts";
+import { photonApprovalAppUrl } from "../agent/lib/photon-mini-app.ts";
 
 function approvalRequest(toolName, input = {}) {
   return {
@@ -42,12 +48,15 @@ const orderPrompt = createPhotonApprovalPrompt(
   }),
   1_000,
 );
-assert.match(orderPrompt.pollTitle, /^Buy 25 USD of BTC\?/u);
-assert.equal(orderPrompt.pollTitle.includes(previewToken), false);
+assert.equal(orderPrompt.approvalText, "Buy 25 USD of BTC?");
+assert.equal(orderPrompt.approvalText.includes(previewToken), false);
 assert.equal(orderPrompt.expiresAtMs, 301_000);
-assert.ok(orderPrompt.pollTitle.length <= 140);
-assert.match(orderPrompt.pollTitle, / · [A-Za-z0-9_-]{22}$/u);
-assert.match(orderPrompt.approvalCode, /^[A-Za-z0-9_-]{22}$/u);
+assert.deepEqual(Object.keys(orderPrompt).sort(), [
+  "approvalText",
+  "expiresAtMs",
+  "requestId",
+  "toolName",
+]);
 
 const limitPrompt = createPhotonApprovalPrompt(
   approvalRequest("coinbase_create_order", {
@@ -59,7 +68,7 @@ const limitPrompt = createPhotonApprovalPrompt(
     type: "limit",
   }),
 );
-assert.match(limitPrompt.pollTitle, /^Buy 0\.25 BTC at 50000 USD\?/u);
+assert.equal(limitPrompt.approvalText, "Buy 0.25 BTC at 50000 USD?");
 
 assert.equal(
   isPhotonApprovalSupported(approvalRequest("coinbase_balance")),
@@ -115,81 +124,200 @@ const genericPrompt = createPhotonApprovalPrompt(
   }),
 );
 assert.match(
-  genericPrompt.pollTitle,
+  genericPrompt.approvalText,
   /^Delete event trigger 123e4567-e89b-42d3-a456-426614174000\?/u,
 );
 
-const approvedVote = parsePhotonPollVote({
-  content: {
-    option: { title: "Approve" },
-    poll: { title: orderPrompt.pollTitle },
-    selected: true,
-    type: "poll_option",
-  },
-});
-assert.deepEqual(approvedVote, {
-  approvalCode: orderPrompt.approvalCode,
-  decision: "approve",
-  pollTitle: orderPrompt.pollTitle,
-  selected: true,
-});
-
-assert.deepEqual(
-  parsePhotonPollVote({
-    content: {
-      option: { title: "Deny" },
-      poll: { title: orderPrompt.pollTitle },
-      selected: true,
-      type: "poll_option",
-    },
-  }),
-  {
-    approvalCode: orderPrompt.approvalCode,
-    decision: "deny",
-    pollTitle: orderPrompt.pollTitle,
-    selected: true,
-  },
-);
-
-assert.deepEqual(
-  parsePhotonPollVote({
-    content: {
-      option: { title: "Maybe" },
-      poll: { title: orderPrompt.pollTitle },
-      selected: false,
-      type: "poll_option",
-    },
-  }),
-  {
-    approvalCode: orderPrompt.approvalCode,
-    decision: null,
-    pollTitle: orderPrompt.pollTitle,
-    selected: false,
-  },
-);
-assert.equal(parsePhotonPollVote({ content: { type: "text" } }), null);
-assert.equal(parsePhotonPollVote(null), null);
-assert.deepEqual(
-  parsePhotonTextDecision(`APPROVE ${orderPrompt.approvalCode}`),
-  {
-    approvalCode: orderPrompt.approvalCode,
-    decision: "approve",
-  },
-);
-assert.deepEqual(
-  parsePhotonTextDecision(`deny ${orderPrompt.approvalCode}.`),
-  {
-    approvalCode: orderPrompt.approvalCode,
-    decision: "deny",
-  },
-);
-assert.equal(parsePhotonTextDecision("APPROVE"), null);
-assert.equal(parsePhotonTextDecision("APPROVE wrong-code"), null);
-for (const alias of ["approve", "1", "01", "+1", "1.0", "1e0", "0x1"]) {
-  assert.equal(isUnscopedApprovalAlias(alias), true, alias);
+for (const text of ["YES", "yes.", "APPROVE", "approve!"]) {
+  assert.equal(parsePhotonTextDecision(text), "approve", text);
 }
-for (const safeText of ["deny", "continue", "yes", "0", "-1", "hello"]) {
-  assert.equal(isUnscopedApprovalAlias(safeText), false, safeText);
+for (const text of ["NO", "no.", "DENY", "deny!", "cancel"]) {
+  assert.equal(parsePhotonTextDecision(text), "deny", text);
+}
+for (const text of [
+  "",
+  "1",
+  "yes please",
+  "APPROVE old-code",
+  "approved",
+  "continue",
+  "denied",
+  "Yes buy it",
+]) {
+  assert.equal(parsePhotonTextDecision(text), null, text);
+}
+for (const text of ["YES", "APPROVE", "NO", "DENY", "1", "01", "+1"]) {
+  assert.equal(isPhotonApprovalAlias(text), true, text);
+}
+for (const text of ["", "0", "-1", "continue", "yes please"]) {
+  assert.equal(isPhotonApprovalAlias(text), false, text);
+}
+
+const principalId = "imessage:test-owner";
+const threadId = "imessage:test-thread";
+const approvalToken = "T".repeat(43);
+const hash = (value) => createHash("sha256").update(value).digest("hex");
+const activeKey = `eve:photon:v2:active-approval:${"a".repeat(64)}`;
+const recordKey = `eve:photon:v2:approval:${hash(
+  `approval-token\u0000${approvalToken}`,
+)}`;
+const activeRecord = {
+  activeKey,
+  approvalToken,
+  approvalText: "Buy 25 USD of BTC?",
+  createdAtMs: 1_000,
+  expiresAtMs: Date.now() + 60_000,
+  principalHash: hash(`principal\u0000${principalId}`),
+  principalId,
+  requestId: "request_coinbase_create_order",
+  schemaVersion: 1,
+  sessionId: "wrun_test",
+  state: "active",
+  threadId,
+  toolName: "coinbase_create_order",
+};
+const deliveringRecord = {
+  ...activeRecord,
+  decision: "approve",
+  decisionAtMs: Date.now(),
+  expiredDecision: false,
+  state: "delivering",
+};
+
+function approvalStore({
+  active = recordKey,
+  evalValue = JSON.stringify({
+    expired: false,
+    record: deliveringRecord,
+    status: "deliver",
+  }),
+  record = JSON.stringify(activeRecord),
+} = {}) {
+  return {
+    eval: async () => evalValue,
+    get: async (key) => {
+      if (key.startsWith("eve:photon:v2:active-approval:")) return active;
+      return key === recordKey ? record : null;
+    },
+  };
+}
+
+assert.deepEqual(
+  await claimCurrentPhotonApprovalDecision(
+    { decision: "approve", principalId, threadId },
+    approvalStore(),
+  ),
+  {
+    delivery: {
+      decision: "approve",
+      expired: false,
+      principalId,
+      recordKey,
+      requestId: "request_coinbase_create_order",
+      sessionId: "wrun_test",
+      threadId,
+      toolName: "coinbase_create_order",
+    },
+    status: "deliver",
+  },
+);
+assert.deepEqual(
+  await claimPhotonApprovalDecision(
+    { approvalToken, decision: "approve" },
+    approvalStore(),
+  ),
+  {
+    delivery: {
+      decision: "approve",
+      expired: false,
+      principalId,
+      recordKey,
+      requestId: "request_coinbase_create_order",
+      sessionId: "wrun_test",
+      threadId,
+      toolName: "coinbase_create_order",
+    },
+    status: "deliver",
+  },
+);
+assert.deepEqual(
+  await claimPhotonApprovalDecision(
+    { approvalToken: "invalid", decision: "approve" },
+    approvalStore(),
+  ),
+  { status: "invalid" },
+);
+assert.deepEqual(
+  await claimCurrentPhotonApprovalDecision(
+    { decision: "approve", principalId, threadId },
+    approvalStore({ active: null }),
+  ),
+  { status: "missing" },
+);
+assert.deepEqual(
+  await claimCurrentPhotonApprovalDecision(
+    { decision: "approve", principalId, threadId },
+    approvalStore({ evalValue: JSON.stringify({ status: "forbidden" }) }),
+  ),
+  { status: "forbidden" },
+);
+assert.deepEqual(
+  await getPhotonApprovalView(approvalToken, approvalStore()),
+  {
+    approvalText: "Buy 25 USD of BTC?",
+    expiresAtMs: activeRecord.expiresAtMs,
+    status: "active",
+  },
+);
+assert.deepEqual(
+  await getPhotonApprovalView(
+    approvalToken,
+    approvalStore({
+      active: null,
+      record: JSON.stringify({
+        ...deliveringRecord,
+        deliveredAtMs: Date.now(),
+        state: "delivered",
+      }),
+    }),
+  ),
+  {
+    approvalText: "Buy 25 USD of BTC?",
+    decision: "approve",
+    expiresAtMs: activeRecord.expiresAtMs,
+    status: "delivered",
+  },
+);
+assert.deepEqual(
+  await getPhotonApprovalView(
+    approvalToken,
+    approvalStore({
+      active: null,
+      record: JSON.stringify({
+        ...deliveringRecord,
+        failureAtMs: Date.now(),
+        state: "unavailable",
+      }),
+    }),
+  ),
+  {
+    approvalText: "Buy 25 USD of BTC?",
+    expiresAtMs: activeRecord.expiresAtMs,
+    status: "unavailable",
+  },
+);
+
+const previousBaseUrl = process.env.PHOTON_MINI_APP_BASE_URL;
+process.env.PHOTON_MINI_APP_BASE_URL = "https://eve.example";
+const appUrl = new URL(photonApprovalAppUrl(approvalToken));
+assert.equal(appUrl.origin, "https://eve.example");
+assert.equal(appUrl.pathname, "/eve/v1/photon-approval");
+assert.equal(appUrl.search, "");
+assert.equal(appUrl.hash, `#${approvalToken}`);
+if (previousBaseUrl === undefined) {
+  delete process.env.PHOTON_MINI_APP_BASE_URL;
+} else {
+  process.env.PHOTON_MINI_APP_BASE_URL = previousBaseUrl;
 }
 
 assert.throws(
@@ -212,19 +340,18 @@ assert.throws(
     ),
   /cannot be rendered as an exact approval/u,
 );
-assert.throws(
-  () =>
-    createPhotonApprovalPrompt(
-      approvalRequest("coinbase_create_order", {
-        baseSize: "9".repeat(40),
-        limitPrice: "8".repeat(40),
-        previewToken,
-        productId: "ABCDEFGHIJKLMNOPQRST-QRSTUVWXYZABCDEFGHIJ",
-        side: "SELL",
-        type: "limit",
-      }),
-    ),
-  /too long for an exact iMessage prompt/u,
+const longPrompt = createPhotonApprovalPrompt(
+  approvalRequest("coinbase_create_order", {
+    baseSize: "9".repeat(40),
+    limitPrice: "8".repeat(40),
+    previewToken,
+    productId: "ABCDEFGHIJKLMNOPQRST-QRSTUVWXYZABCDEFGHIJ",
+    side: "SELL",
+    type: "limit",
+  }),
 );
+assert.equal(longPrompt.approvalText.includes("9".repeat(40)), true);
+assert.equal(longPrompt.approvalText.includes("8".repeat(40)), true);
+assert.match(longPrompt.approvalText, /\?$/u);
 
-console.log("Photon approval verification passed.");
+console.log("Photon mini-app approval verification passed.");

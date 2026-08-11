@@ -1,11 +1,6 @@
-import { createHash } from "node:crypto";
-
 import type { InputRequest } from "eve/client";
 
-export const PHOTON_APPROVAL_CALLBACK_ID = "eve-photon-approval-v1";
-export const PHOTON_APPROVAL_DECISION_FIELD = "decision";
-
-const MAX_POLL_TITLE_LENGTH = 140;
+const MAX_APPROVAL_TEXT_LENGTH = 500;
 const APPROVAL_WINDOW_MS = 10 * 60_000;
 const ORDER_APPROVAL_WINDOW_MS = 5 * 60_000;
 
@@ -16,37 +11,10 @@ const PHOTON_SUPPORTED_COINBASE_APPROVALS = new Set([
 export type PhotonApprovalDecision = "approve" | "deny";
 
 export interface PhotonApprovalPrompt {
-  approvalCode: string;
+  approvalText: string;
   expiresAtMs: number;
-  pollTitle: string;
   requestId: string;
   toolName: string;
-}
-
-export interface PhotonPollVote {
-  approvalCode: string;
-  decision: PhotonApprovalDecision | null;
-  pollTitle: string;
-  selected: boolean;
-}
-
-const APPROVAL_CODE_PATTERN = /^[A-Za-z0-9_-]{22}$/u;
-
-function approvalCode(requestId: string): string {
-  return createHash("sha256")
-    .update("eve-photon-approval\u0000")
-    .update(requestId)
-    .digest("base64url")
-    .slice(0, 22);
-}
-
-export function approvalCodeFromPollTitle(
-  pollTitle: string,
-): string | null {
-  const separator = pollTitle.lastIndexOf(" · ");
-  if (separator < 0) return null;
-  const code = pollTitle.slice(separator + " · ".length);
-  return APPROVAL_CODE_PATTERN.test(code) ? code : null;
 }
 
 function boundedString(
@@ -208,82 +176,55 @@ export function createPhotonApprovalPrompt(
     throw new Error("Photon approval prompts require a tool-approval request.");
   }
 
-  const suffix = approvalCode(request.requestId);
-  const availableSummaryLength =
-    MAX_POLL_TITLE_LENGTH - suffix.length - " · ".length;
   const summary = approvalSummary(request);
-  if (summary.length > availableSummaryLength) {
+  if (summary.length > MAX_APPROVAL_TEXT_LENGTH) {
     throw new Error(
       "The approval details are too long for an exact iMessage prompt.",
     );
   }
 
   return {
-    approvalCode: suffix,
+    approvalText: summary,
     expiresAtMs:
       request.action.toolName === "coinbase_create_order"
         ? orderPreviewExpiry(request.action.input, nowMs)
         : nowMs + APPROVAL_WINDOW_MS,
-    pollTitle: `${summary} · ${suffix}`,
     requestId: request.requestId,
     toolName: request.action.toolName,
   };
 }
 
-function objectValue(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-export function parsePhotonPollVote(raw: unknown): PhotonPollVote | null {
-  const message = objectValue(raw);
-  const content = objectValue(message?.content);
-  if (content?.type !== "poll_option") return null;
-
-  const poll = objectValue(content.poll);
-  const option = objectValue(content.option);
-  const pollTitle =
-    typeof poll?.title === "string" ? poll.title.trim() : undefined;
-  const optionTitle =
-    typeof option?.title === "string" ? option.title.trim().toLowerCase() : "";
-  if (!pollTitle) return null;
-  const code = approvalCodeFromPollTitle(pollTitle);
-  if (!code) return null;
-
-  return {
-    approvalCode: code,
-    decision:
-      optionTitle === "approve"
-        ? "approve"
-        : optionTitle === "deny"
-          ? "deny"
-          : null,
-    pollTitle,
-    selected: content.selected === true,
-  };
-}
-
 export function parsePhotonTextDecision(
   text: string,
-): { approvalCode: string; decision: PhotonApprovalDecision } | null {
-  const match = text.match(
-    /^\s*(APPROVE|DENY)\s+([A-Za-z0-9_-]{22})\s*[.!]?\s*$/iu,
-  );
-  if (!match?.[1] || !match[2]) return null;
-  return {
-    approvalCode: match[2],
-    decision: match[1].toLowerCase() as PhotonApprovalDecision,
-  };
+): PhotonApprovalDecision | null {
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    .replace(/[.!]+$/u, "")
+    .trim();
+  if (
+    normalized === "yes" ||
+    normalized === "approve"
+  ) {
+    return "approve";
+  }
+  if (
+    normalized === "no" ||
+    normalized === "deny" ||
+    normalized === "cancel"
+  ) {
+    return "deny";
+  }
+  return null;
 }
 
-export function isUnscopedApprovalAlias(text: string): boolean {
+export function isPhotonApprovalAlias(text: string): boolean {
+  if (parsePhotonTextDecision(text)) return true;
   const normalized = text.trim().toLowerCase();
   const numericOption = Number(normalized);
   return (
-    normalized === "approve" ||
-    (normalized.length > 0 &&
-      Number.isInteger(numericOption) &&
-      numericOption > 0)
+    normalized.length > 0 &&
+    Number.isInteger(numericOption) &&
+    numericOption > 0
   );
 }

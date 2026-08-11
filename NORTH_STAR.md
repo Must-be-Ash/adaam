@@ -58,11 +58,12 @@ active pointer.
 
 The target Photon experience combines two interaction patterns:
 
-1. A **Manage Eve Workspaces** surface for creating, selecting, renaming,
-   archiving, starting fresh, and explicitly deleting workspaces.
-2. A native poll when a lightweight topic detector sees a high-confidence
-   mismatch with the active workspace. The choices are to stay, switch to a
-   suggested existing workspace, or create a new workspace.
+1. A Spectrum **Manage Eve Workspaces** mini app for creating, selecting,
+   renaming, archiving, starting fresh, and explicitly deleting workspaces.
+2. A compact Spectrum mini-app card when a lightweight topic detector sees a
+   high-confidence mismatch with the active workspace. Its actions are to stay,
+   switch to a suggested existing workspace, or create a new workspace. Plain
+   text remains the fallback when the Spectrum launcher is unavailable.
 
 The detector may suggest routing but must never silently switch workspaces. To
 prevent contamination, a suspected topic-change message is held outside every
@@ -74,9 +75,10 @@ plus workspace manifests while it remains unassigned; it cannot see workspace
 histories or invoke tools.
 
 Control events are distinct from workspace messages. Workspace commands,
-poll/card callbacks, and financial approvals use server-minted request IDs,
-revisions, expirations, and one-time durable consumption. Polls and cards change
-routing state only and can never approve a trade or other financial mutation.
+mini-app callbacks, and financial approvals use server-minted request IDs,
+revisions, expirations, and one-time durable consumption. Workspace mini-app
+actions change routing state only; they use a separate protocol and cannot
+approve a trade or other financial mutation.
 Stale or repeated actions are harmless no-ops.
 
 Every workspace-model response and workspace-scoped alert identifies its
@@ -180,11 +182,12 @@ isolation already exists.
   dispatch. It must be replaced by a durable owner/workspace/session broker and
   durable ingress queue with serialized control and delivery receipts before
   multiple workspaces are enabled.
-- Native poll handling and the workspace-management surface are not implemented
-  in this repository. The current Photon webhook path needs an adapter
-  upgrade/fork, custom vote handling, or gateway ingestion plus durable callback
-  binding. The manager needs an authenticated owner-bound page/API or a
-  separately built native extension.
+- The Spectrum workspace-management surface is not implemented in this
+  repository. Photon mini-app delivery is available through the current adapter,
+  but the manager still needs an owner-bound page/API and durable callbacks.
+  Inline `live: true` rendering requires a small adapter extension or direct
+  Spectrum integration; the supported tap-to-open mini app is sufficient for
+  the initial workspace manager.
 - Telegram also maps a private chat directly to one continuation. It needs the
   same workspace broker before workspace routing is enabled there. Every channel
   must enforce the deployment owner allowlist; Coinbase's separate allowlist is
@@ -307,8 +310,8 @@ fork contains its own north-star sources.
    gates, and audit records workspace-aware before enabling multi-workspace live
    trading.
 6. Add high-confidence topic-change detection and held-message recovery.
-7. Upgrade or adapt Photon poll ingestion, then add polls and the authenticated
-   workspace-management surface as progressive UX.
+7. Add the authenticated Spectrum workspace-management mini app and compact
+   topic-change cards as progressive UX, retaining plain-text fallbacks.
 8. Migrate Telegram to the workspace broker.
 9. Convert the research documents into versioned strategy packs and versioned
    data-source documentation/adapters.

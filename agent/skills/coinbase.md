@@ -35,10 +35,12 @@ chat.
 3. Call `coinbase_preview_order` for the exact order. Do not use a raw native
    `coinbase_orders_preview` or `coinbase_orders_create`; they are intentionally hidden.
 4. Show the user the exact product, side, order type, base or quote size, estimated fill,
-   fees, and slippage. Ask for explicit authorization.
-5. Only after authorization, call `coinbase_create_order` with the unchanged fields and
-   the fresh preview token. The token expires after five minutes and generates a stable
-   Coinbase client order ID for retry safety.
+   fees, and slippage, then call `coinbase_create_order` with the unchanged fields and
+   fresh preview token. Do not ask for a separate preliminary confirmation: the tool's
+   owner-bound Photon mini app is the sole explicit authorization step. Its Approve and
+   Deny buttons are authoritative; a thread-bound `YES` or `NO` reply is the fallback.
+5. The preview token expires after five minutes and generates a stable Coinbase client
+   order ID for retry safety.
 6. Report the create response. Do not automatically fetch, edit, or cancel the order
    afterward unless the user asks.
 
