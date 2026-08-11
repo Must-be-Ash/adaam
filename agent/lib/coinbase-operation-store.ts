@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { z } from "zod";
 
+import { coinbaseEvalFixtureEnabled } from "#coinbase-eval-fixture";
+
 const KEY_PREFIX = "eve:coinbase:v1:operation:";
 const OPERATION_TTL_SECONDS = 30 * 24 * 60 * 60;
 
@@ -160,6 +162,7 @@ export async function executeCoinbaseMutation<T>(input: {
   toolInput: Record<string, unknown>;
   toolName: string;
 }): Promise<T> {
+  if (coinbaseEvalFixtureEnabled()) return input.operation();
   const receipt = await beginCoinbaseMutation(input);
   try {
     const result = await input.operation();

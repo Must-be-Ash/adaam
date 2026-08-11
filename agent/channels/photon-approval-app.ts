@@ -7,7 +7,6 @@ import { z } from "zod";
 import {
   claimPhotonApprovalDecision,
   completePhotonApprovalDecision,
-  failPhotonApprovalDecision,
   getPhotonApprovalDelivery,
   getPhotonApprovalView,
   type PhotonApprovalDelivery,
@@ -23,7 +22,7 @@ const decisionRequestSchema = requestSchema.extend({
 });
 const deliveryRequestSchema = z.object({
   decision: z.enum(["approve", "deny"]),
-  recordKey: z.string().regex(/^eve:photon:v2:approval:[a-f0-9]{64}$/u),
+  recordKey: z.string().regex(/^eve:photon:v3:approval:[a-f0-9]{64}$/u),
 });
 const internalAuth = vercelOidc();
 
@@ -87,32 +86,67 @@ async function readJson<T>(
 async function deliverApproval(
   delivery: PhotonApprovalDelivery,
   attachSession: AttachSession,
-): Promise<"accepted" | "session_not_active"> {
+): Promise<"accepted" | "uncertain"> {
   const senderId = photonSenderId(delivery.principalId);
   if (!senderId) {
     throw new Error("The Photon approval identity is unavailable.");
   }
-  const result = await attachSession(delivery.sessionId).respond(
-    [
+  let result;
+  try {
+    result = await attachSession(delivery.sessionId).respond(
+      [
+        {
+          optionId: delivery.decision,
+          requestId: delivery.requestId,
+        },
+      ],
       {
-        optionId: delivery.decision,
-        requestId: delivery.requestId,
+        auth: photonAuth(senderId, delivery.threadId),
       },
-    ],
-    {
-      auth: photonAuth(senderId, delivery.threadId),
-    },
-  );
+    );
+  } catch (error) {
+    console.error("[photon.approval] Approval delivery failed", {
+      decision: delivery.decision,
+      error_type: error instanceof Error ? error.name : typeof error,
+      request_id: delivery.requestId,
+      session_id: delivery.sessionId,
+      tool_name: delivery.toolName,
+    });
+    throw error;
+  }
   if (result.status !== "accepted") {
-    await failPhotonApprovalDecision({
+    console.warn("[photon.approval] Approval target session is inactive", {
+      decision: delivery.decision,
+      request_id: delivery.requestId,
+      session_id: delivery.sessionId,
+      tool_name: delivery.toolName,
+    });
+    await completePhotonApprovalDecision({
+      decision: delivery.decision,
+      recordKey: delivery.recordKey,
+    }).catch(() => undefined);
+    return "uncertain";
+  }
+  try {
+    await completePhotonApprovalDecision({
       decision: delivery.decision,
       recordKey: delivery.recordKey,
     });
-    return "session_not_active";
+  } catch (error) {
+    console.error("[photon.approval] Approval completion failed", {
+      decision: delivery.decision,
+      error_type: error instanceof Error ? error.name : typeof error,
+      request_id: delivery.requestId,
+      session_id: delivery.sessionId,
+      tool_name: delivery.toolName,
+    });
   }
-  await completePhotonApprovalDecision({
+  console.info("[photon.approval] Approval decision delivered", {
     decision: delivery.decision,
-    recordKey: delivery.recordKey,
+    expired: delivery.expired,
+    request_id: delivery.requestId,
+    session_id: delivery.sessionId,
+    tool_name: delivery.toolName,
   });
   return "accepted";
 }
@@ -301,6 +335,11 @@ function approvalHtml(nonce: string): string {
           });
           if (result.status === "expired") {
             showFinal("Approval expired", "No order was authorized.");
+          } else if (result.status === "uncertain") {
+            showFinal(
+              "Approval status uncertain",
+              "Check Coinbase before retrying this order.",
+            );
           } else if (result.status === "approved") {
             showFinal("Order approved", "Eve is continuing the order.");
           } else {
@@ -356,21 +395,22 @@ export default defineChannel({
         if (authenticated instanceof Response) return authenticated;
         const body = await readJson(request, deliveryRequestSchema);
         if (body instanceof Response) return body;
-        const delivery = await getPhotonApprovalDelivery(body);
-        if (!delivery) {
+        const lookup = await getPhotonApprovalDelivery(body);
+        if (!lookup) {
           return json(
             { error: "This approval delivery is no longer available." },
             410,
           );
         }
+        if (lookup.status === "delivered") {
+          return json({ status: "accepted" });
+        }
         try {
-          const result = await deliverApproval(delivery, attachSession);
-          if (result === "session_not_active") {
-            return json(
-              { error: "This order session is no longer active." },
-              409,
-            );
-          }
+          const result = await deliverApproval(
+            lookup.delivery,
+            attachSession,
+          );
+          if (result === "uncertain") return json({ status: "uncertain" });
         } catch {
           return json(
             { error: "Eve could not confirm that choice yet." },
@@ -415,15 +455,7 @@ export default defineChannel({
             claim.delivery,
             attachSession,
           );
-          if (result === "session_not_active") {
-            return json(
-              {
-                error:
-                  "This order session ended. Ask Eve to prepare the order again.",
-              },
-              409,
-            );
-          }
+          if (result === "uncertain") return json({ status: "uncertain" });
         } catch {
           return json(
             { error: "Eve could not confirm that choice yet." },

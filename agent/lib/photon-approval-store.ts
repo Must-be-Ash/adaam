@@ -8,16 +8,18 @@ import type {
   PhotonApprovalPrompt,
 } from "./photon-approval";
 
-const ACTIVE_KEY_PREFIX = "eve:photon:v2:active-approval:";
+const ACTIVE_KEY_PREFIX = "eve:photon:v3:active-approval:";
+// Keep event deduplication stable across approval-record schema generations so
+// a retried YES/NO webhook can never be applied to a newer order.
 const EVENT_KEY_PREFIX = "eve:photon:v2:approval-event:";
-const RECORD_KEY_PREFIX = "eve:photon:v2:approval:";
+const RECORD_KEY_PREFIX = "eve:photon:v3:approval:";
 const RECORD_TTL_SECONDS = 24 * 60 * 60;
 const EVENT_TTL_SECONDS = 24 * 60 * 60;
 const DRAFT_STALE_AFTER_MS = 60_000;
 const APPROVAL_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const ACTIVE_KEY_PATTERN =
-  /^eve:photon:v2:active-approval:[a-f0-9]{64}$/u;
-const RECORD_KEY_PATTERN = /^eve:photon:v2:approval:[a-f0-9]{64}$/u;
+  /^eve:photon:v3:active-approval:[a-f0-9]{64}$/u;
+const RECORD_KEY_PATTERN = /^eve:photon:v3:approval:[a-f0-9]{64}$/u;
 
 const RESERVE_APPROVAL_SCRIPT = `
 local currentKey = redis.call("GET", KEYS[1])
@@ -254,6 +256,10 @@ export interface PhotonApprovalDelivery {
   toolName: string;
 }
 
+export type PhotonApprovalDeliveryLookup =
+  | { delivery: PhotonApprovalDelivery; status: "deliver" }
+  | { status: "delivered" };
+
 export type PhotonApprovalClaim =
   | { delivery: PhotonApprovalDelivery; status: "deliver" }
   | { decision: PhotonApprovalDecision; status: "delivered" }
@@ -292,6 +298,14 @@ export interface PhotonApprovalStoreClient {
     args: unknown[],
   ): Promise<unknown>;
   get(key: string): Promise<unknown>;
+}
+
+export interface PhotonApprovalEventStoreClient {
+  set(
+    key: string,
+    value: string,
+    options: { ex: number; nx: true },
+  ): Promise<unknown>;
 }
 
 let redisClient: Redis | undefined;
@@ -600,22 +614,25 @@ export async function getPhotonApprovalDelivery(
     recordKey: string;
   },
   client: PhotonApprovalStoreClient = redis(),
-): Promise<PhotonApprovalDelivery | null> {
+): Promise<PhotonApprovalDeliveryLookup | null> {
   if (!RECORD_KEY_PATTERN.test(input.recordKey)) return null;
   const record = parseRecord(await client.get(input.recordKey));
+  if (!record || record.decision !== input.decision) return null;
+  if (record.state === "delivered") return { status: "delivered" };
   if (
-    !record ||
     record.state !== "delivering" ||
-    record.decision !== input.decision ||
     (await client.get(record.activeKey)) !== input.recordKey
   ) {
     return null;
   }
-  return deliveryFromRecord(
-    input.recordKey,
-    record,
-    record.expiredDecision === true,
-  );
+  return {
+    delivery: deliveryFromRecord(
+      input.recordKey,
+      record,
+      record.expiredDecision === true,
+    ),
+    status: "deliver",
+  };
 }
 
 export async function getPhotonApprovalView(
@@ -683,11 +700,11 @@ export async function claimPhotonApprovalEvent(input: {
   eventId: string;
   principalId: string;
   threadId: string;
-}): Promise<boolean> {
+}, client: PhotonApprovalEventStoreClient = redis()): Promise<boolean> {
   const key = `${EVENT_KEY_PREFIX}${sha256(
     `${approvalScope(input.threadId, input.principalId)}\u0000${input.eventId}`,
   )}`;
-  const claimed = await redis().set(key, "1", {
+  const claimed = await client.set(key, "1", {
     ex: EVENT_TTL_SECONDS,
     nx: true,
   });

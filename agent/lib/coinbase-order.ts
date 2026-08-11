@@ -7,6 +7,8 @@ import {
 
 import { z } from "zod";
 
+import { coinbaseEvalFixtureEnabled } from "#coinbase-eval-fixture";
+
 import { coinbaseCredentials } from "./coinbase-cli";
 
 const decimalSchema = z
@@ -169,9 +171,12 @@ function canonicalOrder(order: CoinbaseOrder): CoinbaseOrder {
 }
 
 function sign(encoded: string): Buffer {
+  const signingKey = coinbaseEvalFixtureEnabled()
+    ? "local-eval-fixture-signing-key"
+    : coinbaseCredentials().keySecret;
   return createHmac(
     "sha256",
-    coinbaseCredentials().keySecret,
+    signingKey,
   )
     .update("eve-coinbase-order-preview\u0000")
     .update(encoded)

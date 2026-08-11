@@ -14,6 +14,8 @@ import {
 import {
   claimCurrentPhotonApprovalDecision,
   claimPhotonApprovalDecision,
+  claimPhotonApprovalEvent,
+  getPhotonApprovalDelivery,
   getPhotonApprovalView,
 } from "../agent/lib/photon-approval-store.ts";
 import { photonApprovalAppUrl } from "../agent/lib/photon-mini-app.ts";
@@ -157,8 +159,8 @@ const principalId = "imessage:test-owner";
 const threadId = "imessage:test-thread";
 const approvalToken = "T".repeat(43);
 const hash = (value) => createHash("sha256").update(value).digest("hex");
-const activeKey = `eve:photon:v2:active-approval:${"a".repeat(64)}`;
-const recordKey = `eve:photon:v2:approval:${hash(
+const activeKey = `eve:photon:v3:active-approval:${"a".repeat(64)}`;
+const recordKey = `eve:photon:v3:approval:${hash(
   `approval-token\u0000${approvalToken}`,
 )}`;
 const activeRecord = {
@@ -183,6 +185,30 @@ const deliveringRecord = {
   expiredDecision: false,
   state: "delivering",
 };
+const deliveredRecord = {
+  ...deliveringRecord,
+  deliveredAtMs: Date.now(),
+  state: "delivered",
+};
+
+let approvalEventKey;
+assert.equal(
+  await claimPhotonApprovalEvent(
+    {
+      eventId: "event-retry",
+      principalId,
+      threadId,
+    },
+    {
+      set: async (key) => {
+        approvalEventKey = key;
+        return "OK";
+      },
+    },
+  ),
+  true,
+);
+assert.match(approvalEventKey, /^eve:photon:v2:approval-event:/u);
 
 function approvalStore({
   active = recordKey,
@@ -196,7 +222,7 @@ function approvalStore({
   return {
     eval: async () => evalValue,
     get: async (key) => {
-      if (key.startsWith("eve:photon:v2:active-approval:")) return active;
+      if (key.startsWith("eve:photon:v3:active-approval:")) return active;
       return key === recordKey ? record : null;
     },
   };
@@ -241,6 +267,37 @@ assert.deepEqual(
   },
 );
 assert.deepEqual(
+  await getPhotonApprovalDelivery(
+    { decision: "approve", recordKey },
+    approvalStore({
+      record: JSON.stringify(deliveringRecord),
+    }),
+  ),
+  {
+    delivery: {
+      decision: "approve",
+      expired: false,
+      principalId,
+      recordKey,
+      requestId: "request_coinbase_create_order",
+      sessionId: "wrun_test",
+      threadId,
+      toolName: "coinbase_create_order",
+    },
+    status: "deliver",
+  },
+);
+assert.deepEqual(
+  await getPhotonApprovalDelivery(
+    { decision: "approve", recordKey },
+    approvalStore({
+      active: null,
+      record: JSON.stringify(deliveredRecord),
+    }),
+  ),
+  { status: "delivered" },
+);
+assert.deepEqual(
   await claimPhotonApprovalDecision(
     { approvalToken: "invalid", decision: "approve" },
     approvalStore(),
@@ -274,11 +331,7 @@ assert.deepEqual(
     approvalToken,
     approvalStore({
       active: null,
-      record: JSON.stringify({
-        ...deliveringRecord,
-        deliveredAtMs: Date.now(),
-        state: "delivered",
-      }),
+      record: JSON.stringify(deliveredRecord),
     }),
   ),
   {

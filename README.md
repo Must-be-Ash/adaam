@@ -143,8 +143,9 @@ manage triggers. For example:
 Rules are currently isolated by authenticated principal and persisted in the
 `eve-feed-triggers` Upstash Redis resource. The workspace architecture will map
 allowed channel-principal aliases to one deployment owner and make limits
-owner-global. Vercel injects `KV_REST_API_URL` and `KV_REST_API_TOKEN`; do not
-put their values in source control. A single one-minute Vercel Cron dispatcher
+owner-global. Vercel injects `KV_REST_API_URL`, `KV_REST_API_TOKEN`, and the
+TLS `REDIS_URL` used by Photon Chat SDK state; do not put their values in source
+control. A single one-minute Vercel Cron dispatcher
 atomically leases due rules. Each check runs as an isolated scheduled job with
 app identity, restricted tools, exact source fencing, and no access to the
 owner's conversation history or OAuth grants. It advances its watermark only
@@ -166,3 +167,23 @@ npm exec -- eve dev
 ```
 
 For controllable server-only development, use `npm exec -- eve dev --no-ui`.
+
+## Verification and observability
+
+Run the deterministic build checks with `npm run build`. Run the live-model Coinbase
+behavior suite with:
+
+```bash
+npm run eval:coinbase
+```
+
+The Eve eval suite exercises multiple natural-language balance requests plus order
+preview, approval, denial, and resumed execution. It uses a local-only Coinbase fixture:
+no Coinbase request is sent and no financial state can change. Eval event streams and
+assertion details are written under `.eve/evals/`.
+
+Photon uses Redis-backed Chat SDK state for webhook deduplication and distributed
+locking. Production logs emit structured lifecycle events for session migration,
+approval-card readiness, approval delivery, and failed Eve turns. These events include
+Eve request/session IDs and tool names for correlation, but never message text, balances,
+order amounts, credentials, or account objects.

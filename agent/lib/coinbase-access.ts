@@ -1,6 +1,11 @@
 import type { SessionAuthContext, SessionContext } from "eve/context";
 import type { ApprovalContext, ApprovalStatus } from "eve/tools";
 
+import {
+  coinbaseEvalFixtureEnabled,
+  coinbaseEvalPrincipalId,
+} from "#coinbase-eval-fixture";
+
 const COINBASE_MUTATING_TOOLS = new Set([
   "coinbase_convert_execute",
   "coinbase_create_order",
@@ -41,6 +46,9 @@ function stringAttribute(
 }
 
 export function coinbasePrincipal(session: Session): CoinbasePrincipal | null {
+  if (coinbaseEvalFixtureEnabled()) {
+    return { channel: "imessage", id: coinbaseEvalPrincipalId() };
+  }
   const auth = session.auth.current;
   if (!auth || auth.principalType !== "user") return null;
 
@@ -70,6 +78,12 @@ function configuredPrincipals(): ReadonlySet<string> {
 }
 
 export function coinbasePrincipalAllowed(principal: CoinbasePrincipal): boolean {
+  if (
+    coinbaseEvalFixtureEnabled() &&
+    principal.id === coinbaseEvalPrincipalId()
+  ) {
+    return true;
+  }
   return configuredPrincipals().has(principal.id);
 }
 

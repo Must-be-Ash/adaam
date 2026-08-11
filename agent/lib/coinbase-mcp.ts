@@ -10,6 +10,11 @@ import {
   safeCoinbaseFailure,
 } from "./coinbase-cli";
 import {
+  callCoinbaseEvalTool,
+  coinbaseEvalChildEnvironment,
+  coinbaseEvalFixtureEnabled,
+} from "#coinbase-eval-fixture";
+import {
   COINBASE_MAX_PAGE_ITEMS,
   normalizeCoinbaseMcpToolResult,
 } from "./coinbase-mcp-policy";
@@ -55,7 +60,9 @@ async function createCoinbaseClient(): Promise<MCPClient> {
     transport: new Experimental_StdioMCPTransport({
       args: [COINBASE_CLI_PATH, "mcp"],
       command: process.execPath,
-      env: coinbaseChildEnvironment(),
+      env: coinbaseEvalFixtureEnabled()
+        ? coinbaseEvalChildEnvironment()
+        : coinbaseChildEnvironment(),
       stderr: "ignore",
     }),
     version: "1.0.0",
@@ -99,6 +106,10 @@ export async function callCoinbaseMcpTool(
   input: Record<string, unknown>,
   options: { signal?: AbortSignal } = {},
 ): Promise<JsonValue> {
+  if (coinbaseEvalFixtureEnabled()) {
+    if (options.signal?.aborted) throw options.signal.reason;
+    return callCoinbaseEvalTool(name, input);
+  }
   let client: MCPClient | undefined;
   try {
     client = await createCoinbaseClient();

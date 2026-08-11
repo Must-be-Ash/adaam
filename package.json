@@ -4,25 +4,27 @@
   "type": "module",
   "imports": {
     "#*": "./agent/*",
+    "#coinbase-eval-fixture": "./agent/lib/coinbase-eval-fixture.ts",
     "#evals/*": "./evals/*",
     "#mcp-tool-result": "./agent/lib/mcp-tool-result.ts"
   },
   "scripts": {
     "prepare:coinbase": "node scripts/embed-coinbase-cli.mjs",
-    "prebuild": "npm run prepare:coinbase && npm run verify:context && npm run verify:approvals && npm run verify:balance",
+    "prebuild": "npm run prepare:coinbase && npm run verify:context && npm run verify:approvals && npm run verify:sessions",
     "predev": "npm run prepare:coinbase",
     "pretypecheck": "npm run prepare:coinbase",
     "build": "eve build",
     "dev": "eve dev",
+    "eval:coinbase": "node scripts/run-coinbase-evals.mjs",
     "start": "eve start",
     "typecheck": "tsc",
     "verify:approvals": "node scripts/verify-photon-approval.mjs",
-    "verify:balance": "node scripts/verify-photon-balance.mjs",
-    "verify:context": "node scripts/verify-mcp-tool-result.mjs"
+    "verify:context": "node scripts/verify-mcp-tool-result.mjs",
+    "verify:sessions": "node scripts/verify-photon-session.mjs"
   },
   "dependencies": {
     "@ai-sdk/mcp": "^2.0.29",
-    "@chat-adapter/state-memory": "^4.37.0",
+    "@chat-adapter/state-redis": "^4.37.0",
     "@coinbase/coinbase-cli": "0.0.4",
     "@photon-ai/chat-adapter-imessage": "^3.2.0",
     "@upstash/redis": "^1.38.2",

@@ -19,6 +19,11 @@ chat.
 - Read-only Coinbase calls do not require a separate approval prompt. Private balances,
   portfolio details, orders, and fills remain restricted to the allowlisted owner in a
   private chat.
+- For a balance or holdings request, call `coinbase_balance` once with `limit: 200` and
+  `show_zero: false`. Use `show_zero: true` instead only when the user explicitly asks
+  for zero-balance currencies. Do not repeat a successful balance read with the opposite
+  setting. Do not fetch product prices, tickers, or fiat valuations unless the user asks
+  for a valuation.
 - Every state-changing action requires approval: create, edit, or cancel an order;
   execute a conversion; create, edit, or delete a portfolio; or transfer funds.
 - Never make a trade, transfer, conversion, or portfolio change from a scheduled check,

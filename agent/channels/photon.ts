@@ -1,4 +1,6 @@
-import { createMemoryState } from "@chat-adapter/state-memory";
+import { randomBytes } from "node:crypto";
+
+import { createRedisState } from "@chat-adapter/state-redis";
 import { createiMessageAdapter } from "@photon-ai/chat-adapter-imessage";
 import { connectPhotonCredentials } from "@vercel/connect/eve";
 import type { Thread } from "chat";
@@ -7,13 +9,8 @@ import {
   chatSdkChannel,
   messageToUserContent,
 } from "eve/channels/chat-sdk";
-import type { InputRequest } from "eve/client";
+import type { InputRequest, MessageStreamEvent } from "eve/client";
 
-import {
-  coinbasePrincipalAllowed,
-  type CoinbasePrincipal,
-} from "../lib/coinbase-access";
-import { callCoinbaseMcpTool } from "../lib/coinbase-mcp";
 import {
   createPhotonApprovalPrompt,
   isPhotonApprovalAlias,
@@ -27,17 +24,21 @@ import {
   claimCurrentPhotonApprovalDecision,
   claimPhotonApprovalEvent,
   clearPhotonApproval,
+  failPhotonApprovalDecision,
   getPhotonApprovalView,
   hasCurrentPhotonApproval,
   savePhotonApproval,
   type PhotonApprovalDelivery,
 } from "../lib/photon-approval-store";
 import { photonAuth, photonPrincipalId } from "../lib/photon-auth";
-import {
-  formatCoinbaseBalance,
-  isCoinbaseBalanceRequest,
-} from "../lib/photon-balance";
 import { photonApprovalAppUrl } from "../lib/photon-mini-app";
+import {
+  completePhotonSessionMigration,
+  PHOTON_SESSION_GENERATION,
+  releasePhotonSessionMigration,
+  reservePhotonSessionMigration,
+  savePhotonSessionBinding,
+} from "../lib/photon-session-store";
 
 const webhookSecret = process.env.IMESSAGE_WEBHOOK_SECRET;
 const imessageAdapter = createiMessageAdapter({
@@ -119,7 +120,7 @@ async function respondToEveSession(
 
 async function deliverPhotonApprovalResponse(
   delivery: PhotonApprovalDelivery,
-): Promise<void> {
+): Promise<"accepted" | "uncertain"> {
   const host =
     process.env.VERCEL_URL ?? process.env.VERCEL_PROJECT_PRODUCTION_URL;
   const oidcToken = process.env.VERCEL_OIDC_TOKEN;
@@ -146,7 +147,12 @@ async function deliverPhotonApprovalResponse(
         method: "POST",
         signal: AbortSignal.timeout(10_000),
       });
-      if (response.ok) return;
+      if (response.ok) {
+        const body = (await response.json().catch(() => null)) as
+          | { status?: unknown }
+          | null;
+        return body?.status === "uncertain" ? "uncertain" : "accepted";
+      }
       if (response.status < 500 || attempt === 2) {
         throw new Error("Eve rejected the Photon approval response.");
       }
@@ -154,6 +160,7 @@ async function deliverPhotonApprovalResponse(
       if (attempt === 2) throw error;
     }
   }
+  throw new Error("Eve did not acknowledge the Photon approval response.");
 }
 
 async function denyApprovalRequests(input: {
@@ -190,8 +197,19 @@ const bridge = chatSdkChannel({
   adapters: {
     imessage: imessageAdapter,
   },
-  concurrency: "concurrent",
+  concurrency: "queue",
   events: {
+    async "turn.failed"(data, channel, ctx) {
+      console.error("[photon.turn] Eve turn failed", {
+        error_code: data.code,
+        session_id: ctx.session.id,
+        turn_id: data.turnId,
+      });
+      if (!channel.thread) return;
+      await channel.thread.post(
+        `I couldn't finish that request (${data.code}). I won't retry it automatically. If it involved an order, check Coinbase before trying again.`,
+      );
+    },
     async "authorization.required"(data, channel, ctx) {
       if (!channel.thread) return;
       if (ctx.session.auth.current?.principalType === "runtime") return;
@@ -269,7 +287,13 @@ const bridge = chatSdkChannel({
       let prompt: PhotonApprovalPrompt;
       try {
         prompt = createPhotonApprovalPrompt(request);
-      } catch {
+      } catch (error) {
+        console.error("[photon.approval] Approval prompt creation failed", {
+          error_type: error instanceof Error ? error.name : typeof error,
+          request_id: request.requestId,
+          session_id: ctx.session.id,
+          tool_name: request.action.toolName,
+        });
         await denyApprovalRequests({
           notice: unavailableApprovalText(request.prompt),
           requests: [request],
@@ -296,7 +320,13 @@ const bridge = chatSdkChannel({
         approvalToken = reservation.approvalToken;
         reservationState = reservation.state;
         reused = reservation.reused;
-      } catch {
+      } catch (error) {
+        console.error("[photon.approval] Approval reservation failed", {
+          error_type: error instanceof Error ? error.name : typeof error,
+          request_id: request.requestId,
+          session_id: ctx.session.id,
+          tool_name: request.action.toolName,
+        });
         await denyApprovalRequests({
           notice: unavailableApprovalText(prompt.approvalText),
           requests: [request],
@@ -314,7 +344,13 @@ const bridge = chatSdkChannel({
           channel.thread.id,
           photonApprovalAppUrl(approvalToken),
         );
-      } catch {
+      } catch (error) {
+        console.warn("[photon.approval] Mini-app delivery failed", {
+          error_type: error instanceof Error ? error.name : typeof error,
+          request_id: request.requestId,
+          session_id: ctx.session.id,
+          tool_name: request.action.toolName,
+        });
         const cleared = await clearPhotonApproval({
           approvalToken,
           principalId: auth.principalId,
@@ -340,7 +376,19 @@ const bridge = chatSdkChannel({
         await channel.thread
           .post(approvalRequestText(prompt))
           .catch(() => undefined);
-      } catch {
+        console.info("[photon.approval] Approval ready", {
+          delivery: "mini-app",
+          request_id: request.requestId,
+          session_id: ctx.session.id,
+          tool_name: request.action.toolName,
+        });
+      } catch (error) {
+        console.warn("[photon.approval] Approval activation uncertain", {
+          error_type: error instanceof Error ? error.name : typeof error,
+          request_id: request.requestId,
+          session_id: ctx.session.id,
+          tool_name: request.action.toolName,
+        });
         const view = await getPhotonApprovalView(approvalToken).catch(
           () => null,
         );
@@ -379,7 +427,9 @@ const bridge = chatSdkChannel({
     },
   },
   routes: { imessage: "/eve/v1/photon" },
-  state: createMemoryState(),
+  state: createRedisState({
+    keyPrefix: "eve:photon:chat-sdk",
+  }),
   streaming: false,
   userName: "eve",
 });
@@ -449,14 +499,18 @@ async function submitApprovalDecision(
     return true;
   }
 
-  const acknowledgement =
+  let acknowledgement =
     claim.delivery.expired
       ? "That approval expired. No action was taken."
       : claim.delivery.decision === "approve"
         ? "Approved. Continuing…"
         : "Denied. No action will be taken.";
   try {
-    await deliverPhotonApprovalResponse(claim.delivery);
+    const deliveryStatus = await deliverPhotonApprovalResponse(claim.delivery);
+    if (deliveryStatus === "uncertain") {
+      acknowledgement =
+        "Approval status is uncertain. Check Coinbase before retrying this order.";
+    }
   } catch {
     await thread
       .post(
@@ -469,34 +523,183 @@ async function submitApprovalDecision(
   return true;
 }
 
-async function handleDirectCoinbaseBalance(
-  thread: Thread,
-  senderId: string,
-  text: string,
-): Promise<boolean> {
-  if (!isCoinbaseBalanceRequest(text)) return false;
+async function readSessionEvent(
+  reader: ReadableStreamDefaultReader<MessageStreamEvent>,
+  timeoutMs: number,
+) {
+  return new Promise<Awaited<ReturnType<typeof reader.read>>>(
+    (resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for the session refresh turn.")),
+        timeoutMs,
+      );
+      reader.read().then(
+        (value) => {
+          clearTimeout(timeout);
+          resolve(value);
+        },
+        (error: unknown) => {
+          clearTimeout(timeout);
+          reject(error);
+        },
+      );
+    },
+  );
+}
 
-  const principal: CoinbasePrincipal = {
-    channel: "imessage",
-    id: photonPrincipalId(senderId),
-  };
-  if (!coinbasePrincipalAllowed(principal)) {
-    await thread.post(
-      "This private iMessage identity is not authorized to read the Coinbase portfolio.",
-    );
-    return true;
-  }
+async function waitForSessionRefreshTurn(
+  session: Awaited<ReturnType<typeof bridge.send>>,
+  controlMessage: string,
+): Promise<void> {
+  const tailIndex = await session.getStreamTailIndex();
+  const stream = await session.getEventStream({
+    startIndex: Math.max(0, tailIndex - 50),
+  });
+  const reader = stream.getReader();
+  const deadline = Date.now() + 90_000;
+  let controlTurnId: string | undefined;
+  let observedEvents = 0;
 
   try {
-    const result = await callCoinbaseMcpTool("coinbase_balance", {
-      limit: 200,
-      show_zero: false,
+    while (observedEvents < 10_000) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        throw new Error("Timed out waiting for the session refresh turn.");
+      }
+      const result = await readSessionEvent(reader, remainingMs);
+      if (result.done) {
+        throw new Error("The session event stream ended before refresh.");
+      }
+      observedEvents += 1;
+      const event = result.value;
+      if (
+        event.type === "message.received" &&
+        event.data.message === controlMessage
+      ) {
+        controlTurnId = event.data.turnId;
+        continue;
+      }
+      if (!controlTurnId) continue;
+      if (event.type === "session.waiting") return;
+      if (
+        event.type === "session.completed" ||
+        event.type === "session.failed"
+      ) {
+        return;
+      }
+    }
+    throw new Error("The session refresh produced too many events.");
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+}
+
+async function invalidateCurrentPhotonApproval(input: {
+  principalId: string;
+  threadId: string;
+}): Promise<void> {
+  const claim = await claimCurrentPhotonApprovalDecision({
+    decision: "deny",
+    principalId: input.principalId,
+    threadId: input.threadId,
+  });
+  if (claim.status === "deliver") {
+    await failPhotonApprovalDecision({
+      decision: claim.delivery.decision,
+      recordKey: claim.delivery.recordKey,
     });
-    await thread.post(formatCoinbaseBalance(result));
+    return;
+  }
+  if (claim.status === "conflict") {
+    throw new Error("A Photon approval decision is already being delivered.");
+  }
+}
+
+async function ensureCurrentPhotonSession(
+  thread: Thread,
+  senderId: string,
+): Promise<boolean> {
+  const principalId = photonPrincipalId(senderId);
+  let reservation;
+  try {
+    reservation = await reservePhotonSessionMigration({
+      generation: PHOTON_SESSION_GENERATION,
+      principalId,
+      threadId: thread.id,
+    });
   } catch {
     await thread.post(
-      "Coinbase balance is temporarily unavailable. No account changes were made.",
+      "I couldn't verify this conversation's session state. Please try again.",
     );
+    return false;
+  }
+  if (reservation.status === "current") return true;
+  if (reservation.status === "busy") {
+    await thread.post(
+      "This conversation is already refreshing. Please try again in a moment.",
+    );
+    return false;
+  }
+
+  let stage = "open";
+  try {
+    const refreshId = randomBytes(12).toString("base64url");
+    const controlMessage =
+      `Refresh this conversation for the current runtime (${refreshId}). ` +
+      "Wait for any earlier request to finish, then do not call tools or take actions.";
+    const previousSession = await bridge.send(
+      {
+        context: [
+          "This is a session migration control turn. Do not call tools or take actions. Reply only that the conversation is refreshing.",
+        ],
+        message: controlMessage,
+      },
+      {
+        auth: photonAuth(senderId, thread.id),
+        thread,
+        turnPolicy: "queue",
+      },
+    );
+    stage = "wait";
+    await waitForSessionRefreshTurn(previousSession, controlMessage);
+    stage = "reset";
+    await previousSession.reset({
+      reason: "Move this iMessage conversation to the current runtime.",
+    });
+    stage = "invalidate-approval";
+    await invalidateCurrentPhotonApproval({
+      principalId,
+      threadId: thread.id,
+    });
+    stage = "commit";
+    const completed = await completePhotonSessionMigration({
+      generation: PHOTON_SESSION_GENERATION,
+      migrationToken: reservation.migrationToken,
+      principalId,
+      threadId: thread.id,
+    });
+    if (!completed) {
+      throw new Error("The Photon session migration reservation expired.");
+    }
+    console.info("[photon.session] Migrated conversation to current runtime", {
+      previous_session_id: previousSession.id,
+      runtime_generation: PHOTON_SESSION_GENERATION,
+    });
+  } catch (error) {
+    await releasePhotonSessionMigration({
+      migrationToken: reservation.migrationToken,
+      principalId,
+      threadId: thread.id,
+    }).catch(() => undefined);
+    console.error("[photon.session] Session migration failed", {
+      error_type: error instanceof Error ? error.name : typeof error,
+      migration_stage: stage,
+      runtime_generation: PHOTON_SESSION_GENERATION,
+    });
+    await thread.post(
+      "I couldn't refresh this conversation safely. No action was taken; please try again.",
+    );
+    return false;
   }
   return true;
 }
@@ -520,19 +723,18 @@ async function dispatch(
   message: Parameters<
     Parameters<typeof bridge.bot.onDirectMessage>[0]
   >[1],
+  context?: Parameters<
+    Parameters<typeof bridge.bot.onDirectMessage>[0]
+  >[2],
 ): Promise<void> {
+  for (const skipped of context?.skipped ?? []) {
+    await dispatch(thread, skipped);
+  }
   if (message.author.isBot || !thread.isDM) return;
 
   const senderId = message.author.userId;
-  if (
-    await handleDirectCoinbaseBalance(
-      thread,
-      senderId,
-      message.text,
-    )
-  ) {
-    return;
-  }
+  if (!(await ensureCurrentPhotonSession(thread, senderId))) return;
+
   const textDecision = parsePhotonTextDecision(message.text);
   if (textDecision) {
     let firstEvent;
@@ -580,7 +782,7 @@ async function dispatch(
     return;
   }
 
-  await bridge.send(
+  const session = await bridge.send(
     {
       context: [
         "This request arrived through a private iMessage conversation.",
@@ -590,9 +792,21 @@ async function dispatch(
     {
       auth: photonAuth(senderId, thread.id),
       thread,
-      turnPolicy: "experimental-steer",
+      turnPolicy: "queue",
     },
   );
+  await savePhotonSessionBinding({
+    generation: PHOTON_SESSION_GENERATION,
+    principalId: photonPrincipalId(senderId),
+    sessionId: session.id,
+    threadId: thread.id,
+  }).catch((error: unknown) => {
+    console.error("[photon.session] Session binding update failed", {
+      error_type: error instanceof Error ? error.name : typeof error,
+      runtime_generation: PHOTON_SESSION_GENERATION,
+      session_id: session.id,
+    });
+  });
 }
 
 bridge.bot.onDirectMessage(dispatch);
