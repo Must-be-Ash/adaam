@@ -311,6 +311,7 @@ function workspaceHtml(nonce: string, origin: string): string {
       gap: 16px;
       background: var(--surface);
     }
+    .workspace.active { border-color: #d8d8d8; }
     .workspace.archived { opacity: .76; }
     .title-row {
       display: flex;
