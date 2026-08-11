@@ -1,5 +1,9 @@
 # eve Agent App
 
+Read `HANDOFF.md` first. It is the canonical guide to Eve's current product
+direction, implemented architecture, safety invariants, operational workflow,
+known gaps, and production lessons.
+
 This project uses the eve framework. Before writing code, read the relevant guide
 from the installed eve package docs. In most installs, those docs are at
 `node_modules/eve/docs/`. In workspaces or local package installs, resolve the
