@@ -10,6 +10,11 @@ import {
 import type { InputRequest } from "eve/client";
 
 import {
+  coinbasePrincipalAllowed,
+  type CoinbasePrincipal,
+} from "../lib/coinbase-access";
+import { callCoinbaseMcpTool } from "../lib/coinbase-mcp";
+import {
   createPhotonApprovalPrompt,
   isPhotonApprovalAlias,
   isPhotonApprovalSupported,
@@ -28,6 +33,10 @@ import {
   type PhotonApprovalDelivery,
 } from "../lib/photon-approval-store";
 import { photonAuth, photonPrincipalId } from "../lib/photon-auth";
+import {
+  formatCoinbaseBalance,
+  isCoinbaseBalanceRequest,
+} from "../lib/photon-balance";
 import { photonApprovalAppUrl } from "../lib/photon-mini-app";
 
 const webhookSecret = process.env.IMESSAGE_WEBHOOK_SECRET;
@@ -460,6 +469,38 @@ async function submitApprovalDecision(
   return true;
 }
 
+async function handleDirectCoinbaseBalance(
+  thread: Thread,
+  senderId: string,
+  text: string,
+): Promise<boolean> {
+  if (!isCoinbaseBalanceRequest(text)) return false;
+
+  const principal: CoinbasePrincipal = {
+    channel: "imessage",
+    id: photonPrincipalId(senderId),
+  };
+  if (!coinbasePrincipalAllowed(principal)) {
+    await thread.post(
+      "This private iMessage identity is not authorized to read the Coinbase portfolio.",
+    );
+    return true;
+  }
+
+  try {
+    const result = await callCoinbaseMcpTool("coinbase_balance", {
+      limit: 200,
+      show_zero: false,
+    });
+    await thread.post(formatCoinbaseBalance(result));
+  } catch {
+    await thread.post(
+      "Coinbase balance is temporarily unavailable. No account changes were made.",
+    );
+  }
+  return true;
+}
+
 async function isFirstApprovalEvent(input: {
   eventId: string;
   senderId: string;
@@ -483,6 +524,15 @@ async function dispatch(
   if (message.author.isBot || !thread.isDM) return;
 
   const senderId = message.author.userId;
+  if (
+    await handleDirectCoinbaseBalance(
+      thread,
+      senderId,
+      message.text,
+    )
+  ) {
+    return;
+  }
   const textDecision = parsePhotonTextDecision(message.text);
   if (textDecision) {
     let firstEvent;
