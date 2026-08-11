@@ -48,6 +48,15 @@ const imessageAdapter = createiMessageAdapter({
     : { webhookVerifier: vercelOidc() }),
 });
 
+function isPhotonSessionResetCommand(text: string): boolean {
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    .replace(/[.!?]+$/u, "")
+    .replace(/\s+/gu, " ");
+  return normalized === "reset session" || normalized === "start fresh";
+}
+
 function approvalRequestText(prompt: PhotonApprovalPrompt): string {
   return `${prompt.approvalText}\n\nOpen the approval card to choose Approve or Deny. If the card does not open, reply YES or NO.`;
 }
@@ -733,6 +742,39 @@ async function dispatch(
   if (message.author.isBot || !thread.isDM) return;
 
   const senderId = message.author.userId;
+  if (isPhotonSessionResetCommand(message.text)) {
+    try {
+      const session = await bridge.send(
+        {
+          context: [
+            "This is an internal session-reset command. Do not call tools or take actions.",
+          ],
+          message: "Retire this conversation immediately without taking actions.",
+        },
+        {
+          auth: photonAuth(senderId, thread.id),
+          thread,
+          turnPolicy: "experimental-steer",
+        },
+      );
+      await session.reset({
+        reason: "The iMessage user requested a fresh conversation.",
+      });
+      await invalidateCurrentPhotonApproval({
+        principalId: photonPrincipalId(senderId),
+        threadId: thread.id,
+      });
+      await thread.post(
+        "Session cleared. Your next message will start a fresh conversation with no previous context or pending request.",
+      );
+    } catch (error) {
+      console.error("[photon.session] User-requested reset failed", {
+        error_type: error instanceof Error ? error.name : typeof error,
+      });
+      await thread.post("I couldn't clear this session. No action was taken.");
+    }
+    return;
+  }
 
   const textDecision = parsePhotonTextDecision(message.text);
   if (textDecision) {
