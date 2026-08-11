@@ -3,8 +3,8 @@ export const PHOTON_APPROVAL_APP_PATH = "/eve/v1/photon-approval";
 function deploymentOrigin(): URL {
   const configured =
     process.env.PHOTON_MINI_APP_BASE_URL ??
-    process.env.VERCEL_URL ??
-    process.env.VERCEL_PROJECT_PRODUCTION_URL;
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ??
+    process.env.VERCEL_URL;
   if (!configured) {
     throw new Error("The Photon mini-app deployment URL is unavailable.");
   }
