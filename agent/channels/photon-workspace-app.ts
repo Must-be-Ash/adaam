@@ -1,4 +1,3 @@
-import { Buffer } from "node:buffer";
 import { randomBytes } from "node:crypto";
 
 import { defineChannel, GET, POST } from "eve/channels";
@@ -19,12 +18,14 @@ import {
 
 const tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
 const workspaceIdSchema = z.string().uuid();
-const PHOTON_SESSION_ICON_PATH = `${PHOTON_WORKSPACE_APP_PATH}/icon.png`;
+const PHOTON_SESSION_ICON_PATH = `${PHOTON_WORKSPACE_APP_PATH}/logo.svg`;
 const PHOTON_SESSION_MANIFEST_PATH = `${PHOTON_WORKSPACE_APP_PATH}/manifest.webmanifest`;
-const PHOTON_SESSION_ICON = Buffer.from(
-  "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",
-  "base64",
-);
+const PHOTON_SESSION_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 726.15 726.15">' +
+  '<rect width="726.15" height="726.15" rx="107.9" ry="107.9" fill="#1733ff"/>' +
+  '<path fill="#fff" d="M256.31 323.87c11.83-37.31 44.54-63.92 83.91-70.79 48.52-8.47 96.93 15.39 119.31 59.41 21.43 42.15 14.42 95.38-20.25 130.31-27.4 27.6-66.36 37.18-102.06 29.3-39-8.6-70.08-36.21-82.76-74.85 18.03 12.07 39.46 15.06 56.57 1.85 19.14-14.78 22.12-42.22 9.32-60.84-13.79-20.06-39.11-26.97-64.04-14.4Z"/>' +
+  '<path fill="#fff" d="M363.08 172.98c-104.99 0-190.1 85.11-190.1 190.1s85.11 190.1 190.1 190.1 190.1-85.11 190.1-190.1-85.11-190.1-190.1-190.1Zm0 345.56c-85.86 0-155.46-69.6-155.46-155.46s69.6-155.46 155.46-155.46 155.46 69.6 155.46 155.46-69.6 155.46-155.46 155.46Z"/>' +
+  "</svg>";
 const stateRequestSchema = z.object({
   managerToken: tokenSchema,
 });
@@ -169,58 +170,36 @@ function workspaceHtml(nonce: string, origin: string): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f3f6fb">
-  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0c1119">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#171717">
   <meta name="apple-mobile-web-app-title" content="Eve">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Eve">
   <meta property="og:title" content="Manage Eve Sessions">
   <meta property="og:description" content="Create and switch isolated Eve sessions.">
   <meta property="og:image" content="${iconUrl}">
-  <meta property="og:image:type" content="image/png">
-  <meta property="og:image:width" content="180">
-  <meta property="og:image:height" content="180">
-  <link rel="icon" type="image/png" sizes="180x180" href="${iconUrl}">
-  <link rel="apple-touch-icon" sizes="180x180" href="${iconUrl}">
+  <meta property="og:image:type" content="image/svg+xml">
+  <meta property="og:image:width" content="726">
+  <meta property="og:image:height" content="726">
+  <link rel="icon" type="image/svg+xml" sizes="any" href="${iconUrl}">
+  <link rel="apple-touch-icon" href="${iconUrl}">
   <link rel="manifest" href="${manifestUrl}">
   <title>Manage Eve Sessions</title>
   <style nonce="${nonce}">
     :root {
-      color-scheme: light dark;
-      --bg: #f3f6fb;
-      --surface: #ffffff;
-      --surface-raised: #f8fafd;
-      --text: #111827;
-      --muted: #667085;
-      --line: rgba(17, 24, 39, .11);
-      --line-strong: rgba(17, 24, 39, .18);
-      --accent: #2f6fed;
-      --accent-strong: #245bca;
-      --accent-soft: #eaf1ff;
-      --danger: #b42318;
-      --danger-soft: #fff0ee;
-      --shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 12px 28px rgba(15, 23, 42, .05);
+      color-scheme: dark;
+      --bg: #171717;
+      --surface: #202020;
+      --surface-raised: #292929;
+      --text: #f2f2f2;
+      --muted: #a0a0a0;
+      --line: #333333;
+      --line-strong: #4a4a4a;
+      --primary: #e8e8e8;
+      --primary-text: #181818;
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
       background: var(--bg);
       color: var(--text);
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0c1119;
-        --surface: #131a24;
-        --surface-raised: #18212d;
-        --text: #f2f5f9;
-        --muted: #98a6b8;
-        --line: rgba(255, 255, 255, .09);
-        --line-strong: rgba(255, 255, 255, .15);
-        --accent: #6593ff;
-        --accent-strong: #7ca3ff;
-        --accent-soft: rgba(65, 112, 216, .14);
-        --danger: #ff8178;
-        --danger-soft: rgba(248, 81, 73, .10);
-        --shadow: 0 1px 2px rgba(0, 0, 0, .16), 0 16px 36px rgba(0, 0, 0, .12);
-      }
     }
     * { box-sizing: border-box; }
     html { background: var(--bg); }
@@ -239,30 +218,7 @@ function workspaceHtml(nonce: string, origin: string): string {
       width: min(100%, 560px);
       margin: 0 auto;
       display: grid;
-      gap: 24px;
-    }
-    header {
-      display: grid;
-      gap: 12px;
-    }
-    .brand-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .brand-mark {
-      width: 28px;
-      height: 28px;
-      border-radius: 8px;
-      box-shadow: 0 4px 14px rgba(30, 64, 175, .16);
-    }
-    .eyebrow {
-      margin: 0;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 750;
-      letter-spacing: .12em;
-      text-transform: uppercase;
+      gap: 22px;
     }
     h1 {
       margin: 0;
@@ -274,32 +230,14 @@ function workspaceHtml(nonce: string, origin: string): string {
       text-wrap: balance;
     }
     #status {
-      width: fit-content;
-      max-width: 100%;
-      margin: -8px 0 0;
-      padding: 7px 10px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      border-radius: 999px;
-      background: var(--accent-soft);
-      color: var(--accent-strong);
-      font-size: 13px;
-      font-weight: 620;
-      line-height: 1.35;
-    }
-    #status::before {
-      content: "";
-      width: 7px;
-      height: 7px;
-      flex: 0 0 auto;
-      border-radius: 999px;
-      background: currentColor;
-      box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 14%, transparent);
+      margin: -10px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.4;
     }
     #status.error {
-      background: var(--danger-soft);
-      color: var(--danger);
+      color: #d6d6d6;
+      font-weight: 650;
     }
     .create-section {
       display: grid;
@@ -319,7 +257,6 @@ function workspaceHtml(nonce: string, origin: string): string {
       border: 1px solid var(--line);
       border-radius: 16px;
       background: var(--surface);
-      box-shadow: var(--shadow);
     }
     input, button {
       min-height: 44px;
@@ -338,8 +275,8 @@ function workspaceHtml(nonce: string, origin: string): string {
     }
     input::placeholder { color: var(--muted); opacity: .78; }
     input:focus-visible {
-      border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-      background: var(--surface-raised);
+      border-color: #5a5a5a;
+      background: #252525;
     }
     button {
       border: 1px solid var(--line);
@@ -351,37 +288,28 @@ function workspaceHtml(nonce: string, origin: string): string {
       -webkit-tap-highlight-color: transparent;
     }
     button.primary {
-      border-color: transparent;
-      background: #3978f6;
-      color: #ffffff;
-      box-shadow: 0 7px 18px rgba(30, 96, 230, .18);
+      border-color: var(--primary);
+      background: var(--primary);
+      color: var(--primary-text);
     }
     button.danger {
-      border-color: color-mix(in srgb, var(--danger) 18%, transparent);
-      background: var(--danger-soft);
-      color: var(--danger);
+      border-color: #3a3a3a;
+      background: #242424;
+      color: #bdbdbd;
     }
     button:focus-visible {
-      outline: 3px solid color-mix(in srgb, var(--accent) 32%, transparent);
+      outline: 3px solid #686868;
       outline-offset: 2px;
     }
     button:disabled { cursor: default; opacity: .45; }
     #workspaces { display: grid; gap: 14px; }
     .workspace {
       border: 1px solid var(--line);
-      border-radius: 20px;
+      border-radius: 16px;
       padding: 18px;
       display: grid;
       gap: 16px;
       background: var(--surface);
-      box-shadow: var(--shadow);
-    }
-    .workspace.active {
-      border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
-      background: color-mix(in srgb, var(--accent-soft) 48%, var(--surface));
-      box-shadow:
-        inset 0 0 0 1px color-mix(in srgb, var(--accent) 13%, transparent),
-        var(--shadow);
     }
     .workspace.archived { opacity: .76; }
     .title-row {
@@ -397,25 +325,6 @@ function workspaceHtml(nonce: string, origin: string): string {
       font-weight: 730;
       letter-spacing: -.012em;
       line-height: 1.24;
-    }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      flex: 0 0 auto;
-      border-radius: 999px;
-      padding: 5px 9px;
-      background: var(--accent-soft);
-      color: var(--accent-strong);
-      font-size: 12px;
-      font-weight: 700;
-    }
-    .badge::before {
-      content: "";
-      width: 6px;
-      height: 6px;
-      border-radius: 999px;
-      background: currentColor;
     }
     .meta {
       margin: 4px 0 0;
@@ -457,12 +366,10 @@ function workspaceHtml(nonce: string, origin: string): string {
       button:hover:not(:disabled) {
         border-color: var(--line-strong);
       }
-      button:active:not(:disabled) { transform: scale(.985); }
-      .workspace { animation: settle 180ms ease-out both; }
-      @keyframes settle {
-        from { opacity: 0; transform: translateY(3px); }
-        to { opacity: 1; transform: translateY(0); }
+      button.primary:hover:not(:disabled) {
+        background: #f2f2f2;
       }
+      button:active:not(:disabled) { transform: scale(.985); }
     }
     @media (max-width: 370px) {
       body { padding-inline: 16px; }
@@ -477,10 +384,6 @@ function workspaceHtml(nonce: string, origin: string): string {
 <body>
   <main>
     <header>
-      <div class="brand-row">
-        <img class="brand-mark" src="${iconUrl}" alt="">
-        <p class="eyebrow">Eve · Sessions</p>
-      </div>
       <h1>Manage Sessions</h1>
     </header>
     <p id="status" role="status" aria-live="polite">Loading your sessions…</p>
@@ -560,12 +463,6 @@ function workspaceHtml(nonce: string, origin: string): string {
                 : "Available";
           titleWrap.append(title, meta);
           titleRow.append(titleWrap);
-          if (isActive) {
-            const badge = document.createElement("span");
-            badge.className = "badge";
-            badge.textContent = "Active";
-            titleRow.append(badge);
-          }
 
           const actions = document.createElement("div");
           actions.className = "actions";
@@ -676,8 +573,8 @@ function workspaceHtml(nonce: string, origin: string): string {
 export default defineChannel({
   routes: [
     GET(PHOTON_SESSION_ICON_PATH, async () => {
-      return new Response(new Uint8Array(PHOTON_SESSION_ICON), {
-        headers: assetHeaders("image/png"),
+      return new Response(PHOTON_SESSION_ICON, {
+        headers: assetHeaders("image/svg+xml; charset=utf-8"),
       });
     }),
     GET(PHOTON_SESSION_MANIFEST_PATH, async (request) => {
@@ -687,19 +584,19 @@ export default defineChannel({
       ).toString();
       return new Response(
         JSON.stringify({
-          background_color: "#0c1119",
+          background_color: "#171717",
           display: "standalone",
           icons: [
             {
               purpose: "any maskable",
-              sizes: "180x180",
+              sizes: "any",
               src: iconUrl,
-              type: "image/png",
+              type: "image/svg+xml",
             },
           ],
           name: "Eve Sessions",
           short_name: "Eve",
-          theme_color: "#3978f6",
+          theme_color: "#171717",
         }),
         {
           headers: assetHeaders(
