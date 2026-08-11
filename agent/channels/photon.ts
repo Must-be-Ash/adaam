@@ -2,9 +2,9 @@ import { randomBytes } from "node:crypto";
 
 import { createRedisState } from "@chat-adapter/state-redis";
 import { createiMessageAdapter } from "@photon-ai/chat-adapter-imessage";
+import { createConnectWebhookVerifier } from "@vercel/connect/chat";
 import { connectPhotonCredentials } from "@vercel/connect/eve";
 import type { Thread } from "chat";
-import { vercelOidc } from "eve/channels/auth";
 import {
   chatSdkChannel,
   messageToUserContent,
@@ -26,9 +26,11 @@ import {
   clearPhotonApproval,
   completePhotonApprovalDecision,
   failPhotonApprovalDecision,
+  getCurrentPhotonApprovalActivity,
   getPhotonApprovalView,
-  hasCurrentPhotonApproval,
+  releasePhotonApprovalProcessing,
   savePhotonApproval,
+  type PhotonApprovalProcessingRelease,
 } from "../lib/photon-approval-store.js";
 import { photonAuth, photonPrincipalId } from "../lib/photon-auth";
 import { photonApprovalAppUrl } from "../lib/photon-mini-app";
@@ -45,7 +47,7 @@ const imessageAdapter = createiMessageAdapter({
   credentials: connectPhotonCredentials("photon/earnings-call-analyser"),
   ...(webhookSecret
     ? { webhookSecret }
-    : { webhookVerifier: vercelOidc() }),
+    : { webhookVerifier: createConnectWebhookVerifier() }),
 });
 
 function isPhotonSessionResetCommand(text: string): boolean {
@@ -157,6 +159,19 @@ async function denyApprovalRequests(input: {
   await input.thread.post(input.notice);
 }
 
+async function releaseApprovedOrderGuard(
+  sessionId: string,
+): Promise<PhotonApprovalProcessingRelease> {
+  try {
+    return await releasePhotonApprovalProcessing(sessionId);
+  } catch (error) {
+    console.error("[photon.approval] Processing guard release failed", {
+      error_type: error instanceof Error ? error.name : typeof error,
+    });
+    return "retained";
+  }
+}
+
 const bridge = chatSdkChannel({
   adapters: {
     imessage: imessageAdapter,
@@ -164,6 +179,7 @@ const bridge = chatSdkChannel({
   concurrency: "queue",
   events: {
     async "turn.failed"(data, channel, ctx) {
+      const release = await releaseApprovedOrderGuard(ctx.session.id);
       console.error("[photon.turn] Eve turn failed", {
         error_code: data.code,
         session_id: ctx.session.id,
@@ -171,8 +187,31 @@ const bridge = chatSdkChannel({
       });
       if (!channel.thread) return;
       await channel.thread.post(
-        `I couldn't finish that request (${data.code}). I won't retry it automatically. If it involved an order, check Coinbase before trying again.`,
+        release === "retained"
+          ? `I couldn't finish that request (${data.code}). The Coinbase order status is uncertain, so new orders remain blocked. Check Coinbase before taking another action.`
+          : `I couldn't finish that request (${data.code}). I won't retry it automatically. If it involved an order, check Coinbase before trying again.`,
       );
+    },
+    async "turn.completed"(_data, channel, ctx) {
+      const release = await releaseApprovedOrderGuard(ctx.session.id);
+      if (release === "retained" && channel.thread) {
+        await channel.thread.post(
+          "The Coinbase order status is not safely settled. Check Coinbase before trying another order; new orders remain blocked for safety.",
+        );
+      }
+    },
+    async "turn.cancelled"(_data, channel, ctx) {
+      const release = await releaseApprovedOrderGuard(ctx.session.id);
+      if (release !== "missing" && channel.thread) {
+        await channel.thread.post(
+          release === "released"
+            ? "The approved order turn was interrupted after Coinbase settled it. Check Coinbase before submitting another order."
+            : "The approved order turn was interrupted and its status is uncertain. Check Coinbase; new orders remain blocked for safety.",
+        );
+      }
+    },
+    async "session.completed"(_data, _channel, ctx) {
+      await releaseApprovedOrderGuard(ctx.session.id);
     },
     async "authorization.required"(data, channel, ctx) {
       if (!channel.thread) return;
@@ -402,12 +441,14 @@ async function submitApprovalDecision(
   thread: Thread,
   senderId: string,
   decision: PhotonApprovalDecision,
+  decisionSentAtMs: number,
 ): Promise<boolean> {
   const principalId = photonPrincipalId(senderId);
   let claim;
   try {
     claim = await claimCurrentPhotonApprovalDecision({
       decision,
+      decisionSentAtMs,
       principalId,
       threadId: thread.id,
     });
@@ -427,6 +468,12 @@ async function submitApprovalDecision(
   if (claim.status === "unavailable") {
     await thread.post(
       "The approval is still opening. No action was authorized; reply YES or NO again.",
+    );
+    return true;
+  }
+  if (claim.status === "stale") {
+    await thread.post(
+      "That reply was sent before the current order approval opened, so it was ignored. Review the current order and reply YES or NO again.",
     );
     return true;
   }
@@ -453,6 +500,14 @@ async function submitApprovalDecision(
       claim.decision === "approve"
         ? "That order was already approved."
         : "That order was already denied.",
+    );
+    return true;
+  }
+  if (claim.status === "processing") {
+    await thread.post(
+      claim.decision === "approve"
+        ? "That approval is already processing. Do not retry it; wait for Eve's result."
+        : "That denial is already processing. No additional choice was accepted.",
     );
     return true;
   }
@@ -485,14 +540,43 @@ async function submitApprovalDecision(
         turnPolicy: "queue",
       },
     );
+  } catch {
+    if (claim.delivery.decision === "deny") {
+      await failPhotonApprovalDecision({
+        decision: claim.delivery.decision,
+        recordKey: claim.delivery.recordKey,
+      }).catch(() => undefined);
+    }
+    await thread
+      .post(
+        claim.delivery.decision === "approve"
+          ? "The approval delivery status is uncertain. Do not retry the order; check Coinbase before starting another one."
+          : "The order was denied. No order was authorized.",
+      )
+      .catch(() => undefined);
+    return true;
+  }
+  try {
     await completePhotonApprovalDecision({
       decision: claim.delivery.decision,
       recordKey: claim.delivery.recordKey,
     });
-  } catch {
+  } catch (error) {
+    if (claim.delivery.decision === "deny") {
+      await failPhotonApprovalDecision({
+        decision: claim.delivery.decision,
+        recordKey: claim.delivery.recordKey,
+      }).catch(() => undefined);
+    }
+    console.error("[photon.approval] Text approval completion failed", {
+      decision: claim.delivery.decision,
+      error_type: error instanceof Error ? error.name : typeof error,
+    });
     await thread
       .post(
-        "I couldn't confirm that choice yet. Reply with the same choice to retry; the other choice will not be accepted.",
+        claim.delivery.decision === "approve"
+          ? "Your approval reached Eve, but its final status is uncertain. Check Coinbase before trying another order."
+          : "The order was denied, but I couldn't finish clearing its approval state. No order was authorized.",
       )
       .catch(() => undefined);
     return true;
@@ -575,7 +659,7 @@ async function waitForSessionRefreshTurn(
 async function invalidateCurrentPhotonApproval(input: {
   principalId: string;
   threadId: string;
-}): Promise<void> {
+}): Promise<"cleared" | "processing"> {
   const claim = await claimCurrentPhotonApprovalDecision({
     decision: "deny",
     principalId: input.principalId,
@@ -586,11 +670,18 @@ async function invalidateCurrentPhotonApproval(input: {
       decision: claim.delivery.decision,
       recordKey: claim.delivery.recordKey,
     });
-    return;
+    return "cleared";
+  }
+  if (claim.status === "delivered") {
+    return claim.decision === "approve" ? "processing" : "cleared";
   }
   if (claim.status === "conflict") {
-    throw new Error("A Photon approval decision is already being delivered.");
+    return "processing";
   }
+  if (claim.status === "processing") {
+    return claim.decision === "approve" ? "processing" : "cleared";
+  }
+  return "cleared";
 }
 
 async function ensureCurrentPhotonSession(
@@ -713,10 +804,16 @@ async function dispatch(
   const senderId = message.author.userId;
   if (isPhotonSessionResetCommand(message.text)) {
     try {
-      await invalidateCurrentPhotonApproval({
+      const invalidation = await invalidateCurrentPhotonApproval({
         principalId: photonPrincipalId(senderId),
         threadId: thread.id,
       });
+      if (invalidation === "processing") {
+        await thread.post(
+          "An approved action is still processing. Wait for Eve's result before clearing this session.",
+        );
+        return;
+      }
       const session = await bridge.send(
         {
           context: [
@@ -747,6 +844,17 @@ async function dispatch(
 
   const textDecision = parsePhotonTextDecision(message.text);
   if (textDecision) {
+    const decisionSentAtMs = message.metadata.dateSent.getTime();
+    if (
+      !Number.isSafeInteger(decisionSentAtMs) ||
+      decisionSentAtMs < 0 ||
+      decisionSentAtMs > Date.now() + 5 * 60_000
+    ) {
+      await thread.post(
+        "I couldn't verify when that reply was sent, so no action was authorized. Review the order and reply YES or NO again.",
+      );
+      return;
+    }
     let firstEvent;
     try {
       firstEvent = await isFirstApprovalEvent({
@@ -763,7 +871,12 @@ async function dispatch(
     if (!firstEvent) {
       return;
     }
-    await submitApprovalDecision(thread, senderId, textDecision);
+    await submitApprovalDecision(
+      thread,
+      senderId,
+      textDecision,
+      decisionSentAtMs,
+    );
     return;
   }
   if (isPhotonApprovalAlias(message.text)) {
@@ -774,14 +887,15 @@ async function dispatch(
   }
 
   try {
-    if (
-      await hasCurrentPhotonApproval({
-        principalId: photonPrincipalId(senderId),
-        threadId: thread.id,
-      })
-    ) {
+    const approvalActivity = await getCurrentPhotonApprovalActivity({
+      principalId: photonPrincipalId(senderId),
+      threadId: thread.id,
+    });
+    if (approvalActivity) {
       await thread.post(
-        "An order is waiting for your decision. Reply YES to approve it or NO to cancel it before sending another request.",
+        approvalActivity === "processing"
+          ? "Your approved action is still processing. Wait for Eve's result before sending another request."
+          : "An order is waiting for your decision. Reply YES to approve it or NO to cancel it before sending another request.",
       );
       return;
     }

@@ -15,8 +15,12 @@ import {
   claimCurrentPhotonApprovalDecision,
   claimPhotonApprovalDecision,
   claimPhotonApprovalEvent,
+  completePhotonApprovalDecision,
+  getCurrentPhotonApprovalActivity,
   getPhotonApprovalDelivery,
   getPhotonApprovalView,
+  markPhotonApprovalExecution,
+  releasePhotonApprovalProcessing,
 } from "../agent/lib/photon-approval-store.ts";
 import { photonApprovalAppUrl } from "../agent/lib/photon-mini-app.ts";
 
@@ -159,7 +163,9 @@ const principalId = "imessage:test-owner";
 const threadId = "imessage:test-thread";
 const approvalToken = "T".repeat(43);
 const hash = (value) => createHash("sha256").update(value).digest("hex");
-const activeKey = `eve:photon:v3:active-approval:${"a".repeat(64)}`;
+const activeKey = `eve:photon:v3:active-approval:${hash(
+  `thread\u0000${threadId}\u0000${hash(`principal\u0000${principalId}`)}`,
+)}`;
 const recordKey = `eve:photon:v3:approval:${hash(
   `approval-token\u0000${approvalToken}`,
 )}`;
@@ -319,6 +325,139 @@ assert.deepEqual(
   { status: "forbidden" },
 );
 assert.deepEqual(
+  await claimCurrentPhotonApprovalDecision(
+    { decision: "approve", principalId, threadId },
+    approvalStore({
+      evalValue: JSON.stringify({
+        decision: "approve",
+        status: "processing",
+      }),
+    }),
+  ),
+  { decision: "approve", status: "processing" },
+);
+let staleDecisionArgs;
+let staleDecisionScript;
+const staleDecisionStore = approvalStore();
+staleDecisionStore.eval = async (script, _keys, args) => {
+  staleDecisionArgs = args;
+  staleDecisionScript = script;
+  return JSON.stringify({ status: "stale" });
+};
+assert.deepEqual(
+  await claimCurrentPhotonApprovalDecision(
+    {
+      decision: "approve",
+      decisionSentAtMs: 500,
+      principalId,
+      threadId,
+    },
+    staleDecisionStore,
+  ),
+  { status: "stale" },
+);
+assert.equal(staleDecisionArgs[4], 500);
+assert.equal(staleDecisionArgs[5], 0);
+assert.match(staleDecisionScript, /record\.activatedAtMs or record\.createdAtMs/u);
+
+assert.equal(
+  await getCurrentPhotonApprovalActivity(
+    { principalId, threadId },
+    approvalStore(),
+  ),
+  "pending",
+);
+assert.equal(
+  await getCurrentPhotonApprovalActivity(
+    { principalId, threadId },
+    approvalStore({ record: JSON.stringify(deliveredRecord) }),
+  ),
+  "processing",
+);
+assert.equal(
+  await getCurrentPhotonApprovalActivity(
+    { principalId, threadId },
+    approvalStore({
+      record: JSON.stringify({
+        ...deliveredRecord,
+        decision: "deny",
+      }),
+    }),
+  ),
+  null,
+);
+
+let completionCall;
+await completePhotonApprovalDecision(
+  { decision: "approve", recordKey },
+  {
+    eval: async (script, keys, args) => {
+      completionCall = { args, keys, script };
+      return 1;
+    },
+    get: async (key) =>
+      key === recordKey ? JSON.stringify(deliveringRecord) : null,
+  },
+);
+assert.deepEqual(completionCall.keys.slice(0, 2), [recordKey, activeKey]);
+assert.match(
+  completionCall.keys[2],
+  /^eve:photon:v3:processing-approval:[a-f0-9]{64}$/u,
+);
+assert.equal(completionCall.args[0], "approve");
+assert.equal(completionCall.args[3], 24 * 60 * 60);
+assert.match(
+  completionCall.script,
+  /record\.decision == "approve"[\s\S]*redis\.call\("SET", KEYS\[2\]/u,
+);
+
+let releaseCall;
+const processingKey = completionCall.keys[2];
+assert.equal(
+  await releasePhotonApprovalProcessing("wrun_test", {
+    eval: async (script, keys, args) => {
+      releaseCall = { args, keys, script };
+      return 1;
+    },
+    get: async (key) => {
+      if (key === processingKey) return recordKey;
+      if (key === recordKey) {
+        return JSON.stringify({
+          ...deliveredRecord,
+          executionAtMs: Date.now(),
+          executionState: "succeeded",
+        });
+      }
+      return null;
+    },
+  }),
+  "released",
+);
+assert.equal(releaseCall.keys[0], processingKey);
+assert.equal(releaseCall.keys[1], recordKey);
+assert.deepEqual(releaseCall.args, ["wrun_test"]);
+assert.match(releaseCall.script, /record\.executionState ~= "succeeded"/u);
+
+let executionCall;
+assert.equal(
+  await markPhotonApprovalExecution(
+    { sessionId: "wrun_test", state: "uncertain" },
+    {
+      eval: async (script, keys, args) => {
+        executionCall = { args, keys, script };
+        return 1;
+      },
+      get: async (key) => (key === processingKey ? recordKey : null),
+    },
+  ),
+  true,
+);
+assert.deepEqual(executionCall.keys, [processingKey, recordKey]);
+assert.equal(executionCall.args[0], "wrun_test");
+assert.equal(executionCall.args[1], "uncertain");
+assert.match(executionCall.script, /record\.executionState = ARGV\[2\]/u);
+
+assert.deepEqual(
   await getPhotonApprovalView(approvalToken, approvalStore()),
   {
     approvalText: "Buy 25 USD of BTC?",
@@ -360,17 +499,38 @@ assert.deepEqual(
   },
 );
 
-const previousBaseUrl = process.env.PHOTON_MINI_APP_BASE_URL;
-process.env.PHOTON_MINI_APP_BASE_URL = "https://eve.example";
-const appUrl = new URL(photonApprovalAppUrl(approvalToken));
-assert.equal(appUrl.origin, "https://eve.example");
-assert.equal(appUrl.pathname, "/eve/v1/photon-approval");
-assert.equal(appUrl.search, "");
-assert.equal(appUrl.hash, `#${approvalToken}`);
-if (previousBaseUrl === undefined) {
+const deploymentUrlVariables = [
+  "PHOTON_MINI_APP_BASE_URL",
+  "VERCEL_PROJECT_PRODUCTION_URL",
+  "VERCEL_URL",
+];
+const previousDeploymentUrls = Object.fromEntries(
+  deploymentUrlVariables.map((name) => [name, process.env[name]]),
+);
+try {
+  process.env.PHOTON_MINI_APP_BASE_URL = "https://eve.example";
+  const appUrl = new URL(photonApprovalAppUrl(approvalToken));
+  assert.equal(appUrl.origin, "https://eve.example");
+  assert.equal(appUrl.pathname, "/eve/v1/photon-approval");
+  assert.equal(appUrl.search, "");
+  assert.equal(appUrl.hash, `#${approvalToken}`);
+
   delete process.env.PHOTON_MINI_APP_BASE_URL;
-} else {
-  process.env.PHOTON_MINI_APP_BASE_URL = previousBaseUrl;
+  process.env.VERCEL_PROJECT_PRODUCTION_URL = "eve-production.example";
+  process.env.VERCEL_URL = "eve-protected-preview.example";
+  assert.equal(
+    new URL(photonApprovalAppUrl(approvalToken)).origin,
+    "https://eve-production.example",
+  );
+} finally {
+  for (const name of deploymentUrlVariables) {
+    const previous = previousDeploymentUrls[name];
+    if (previous === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = previous;
+    }
+  }
 }
 
 assert.throws(

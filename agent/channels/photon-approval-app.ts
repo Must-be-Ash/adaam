@@ -1,13 +1,12 @@
 import { randomBytes } from "node:crypto";
 
 import { defineChannel, GET, POST } from "eve/channels";
-import { routeAuth, vercelOidc } from "eve/channels/auth";
 import { z } from "zod";
 
 import {
   claimPhotonApprovalDecision,
   completePhotonApprovalDecision,
-  getPhotonApprovalDelivery,
+  failPhotonApprovalDecision,
   getPhotonApprovalView,
   type PhotonApprovalDelivery,
 } from "../lib/photon-approval-store";
@@ -20,11 +19,6 @@ const requestSchema = z.object({
 const decisionRequestSchema = requestSchema.extend({
   decision: z.enum(["approve", "deny"]),
 });
-const deliveryRequestSchema = z.object({
-  decision: z.enum(["approve", "deny"]),
-  recordKey: z.string().regex(/^eve:photon:v3:approval:[a-f0-9]{64}$/u),
-});
-const internalAuth = vercelOidc();
 
 type AttachSession = (sessionId: string) => {
   respond(
@@ -112,7 +106,13 @@ async function deliverApproval(
       session_id: delivery.sessionId,
       tool_name: delivery.toolName,
     });
-    throw error;
+    if (delivery.decision === "deny") {
+      await failPhotonApprovalDecision({
+        decision: delivery.decision,
+        recordKey: delivery.recordKey,
+      }).catch(() => undefined);
+    }
+    return "uncertain";
   }
   if (result.status !== "accepted") {
     console.warn("[photon.approval] Approval target session is inactive", {
@@ -121,7 +121,7 @@ async function deliverApproval(
       session_id: delivery.sessionId,
       tool_name: delivery.toolName,
     });
-    await completePhotonApprovalDecision({
+    await failPhotonApprovalDecision({
       decision: delivery.decision,
       recordKey: delivery.recordKey,
     }).catch(() => undefined);
@@ -133,6 +133,12 @@ async function deliverApproval(
       recordKey: delivery.recordKey,
     });
   } catch (error) {
+    if (delivery.decision === "deny") {
+      await failPhotonApprovalDecision({
+        decision: delivery.decision,
+        recordKey: delivery.recordKey,
+      }).catch(() => undefined);
+    }
     console.error("[photon.approval] Approval completion failed", {
       decision: delivery.decision,
       error_type: error instanceof Error ? error.name : typeof error,
@@ -140,6 +146,7 @@ async function deliverApproval(
       session_id: delivery.sessionId,
       tool_name: delivery.toolName,
     });
+    return "uncertain";
   }
   console.info("[photon.approval] Approval decision delivered", {
     decision: delivery.decision,
@@ -346,12 +353,12 @@ function approvalHtml(nonce: string): string {
             showFinal("Order denied", "No order will be placed.");
           }
         } catch (error) {
-          status.textContent =
+          showFinal(
+            "Approval status uncertain",
             error instanceof Error
-              ? error.message + " Tap the same choice to retry."
-              : "Could not confirm. Tap the same choice to retry.";
-          approve.disabled = false;
-          deny.disabled = false;
+              ? error.message + " Check Coinbase before starting another order."
+              : "Could not confirm. Check Coinbase before starting another order.",
+          );
         }
       };
 
@@ -389,38 +396,6 @@ export default defineChannel({
       },
     ),
     POST(
-      "/eve/v1/internal/photon-approval-response",
-      async (request, { attachSession }) => {
-        const authenticated = await routeAuth(request, internalAuth);
-        if (authenticated instanceof Response) return authenticated;
-        const body = await readJson(request, deliveryRequestSchema);
-        if (body instanceof Response) return body;
-        const lookup = await getPhotonApprovalDelivery(body);
-        if (!lookup) {
-          return json(
-            { error: "This approval delivery is no longer available." },
-            410,
-          );
-        }
-        if (lookup.status === "delivered") {
-          return json({ status: "accepted" });
-        }
-        try {
-          const result = await deliverApproval(
-            lookup.delivery,
-            attachSession,
-          );
-          if (result === "uncertain") return json({ status: "uncertain" });
-        } catch {
-          return json(
-            { error: "Eve could not confirm that choice yet." },
-            503,
-          );
-        }
-        return json({ status: "accepted" });
-      },
-    ),
-    POST(
       `${PHOTON_APPROVAL_APP_PATH}/decision`,
       async (request, { attachSession }) => {
         const body = await readJson(request, decisionRequestSchema);
@@ -436,6 +411,9 @@ export default defineChannel({
             { error: "The other choice is already being confirmed." },
             409,
           );
+        }
+        if (claim.status === "processing") {
+          return json({ status: "uncertain" });
         }
         if (claim.status === "unavailable") {
           return json({ error: "Approval is still opening. Try again." }, 425);

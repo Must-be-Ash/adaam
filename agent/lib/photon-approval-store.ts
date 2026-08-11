@@ -12,10 +12,13 @@ const ACTIVE_KEY_PREFIX = "eve:photon:v3:active-approval:";
 // Keep event deduplication stable across approval-record schema generations so
 // a retried YES/NO webhook can never be applied to a newer order.
 const EVENT_KEY_PREFIX = "eve:photon:v2:approval-event:";
+const PROCESSING_KEY_PREFIX = "eve:photon:v3:processing-approval:";
 const RECORD_KEY_PREFIX = "eve:photon:v3:approval:";
 const RECORD_TTL_SECONDS = 24 * 60 * 60;
 const EVENT_TTL_SECONDS = 24 * 60 * 60;
+const PROCESSING_TTL_SECONDS = RECORD_TTL_SECONDS;
 const DRAFT_STALE_AFTER_MS = 60_000;
+const TEXT_DECISION_CLOCK_SKEW_MS = 0;
 const APPROVAL_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const ACTIVE_KEY_PATTERN =
   /^eve:photon:v3:active-approval:[a-f0-9]{64}$/u;
@@ -38,8 +41,10 @@ if currentKey and currentKey ~= KEYS[2] then
       })
     elseif record.state == "draft" then
       stale = tonumber(record.createdAtMs) + tonumber(ARGV[4]) < tonumber(ARGV[3])
-    elseif record.state == "delivered" or record.state == "unavailable" then
+    elseif record.state == "unavailable" then
       stale = true
+    elseif record.state == "delivered" then
+      stale = record.decision ~= "approve"
     else
       stale = tonumber(record.expiresAtMs) < tonumber(ARGV[3])
     end
@@ -74,6 +79,7 @@ if not decoded or record.schemaVersion ~= 1 or record.state ~= "draft" then
   return 0
 end
 record.state = "active"
+record.activatedAtMs = tonumber(ARGV[2])
 redis.call("SET", KEYS[2], cjson.encode(record), "EX", ARGV[1], "XX")
 return 1
 `;
@@ -106,6 +112,10 @@ end
 if ARGV[4] ~= "" and record.principalHash ~= ARGV[4] then
   return cjson.encode({status = "forbidden"})
 end
+local activatedAtMs = record.activatedAtMs or record.createdAtMs
+if ARGV[5] ~= "" and tonumber(ARGV[5]) + tonumber(ARGV[6]) < tonumber(activatedAtMs) then
+  return cjson.encode({status = "stale"})
+end
 if record.state ~= "delivered" and redis.call("GET", KEYS[2]) ~= KEYS[1] then
   return cjson.encode({status = "invalid"})
 end
@@ -122,11 +132,7 @@ if record.state == "delivering" then
   if record.decision ~= ARGV[1] and record.expiredDecision ~= true then
     return cjson.encode({status = "conflict"})
   end
-  return cjson.encode({
-    status = "deliver",
-    expired = record.expiredDecision == true,
-    record = record
-  })
+  return cjson.encode({status = "processing", decision = record.decision})
 end
 if record.state ~= "active" then
   return cjson.encode({status = "invalid"})
@@ -142,6 +148,10 @@ record.decision = decision
 record.decisionAtMs = tonumber(ARGV[2])
 record.expiredDecision = expired
 redis.call("SET", KEYS[1], cjson.encode(record), "EX", ARGV[3], "XX")
+if decision == "approve" and record.toolName == "coinbase_create_order" then
+  redis.call("SET", KEYS[2], KEYS[1], "EX", ARGV[7])
+  redis.call("SET", KEYS[3], KEYS[1], "EX", ARGV[7])
+end
 return cjson.encode({status = "deliver", expired = expired, record = record})
 `;
 
@@ -155,6 +165,12 @@ if not decoded or record.schemaVersion ~= 1 or record.activeKey ~= KEYS[2] then
   return 0
 end
 if record.state == "delivered" and record.decision == ARGV[1] then
+  if record.decision == "approve" and record.toolName == "coinbase_create_order" and redis.call("GET", KEYS[3]) == KEYS[1] then
+    redis.call("SET", KEYS[2], KEYS[1], "EX", ARGV[4])
+    redis.call("SET", KEYS[3], KEYS[1], "EX", ARGV[4])
+  elseif redis.call("GET", KEYS[2]) == KEYS[1] then
+    redis.call("DEL", KEYS[2])
+  end
   return 1
 end
 if record.state ~= "delivering" or record.decision ~= ARGV[1] then
@@ -163,8 +179,16 @@ end
 record.state = "delivered"
 record.deliveredAtMs = tonumber(ARGV[2])
 redis.call("SET", KEYS[1], cjson.encode(record), "EX", ARGV[3], "XX")
-if redis.call("GET", KEYS[2]) == KEYS[1] then
-  redis.call("DEL", KEYS[2])
+if record.decision == "approve" and record.toolName == "coinbase_create_order" then
+  if redis.call("GET", KEYS[3]) == KEYS[1] then
+    redis.call("SET", KEYS[2], KEYS[1], "EX", ARGV[4])
+    redis.call("SET", KEYS[3], KEYS[1], "EX", ARGV[4])
+  end
+else
+  if redis.call("GET", KEYS[2]) == KEYS[1] then
+    redis.call("DEL", KEYS[2])
+  end
+  redis.call("DEL", KEYS[3])
 end
 return 1
 `;
@@ -190,14 +214,66 @@ end
 return 1
 `;
 
+const RELEASE_PROCESSING_APPROVAL_SCRIPT = `
+if redis.call("GET", KEYS[1]) ~= KEYS[2] then
+  return 0
+end
+local value = redis.call("GET", KEYS[2])
+if not value then
+  redis.call("DEL", KEYS[1])
+  return 0
+end
+local decoded, record = pcall(cjson.decode, value)
+if not decoded or record.schemaVersion ~= 1 or record.sessionId ~= ARGV[1] then
+  return 0
+end
+if (record.state ~= "delivered" and record.state ~= "delivering") or record.decision ~= "approve" then
+  return 0
+end
+if record.executionState ~= "succeeded" and record.executionState ~= "safe-failure" then
+  return -1
+end
+if redis.call("GET", record.activeKey) == KEYS[2] then
+  redis.call("DEL", record.activeKey)
+end
+redis.call("DEL", KEYS[1])
+return 1
+`;
+
+const MARK_PROCESSING_EXECUTION_SCRIPT = `
+if redis.call("GET", KEYS[1]) ~= KEYS[2] then
+  return 0
+end
+local value = redis.call("GET", KEYS[2])
+if not value then
+  return 0
+end
+local decoded, record = pcall(cjson.decode, value)
+if not decoded or record.schemaVersion ~= 1 or record.sessionId ~= ARGV[1] then
+  return 0
+end
+if (record.state ~= "delivered" and record.state ~= "delivering") or record.decision ~= "approve" then
+  return 0
+end
+record.executionState = ARGV[2]
+record.executionAtMs = tonumber(ARGV[3])
+redis.call("SET", KEYS[2], cjson.encode(record), "EX", ARGV[4], "XX")
+return 1
+`;
+
 const approvalRecordSchema = z.object({
   activeKey: z.string().regex(ACTIVE_KEY_PATTERN),
+  activatedAtMs: z.number().int().nonnegative().optional(),
   approvalToken: z.string().regex(APPROVAL_TOKEN_PATTERN),
   approvalText: z.string().min(1).max(500),
   createdAtMs: z.number().int().nonnegative(),
   decision: z.enum(["approve", "deny"]).optional(),
   decisionAtMs: z.number().int().nonnegative().optional(),
   deliveredAtMs: z.number().int().nonnegative().optional(),
+  executionAtMs: z.number().int().nonnegative().optional(),
+  executionState: z
+    .enum(["safe-failure", "succeeded", "uncertain"])
+    .optional(),
   expiredDecision: z.boolean().optional(),
   expiresAtMs: z.number().int().positive(),
   failureAtMs: z.number().int().nonnegative().optional(),
@@ -238,10 +314,15 @@ const claimResponseSchema = z.discriminatedUnion("status", [
     decision: z.enum(["approve", "deny"]),
     status: z.literal("delivered"),
   }),
+  z.object({
+    decision: z.enum(["approve", "deny"]),
+    status: z.literal("processing"),
+  }),
   z.object({ status: z.literal("conflict") }),
   z.object({ status: z.literal("forbidden") }),
   z.object({ status: z.literal("invalid") }),
   z.object({ status: z.literal("missing") }),
+  z.object({ status: z.literal("stale") }),
   z.object({ status: z.literal("unavailable") }),
 ]);
 
@@ -263,14 +344,26 @@ export type PhotonApprovalDeliveryLookup =
 export type PhotonApprovalClaim =
   | { delivery: PhotonApprovalDelivery; status: "deliver" }
   | { decision: PhotonApprovalDecision; status: "delivered" }
+  | { decision: PhotonApprovalDecision; status: "processing" }
   | {
       status:
         | "conflict"
         | "forbidden"
         | "invalid"
         | "missing"
+        | "stale"
         | "unavailable";
     };
+
+export type PhotonApprovalActivity = "pending" | "processing";
+export type PhotonApprovalExecutionState =
+  | "safe-failure"
+  | "succeeded"
+  | "uncertain";
+export type PhotonApprovalProcessingRelease =
+  | "missing"
+  | "released"
+  | "retained";
 
 export type PhotonApprovalView =
   | {
@@ -354,6 +447,10 @@ function approvalRecordKey(approvalToken: string): string | null {
   )}`;
 }
 
+function processingApprovalKey(sessionId: string): string {
+  return `${PROCESSING_KEY_PREFIX}${sha256(`session\u0000${sessionId}`)}`;
+}
+
 function parseRecord(value: unknown): ApprovalRecord | null {
   if (typeof value !== "string") return null;
   try {
@@ -399,17 +496,22 @@ async function claimRecord(input: {
   activeKey: string;
   client: PhotonApprovalStoreClient;
   decision: PhotonApprovalDecision;
+  decisionSentAtMs?: number;
   expectedPrincipalHash?: string;
+  processingKey: string;
   recordKey: string;
 }): Promise<PhotonApprovalClaim> {
   const raw = await input.client.eval(
     CLAIM_APPROVAL_SCRIPT,
-    [input.recordKey, input.activeKey],
+    [input.recordKey, input.activeKey, input.processingKey],
     [
       input.decision,
       Date.now(),
       RECORD_TTL_SECONDS,
       input.expectedPrincipalHash ?? "",
+      input.decisionSentAtMs ?? "",
+      TEXT_DECISION_CLOCK_SKEW_MS,
+      PROCESSING_TTL_SECONDS,
     ],
   );
   const claimed = parseClaimResponse(raw);
@@ -500,7 +602,7 @@ export async function activatePhotonApproval(input: {
   const activated = await redis().eval(
     ACTIVATE_APPROVAL_SCRIPT,
     [activeApprovalKey(input.threadId, input.principalId), recordKey],
-    [RECORD_TTL_SECONDS],
+    [RECORD_TTL_SECONDS, Date.now()],
   );
   if (activated !== 1) {
     throw new Error("The Photon approval draft could not be activated.");
@@ -525,6 +627,7 @@ export async function clearPhotonApproval(input: {
 export async function claimCurrentPhotonApprovalDecision(
   input: {
     decision: PhotonApprovalDecision;
+    decisionSentAtMs?: number;
     principalId: string;
     threadId: string;
   },
@@ -538,11 +641,15 @@ export async function claimCurrentPhotonApprovalDecision(
   ) {
     return { status: "missing" };
   }
+  const record = parseRecord(await client.get(recordKey));
+  if (!record) return { status: "invalid" };
   return claimRecord({
     activeKey,
     client,
     decision: input.decision,
+    decisionSentAtMs: input.decisionSentAtMs,
     expectedPrincipalHash: principalHash(input.principalId),
+    processingKey: processingApprovalKey(record.sessionId),
     recordKey,
   });
 }
@@ -562,6 +669,7 @@ export async function claimPhotonApprovalDecision(
     activeKey: record.activeKey,
     client,
     decision: input.decision,
+    processingKey: processingApprovalKey(record.sessionId),
     recordKey,
   });
 }
@@ -569,22 +677,74 @@ export async function claimPhotonApprovalDecision(
 export async function completePhotonApprovalDecision(input: {
   decision: PhotonApprovalDecision;
   recordKey: string;
-}): Promise<void> {
+}, client: PhotonApprovalStoreClient = redis()): Promise<void> {
   if (!RECORD_KEY_PATTERN.test(input.recordKey)) {
     throw new Error("The Photon approval delivery key is invalid.");
   }
-  const record = parseRecord(await redis().get(input.recordKey));
+  const record = parseRecord(await client.get(input.recordKey));
   if (!record) {
     throw new Error("The Photon approval delivery record is unavailable.");
   }
-  const completed = await redis().eval(
+  const completed = await client.eval(
     COMPLETE_APPROVAL_SCRIPT,
-    [input.recordKey, record.activeKey],
-    [input.decision, Date.now(), RECORD_TTL_SECONDS],
+    [
+      input.recordKey,
+      record.activeKey,
+      processingApprovalKey(record.sessionId),
+    ],
+    [
+      input.decision,
+      Date.now(),
+      RECORD_TTL_SECONDS,
+      PROCESSING_TTL_SECONDS,
+    ],
   );
   if (completed !== 1) {
     throw new Error("The Photon approval delivery could not be completed.");
   }
+}
+
+export async function releasePhotonApprovalProcessing(
+  sessionId: string,
+  client: PhotonApprovalStoreClient = redis(),
+): Promise<PhotonApprovalProcessingRelease> {
+  if (!sessionId || sessionId.length > 200) return "missing";
+  const processingKey = processingApprovalKey(sessionId);
+  const recordKey = await client.get(processingKey);
+  if (
+    typeof recordKey !== "string" ||
+    !RECORD_KEY_PATTERN.test(recordKey)
+  ) {
+    return "missing";
+  }
+  const released = await client.eval(
+    RELEASE_PROCESSING_APPROVAL_SCRIPT,
+    [processingKey, recordKey],
+    [sessionId],
+  );
+  if (released === 1) return "released";
+  return released === -1 ? "retained" : "missing";
+}
+
+export async function markPhotonApprovalExecution(input: {
+  sessionId: string;
+  state: PhotonApprovalExecutionState;
+}, client: PhotonApprovalStoreClient = redis()): Promise<boolean> {
+  if (!input.sessionId || input.sessionId.length > 200) return false;
+  const processingKey = processingApprovalKey(input.sessionId);
+  const recordKey = await client.get(processingKey);
+  if (
+    typeof recordKey !== "string" ||
+    !RECORD_KEY_PATTERN.test(recordKey)
+  ) {
+    return false;
+  }
+  const marked = await client.eval(
+    MARK_PROCESSING_EXECUTION_SCRIPT,
+    [processingKey, recordKey],
+    [input.sessionId, input.state, Date.now(), RECORD_TTL_SECONDS],
+  );
+  return marked === 1;
 }
 
 export async function failPhotonApprovalDecision(input: {
@@ -674,26 +834,45 @@ export async function getPhotonApprovalView(
   };
 }
 
-export async function hasCurrentPhotonApproval(input: {
-  principalId: string;
-  threadId: string;
-}): Promise<boolean> {
-  const client = redis();
+export async function getCurrentPhotonApprovalActivity(
+  input: {
+    principalId: string;
+    threadId: string;
+  },
+  client: PhotonApprovalStoreClient = redis(),
+): Promise<PhotonApprovalActivity | null> {
+  const activeKey = activeApprovalKey(input.threadId, input.principalId);
   const recordKey = await client.get(
-    activeApprovalKey(input.threadId, input.principalId),
+    activeKey,
   );
   if (
     typeof recordKey !== "string" ||
     !RECORD_KEY_PATTERN.test(recordKey)
   ) {
-    return false;
+    return null;
   }
   const record = parseRecord(await client.get(recordKey));
-  return (
-    record !== null &&
-    record.state !== "delivered" &&
-    record.state !== "unavailable"
-  );
+  if (
+    !record ||
+    record.activeKey !== activeKey ||
+    record.principalHash !== principalHash(input.principalId)
+  ) {
+    return null;
+  }
+  if (record.state === "delivered") {
+    return record.decision === "approve" ? "processing" : null;
+  }
+  if (record.state === "delivering" && record.decision === "approve") {
+    return "processing";
+  }
+  return record.state === "unavailable" ? null : "pending";
+}
+
+export async function hasCurrentPhotonApproval(input: {
+  principalId: string;
+  threadId: string;
+}): Promise<boolean> {
+  return (await getCurrentPhotonApprovalActivity(input)) !== null;
 }
 
 export async function claimPhotonApprovalEvent(input: {

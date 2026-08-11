@@ -19,6 +19,7 @@
     "start": "eve start",
     "typecheck": "tsc",
     "verify:approvals": "node scripts/verify-photon-approval.mjs",
+    "verify:approvals:redis": "node scripts/verify-photon-approval-redis.mjs",
     "verify:context": "node scripts/verify-mcp-tool-result.mjs",
     "verify:sessions": "node scripts/verify-photon-session.mjs"
   },
