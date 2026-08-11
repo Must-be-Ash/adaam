@@ -733,7 +733,6 @@ async function dispatch(
   if (message.author.isBot || !thread.isDM) return;
 
   const senderId = message.author.userId;
-  if (!(await ensureCurrentPhotonSession(thread, senderId))) return;
 
   const textDecision = parsePhotonTextDecision(message.text);
   if (textDecision) {
