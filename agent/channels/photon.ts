@@ -95,7 +95,7 @@ async function respondToEveSession(
   inputResponses: readonly { optionId: string; requestId: string }[],
 ): Promise<void> {
   const host =
-    process.env.VERCEL_URL ?? process.env.VERCEL_PROJECT_PRODUCTION_URL;
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
   const oidcToken = process.env.VERCEL_OIDC_TOKEN;
   if (!host || !oidcToken) {
     throw new Error("The internal Eve session responder is unavailable.");
@@ -131,7 +131,7 @@ async function deliverPhotonApprovalResponse(
   delivery: PhotonApprovalDelivery,
 ): Promise<"accepted" | "uncertain"> {
   const host =
-    process.env.VERCEL_URL ?? process.env.VERCEL_PROJECT_PRODUCTION_URL;
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
   const oidcToken = process.env.VERCEL_OIDC_TOKEN;
   if (!host || !oidcToken) {
     throw new Error("The internal Photon approval responder is unavailable.");
@@ -744,6 +744,10 @@ async function dispatch(
   const senderId = message.author.userId;
   if (isPhotonSessionResetCommand(message.text)) {
     try {
+      await invalidateCurrentPhotonApproval({
+        principalId: photonPrincipalId(senderId),
+        threadId: thread.id,
+      });
       const session = await bridge.send(
         {
           context: [
@@ -759,10 +763,6 @@ async function dispatch(
       );
       await session.reset({
         reason: "The iMessage user requested a fresh conversation.",
-      });
-      await invalidateCurrentPhotonApproval({
-        principalId: photonPrincipalId(senderId),
-        threadId: thread.id,
       });
       await thread.post(
         "Session cleared. Your next message will start a fresh conversation with no previous context or pending request.",
