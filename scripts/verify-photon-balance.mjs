@@ -9,6 +9,8 @@ for (const request of [
   "balance",
   "Check my balance",
   "check my Coinbase balance.",
+  "Can you check my current Coinbase account balance please?",
+  "Please show the balances in my Coinbase portfolio",
   "What's my coinbase balance?",
 ]) {
   assert.equal(isCoinbaseBalanceRequest(request), true, request);
@@ -18,6 +20,7 @@ for (const request of [
   "analyze the balance sheet",
   "balance risk and return",
   "buy BTC with my balance",
+  "rebalance my portfolio",
 ]) {
   assert.equal(isCoinbaseBalanceRequest(request), false, request);
 }

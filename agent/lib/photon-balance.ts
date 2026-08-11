@@ -56,7 +56,18 @@ function isZero(value: string): boolean {
 }
 
 export function isCoinbaseBalanceRequest(text: string): boolean {
-  return BALANCE_REQUESTS.has(normalizedRequest(text));
+  const normalized = normalizedRequest(text);
+  if (BALANCE_REQUESTS.has(normalized)) return true;
+  if (
+    normalized.length > 160 ||
+    !/\bbalances?\b/u.test(normalized) ||
+    /\b(?:balance sheet|rebalance|buy|sell|trade|order|transfer|convert|risk|return)\b/u.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+  return /\b(?:my|coinbase|account|wallet|portfolio)\b/u.test(normalized);
 }
 
 export function formatCoinbaseBalance(result: JsonValue): string {
