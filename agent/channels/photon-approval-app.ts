@@ -12,6 +12,7 @@ import {
 } from "../lib/photon-approval-store";
 import { photonAuth, photonSenderId } from "../lib/photon-auth";
 import { PHOTON_APPROVAL_APP_PATH } from "../lib/photon-mini-app";
+import { getPhotonWorkspaceState } from "../lib/photon-workspace-store";
 
 const requestSchema = z.object({
   approvalToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
@@ -156,6 +157,39 @@ async function deliverApproval(
     tool_name: delivery.toolName,
   });
   return "accepted";
+}
+
+async function approvalWorkspaceIsActive(
+  delivery: PhotonApprovalDelivery,
+): Promise<boolean> {
+  try {
+    const state = await getPhotonWorkspaceState({
+      principalId: delivery.principalId,
+      threadId: delivery.threadId,
+    });
+    const workspace =
+      delivery.workspaceId && delivery.workspaceGeneration
+        ? state.workspaces.find(
+            (candidate) =>
+              candidate.id === delivery.workspaceId &&
+              candidate.generation === delivery.workspaceGeneration,
+          )
+        : state.workspaces.find(
+            (candidate) => candidate.sessionId === delivery.sessionId,
+          );
+    if (workspace) {
+      return (
+        workspace.status === "active" &&
+        workspace.id === state.activeWorkspace.id
+      );
+    }
+    return (
+      !delivery.workspaceId &&
+      state.activeWorkspace.continuation === "physical"
+    );
+  } catch {
+    return false;
+  }
 }
 
 function approvalHtml(nonce: string): string {
@@ -425,6 +459,20 @@ export default defineChannel({
           return json(
             { error: "This approval is no longer available." },
             410,
+          );
+        }
+
+        if (!(await approvalWorkspaceIsActive(claim.delivery))) {
+          await failPhotonApprovalDecision({
+            decision: claim.delivery.decision,
+            recordKey: claim.delivery.recordKey,
+          }).catch(() => undefined);
+          return json(
+            {
+              error:
+                "The workspace that requested this approval is no longer active. No action was authorized.",
+            },
+            409,
           );
         }
 

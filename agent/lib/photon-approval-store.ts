@@ -291,6 +291,8 @@ const approvalRecordSchema = z.object({
   ]),
   threadId: z.string().min(1).max(500),
   toolName: z.string().min(1).max(160),
+  workspaceGeneration: z.number().int().positive().optional(),
+  workspaceId: z.string().uuid().optional(),
 });
 
 type ApprovalRecord = z.infer<typeof approvalRecordSchema>;
@@ -335,6 +337,8 @@ export interface PhotonApprovalDelivery {
   sessionId: string;
   threadId: string;
   toolName: string;
+  workspaceGeneration?: number;
+  workspaceId?: string;
 }
 
 export type PhotonApprovalDeliveryLookup =
@@ -440,6 +444,13 @@ function activeApprovalKey(threadId: string, principalId: string): string {
   return `${ACTIVE_KEY_PREFIX}${approvalScope(threadId, principalId)}`;
 }
 
+export function photonApprovalGuardKey(input: {
+  principalId: string;
+  threadId: string;
+}): string {
+  return activeApprovalKey(input.threadId, input.principalId);
+}
+
 function approvalRecordKey(approvalToken: string): string | null {
   if (!APPROVAL_TOKEN_PATTERN.test(approvalToken)) return null;
   return `${RECORD_KEY_PREFIX}${sha256(
@@ -489,6 +500,10 @@ function deliveryFromRecord(
     sessionId: record.sessionId,
     threadId: record.threadId,
     toolName: record.toolName,
+    ...(record.workspaceGeneration
+      ? { workspaceGeneration: record.workspaceGeneration }
+      : {}),
+    ...(record.workspaceId ? { workspaceId: record.workspaceId } : {}),
   };
 }
 
@@ -533,6 +548,8 @@ export async function savePhotonApproval(input: {
   prompt: PhotonApprovalPrompt;
   sessionId: string;
   threadId: string;
+  workspaceGeneration?: number;
+  workspaceId?: string;
 }): Promise<{
   approvalToken: string;
   reused: boolean;
@@ -558,6 +575,10 @@ export async function savePhotonApproval(input: {
     state: "draft",
     threadId: input.threadId,
     toolName: input.prompt.toolName,
+    ...(input.workspaceGeneration
+      ? { workspaceGeneration: input.workspaceGeneration }
+      : {}),
+    ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
   });
   const reserved = await redis().eval(
     RESERVE_APPROVAL_SCRIPT,

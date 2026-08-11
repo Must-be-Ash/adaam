@@ -1,4 +1,5 @@
 export const PHOTON_APPROVAL_APP_PATH = "/eve/v1/photon-approval";
+export const PHOTON_WORKSPACE_APP_PATH = "/eve/v1/photon-workspaces";
 
 function deploymentOrigin(): URL {
   const configured =
@@ -23,5 +24,11 @@ function deploymentOrigin(): URL {
 export function photonApprovalAppUrl(approvalToken: string): string {
   const url = new URL(PHOTON_APPROVAL_APP_PATH, deploymentOrigin());
   url.hash = approvalToken;
+  return url.toString();
+}
+
+export function photonWorkspaceAppUrl(managerToken: string): string {
+  const url = new URL(PHOTON_WORKSPACE_APP_PATH, deploymentOrigin());
+  url.hash = managerToken;
   return url.toString();
 }

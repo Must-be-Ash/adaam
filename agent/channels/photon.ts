@@ -1,5 +1,3 @@
-import { randomBytes } from "node:crypto";
-
 import { createRedisState } from "@chat-adapter/state-redis";
 import { createiMessageAdapter } from "@photon-ai/chat-adapter-imessage";
 import { createConnectWebhookVerifier } from "@vercel/connect/chat";
@@ -9,7 +7,7 @@ import {
   chatSdkChannel,
   messageToUserContent,
 } from "eve/channels/chat-sdk";
-import type { InputRequest, MessageStreamEvent } from "eve/client";
+import type { InputRequest } from "eve/client";
 
 import {
   createPhotonApprovalPrompt,
@@ -28,19 +26,38 @@ import {
   failPhotonApprovalDecision,
   getCurrentPhotonApprovalActivity,
   getPhotonApprovalView,
+  photonApprovalGuardKey,
   releasePhotonApprovalProcessing,
   savePhotonApproval,
   type PhotonApprovalProcessingRelease,
 } from "../lib/photon-approval-store.js";
 import { photonAuth, photonPrincipalId } from "../lib/photon-auth";
-import { photonApprovalAppUrl } from "../lib/photon-mini-app";
 import {
-  completePhotonSessionMigration,
-  PHOTON_SESSION_GENERATION,
-  releasePhotonSessionMigration,
-  reservePhotonSessionMigration,
-  savePhotonSessionBinding,
-} from "../lib/photon-session-store";
+  photonApprovalAppUrl,
+  photonWorkspaceAppUrl,
+} from "../lib/photon-mini-app";
+import {
+  archivePhotonWorkspace,
+  createPhotonWorkspace,
+  findPhotonWorkspaceByName,
+  getPhotonWorkspaceState,
+  mintPhotonWorkspaceManager,
+  renamePhotonWorkspace,
+  savePhotonWorkspaceSession,
+  selectPhotonWorkspace,
+  startFreshPhotonWorkspace,
+  type PhotonWorkspace,
+  type PhotonWorkspaceState,
+  PhotonWorkspaceApprovalBlockedError,
+  PhotonWorkspaceValidationError,
+} from "../lib/photon-workspace-store";
+import {
+  photonWorkspaceContext,
+  photonWorkspaceThread,
+  parsePhotonWorkspaceThreadId,
+  physicalPhotonThreadId,
+  workspaceAwarePhotonAdapter,
+} from "../lib/photon-workspace";
 
 const webhookSecret = process.env.IMESSAGE_WEBHOOK_SECRET;
 const imessageAdapter = createiMessageAdapter({
@@ -49,6 +66,7 @@ const imessageAdapter = createiMessageAdapter({
     ? { webhookSecret }
     : { webhookVerifier: createConnectWebhookVerifier() }),
 });
+const routedImessageAdapter = workspaceAwarePhotonAdapter(imessageAdapter);
 
 function isPhotonSessionResetCommand(text: string): boolean {
   const normalized = text
@@ -57,6 +75,71 @@ function isPhotonSessionResetCommand(text: string): boolean {
     .replace(/[.!?]+$/u, "")
     .replace(/\s+/gu, " ");
   return normalized === "reset session" || normalized === "start fresh";
+}
+
+type PhotonWorkspaceControl =
+  | { action: "archive"; name: string }
+  | { action: "create"; name: string }
+  | { action: "list" }
+  | { action: "manage" }
+  | { action: "rename"; currentName: string; name: string }
+  | { action: "select"; name: string };
+
+function parsePhotonWorkspaceControl(
+  text: string,
+): PhotonWorkspaceControl | null {
+  const request = text.trim().replace(/[.!?]+$/u, "").trim();
+  if (
+    /^(?:manage|show|open)(?: my)? workspaces$/iu.test(request) ||
+    /^workspace settings$/iu.test(request)
+  ) {
+    return { action: "manage" };
+  }
+  if (/^list(?: my)? workspaces$/iu.test(request)) {
+    return { action: "list" };
+  }
+  let match = request.match(/^create(?: a)? workspace(?: called)? (.+)$/iu);
+  if (match?.[1]) {
+    return { action: "create", name: match[1] };
+  }
+  match = request.match(
+    /^(?:use|select|switch to)(?: the)? workspace (.+)$/iu,
+  );
+  if (match?.[1]) {
+    return { action: "select", name: match[1] };
+  }
+  match = request.match(/^switch workspace to (.+)$/iu);
+  if (match?.[1]) {
+    return { action: "select", name: match[1] };
+  }
+  match = request.match(/^rename workspace (.+?) to (.+)$/iu);
+  if (match?.[1] && match[2]) {
+    return {
+      action: "rename",
+      currentName: match[1],
+      name: match[2],
+    };
+  }
+  match = request.match(/^archive workspace (.+)$/iu);
+  if (match?.[1]) {
+    return { action: "archive", name: match[1] };
+  }
+  return null;
+}
+
+function photonWorkspaceListText(state: PhotonWorkspaceState): string {
+  const lines = state.workspaces.map((workspace) => {
+    const active =
+      workspace.id === state.activeWorkspace.id ? " · active" : "";
+    const archived = workspace.status === "archived" ? " · archived" : "";
+    return `• ${workspace.name}${active}${archived}`;
+  });
+  return [
+    "Eve control · Workspaces",
+    ...lines,
+    "",
+    "Send “manage workspaces” for the workspace manager.",
+  ].join("\n");
 }
 
 function approvalRequestText(prompt: PhotonApprovalPrompt): string {
@@ -150,7 +233,10 @@ async function denyApprovalRequests(input: {
     } catch {
       await input.thread
         .post(
-          "I couldn't safely cancel that approval request. No action was authorized.",
+          photonWorkspaceLabeledText(
+            null,
+            "I couldn't safely cancel that approval request. No action was authorized.",
+          ),
         )
         .catch(() => undefined);
       return;
@@ -172,12 +258,91 @@ async function releaseApprovedOrderGuard(
   }
 }
 
+async function photonWorkspaceResponseName(input: {
+  principalId: string;
+  sessionId: string;
+  threadId: string;
+}): Promise<string | null> {
+  try {
+    const state = await getPhotonWorkspaceState({
+      principalId: input.principalId,
+      threadId: physicalPhotonThreadId(input.threadId),
+    });
+    const matched = state.workspaces.find(
+      (workspace) => workspace.sessionId === input.sessionId,
+    );
+    if (matched) return matched.name;
+    return input.threadId === physicalPhotonThreadId(input.threadId) &&
+      state.activeWorkspace.continuation === "physical"
+      ? state.activeWorkspace.name
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function photonWorkspaceLabeledText(
+  workspaceName: string | null,
+  text: string,
+): string {
+  return `[Workspace: ${workspaceName ?? "unavailable"}]\n\n${text}`;
+}
+
+async function activePhotonWorkspaceForSession(input: {
+  principalId: string;
+  routedThreadId: string;
+  sessionId: string;
+}): Promise<PhotonWorkspace | null> {
+  const route = parsePhotonWorkspaceThreadId(input.routedThreadId);
+  const state = await getPhotonWorkspaceState({
+    principalId: input.principalId,
+    threadId: physicalPhotonThreadId(input.routedThreadId),
+  });
+  if (route) {
+    const workspace = state.workspaces.find(
+      (candidate) => candidate.id === route.workspaceId,
+    );
+    return workspace?.status === "active" &&
+      workspace.id === state.activeWorkspace.id &&
+      workspace.generation === route.generation &&
+      (!workspace.sessionId || workspace.sessionId === input.sessionId)
+      ? workspace
+      : null;
+  }
+  const workspace = state.activeWorkspace;
+  return workspace.status === "active" &&
+    workspace.continuation === "physical" &&
+    (!workspace.sessionId || workspace.sessionId === input.sessionId)
+    ? workspace
+    : null;
+}
+
 const bridge = chatSdkChannel({
   adapters: {
-    imessage: imessageAdapter,
+    imessage: routedImessageAdapter,
   },
   concurrency: "queue",
   events: {
+    async "message.completed"(data, channel, ctx) {
+      if (
+        data.finishReason === "tool-calls" ||
+        !data.message ||
+        !channel.thread
+      ) {
+        return;
+      }
+      const principalId = ctx.session.auth.current?.principalId;
+      const workspaceName = principalId
+        ? await photonWorkspaceResponseName({
+            principalId,
+            sessionId: ctx.session.id,
+            threadId: channel.thread.id,
+          })
+        : null;
+      await channel.thread.post({
+        markdown: photonWorkspaceLabeledText(workspaceName, data.message),
+      });
+    },
     async "turn.failed"(data, channel, ctx) {
       const release = await releaseApprovedOrderGuard(ctx.session.id);
       console.error("[photon.turn] Eve turn failed", {
@@ -186,32 +351,74 @@ const bridge = chatSdkChannel({
         turn_id: data.turnId,
       });
       if (!channel.thread) return;
+      const principalId = ctx.session.auth.current?.principalId;
+      const workspaceName = principalId
+        ? await photonWorkspaceResponseName({
+            principalId,
+            sessionId: ctx.session.id,
+            threadId: channel.thread.id,
+          })
+        : null;
       await channel.thread.post(
-        release === "retained"
-          ? `I couldn't finish that request (${data.code}). The Coinbase order status is uncertain, so new orders remain blocked. Check Coinbase before taking another action.`
-          : `I couldn't finish that request (${data.code}). I won't retry it automatically. If it involved an order, check Coinbase before trying again.`,
+        photonWorkspaceLabeledText(
+          workspaceName,
+          release === "retained"
+            ? `I couldn't finish that request (${data.code}). The Coinbase order status is uncertain, so new orders remain blocked. Check Coinbase before taking another action.`
+            : `I couldn't finish that request (${data.code}). I won't retry it automatically. If it involved an order, check Coinbase before trying again.`,
+        ),
       );
     },
     async "turn.completed"(_data, channel, ctx) {
       const release = await releaseApprovedOrderGuard(ctx.session.id);
       if (release === "retained" && channel.thread) {
+        const principalId = ctx.session.auth.current?.principalId;
+        const workspaceName = principalId
+          ? await photonWorkspaceResponseName({
+              principalId,
+              sessionId: ctx.session.id,
+              threadId: channel.thread.id,
+            })
+          : null;
         await channel.thread.post(
-          "The Coinbase order status is not safely settled. Check Coinbase before trying another order; new orders remain blocked for safety.",
+          photonWorkspaceLabeledText(
+            workspaceName,
+            "The Coinbase order status is not safely settled. Check Coinbase before trying another order; new orders remain blocked for safety.",
+          ),
         );
       }
     },
     async "turn.cancelled"(_data, channel, ctx) {
       const release = await releaseApprovedOrderGuard(ctx.session.id);
       if (release !== "missing" && channel.thread) {
+        const principalId = ctx.session.auth.current?.principalId;
+        const workspaceName = principalId
+          ? await photonWorkspaceResponseName({
+              principalId,
+              sessionId: ctx.session.id,
+              threadId: channel.thread.id,
+            })
+          : null;
         await channel.thread.post(
-          release === "released"
-            ? "The approved order turn was interrupted after Coinbase settled it. Check Coinbase before submitting another order."
-            : "The approved order turn was interrupted and its status is uncertain. Check Coinbase; new orders remain blocked for safety.",
+          photonWorkspaceLabeledText(
+            workspaceName,
+            release === "released"
+              ? "The approved order turn was interrupted after Coinbase settled it. Check Coinbase before submitting another order."
+              : "The approved order turn was interrupted and its status is uncertain. Check Coinbase; new orders remain blocked for safety.",
+          ),
         );
       }
     },
     async "session.completed"(_data, _channel, ctx) {
       await releaseApprovedOrderGuard(ctx.session.id);
+    },
+    async "session.failed"(_data, channel) {
+      if (!channel.thread) return;
+      await channel.thread.post(
+        photonWorkspaceLabeledText(
+          null,
+          "This workspace session failed and did not complete its request. Eve will not retry it automatically.",
+        ),
+      );
     },
     async "authorization.required"(data, channel, ctx) {
       if (!channel.thread) return;
@@ -226,19 +433,55 @@ const bridge = chatSdkChannel({
         userCode ? `Code: ${userCode}` : undefined,
       ].filter((line): line is string => line !== undefined);
 
-      await channel.thread.post(instructions.join("\n\n"));
+      const principalId = ctx.session.auth.current?.principalId;
+      const workspaceName = principalId
+        ? await photonWorkspaceResponseName({
+            principalId,
+            sessionId: ctx.session.id,
+            threadId: channel.thread.id,
+          })
+        : null;
+      await channel.thread.post(
+        photonWorkspaceLabeledText(
+          workspaceName,
+          instructions.join("\n\n"),
+        ),
+      );
     },
-    async "authorization.completed"(data, channel) {
+    async "authorization.completed"(data, channel, ctx) {
       if (!channel.thread) return;
 
       if (data.outcome === "authorized") {
-        await channel.thread.post("Masterkey connected. Continuing your request.");
+        const principalId = ctx.session.auth.current?.principalId;
+        const workspaceName = principalId
+          ? await photonWorkspaceResponseName({
+              principalId,
+              sessionId: ctx.session.id,
+              threadId: channel.thread.id,
+            })
+          : null;
+        await channel.thread.post(
+          photonWorkspaceLabeledText(
+            workspaceName,
+            "Masterkey connected. Continuing your request.",
+          ),
+        );
       }
     },
     async "input.requested"(data, channel, ctx) {
       if (!channel.thread) return;
       const [request] = data.requests;
       const auth = ctx.session.auth.current;
+      const physicalThreadId = physicalPhotonThreadId(channel.thread.id);
+      const workspaceName = auth?.principalId
+        ? await photonWorkspaceResponseName({
+            principalId: auth.principalId,
+            sessionId: ctx.session.id,
+            threadId: channel.thread.id,
+          })
+        : null;
+      const labeled = (text: string) =>
+        photonWorkspaceLabeledText(workspaceName, text);
 
       if (
         data.requests.length !== 1 ||
@@ -250,15 +493,16 @@ const bridge = chatSdkChannel({
         );
         if (containsApproval) {
           await denyApprovalRequests({
-            notice:
+            notice: labeled(
               "I can only handle one approval at a time. This batch was denied; ask Eve to present one action at a time.",
+            ),
             requests: data.requests,
             sessionId: ctx.session.id,
             thread: channel.thread,
           });
         } else {
           await channel.thread.post(
-            data.requests.map(inputFallbackText).join("\n\n"),
+            labeled(data.requests.map(inputFallbackText).join("\n\n")),
           );
         }
         return;
@@ -270,7 +514,7 @@ const bridge = chatSdkChannel({
         !auth.principalId.startsWith("imessage:")
       ) {
         await denyApprovalRequests({
-          notice: unavailableApprovalText(request.prompt),
+          notice: labeled(unavailableApprovalText(request.prompt)),
           requests: [request],
           sessionId: ctx.session.id,
           thread: channel.thread,
@@ -279,7 +523,9 @@ const bridge = chatSdkChannel({
       }
       if (!isPhotonApprovalSupported(request)) {
         await denyApprovalRequests({
-          notice: `${request.prompt}\n\nThis action cannot be approved from iMessage yet. It was denied.`,
+          notice: labeled(
+            `${request.prompt}\n\nThis action cannot be approved from iMessage yet. It was denied.`,
+          ),
           requests: [request],
           sessionId: ctx.session.id,
           thread: channel.thread,
@@ -298,7 +544,28 @@ const bridge = chatSdkChannel({
           tool_name: request.action.toolName,
         });
         await denyApprovalRequests({
-          notice: unavailableApprovalText(request.prompt),
+          notice: labeled(unavailableApprovalText(request.prompt)),
+          requests: [request],
+          sessionId: ctx.session.id,
+          thread: channel.thread,
+        });
+        return;
+      }
+      let approvalWorkspace: PhotonWorkspace | null = null;
+      try {
+        approvalWorkspace = await activePhotonWorkspaceForSession({
+          principalId: auth.principalId,
+          routedThreadId: channel.thread.id,
+          sessionId: ctx.session.id,
+        });
+      } catch {
+        // An unavailable workspace registry denies the approval below.
+      }
+      if (!approvalWorkspace) {
+        await denyApprovalRequests({
+          notice: labeled(
+            "I couldn't bind this approval to the active workspace. The action was denied; ask again from the intended workspace.",
+          ),
           requests: [request],
           sessionId: ctx.session.id,
           thread: channel.thread,
@@ -318,7 +585,9 @@ const bridge = chatSdkChannel({
           principalId: auth.principalId,
           prompt,
           sessionId: ctx.session.id,
-          threadId: channel.thread.id,
+          threadId: physicalThreadId,
+          workspaceGeneration: approvalWorkspace.generation,
+          workspaceId: approvalWorkspace.id,
         });
         approvalToken = reservation.approvalToken;
         reservationState = reservation.state;
@@ -331,7 +600,7 @@ const bridge = chatSdkChannel({
           tool_name: request.action.toolName,
         });
         await denyApprovalRequests({
-          notice: unavailableApprovalText(prompt.approvalText),
+          notice: labeled(unavailableApprovalText(prompt.approvalText)),
           requests: [request],
           sessionId: ctx.session.id,
           thread: channel.thread,
@@ -342,9 +611,40 @@ const bridge = chatSdkChannel({
         return;
       }
 
+      let activeWorkspaceSession: PhotonWorkspace | null = null;
+      try {
+        activeWorkspaceSession = await activePhotonWorkspaceForSession({
+          principalId: auth.principalId,
+          routedThreadId: channel.thread.id,
+          sessionId: ctx.session.id,
+        });
+      } catch {
+        // Treat an unavailable routing decision as a denied action.
+      }
+      if (
+        !activeWorkspaceSession ||
+        activeWorkspaceSession.id !== approvalWorkspace.id ||
+        activeWorkspaceSession.generation !== approvalWorkspace.generation
+      ) {
+        await clearPhotonApproval({
+          approvalToken,
+          principalId: auth.principalId,
+          threadId: physicalThreadId,
+        }).catch(() => false);
+        await denyApprovalRequests({
+          notice: labeled(
+            "The workspace changed or could not be verified before this approval opened. The action was denied; ask again from the intended active workspace.",
+          ),
+          requests: [request],
+          sessionId: ctx.session.id,
+          thread: channel.thread,
+        });
+        return;
+      }
+
       try {
         await imessageAdapter.sendMiniApp(
-          channel.thread.id,
+          physicalThreadId,
           photonApprovalAppUrl(approvalToken),
         );
       } catch (error) {
@@ -357,11 +657,11 @@ const bridge = chatSdkChannel({
         const cleared = await clearPhotonApproval({
           approvalToken,
           principalId: auth.principalId,
-          threadId: channel.thread.id,
+          threadId: physicalThreadId,
         }).catch(() => false);
         if (cleared) {
           await denyApprovalRequests({
-            notice: unavailableApprovalText(prompt.approvalText),
+            notice: labeled(unavailableApprovalText(prompt.approvalText)),
             requests: [request],
             sessionId: ctx.session.id,
             thread: channel.thread,
@@ -374,10 +674,10 @@ const bridge = chatSdkChannel({
         await activatePhotonApproval({
           approvalToken,
           principalId: auth.principalId,
-          threadId: channel.thread.id,
+          threadId: physicalThreadId,
         });
         await channel.thread
-          .post(approvalRequestText(prompt))
+          .post(labeled(approvalRequestText(prompt)))
           .catch(() => undefined);
         console.info("[photon.approval] Approval ready", {
           delivery: "mini-app",
@@ -402,18 +702,18 @@ const bridge = chatSdkChannel({
             view.status === "delivered")
         ) {
           await channel.thread
-            .post(approvalRequestText(prompt))
+            .post(labeled(approvalRequestText(prompt)))
             .catch(() => undefined);
           return;
         }
         const cleared = await clearPhotonApproval({
           approvalToken,
           principalId: auth.principalId,
-          threadId: channel.thread.id,
+          threadId: physicalThreadId,
         }).catch(() => false);
         if (cleared) {
           await denyApprovalRequests({
-            notice: unavailableApprovalText(prompt.approvalText),
+            notice: labeled(unavailableApprovalText(prompt.approvalText)),
             requests: [request],
             sessionId: ctx.session.id,
             thread: channel.thread,
@@ -421,7 +721,9 @@ const bridge = chatSdkChannel({
         } else {
           await channel.thread
             .post(
-              "The approval card was sent, but its status is still being reconciled. No additional action was authorized.",
+              labeled(
+                "The approval card was sent, but its status is still being reconciled. No additional action was authorized.",
+              ),
             )
             .catch(() => undefined);
         }
@@ -518,6 +820,49 @@ async function submitApprovalDecision(
     return true;
   }
 
+  let workspace: PhotonWorkspace | undefined;
+  try {
+    const state = await getPhotonWorkspaceState({
+      principalId,
+      threadId: thread.id,
+    });
+    const matchedWorkspace =
+      claim.delivery.workspaceId && claim.delivery.workspaceGeneration
+        ? state.workspaces.find(
+            (candidate) =>
+              candidate.id === claim.delivery.workspaceId &&
+              candidate.generation === claim.delivery.workspaceGeneration,
+          )
+        : state.workspaces.find(
+            (candidate) => candidate.sessionId === claim.delivery.sessionId,
+          );
+    workspace =
+      matchedWorkspace?.status === "active" &&
+      matchedWorkspace.id === state.activeWorkspace.id
+        ? matchedWorkspace
+        : undefined;
+    if (
+      !workspace &&
+      !claim.delivery.workspaceId &&
+      state.activeWorkspace.continuation === "physical" &&
+      state.activeWorkspace.status === "active"
+    ) {
+      workspace = state.activeWorkspace;
+    }
+  } catch {
+    // The approval is failed below before any response reaches Eve.
+  }
+  if (!workspace) {
+    await failPhotonApprovalDecision({
+      decision: claim.delivery.decision,
+      recordKey: claim.delivery.recordKey,
+    }).catch(() => undefined);
+    await thread.post(
+      "I couldn't match that approval to its workspace session. No action was authorized; ask Eve to prepare it again.",
+    );
+    return true;
+  }
+
   const acknowledgement =
     claim.delivery.expired
       ? "That approval expired. No action was taken."
@@ -536,7 +881,7 @@ async function submitApprovalDecision(
       },
       {
         auth: photonAuth(senderId, thread.id),
-        thread,
+        thread: photonWorkspaceThread(thread, workspace),
         turnPolicy: "queue",
       },
     );
@@ -585,77 +930,6 @@ async function submitApprovalDecision(
   return true;
 }
 
-async function readSessionEvent(
-  reader: ReadableStreamDefaultReader<MessageStreamEvent>,
-  timeoutMs: number,
-) {
-  return new Promise<Awaited<ReturnType<typeof reader.read>>>(
-    (resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for the session refresh turn.")),
-        timeoutMs,
-      );
-      reader.read().then(
-        (value) => {
-          clearTimeout(timeout);
-          resolve(value);
-        },
-        (error: unknown) => {
-          clearTimeout(timeout);
-          reject(error);
-        },
-      );
-    },
-  );
-}
-
-async function waitForSessionRefreshTurn(
-  session: Awaited<ReturnType<typeof bridge.send>>,
-  controlMessage: string,
-): Promise<void> {
-  const tailIndex = await session.getStreamTailIndex();
-  const stream = await session.getEventStream({
-    startIndex: Math.max(0, tailIndex - 50),
-  });
-  const reader = stream.getReader();
-  const deadline = Date.now() + 90_000;
-  let controlTurnId: string | undefined;
-  let observedEvents = 0;
-
-  try {
-    while (observedEvents < 10_000) {
-      const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0) {
-        throw new Error("Timed out waiting for the session refresh turn.");
-      }
-      const result = await readSessionEvent(reader, remainingMs);
-      if (result.done) {
-        throw new Error("The session event stream ended before refresh.");
-      }
-      observedEvents += 1;
-      const event = result.value;
-      if (
-        event.type === "message.received" &&
-        event.data.message === controlMessage
-      ) {
-        controlTurnId = event.data.turnId;
-        continue;
-      }
-      if (!controlTurnId) continue;
-      if (event.type === "session.waiting") return;
-      if (
-        event.type === "session.completed" ||
-        event.type === "session.failed"
-      ) {
-        return;
-      }
-    }
-    throw new Error("The session refresh produced too many events.");
-  } finally {
-    await reader.cancel().catch(() => undefined);
-  }
-}
-
 async function invalidateCurrentPhotonApproval(input: {
   principalId: string;
   threadId: string;
@@ -684,95 +958,6 @@ async function invalidateCurrentPhotonApproval(input: {
   return "cleared";
 }
 
-async function ensureCurrentPhotonSession(
-  thread: Thread,
-  senderId: string,
-): Promise<boolean> {
-  const principalId = photonPrincipalId(senderId);
-  let reservation;
-  try {
-    reservation = await reservePhotonSessionMigration({
-      generation: PHOTON_SESSION_GENERATION,
-      principalId,
-      threadId: thread.id,
-    });
-  } catch {
-    await thread.post(
-      "I couldn't verify this conversation's session state. Please try again.",
-    );
-    return false;
-  }
-  if (reservation.status === "current") return true;
-  if (reservation.status === "busy") {
-    await thread.post(
-      "This conversation is already refreshing. Please try again in a moment.",
-    );
-    return false;
-  }
-
-  let stage = "open";
-  try {
-    const refreshId = randomBytes(12).toString("base64url");
-    const controlMessage =
-      `Refresh this conversation for the current runtime (${refreshId}). ` +
-      "Wait for any earlier request to finish, then do not call tools or take actions.";
-    const previousSession = await bridge.send(
-      {
-        context: [
-          "This is a session migration control turn. Do not call tools or take actions. Reply only that the conversation is refreshing.",
-        ],
-        message: controlMessage,
-      },
-      {
-        auth: photonAuth(senderId, thread.id),
-        thread,
-        turnPolicy: "queue",
-      },
-    );
-    stage = "wait";
-    await waitForSessionRefreshTurn(previousSession, controlMessage);
-    stage = "reset";
-    await previousSession.reset({
-      reason: "Move this iMessage conversation to the current runtime.",
-    });
-    stage = "invalidate-approval";
-    await invalidateCurrentPhotonApproval({
-      principalId,
-      threadId: thread.id,
-    });
-    stage = "commit";
-    const completed = await completePhotonSessionMigration({
-      generation: PHOTON_SESSION_GENERATION,
-      migrationToken: reservation.migrationToken,
-      principalId,
-      threadId: thread.id,
-    });
-    if (!completed) {
-      throw new Error("The Photon session migration reservation expired.");
-    }
-    console.info("[photon.session] Migrated conversation to current runtime", {
-      previous_session_id: previousSession.id,
-      runtime_generation: PHOTON_SESSION_GENERATION,
-    });
-  } catch (error) {
-    await releasePhotonSessionMigration({
-      migrationToken: reservation.migrationToken,
-      principalId,
-      threadId: thread.id,
-    }).catch(() => undefined);
-    console.error("[photon.session] Session migration failed", {
-      error_type: error instanceof Error ? error.name : typeof error,
-      migration_stage: stage,
-      runtime_generation: PHOTON_SESSION_GENERATION,
-    });
-    await thread.post(
-      "I couldn't refresh this conversation safely. No action was taken; please try again.",
-    );
-    return false;
-  }
-  return true;
-}
-
 async function isFirstApprovalEvent(input: {
   eventId: string;
   senderId: string;
@@ -783,6 +968,200 @@ async function isFirstApprovalEvent(input: {
     principalId: photonPrincipalId(input.senderId),
     threadId: input.threadId,
   });
+}
+
+async function retirePhotonWorkspaceSession(input: {
+  senderId: string;
+  thread: Thread;
+  workspace: PhotonWorkspace;
+}): Promise<boolean> {
+  try {
+    const session = await bridge.send(
+      {
+        context: [
+          "This is an internal workspace-session retirement command. Do not call tools, take actions, or produce a user-facing response.",
+        ],
+        message: "Retire this workspace session immediately.",
+      },
+      {
+        auth: photonAuth(input.senderId, input.thread.id),
+        thread: photonWorkspaceThread(input.thread, input.workspace),
+        turnPolicy: "experimental-steer",
+      },
+    );
+    await session.reset({
+      reason: "The iMessage owner started this workspace fresh.",
+    });
+    return true;
+  } catch (error) {
+    console.warn("[photon.workspace] Session retirement cleanup failed", {
+      error_type: error instanceof Error ? error.name : typeof error,
+    });
+    return false;
+  }
+}
+
+async function startFreshActivePhotonWorkspace(input: {
+  senderId: string;
+  thread: Thread;
+}): Promise<void> {
+  const principalId = photonPrincipalId(input.senderId);
+  const state = await getPhotonWorkspaceState({
+    principalId,
+    threadId: input.thread.id,
+  });
+  const result = await startFreshPhotonWorkspace({
+    approvalGuardKey: photonApprovalGuardKey({
+      principalId,
+      threadId: input.thread.id,
+    }),
+    expectedRevision: state.revision,
+    principalId,
+    threadId: input.thread.id,
+    workspaceId: state.activeWorkspace.id,
+  });
+  const retired = await retirePhotonWorkspaceSession({
+    senderId: input.senderId,
+    thread: input.thread,
+    workspace: state.activeWorkspace,
+  });
+  await input.thread.post(
+    retired
+      ? `Eve control · “${result.state.activeWorkspace.name}” started fresh. Its prior model history and pending requests are retired; other workspaces are unchanged.`
+      : `Eve control · “${result.state.activeWorkspace.name}” now routes to a fresh session, but cleanup of its prior session could not be confirmed. No pending financial approval from it can be used.`,
+  );
+}
+
+async function handlePhotonWorkspaceControl(input: {
+  control: PhotonWorkspaceControl;
+  senderId: string;
+  state: PhotonWorkspaceState;
+  thread: Thread;
+}): Promise<void> {
+  const scope = {
+    principalId: photonPrincipalId(input.senderId),
+    threadId: input.thread.id,
+  };
+  const guardedScope = {
+    ...scope,
+    approvalGuardKey: photonApprovalGuardKey(scope),
+    expectedRevision: input.state.revision,
+  };
+  try {
+    switch (input.control.action) {
+      case "manage": {
+        const manager = await mintPhotonWorkspaceManager(scope);
+        try {
+          await imessageAdapter.sendMiniApp(
+            input.thread.id,
+            photonWorkspaceAppUrl(manager.managerToken),
+          );
+          await input.thread.post(
+            "Eve control · Workspace manager opened. The link expires in 15 minutes.\n\nText fallback: “list workspaces”, “create workspace NAME”, “use workspace NAME”, “rename workspace OLD to NEW”, or “archive workspace NAME”.",
+          );
+        } catch {
+          await input.thread.post(
+            `${photonWorkspaceListText(input.state)}\n\nThe visual manager could not open. Use the text controls shown above.`,
+          );
+        }
+        return;
+      }
+      case "list":
+        await input.thread.post(photonWorkspaceListText(input.state));
+        return;
+      case "create": {
+        const state = await createPhotonWorkspace({
+          ...guardedScope,
+          name: input.control.name,
+          select: true,
+        });
+        await input.thread.post(
+          `Eve control · Created and selected “${state.activeWorkspace.name}”. New messages now use its isolated session.`,
+        );
+        return;
+      }
+      case "select": {
+        const workspace = findPhotonWorkspaceByName(
+          input.state,
+          input.control.name,
+        );
+        if (!workspace || workspace.status !== "active") {
+          throw new PhotonWorkspaceValidationError(
+            `No active workspace named “${input.control.name.trim()}” exists.`,
+          );
+        }
+        const state = await selectPhotonWorkspace({
+          ...guardedScope,
+          workspaceId: workspace.id,
+        });
+        await input.thread.post(
+          `Eve control · Switched to “${state.activeWorkspace.name}”. Its existing session context is now active.`,
+        );
+        return;
+      }
+      case "rename": {
+        const workspace = findPhotonWorkspaceByName(
+          input.state,
+          input.control.currentName,
+        );
+        if (!workspace) {
+          throw new PhotonWorkspaceValidationError(
+            `No workspace named “${input.control.currentName.trim()}” exists.`,
+          );
+        }
+        const state = await renamePhotonWorkspace({
+          ...guardedScope,
+          name: input.control.name,
+          workspaceId: workspace.id,
+        });
+        const renamed = state.workspaces.find(
+          (candidate) => candidate.id === workspace.id,
+        );
+        await input.thread.post(
+          `Eve control · Renamed the workspace to “${renamed?.name ?? input.control.name.trim()}”.`,
+        );
+        return;
+      }
+      case "archive": {
+        const workspace = findPhotonWorkspaceByName(
+          input.state,
+          input.control.name,
+        );
+        if (!workspace || workspace.status !== "active") {
+          throw new PhotonWorkspaceValidationError(
+            `No active workspace named “${input.control.name.trim()}” exists.`,
+          );
+        }
+        if (workspace.id === input.state.activeWorkspace.id) {
+          throw new PhotonWorkspaceValidationError(
+            "Switch to another workspace before archiving the active one.",
+          );
+        }
+        await archivePhotonWorkspace({
+          ...guardedScope,
+          workspaceId: workspace.id,
+        });
+        await input.thread.post(
+          `Eve control · Archived “${workspace.name}”. Its retained state was not deleted.`,
+        );
+      }
+    }
+  } catch (error) {
+    if (
+      error instanceof PhotonWorkspaceApprovalBlockedError ||
+      error instanceof PhotonWorkspaceValidationError
+    ) {
+      await input.thread.post(`Eve control · ${error.message}`);
+      return;
+    }
+    console.error("[photon.workspace] Text control failed", {
+      action: input.control.action,
+      error_type: error instanceof Error ? error.name : typeof error,
+    });
+    await input.thread.post(
+      "Eve control · I couldn't confirm the workspace update. Send “list workspaces” before trying another change.",
+    );
+  }
 }
 
 async function dispatch(
@@ -814,30 +1193,14 @@ async function dispatch(
         );
         return;
       }
-      const session = await bridge.send(
-        {
-          context: [
-            "This is an internal session-reset command. Do not call tools or take actions.",
-          ],
-          message: "Retire this conversation immediately without taking actions.",
-        },
-        {
-          auth: photonAuth(senderId, thread.id),
-          thread,
-          turnPolicy: "experimental-steer",
-        },
-      );
-      await session.reset({
-        reason: "The iMessage user requested a fresh conversation.",
-      });
-      await thread.post(
-        "Session cleared. Your next message will start a fresh conversation with no previous context or pending request.",
-      );
+      await startFreshActivePhotonWorkspace({ senderId, thread });
     } catch (error) {
-      console.error("[photon.session] User-requested reset failed", {
+      console.error("[photon.workspace] User-requested reset failed", {
         error_type: error instanceof Error ? error.name : typeof error,
       });
-      await thread.post("I couldn't clear this session. No action was taken.");
+      await thread.post(
+        "Eve control · I couldn't confirm the start-fresh request. Send “list workspaces” before trying again.",
+      );
     }
     return;
   }
@@ -906,28 +1269,57 @@ async function dispatch(
     return;
   }
 
+  const principalId = photonPrincipalId(senderId);
+  let workspaceState: PhotonWorkspaceState;
+  try {
+    workspaceState = await getPhotonWorkspaceState({
+      principalId,
+      threadId: thread.id,
+    });
+  } catch (error) {
+    console.error("[photon.workspace] Routing lookup failed", {
+      error_type: error instanceof Error ? error.name : typeof error,
+    });
+    await thread.post(
+      "Eve control · I couldn't verify the active workspace, so this message was not sent. Please try again.",
+    );
+    return;
+  }
+
+  const workspaceControl = parsePhotonWorkspaceControl(message.text);
+  if (workspaceControl) {
+    await handlePhotonWorkspaceControl({
+      control: workspaceControl,
+      senderId,
+      state: workspaceState,
+      thread,
+    });
+    return;
+  }
+
+  const activeWorkspace = workspaceState.activeWorkspace;
   const session = await bridge.send(
     {
       context: [
-        "This request arrived through a private iMessage conversation.",
+        photonWorkspaceContext(activeWorkspace),
       ],
       message: messageToUserContent(message),
     },
     {
       auth: photonAuth(senderId, thread.id),
-      thread,
+      thread: photonWorkspaceThread(thread, activeWorkspace),
       turnPolicy: "experimental-steer",
     },
   );
-  await savePhotonSessionBinding({
-    generation: PHOTON_SESSION_GENERATION,
-    principalId: photonPrincipalId(senderId),
+  await savePhotonWorkspaceSession({
+    generation: activeWorkspace.generation,
+    principalId,
     sessionId: session.id,
     threadId: thread.id,
+    workspaceId: activeWorkspace.id,
   }).catch((error: unknown) => {
-    console.error("[photon.session] Session binding update failed", {
+    console.error("[photon.workspace] Session binding update failed", {
       error_type: error instanceof Error ? error.name : typeof error,
-      runtime_generation: PHOTON_SESSION_GENERATION,
       session_id: session.id,
     });
   });

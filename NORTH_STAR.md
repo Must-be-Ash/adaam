@@ -177,17 +177,19 @@ the workspace or strategy contracts.
 This document describes the target architecture, not a claim that workspace
 isolation already exists.
 
-- The current Photon bridge maps the physical iMessage thread directly to one
-  Eve continuation, uses in-memory Chat SDK state, and permits concurrent
-  dispatch. It must be replaced by a durable owner/workspace/session broker and
-  durable ingress queue with serialized control and delivery receipts before
-  multiple workspaces are enabled.
-- The Spectrum workspace-management surface is not implemented in this
-  repository. Photon mini-app delivery is available through the current adapter,
-  but the manager still needs an owner-bound page/API and durable callbacks.
-  Inline `live: true` rendering requires a small adapter extension or direct
-  Spectrum integration; the supported tap-to-open mini app is sufficient for
-  the initial workspace manager.
+- Photon now has a durable conversation workspace registry, one active-workspace
+  pointer, isolated workspace continuation addresses, session-generation
+  rollover, serialized webhook handling, revision-checked lifecycle controls,
+  and Redis-backed Chat SDK state. The initial `Main` workspace adopts the
+  conversation's prior continuation so enabling workspaces does not discard the
+  confirmed working session. Durable ingress assignment/dispatch receipts,
+  quarantined uncertain delivery, bounded workspace briefs, and automatic topic
+  mismatch detection are still not implemented.
+- The tap-to-open Spectrum **Manage Eve Workspaces** mini app now supports
+  create, select, rename, archive, restore, and start-fresh actions through an
+  owner-bound short-lived capability. Plain-text controls provide the fallback.
+  Compact topic-change cards, inline `live: true` rendering, and hard deletion
+  remain unimplemented.
 - Telegram also maps a private chat directly to one continuation. It needs the
   same workspace broker before workspace routing is enabled there. Every channel
   must enforce the deployment owner allowlist; Coinbase's separate allowlist is

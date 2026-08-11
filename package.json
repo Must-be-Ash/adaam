@@ -6,11 +6,12 @@
     "#*": "./agent/*",
     "#coinbase-eval-fixture": "./agent/lib/coinbase-eval-fixture.ts",
     "#evals/*": "./evals/*",
-    "#mcp-tool-result": "./agent/lib/mcp-tool-result.ts"
+    "#mcp-tool-result": "./agent/lib/mcp-tool-result.ts",
+    "#photon-approval-store": "./agent/lib/photon-approval-store.ts"
   },
   "scripts": {
     "prepare:coinbase": "node scripts/embed-coinbase-cli.mjs",
-    "prebuild": "npm run prepare:coinbase && npm run verify:context && npm run verify:approvals && npm run verify:sessions",
+    "prebuild": "npm run prepare:coinbase && npm run verify:context && npm run verify:approvals && npm run verify:sessions && npm run verify:workspaces",
     "predev": "npm run prepare:coinbase",
     "pretypecheck": "npm run prepare:coinbase",
     "build": "eve build",
@@ -21,7 +22,9 @@
     "verify:approvals": "node scripts/verify-photon-approval.mjs",
     "verify:approvals:redis": "node scripts/verify-photon-approval-redis.mjs",
     "verify:context": "node scripts/verify-mcp-tool-result.mjs",
-    "verify:sessions": "node scripts/verify-photon-session.mjs"
+    "verify:sessions": "node scripts/verify-photon-session.mjs",
+    "verify:workspaces": "node scripts/verify-photon-workspaces.mjs",
+    "verify:workspaces:redis": "node scripts/verify-photon-workspaces-redis.mjs"
   },
   "dependencies": {
     "@ai-sdk/mcp": "^2.0.29",

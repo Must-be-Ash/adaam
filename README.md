@@ -49,6 +49,35 @@ The Photon project and app-scoped Vercel Connect connector are provisioned. The 
 resolves its project credential through Vercel Connect, so no Photon project secret is
 stored in source or `.env.local`.
 
+### Workspaces and sessions
+
+Each private iMessage conversation has a durable workspace registry. Its first message
+creates `Main` and preserves the conversation's existing Eve session as that workspace.
+New workspaces receive separate Eve continuation addresses, so their model histories and
+pending requests do not mix. Switching returns to the selected workspace's current
+session; `reset session` or `start fresh` retires only the active workspace's session
+generation and leaves its name plus the other workspaces intact.
+
+Send `manage workspaces` to open the owner-bound Spectrum manager. It can create, select,
+rename, archive, restore, and start workspaces fresh. The manager link is a short-lived
+capability carried in the URL fragment, and every mutation uses the registry revision so
+stale or repeated actions cannot overwrite newer routing state. Permanent deletion is
+not presented because Eve cannot yet promise complete deletion of durable workflow and
+safety records.
+
+Plain-text controls remain available:
+
+- `list workspaces`
+- `create workspace Earnings Calls`
+- `use workspace Earnings Calls`
+- `rename workspace Earnings Calls to Call Language`
+- `archive workspace Call Language`
+- `reset session`
+
+Workspace controls are processed outside the model. An active or processing financial
+approval blocks workspace changes, and every workspace response is labeled with the
+workspace that produced it.
+
 ## Masterkey fallback
 
 Masterkey is connected through the user-scoped Vercel Connect connector
