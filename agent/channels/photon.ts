@@ -29,7 +29,7 @@ import {
   hasCurrentPhotonApproval,
   savePhotonApproval,
   type PhotonApprovalDelivery,
-} from "../lib/photon-approval-store";
+} from "../lib/photon-approval-store.js";
 import { photonAuth, photonPrincipalId } from "../lib/photon-auth";
 import { photonApprovalAppUrl } from "../lib/photon-mini-app";
 import {
