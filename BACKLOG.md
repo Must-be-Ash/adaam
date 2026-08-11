@@ -1,0 +1,406 @@
+# Eve backlog and parked work
+
+Snapshot date: 2026-08-11  
+Application baseline: `8d34e19` on `main`
+
+This is the inventory of work that was explicitly postponed, remains incomplete,
+or is known to be needed before Eve can satisfy the full product direction.
+It is not authorization to start work. The owner chooses what comes next.
+
+## Current status
+
+No user-tested core path was reported broken at handoff. These were working:
+
+- Coinbase balance requests through Eve;
+- Coinbase spot-order preview and creation;
+- Spectrum and text approval/denial;
+- iMessage session creation, switching, isolation, and Start fresh;
+- session-manager launch from natural-language requests;
+- the accepted grayscale session-manager UI.
+
+The items below are product, safety, testing, and operational gaps around that
+working baseline.
+
+Priority labels:
+
+- **Release blocker:** required before broader access or claiming live-broker
+  readiness.
+- **Next foundation:** required for the intended session/strategy architecture.
+- **Parked:** only pursue if the owner explicitly selects it.
+- **Maintenance:** bounded cleanup or documentation work.
+
+## 1. Release blockers
+
+### Deployment-wide owner authorization
+
+- [ ] Add one deployment-owner identity with approved channel-principal aliases.
+- [ ] Enforce it at Photon, Telegram, HTTP, session management, event-trigger
+  management, and other private capabilities.
+- [ ] Keep `COINBASE_ALLOWED_PRINCIPALS` as a separate Coinbase capability
+  allowlist; it is not general application authorization.
+- [ ] Add negative tests proving an authenticated but unapproved channel
+  principal cannot access private capabilities.
+
+Current state: Photon and Telegram authenticate senders, but there is no general
+deployment-owner allowlist.
+
+### Contain the Coinbase capability surface
+
+- [ ] Disable conversions, transfers, portfolio mutations, and other
+  out-of-scope Coinbase mutations by default.
+- [ ] Keep native order creation and credential switching hidden behind
+  application-owned workflows.
+- [ ] Decide whether edit/cancel belongs in the initial live surface; if yes,
+  implement its exact preview and safety protocol before enabling it.
+- [ ] Make the enabled capability set explicit and testable rather than relying
+  on Photon rejecting unsupported approval requests.
+
+Current state: these tools are dynamically registered for eligible principals,
+although Photon's custom approval path supports only `coinbase_create_order`.
+
+### Reconcile uncertain financial mutations
+
+- [ ] Add an account-wide uncertain-mutation gate.
+- [ ] Reconcile against authoritative Coinbase order state.
+- [ ] Define a supported operator recovery/unblock procedure.
+- [ ] Ensure a different thread, channel, session, call ID, or expired TTL cannot
+  bypass an unresolved mutation.
+- [ ] Never treat guard expiry as proof that a broker mutation did not execute.
+
+Current state: the Photon processing guard is Eve-session scoped, expires after
+24 hours, and has no automated reconciliation.
+
+### Complete financial execution safety
+
+- [ ] Bind every enabled mutation to owner, principal, workspace/session,
+  generation, broker account, exact normalized action, displayed-preview hash,
+  request ID, and expiry.
+- [ ] Revalidate unchanged actions immediately before submission.
+- [ ] Add market-order price collars and freshness checks.
+- [ ] Handle partial fills, resting orders, cancellation, expiration, and
+  uncertain outcomes explicitly.
+- [ ] Add owner-global exposure, loss, asset, account, and concurrency limits.
+- [ ] Add atomic capital reservations so concurrent sessions cannot
+  over-allocate.
+- [ ] Persist broker-operation audit and reconciliation records.
+- [ ] Provide a paper-only reference workflow before live brokerage is enabled
+  in a fresh fork.
+
+### Photon end-to-end regression coverage
+
+- [ ] Build a test that exercises Photon webhook ingestion, Chat SDK state,
+  session routing, Eve, Redis approval state, mini-app URL generation,
+  Spectrum callbacks, text replies, and final iMessage delivery.
+- [ ] Cover balance requests, order preview, approve, deny, stale replies,
+  duplicate webhooks, session switching, Start fresh, failure, cancellation, and
+  uncertain order outcomes.
+- [ ] Make clear which parts use fixtures and ensure no test can reach real
+  Coinbase mutation endpoints.
+
+Current state: model evals and lower-level verification scripts pass, but no test
+covers the complete production channel.
+
+### Correct unsupported or misleading approval UX
+
+- [ ] Either create generic action-specific mini-app copy for
+  `delete_event_trigger` or remove it from the rich approval protocol.
+- [ ] Add a safe Photon approval experience for paid Masterkey `run_service`
+  calls if paid Masterkey is meant to work in iMessage.
+- [ ] Keep unsupported requests fail-closed.
+
+Current state: trigger deletion receives order-specific success/denial copy, and
+paid Masterkey approvals are denied by the Photon approval allowlist.
+
+### Replace placeholder HTTP authentication
+
+- [ ] Choose and implement production HTTP authentication.
+- [ ] Add owner/workspace scoping and authorization tests.
+- [ ] Keep HTTP unavailable to unapproved browser users until this exists.
+
+Current state: `agent/channels/eve.ts` still uses `placeholderAuth()`.
+
+### Bound Coinbase stdio transport before parsing
+
+- [ ] Add a byte limit to the Coinbase stdio MCP transport before accepting and
+  parsing the complete response.
+- [ ] Preserve the existing timeout and result-normalization limits.
+- [ ] Add oversized-response regression coverage.
+
+Current state: model context is bounded after parsing, but process memory is not
+bounded at the stdio transport boundary.
+
+## 2. Session and control-plane foundation
+
+### Durable ingress assignment and delivery
+
+- [ ] Give each inbound message an immutable ingress receipt.
+- [ ] Record one workspace/session assignment before a workspace model sees it.
+- [ ] Serialize assignment and dispatch.
+- [ ] Record dispatch completion idempotently.
+- [ ] Quarantine uncertain delivery rather than replaying blindly.
+- [ ] Add recovery tooling and tests for lost responses and duplicate webhooks.
+
+### Durable session state
+
+- [ ] Add bounded per-session rehydration briefs.
+- [ ] Store files and large artifacts outside model history and retrieve them on
+  demand.
+- [ ] Persist strategy configuration, watchlists, theses, findings, monitors,
+  open questions, budgets, and tool permissions.
+- [ ] Ensure Start fresh rehydrates only durable state into a new model-history
+  generation.
+- [ ] Keep compaction and temporary reasoning session-local.
+
+Current state: iMessage sessions isolate model histories, but they are not the
+full durable workspaces described in `NORTH_STAR.md`.
+
+### Default-deny capability manifests
+
+- [ ] Define the tools, data classes, mutation rights, schedules, and budgets
+  available to each session/strategy pack.
+- [ ] Make capability changes explicit and testable.
+- [ ] Ensure strategy packs can tighten shared safety limits but never loosen
+  them.
+
+### Topic-change routing
+
+- [ ] Add a bounded detector that sees only the unassigned message and session
+  manifests, not session histories or tools.
+- [ ] Trigger only on high-confidence mismatch.
+- [ ] Hold the message outside all sessions until the owner chooses.
+- [ ] Offer stay, switch, or create through a compact Spectrum card.
+- [ ] Never switch silently.
+- [ ] Add held-message recovery and duplicate-action tests.
+
+This is parked until the durable ingress/dispatch protocol exists.
+
+### Telegram session broker
+
+- [ ] Route Telegram private chats through the same named-session control plane.
+- [ ] Preserve channel-specific authentication and delivery behavior.
+- [ ] Add Telegram session-isolation tests.
+
+Current state: Telegram maps a private chat directly to one Eve continuation.
+
+### HTTP session routing
+
+- [ ] Require an explicit session/workspace ID for authenticated HTTP requests.
+- [ ] Do not use an iMessage-style active pointer for HTTP.
+- [ ] Add authorization and isolation tests.
+
+### Session lifecycle completion
+
+- [ ] Make archive pause session-bound monitors and revoke pending
+  session-bound approvals.
+- [ ] Define recoverable retirement semantics.
+- [ ] Offer hard deletion only after product-owned retained data can actually be
+  deleted and external safety records are correctly excluded.
+- [ ] Broaden and evaluate natural-language session-manager intent detection
+  without adding channel shortcuts for ordinary domain requests.
+
+Plain-text session mutation commands are not a current requirement. The owner
+explicitly chose manager-only responses for session-management requests.
+
+## 3. Event-trigger work
+
+- [ ] Bind each trigger and alert reply target to an immutable session ID.
+- [ ] Move limits from channel-principal scope to deployment-owner scope once
+  owner aliases exist.
+- [ ] Make archive/pause behavior session-aware.
+- [ ] Align `create_event_trigger` and `update_event_trigger` schemas with the
+  store's maximum of eight combined sources.
+- [ ] Add a deterministic event-trigger verification suite.
+- [ ] Add Redis-backed tests for leasing, budgets, retries, watermarks,
+  consecutive-failure pause, expiration, and uncertain alert delivery.
+- [ ] Add a local schedule-test runbook; the internal runner route deliberately
+  returns 404 and Eve dev does not run cron automatically.
+- [ ] Correct or replace the trigger-deletion approval UI as listed above.
+
+## 4. Strategy packs and research corpus
+
+### Strategy-pack framework
+
+- [ ] Define a versioned strategy-pack schema for thesis, instructions,
+  required sources, schedules, scoring, risk defaults, outputs, and evals.
+- [ ] Let a session instantiate one configured pack or remain general purpose.
+- [ ] Keep each pack's rules separate; do not merge conflicting strategies into
+  one universal prompt.
+- [ ] Add pack-specific evaluation fixtures and acceptance criteria.
+
+### Candidate packs documented but not implemented
+
+- [ ] Earnings-call language analysis as a versioned pack.
+- [ ] Insider-buying clusters.
+- [ ] Congressional trading signals.
+- [ ] Social-signal arbitrage.
+- [ ] Post-bankruptcy equities.
+- [ ] Credit/equity dislocations.
+- [ ] Buffett-style long-horizon value research.
+
+### Move external research into the repository
+
+- [ ] Migrate strategy documents into `docs/strategies/`.
+- [ ] Migrate data-source research into `docs/data-sources/`.
+- [ ] Migrate watchlists into `config/watchlists/`.
+- [ ] Preserve each source document rather than flattening them together.
+- [ ] Reconcile `idea/watchlist.json`, which appears to duplicate the
+  congressional watchlist.
+
+Current state: these files are referenced from `NORTH_STAR.md` but live beside
+the repository, so a fresh fork does not contain them.
+
+## 5. Data providers and shared evidence
+
+- [ ] Decide whether to register and support Financial Datasets or remove its
+  remaining product references.
+- [ ] If added, implement it through the mandatory bounded adapter pattern.
+- [ ] Add typed, versioned, provenance-bearing signals for intentional
+  cross-session analysis.
+- [ ] Include source, as-of time, producing session, schema version, and access
+  classification.
+- [ ] Never share private broker results or unpromoted notes through that plane.
+- [ ] Define canonical entity identifiers and freshness semantics across
+  providers.
+- [ ] Keep large transcripts, filings, PDFs, and media in durable artifact
+  storage rather than repeated model context.
+
+### Parked optional provider work
+
+- [ ] Evaluate Agentcash or Bazaar only when direct sources and the guarded
+  Masterkey path cannot supply a required dataset.
+- [ ] Keep any added x402 provider replaceable and behind the same adapter,
+  approval, cost, idempotency, and context bounds.
+- [ ] Do not add providers merely to expand the tool catalog.
+
+## 6. Model routing and token efficiency
+
+- [ ] Introduce cheaper bounded worker models only for objective tasks such as
+  extraction, parsing, or classification.
+- [ ] Add task-specific quality and safety evals before routing work away from
+  the main model.
+- [ ] Keep workers stateless and fresh-context; do not create a permanent fleet
+  of user-facing agents.
+- [ ] Measure context size and paid-tool payload size in regression tests.
+- [ ] Preserve MCP deduplication, binary rejection, output ceilings, and
+  workspace-local compaction.
+- [ ] Do not reintroduce blunt cumulative session token caps as the primary cost
+  control.
+
+Current state: one global model, `google/gemini-3.6-flash`, handles all work.
+
+## 7. Testing, CI, and observability
+
+- [ ] Add the Photon end-to-end harness described above.
+- [ ] Add event-trigger integration coverage.
+- [ ] Add tests for general owner authorization after it is implemented.
+- [ ] Add tests for session history/file/private-result isolation.
+- [ ] Add tests for capability manifests and scheduled-tool denial.
+- [ ] Add account-wide financial idempotency and reconciliation tests.
+- [ ] Add strategy-pack eval suites as packs are introduced.
+- [ ] Add objective-worker routing evals before model routing.
+- [ ] Run a full application security and reliability review after the live
+  capability surface is finalized and before calling the template
+  live-broker-ready.
+- [ ] Re-run adversarial approval/session state-machine review after any
+  material routing or trading change.
+- [ ] Add automated browser checks for Spectrum approval/session apps,
+  including expired/stale capabilities and mobile layout.
+- [ ] Decide on a standard `npm test` entry point; none exists today.
+- [ ] Add CI for typecheck, build, deterministic verification, and safe
+  fixture-backed evals. No `.github` workflow exists today.
+- [ ] Decide whether Redis integration suites run in protected CI or remain
+  manual.
+- [ ] Record a production smoke-test checklist for Photon, Telegram, schedules,
+  and stable mini-app URLs.
+- [ ] Add bounded cost/context observations without logging message text,
+  balances, financial amounts, credentials, or PII.
+- [ ] If metrics are introduced, keep identifiers, principals, URLs,
+  timestamps, hashes, and user data out of tags.
+
+## 8. Documentation and operational debt
+
+- [ ] Change README development commands to use `npm run dev`; the direct
+  `npm exec -- eve dev` command skips `predev` generation on a clean clone.
+- [ ] Update `README.md` to remove stale session-migration logging language.
+- [ ] Clarify in `README.md` that HTTP browser auth is unfinished.
+- [ ] Remove or qualify the inactive Financial Datasets claim.
+- [ ] Qualify the paid Masterkey iMessage path until Photon supports its
+  approval request.
+- [ ] Correct claims that mini-app capability tokens themselves are one-time:
+  decisions are consumed/idempotent, while manager tokens are reusable during
+  their 15-minute lifetime.
+- [ ] Clarify that Start fresh advances routing even when old-continuation
+  cleanup is uncertain.
+- [ ] Correct `.env.example` so `COINBASE_ALLOWED_PRINCIPALS` is described as a
+  Coinbase capability allowlist, not Eve's general owner allowlist.
+- [ ] Reconcile `NORTH_STAR.md` with the implemented session broker and manager.
+- [ ] Remove completed items from its near-term sequence.
+- [ ] Preserve the owner decision that current session management is mini-app
+  only, despite older plain-text fallback language.
+- [ ] Add a clean-fork provisioning runbook for Vercel, Photon, Vercel Connect,
+  Upstash REST/TLS Redis, Telegram, FMP, SEC, and Coinbase.
+- [ ] Document that `eve link` does not provision Photon/Masterkey connectors.
+- [ ] Document local event-schedule testing.
+- [ ] Decide whether to list optional runtime environment aliases in
+  `.env.example`.
+- [ ] Remove the empty/unsupported `agent/generated/` directory or otherwise
+  eliminate Eve's non-blocking discovery warning.
+- [ ] Record deployed commit metadata and a tested rollback procedure instead
+  of relying only on an operator-observed production alias.
+- [ ] Add an auditable inventory for runtime dynamic Coinbase and Masterkey
+  tools, which are not fully enumerated by `.eve/agent-summary.json`.
+- [ ] Keep `HANDOFF.md` and this backlog updated when architecture or status
+  changes.
+
+## 9. Parked product expansion
+
+These are valid future directions, not current commitments:
+
+- [ ] Backtesting.
+- [ ] Additional brokers.
+- [ ] Additional asset classes.
+- [ ] Specialized model workers beyond proven objective tasks.
+- [ ] Richer Photon cards after core state protocols are complete.
+- [ ] Replaceable paid-data integrations beyond current needs.
+
+Explicit non-goals unless the owner changes direction:
+
+- hosted multi-tenant service;
+- custodying many customers' credentials;
+- silently activating strategies or switching sessions;
+- treating signal scores, alerts, model prose, or prior consent as trading
+  authorization;
+- loading every strategy, provider schema, or raw artifact into every model
+  call;
+- transfers, withdrawals, leverage, margin, or unsupported derivatives in the
+  core template.
+
+## 10. Completed decisions: do not reopen as backlog
+
+- [x] Generic natural-language Coinbase requests go through Eve; the
+  phrase-specific balance shortcut was removed intentionally.
+- [x] Native iMessage polls were replaced with the Spectrum approval app.
+- [x] Text approval resumes directly through the authenticated Photon bridge.
+- [x] The blocking automatic session-migration control turn was removed.
+- [x] Coinbase read operations are approval-free for allowlisted principals.
+- [x] Coinbase spot-order creation has an exact five-minute preview and explicit
+  approval.
+- [x] Approval state and mutation replay protection are Redis-backed.
+- [x] MCP results use shared normalization and provider-specific policy.
+- [x] Public-feed triggers are dynamically created rather than preset.
+- [x] iMessage has named isolated model-history sessions.
+- [x] Session management uses a dedicated Spectrum mini app.
+- [x] User-facing terminology is **session**.
+- [x] The accepted session-manager UI is minimal charcoal/grayscale with a light
+  active-session border and custom favicon.
+- [x] `HANDOFF.md` is the canonical takeover prompt.
+
+## 11. How to maintain this file
+
+When an item is completed:
+
+1. Check it off and add the completing commit.
+2. Update `HANDOFF.md` if current behavior or a durable lesson changed.
+3. Remove stale claims from `README.md` or `NORTH_STAR.md`.
+4. Record the exact verification that passed.
+5. Do not add speculative work unless the owner explicitly parks or requests it.

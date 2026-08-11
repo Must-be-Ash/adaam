@@ -262,30 +262,12 @@ Coinbase or Masterkey tool.
 11. **Hardening while the main path was broken wasted time.** Restore and test
     the smallest complete path, preserve a checkpoint, then audit or expand.
 
-## Known gaps: do not overclaim
+## Remaining work
 
-- General deployment-owner authorization is not implemented across Photon and
-  Telegram.
-- iMessage has named model-history sessions; Telegram does not.
-- Durable session briefs, files, strategy settings, topic-change detection,
-  held-message routing, and typed cross-session evidence are not implemented.
-- A complete Photon webhook-to-Eve-to-Coinbase-to-iMessage automated test does
-  not exist.
-- The order guard is not account-wide reconciliation.
-- Out-of-scope Coinbase mutations remain dynamically registered.
-- Paid Masterkey approval does not complete through current Photon approval UX.
-- `delete_event_trigger` is accepted by the approval protocol, but the mini app
-  still uses order-specific status copy.
-- HTTP browser access still uses `placeholderAuth()` and is not a finished
-  public API.
-- Event triggers are principal/conversation scoped, not session scoped.
-- Hard deletion is not offered.
-- No per-task cheap-model router is implemented.
-- Strategy research and watchlists referenced by `NORTH_STAR.md` still live
-  outside this repository.
-
-These are context, not permission to start a roadmap. Wait for the owner's next
-request.
+`BACKLOG.md` is the canonical inventory of incomplete, postponed, and parked
+work. It separates release blockers from foundations, maintenance, and optional
+expansion. The list is context, not permission to begin a roadmap; wait for the
+owner's next request.
 
 ## Verification and operation
 
