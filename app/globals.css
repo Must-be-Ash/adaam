@@ -1,0 +1,252 @@
+:root {
+  color-scheme: light;
+  --background: #f2f2ef;
+  --foreground: #111111;
+  --muted: #666666;
+  --line: #c9c9c4;
+  --surface: #e9e9e5;
+  --button: #111111;
+  --button-text: #f7f7f4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    Arial,
+    Helvetica Neue,
+    Helvetica,
+    sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+a {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+.shell {
+  display: grid;
+  min-height: 100svh;
+  grid-template-rows: auto 1fr auto;
+  padding: 26px clamp(20px, 4vw, 56px);
+}
+
+.masthead,
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.wordmark {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.edition,
+.footer {
+  color: var(--muted);
+}
+
+.main {
+  display: grid;
+  width: min(100%, 920px);
+  align-self: center;
+  justify-self: center;
+  gap: clamp(36px, 6vw, 72px);
+  padding-block: clamp(64px, 11vh, 120px);
+}
+
+.intro {
+  max-width: 760px;
+}
+
+.eyebrow {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h1 {
+  max-width: 800px;
+  margin: 0;
+  font-size: clamp(50px, 10vw, 112px);
+  font-weight: 600;
+  letter-spacing: -0.07em;
+  line-height: 0.88;
+}
+
+.dek {
+  max-width: 540px;
+  margin: 28px 0 0;
+  color: var(--muted);
+  font-size: clamp(16px, 2.2vw, 20px);
+  line-height: 1.45;
+}
+
+.prompt-block {
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.prompt-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.prompt-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.prompt-text {
+  min-width: 0;
+  margin: 0;
+  padding: 22px 24px;
+  overflow-wrap: anywhere;
+  font-family:
+    SFMono-Regular,
+    Consolas,
+    Liberation Mono,
+    monospace;
+  font-size: clamp(14px, 1.8vw, 17px);
+  line-height: 1.55;
+}
+
+.copy-button {
+  min-width: 128px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--button);
+  color: var(--button-text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.copy-button:hover {
+  background: #353535;
+}
+
+.copy-button:focus-visible,
+.deploy-link:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 4px;
+}
+
+.deploy-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 15px;
+}
+
+.deploy-link {
+  color: var(--muted);
+  font-size: 13px;
+  text-underline-offset: 4px;
+}
+
+.deploy-link:hover {
+  color: var(--foreground);
+}
+
+@media (max-width: 640px) {
+  .shell {
+    padding: 22px 18px;
+  }
+
+  .edition {
+    display: none;
+  }
+
+  .main {
+    gap: 44px;
+    padding-block: 58px;
+  }
+
+  h1 {
+    font-size: clamp(52px, 19vw, 78px);
+  }
+
+  .dek {
+    margin-top: 22px;
+  }
+
+  .prompt-card {
+    grid-template-columns: 1fr;
+  }
+
+  .prompt-text {
+    min-height: 118px;
+    padding: 18px;
+  }
+
+  .copy-button {
+    min-height: 52px;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .footer {
+    align-items: flex-end;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --background: #101010;
+    --foreground: #eeeeeb;
+    --muted: #999999;
+    --line: #3b3b3b;
+    --surface: #181818;
+    --button: #eeeeeb;
+    --button-text: #111111;
+  }
+
+  .copy-button:hover {
+    background: #cfcfcb;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copy-button {
+    transition: none;
+  }
+}

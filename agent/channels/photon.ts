@@ -52,8 +52,11 @@ import {
 } from "../lib/photon-workspace";
 
 const webhookSecret = process.env.IMESSAGE_WEBHOOK_SECRET;
+const photonConnectorId =
+  process.env.PHOTON_CONNECTOR_ID?.trim() ||
+  "photon/earnings-call-analyser";
 const imessageAdapter = createiMessageAdapter({
-  credentials: connectPhotonCredentials("photon/earnings-call-analyser"),
+  credentials: connectPhotonCredentials(photonConnectorId),
   ...(webhookSecret
     ? { webhookSecret }
     : { webhookVerifier: createConnectWebhookVerifier() }),
@@ -998,7 +1001,7 @@ async function dispatch(
     {
       auth: photonAuth(senderId, thread.id),
       thread: photonWorkspaceThread(thread, activeWorkspace),
-      turnPolicy: "experimental-steer",
+      turnPolicy: "steer",
     },
   );
   await savePhotonWorkspaceSession({
