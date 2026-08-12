@@ -1,29 +1,33 @@
+import ChatMessagesDemo from "@/components/ui/chat-messages-2-demo";
+
 import { CopyPrompt } from "./copy-prompt";
 
 export default function Page() {
   return (
     <div className="shell">
-      <header className="masthead">
-        <span className="wordmark">Eve</span>
-        <span className="edition">Open agent template</span>
-      </header>
+
 
       <main className="main">
-        <section className="intro">
-          <p className="eyebrow">Your agent. Your accounts. Your rules.</p>
-          <h1>Run your own Eve.</h1>
-          <p className="dek">
-            Fork the agent, connect iMessage and Coinbase, and deploy it to your
-            Vercel.
-          </p>
-        </section>
+        <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)] lg:gap-8">
+          <section className="intro">
+            <h1>Run trading agents from iMessage</h1>
+            <p className="dek">
+              Copy trade Pelosi, inverse trade Cramer, or value invest like
+              Buffett. Your agents watch each strategy around the clock and ping
+              you when they find a signal. All via text.
+            </p>
+            <CopyPrompt />
+          </section>
 
-        <CopyPrompt />
+          <div className="-mx-2 lg:mx-0 lg:justify-self-end">
+            <ChatMessagesDemo />
+          </div>
+        </div>
       </main>
 
       <footer className="footer">
-        <span>Built with Eve</span>
-        <span>iMessage · Coinbase · Vercel</span>
+      <span>Make the market text you.</span>
+        <span>Built on Eve by Vercel</span>
       </footer>
     </div>
   );

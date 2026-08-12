@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 :root {
   color-scheme: light;
   --background: #f2f2ef;
@@ -30,13 +32,8 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-button,
-a {
+button {
   font: inherit;
-}
-
-a {
-  color: inherit;
 }
 
 .shell {
@@ -70,7 +67,7 @@ a {
 
 .main {
   display: grid;
-  width: min(100%, 920px);
+  width: min(100%, 1180px);
   align-self: center;
   justify-self: center;
   gap: clamp(36px, 6vw, 72px);
@@ -93,10 +90,10 @@ a {
 h1 {
   max-width: 800px;
   margin: 0;
-  font-size: clamp(50px, 10vw, 112px);
+  font-size: clamp(50px, 7.5vw, 96px);
   font-weight: 600;
   letter-spacing: -0.07em;
-  line-height: 0.88;
+  line-height: 0.98;
 }
 
 .dek {
@@ -108,82 +105,89 @@ h1 {
 }
 
 .prompt-block {
-  border-top: 1px solid var(--line);
-  padding-top: 18px;
+  width: min(100%, 660px);
+  margin-top: 34px;
 }
 
 .prompt-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 12px;
+  margin: 10px 12px 0;
   color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: -0.01em;
 }
 
 .prompt-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 46px;
+  align-items: center;
+  gap: 8px;
+  padding: 9px;
   border: 1px solid var(--line);
+  border-radius: 26px;
   background: var(--surface);
+  box-shadow: 0 16px 38px rgb(0 0 0 / 8%);
 }
 
 .prompt-text {
   min-width: 0;
   margin: 0;
-  padding: 22px 24px;
-  overflow-wrap: anywhere;
+  padding: 6px 8px;
+  overflow-wrap: normal;
+  white-space: nowrap;
   font-family:
     SFMono-Regular,
     Consolas,
     Liberation Mono,
     monospace;
-  font-size: clamp(14px, 1.8vw, 17px);
-  line-height: 1.55;
+  font-size: clamp(10px, 0.95vw, 13px);
+  letter-spacing: -0.08em;
+  line-height: 1.4;
 }
 
 .copy-button {
-  min-width: 128px;
+  display: flex;
+  width: 46px;
+  height: 46px;
+  align-items: center;
+  justify-content: center;
   border: 0;
-  border-left: 1px solid var(--line);
-  border-radius: 0;
+  border-radius: 50%;
   background: var(--button);
   color: var(--button-text);
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
   transition:
     background-color 140ms ease,
-    color 140ms ease;
+    color 140ms ease,
+    transform 140ms ease;
 }
 
 .copy-button:hover {
   background: #353535;
 }
 
-.copy-button:focus-visible,
-.deploy-link:focus-visible {
+.copy-button:active {
+  transform: scale(0.94);
+}
+
+.copy-button:focus-visible {
   outline: 2px solid var(--foreground);
-  outline-offset: 4px;
+  outline-offset: 3px;
 }
 
-.deploy-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 15px;
+@keyframes chat-message-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
 }
 
-.deploy-link {
-  color: var(--muted);
-  font-size: 13px;
-  text-underline-offset: 4px;
-}
-
-.deploy-link:hover {
-  color: var(--foreground);
+.chat-message-enter {
+  animation: chat-message-enter 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (max-width: 640px) {
@@ -208,19 +212,15 @@ h1 {
     margin-top: 22px;
   }
 
-  .prompt-card {
-    grid-template-columns: 1fr;
+  .prompt-block {
+    margin-top: 28px;
   }
 
   .prompt-text {
-    min-height: 118px;
-    padding: 18px;
-  }
-
-  .copy-button {
-    min-height: 52px;
-    border-top: 1px solid var(--line);
-    border-left: 0;
+    padding-left: 6px;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    font-size: 10px;
   }
 
   .footer {
@@ -248,5 +248,9 @@ h1 {
 @media (prefers-reduced-motion: reduce) {
   .copy-button {
     transition: none;
+  }
+
+  .chat-message-enter {
+    animation: none;
   }
 }

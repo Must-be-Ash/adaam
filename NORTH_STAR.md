@@ -14,8 +14,10 @@ strategies, and risk settings isolated.
 
 ## Product architecture
 
-Eve has one user-facing identity, not a permanent manager agent delegating to a
-fleet of permanent strategy agents.
+Eve has one user-facing identity. Under that identity, many specialized
+strategy runtimes may research and monitor in parallel. They are represented
+internally as strategy-bound workspaces rather than separate channel identities
+or permanent Eve processes.
 
 - **Eve** is the single user-facing persona in a deployment.
 - The **owner** controls that deployment. Authenticated channel principals can
@@ -29,6 +31,12 @@ fleet of permanent strategy agents.
   configured instance of it.
 - A **session generation** is temporary model history for one workspace.
 - A **worker** is a stateless, bounded internal task and is never another Eve.
+
+In product language, a strategy-bound workspace may be described as a
+specialized agent: it has its own thesis, context, durable findings, monitors,
+budgets, and tool permissions. Internally, it remains part of the owner's one
+Eve deployment and uses bounded worker runs rather than a permanently running
+model process.
 
 The iMessage or Telegram conversation is the inbox.
 
@@ -53,6 +61,26 @@ background tracker can continue without becoming the active chat context.
 Archiving the active workspace requires an atomic selection of its replacement.
 HTTP requests provide an explicit workspace ID and do not use a conversation's
 active pointer.
+
+## Concurrent strategy runtimes
+
+A single Eve deployment is intended to run multiple enabled strategies at the
+same time. For example, one workspace may monitor public Jim Cramer commentary
+for an inverse-signal strategy while another monitors delayed congressional
+trade disclosures, another watches insider-buying clusters, and another tracks
+credit-equity or real-world social signals. Each strategy owns separate context,
+durable state, schedules, findings, budgets, and permissions.
+
+The active workspace controls only which strategy receives an unqualified
+interactive message. It does not start, stop, or pause the other strategies.
+Background monitors continue on their own schedules and send alerts labeled
+with the strategy that produced them. Multiple due monitor runs may execute
+concurrently through bounded isolated workers.
+
+Strategy runtimes may produce research, alerts, and proposed orders. They do not
+turn public commentary or delayed disclosures into automatic trading
+authorization. Every supported live broker mutation remains behind the shared
+control plane's exact preview, revalidation, and fresh owner approval.
 
 ## Workspace routing and UX
 
@@ -196,7 +224,11 @@ isolation already exists.
   must enforce the deployment owner allowlist; Coinbase's separate allowlist is
   not a general channel access control.
 - Existing event triggers are owner/conversation scoped and must gain immutable
-  workspace IDs before workspace alerts are enabled.
+  workspace IDs before workspace alerts are enabled. The scheduler can already
+  execute multiple independent due triggers concurrently, but those triggers do
+  not yet own workspace-bound strategy state, context, budgets, permissions, or
+  alert routing. Binding monitors to strategy workspaces is required before the
+  product can claim fully isolated parallel strategy agents.
 - Exact previews currently protect order creation only. Edit/cancel use generic
   approval, market-order collars are not yet enforced by the approval protocol,
   and uncertain operations do not yet block subsequent mutations. All mutation

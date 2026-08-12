@@ -1,11 +1,10 @@
 "use client";
 
+import { Check, Copy as CopyIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 const CANONICAL_SKILL_URL =
   "https://earnings-call-analyser.vercel.app/skill";
-const DEPLOY_URL =
-  "https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FMust-be-Ash%2Fearnings-call-analyser&project-name=eve-agent&repository-name=eve-agent";
 
 type CopyState = "copied" | "error" | "idle";
 
@@ -15,7 +14,7 @@ export function CopyPrompt() {
   const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
-  const prompt = `Read ${skillUrl} and help me launch my own Eve.`;
+  const prompt = `Read ${skillUrl} & help me launch my own agent.`;
 
   useEffect(() => {
     setSkillUrl(new URL("/skill", window.location.origin).href);
@@ -36,41 +35,41 @@ export function CopyPrompt() {
     resetTimer.current = setTimeout(() => setCopyState("idle"), 2_000);
   }
 
-  const buttonLabel =
+  const copyLabel =
     copyState === "copied"
       ? "Copied"
       : copyState === "error"
-        ? "Select text"
+        ? "Copy unavailable. Select the prompt manually."
         : "Copy prompt";
 
   return (
     <section className="prompt-block" aria-labelledby="prompt-label">
-      <div className="prompt-label">
-        <span id="prompt-label">Paste into your coding agent</span>
-        <span aria-live="polite">
-          {copyState === "copied"
-            ? "Ready"
-            : copyState === "error"
-              ? "Copy unavailable"
-              : "One prompt"}
-        </span>
-      </div>
       <div className="prompt-card">
         <p className="prompt-text">{prompt}</p>
-        <button className="copy-button" onClick={copyPrompt} type="button">
-          {buttonLabel}
-        </button>
-      </div>
-      <div className="deploy-row">
-        <a
-          className="deploy-link"
-          href={DEPLOY_URL}
-          rel="noreferrer"
-          target="_blank"
+        <button
+          aria-label={copyLabel}
+          className="copy-button"
+          onClick={copyPrompt}
+          title={copyLabel}
+          type="button"
         >
-          Or deploy the template on Vercel
-        </a>
+          {copyState === "copied" ? (
+            <Check aria-hidden="true" size={18} strokeWidth={2.2} />
+          ) : (
+            <CopyIcon aria-hidden="true" size={17} strokeWidth={2} />
+          )}
+        </button>
+        <span className="sr-only" aria-live="polite">
+          {copyState === "copied"
+            ? "Prompt copied"
+            : copyState === "error"
+              ? "Copy unavailable"
+              : ""}
+        </span>
       </div>
+      <p className="prompt-label" id="prompt-label">
+        Paste into your coding agent
+      </p>
     </section>
   );
 }
