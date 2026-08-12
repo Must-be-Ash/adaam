@@ -2,14 +2,14 @@ const skill = String.raw`---
 name: launch-eve
 description: Fork, configure, verify, and deploy the Eve personal investment-agent template to a user's GitHub and Vercel accounts. Use when someone asks to launch their own Eve, connect Eve to Photon iMessage, configure Coinbase CDP credentials, or deploy the Eve template.
 metadata:
-  source: "https://github.com/Must-be-Ash/earnings-call-analyser"
+  source: "https://github.com/Must-be-Ash/adaam"
 ---
 
 # Launch Eve
 
 Help the user create and deploy their own single-owner Eve from:
 
-https://github.com/Must-be-Ash/earnings-call-analyser
+https://github.com/Must-be-Ash/adaam
 
 Complete the setup with them. Do not stop after giving them instructions or a
 list of commands. Unless a user-owned action blocks you, finish with a fork in
@@ -72,8 +72,8 @@ clone the template into a new directory yourself. Do not overwrite an existing
 directory or repurpose an unrelated repository.
 
     gh auth status
-    gh repo view Must-be-Ash/earnings-call-analyser --json nameWithOwner,visibility
-    gh repo fork Must-be-Ash/earnings-call-analyser --clone
+    gh repo view Must-be-Ash/adaam --json nameWithOwner,visibility
+    gh repo fork Must-be-Ash/adaam --clone
 
 If the source is private and the user cannot access it, stop and explain that
 the owner must grant access or publish the template. If the user already has a

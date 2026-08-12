@@ -6,7 +6,7 @@ the code.
 
 Snapshot date: 2026-08-11  
 Application baseline before this handoff: `161762b` on `main`  
-Production alias: <https://earnings-call-analyser.vercel.app>
+Production alias: <https://adaam.vercel.app>
 
 ## Instructions to the receiving agent
 

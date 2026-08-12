@@ -1,14 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: light;
-  --background: #f2f2ef;
-  --foreground: #111111;
-  --muted: #666666;
-  --line: #c9c9c4;
-  --surface: #e9e9e5;
-  --button: #111111;
-  --button-text: #f7f7f4;
+  color-scheme: dark;
+  --background: #101010;
+  --foreground: #eeeeeb;
+  --muted: #999999;
+  --line: #3b3b3b;
+  --surface: #181818;
+  --button: #eeeeeb;
+  --button-text: #111111;
 }
 
 * {
@@ -96,6 +96,14 @@ h1 {
   line-height: 0.98;
 }
 
+h1 > span {
+  display: block;
+}
+
+.heading-line-tight {
+  margin-top: -0.14em;
+}
+
 .dek {
   max-width: 540px;
   margin: 28px 0 0;
@@ -105,7 +113,7 @@ h1 {
 }
 
 .prompt-block {
-  width: min(100%, 660px);
+  width: min(calc(100% + 40px), 660px);
   margin-top: 34px;
 }
 
@@ -131,7 +139,7 @@ h1 {
 .prompt-text {
   min-width: 0;
   margin: 0;
-  padding: 6px 8px 6px 18px;
+  padding: 6px 8px 6px 24px;
   overflow-wrap: normal;
   white-space: nowrap;
   font-family:
@@ -139,7 +147,7 @@ h1 {
     Consolas,
     Liberation Mono,
     monospace;
-  font-size: clamp(12px, 1.1vw, 15px);
+  font-size: clamp(13px, 1.15vw, 16px);
   letter-spacing: -0.08em;
   line-height: 1.4;
 }
@@ -162,7 +170,7 @@ h1 {
 }
 
 .copy-button:hover {
-  background: #353535;
+  background: #cfcfcb;
 }
 
 .copy-button:active {
@@ -213,35 +221,19 @@ h1 {
   }
 
   .prompt-block {
+    width: 100%;
     margin-top: 28px;
   }
 
   .prompt-text {
-    padding-left: 14px;
+    padding-left: 18px;
     overflow-wrap: anywhere;
     white-space: normal;
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .footer {
     align-items: flex-end;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --background: #101010;
-    --foreground: #eeeeeb;
-    --muted: #999999;
-    --line: #3b3b3b;
-    --surface: #181818;
-    --button: #eeeeeb;
-    --button-text: #111111;
-  }
-
-  .copy-button:hover {
-    background: #cfcfcb;
   }
 }
 

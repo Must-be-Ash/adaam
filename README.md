@@ -1,4 +1,4 @@
-# Earnings Call Analyser
+# Adaam
 
 Eve is currently an earnings-call research agent that compares management
 language across calls, quantifies linguistic shifts, cross-checks them against

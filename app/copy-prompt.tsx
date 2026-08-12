@@ -4,7 +4,7 @@ import { Check, Copy as CopyIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 const CANONICAL_SKILL_URL =
-  "https://earnings-call-analyser.vercel.app/skill";
+  "https://adaam.vercel.app/skill";
 
 type CopyState = "copied" | "error" | "idle";
 
