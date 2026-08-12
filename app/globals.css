@@ -131,7 +131,7 @@ h1 {
 .prompt-text {
   min-width: 0;
   margin: 0;
-  padding: 6px 8px;
+  padding: 6px 8px 6px 18px;
   overflow-wrap: normal;
   white-space: nowrap;
   font-family:
@@ -139,7 +139,7 @@ h1 {
     Consolas,
     Liberation Mono,
     monospace;
-  font-size: clamp(10px, 0.95vw, 13px);
+  font-size: clamp(12px, 1.1vw, 15px);
   letter-spacing: -0.08em;
   line-height: 1.4;
 }
@@ -187,7 +187,7 @@ h1 {
 }
 
 .chat-message-enter {
-  animation: chat-message-enter 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: chat-message-enter 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (max-width: 640px) {
@@ -217,10 +217,10 @@ h1 {
   }
 
   .prompt-text {
-    padding-left: 6px;
+    padding-left: 14px;
     overflow-wrap: anywhere;
     white-space: normal;
-    font-size: 10px;
+    font-size: 12px;
   }
 
   .footer {

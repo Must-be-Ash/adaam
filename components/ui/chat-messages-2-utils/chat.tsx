@@ -42,7 +42,7 @@ export default function Chat({
       return;
     }
 
-    const duration = 1_200;
+    const duration = 800;
     const startedAt = performance.now();
     let frame = 0;
 

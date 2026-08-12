@@ -114,7 +114,7 @@ export default function ChatMessages() {
       return;
     }
 
-    let delay = visibleCount === 0 ? 700 : 2_000;
+    let delay = visibleCount === 0 ? 500 : 1_300;
     let next = () => {
       setVisibleCount((count) => Math.min(count + 1, conversation.length));
     };

@@ -1,0 +1,23 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - main [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - heading "Run trading agents from iMessage" [level=1] [ref=e6]
+          - paragraph [ref=e7]: Copy trade Pelosi, inverse trade Cramer, or value invest like Buffett. Your agents watch each strategy around the clock and ping you when they find a signal. All via text.
+          - region [ref=e8]:
+            - generic [ref=e9]:
+              - paragraph [ref=e10]: Read http://localhost:3000/skill & help me launch my own agent.
+              - button "Copy prompt" [ref=e11] [cursor=pointer]
+            - paragraph [ref=e16]: Paste into your coding agent
+        - generic "Eve in iMessage" [ref=e19]:
+          - generic "iPhone showing an Eve conversation" [ref=e21]:
+            - generic [ref=e22]:
+              - generic [ref=e26]: 18:35
+              - generic "Example messages with Eve strategy agents" [ref=e39]:
+                - list
+    - contentinfo [ref=e40]:
+      - generic [ref=e41]: Make the market text you.
+      - generic [ref=e42]: Built on Eve by Vercel
+  - button "Open Next.js Dev Tools" [ref=e48] [cursor=pointer]
+  - alert [ref=e52]
