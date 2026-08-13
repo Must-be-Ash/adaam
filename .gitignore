@@ -13,3 +13,6 @@ dist
 .agents/
 skills-lock.json
 agent/lib/coinbase-cli-source.generated.ts
+.playwright-mcp
+EVALS.md
+TOKEN_EFFICIENCY.md
