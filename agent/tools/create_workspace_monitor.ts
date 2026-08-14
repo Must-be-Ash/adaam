@@ -1,6 +1,8 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 
+import { ensureIpoFilingsWorkspaceRuntime } from "../lib/ipo-filings-workspace-runtime";
+import { SEC_IPO_SOURCE_ID, SEC_IPO_SOURCE_URL } from "../lib/sec-ipo-reference";
 import { nextWorkspaceMonitorOccurrence } from "../lib/workspace-monitor-schedule";
 import {
   createWorkspaceMonitor,
@@ -9,6 +11,7 @@ import {
 import { workspaceMonitorCreateSourcesSchema } from "../lib/workspace-monitor-input";
 import { requirePhotonWorkspaceToolScope } from "../lib/workspace-runtime-scope";
 import { requireWorkspaceMonitorWrites } from "../lib/workspace-runtime-flags";
+import { readWorkspaceDocument } from "../lib/workspace-state-store";
 import { authorizePhotonWorkspaceToolStore } from "../lib/workspace-store-authorization";
 
 export const createWorkspaceMonitorInputSchema = z.object({
@@ -31,7 +34,7 @@ export const createWorkspaceMonitorInputSchema = z.object({
 
 export default defineTool({
   description:
-    "Create a durable monitor in the current authenticated workspace. Sources are exact and limited to eight combined entries.",
+    "Create a durable monitor in the current authenticated workspace. Sources are exact and limited to eight combined entries. The exact public SEC IPO reference source can initialize its bounded runtime automatically; other monitors require an existing workspace runtime configuration.",
   inputSchema: createWorkspaceMonitorInputSchema,
   async execute(input, ctx) {
     requireWorkspaceMonitorWrites();
@@ -42,10 +45,37 @@ export default defineTool({
     if (input.schedule.kind === "one_time" && !next) {
       throw new Error("monitor_schedule_invalid");
     }
+    const isIpoReference = input.sources.length === 1 &&
+      input.sources[0]?.accessClassification === "public" &&
+      input.sources[0].canonicalUrl === SEC_IPO_SOURCE_URL &&
+      input.sources[0].origin === "https://www.sec.gov" &&
+      input.sources[0].sourceId === SEC_IPO_SOURCE_ID &&
+      input.schedule.kind === "daily_local";
+    if (isIpoReference) {
+      if (input.schedule.kind !== "daily_local") {
+        throw new Error("monitor_schedule_invalid");
+      }
+      await ensureIpoFilingsWorkspaceRuntime({
+        now,
+        ownerTimezone: input.schedule.timezone,
+        scope,
+      });
+    } else {
+      const documents = await Promise.all([
+        readWorkspaceDocument("brief", scope),
+        readWorkspaceDocument("strategy", scope),
+        readWorkspaceDocument("capabilities", scope),
+        readWorkspaceDocument("budget", scope),
+      ]);
+      if (documents.some((document) => document === null)) {
+        throw new Error("workspace_runtime_not_configured");
+      }
+    }
     return {
       monitor: await createWorkspaceMonitor({
         ...input,
         deliverySubscriptionId: runtimeScope.conversationId,
+        idempotencyKey: ctx.callId,
         nextOccurrenceAt: next?.scheduledAt ?? null,
         now,
         scope,

@@ -731,6 +731,7 @@ export async function createWorkspaceMonitor(
   input: {
     deliverySubscriptionId: string;
     endAt?: string | null;
+    idempotencyKey?: string;
     instruction: string;
     name: string;
     nextOccurrenceAt: string | null;
@@ -748,6 +749,18 @@ export async function createWorkspaceMonitor(
     throw new WorkspaceMonitorError(WORKSPACE_MONITOR_SOURCE_LIMIT_CODE);
   }
   const now = (input.now ?? new Date()).toISOString();
+  const monitorId = input.idempotencyKey
+    ? (() => {
+        const bytes = createHash("sha256")
+          .update(`workspace-monitor\0${input.scope.ownerId}\0${input.scope.workspaceId}\0${input.idempotencyKey}`)
+          .digest()
+          .subarray(0, 16);
+        bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+        bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+        const hex = bytes.toString("hex");
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+      })()
+    : randomUUID();
   const candidate = monitorSchema.safeParse({
     configurationRevision: 1,
     consecutiveFailures: 0,
@@ -759,7 +772,7 @@ export async function createWorkspaceMonitor(
     lastErrorCode: null,
     lastRunAt: null,
     lifecycleState: "enabled",
-    monitorId: randomUUID(),
+    monitorId,
     name: input.name,
     nextOccurrenceAt: input.nextOccurrenceAt,
     ownerId: input.scope.ownerId,
@@ -789,7 +802,24 @@ export async function createWorkspaceMonitor(
     recordKey: recordKey(input.scope, candidate.data.monitorId),
     workspaceIndexKey: workspaceIndexKey(input.scope),
   });
-  if (!created) throw new WorkspaceMonitorError("monitor_conflict");
+  if (!created) {
+    if (!input.idempotencyKey) throw new WorkspaceMonitorError("monitor_conflict");
+    const existing = await getWorkspaceMonitor(input.scope, monitorId, client);
+    if (
+      existing &&
+      existing.deliverySubscriptionId === candidate.data.deliverySubscriptionId &&
+      existing.endAt === candidate.data.endAt &&
+      existing.instruction === candidate.data.instruction &&
+      existing.name === candidate.data.name &&
+      JSON.stringify(existing.requiredCapabilityIds) === JSON.stringify(candidate.data.requiredCapabilityIds) &&
+      JSON.stringify(existing.schedule) === JSON.stringify(candidate.data.schedule) &&
+      JSON.stringify(existing.sources) === JSON.stringify(candidate.data.sources) &&
+      JSON.stringify(existing.tighteningLimits) === JSON.stringify(candidate.data.tighteningLimits)
+    ) {
+      return existing;
+    }
+    throw new WorkspaceMonitorError("monitor_conflict");
+  }
   return candidate.data;
 }
 

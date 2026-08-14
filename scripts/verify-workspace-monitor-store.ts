@@ -210,6 +210,26 @@ assert.deepEqual(await getWorkspaceMonitor(scope, monitor.monitorId, client), mo
 assert.deepEqual(await listWorkspaceMonitors(scope, client), [monitor]);
 assert.deepEqual(await listWorkspaceMonitors(otherScope, client), []);
 
+const idempotentInput = {
+  deliverySubscriptionId: "delivery.idempotent",
+  idempotencyKey: "call_fixture_123",
+  instruction: "Create this monitor once across durable Eve retries.",
+  name: "Idempotent monitor",
+  nextOccurrenceAt: scheduledFor,
+  now,
+  schedule: { at: scheduledFor, kind: "one_time" as const },
+  scope,
+  sources: [source(0)],
+};
+const idempotencyClient = new MemoryStore();
+const idempotentMonitor = await createWorkspaceMonitor(idempotentInput, idempotencyClient);
+const replayedMonitor = await createWorkspaceMonitor(
+  { ...idempotentInput, now: new Date(now.getTime() + 1_000) },
+  idempotencyClient,
+);
+assert.deepEqual(replayedMonitor, idempotentMonitor);
+assert.equal((await listWorkspaceMonitors(scope, idempotencyClient)).length, 1);
+
 await assert.rejects(
   updateWorkspaceMonitor(
     {
