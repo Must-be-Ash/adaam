@@ -32,6 +32,7 @@
     "verify:context": "node scripts/verify-mcp-tool-result.mjs",
     "verify:sessions": "node scripts/verify-photon-session.mjs",
     "verify:transport": "node scripts/verify-bounded-stdio.mjs",
+    "verify:workspace-runtime:contracts": "node scripts/verify-workspace-runtime-contracts.mjs",
     "verify:workspaces": "node scripts/verify-photon-workspaces.mjs",
     "verify:workspaces:redis": "node scripts/verify-photon-workspaces-redis.mjs"
   },

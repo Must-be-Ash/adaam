@@ -856,7 +856,7 @@ real Coinbase mutation endpoints.
 
 ### Sprint 0 — contracts and failure fixtures
 
-- [ ] Add state diagrams and schema fixtures for owner mapping, Photon ingress,
+- [x] Add state diagrams and schema fixtures for owner mapping, Photon ingress,
   assignment, dispatch, workspace, monitor, run, budget, finding, alert,
   delivery, and routing-decision records.
 - [ ] Write failing tests for cross-workspace access, duplicate dispatch,
@@ -1115,3 +1115,9 @@ own bounded implementation spec:
    reconciliation.
 8. General topic-change detection and held-message recovery.
 9. Telegram migration to the workspace broker.
+
+## Implementation progress
+
+| Date | Checklist item | Verification |
+| --- | --- | --- |
+| 2026-08-14 | Add state diagrams and schema fixtures for durable workspace-runtime records | `node scripts/verify-workspace-runtime-contracts.mjs` and `jq empty specs/fixtures/01-independent-workspace-runtimes/*.json` — passed |
