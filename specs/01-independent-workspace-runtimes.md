@@ -892,7 +892,7 @@ Exit gate:
 
 Exit gate:
 
-- [ ] Two workspaces can hold different briefs, skills, tools, sources, and
+- [x] Two workspaces can hold different briefs, skills, tools, sources, and
   budgets, and adversarial tests cannot cross either boundary.
 
 ### Sprint 2 — workspace monitor store and polling dispatcher
@@ -1135,3 +1135,4 @@ own bounded implementation spec:
 | 2026-08-14 | Add step-level default-deny runtime capability resolution with shared hard denials and reviewed provider schemas | `jiti scripts/verify-workspace-runtime-capabilities.ts` and `tsc --noEmit` — passed |
 | 2026-08-14 | Report bounded provider inventory drift and return typed unavailable-capability reasons without auto-enabling discoveries | `jiti scripts/verify-workspace-capability-drift.ts`, `jiti scripts/verify-workspace-runtime-capabilities.ts`, and `tsc --noEmit` — passed |
 | 2026-08-14 | Verify `Start fresh` preserves workspace-owned documents while rejecting stale approval and tool generations | `jiti scripts/verify-workspace-start-fresh.ts`, `node scripts/verify-photon-workspaces.mjs`, `node scripts/verify-photon-approval.mjs`, and `tsc --noEmit` — passed |
+| 2026-08-14 | Sprint 1 exit gate: prove distinct workspace state/capabilities/budgets and adversarial owner/workspace isolation | `jiti scripts/verify-workspace-isolation.ts` and `tsc --noEmit` — passed |
