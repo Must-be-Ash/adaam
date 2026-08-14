@@ -933,7 +933,7 @@ Exit gate:
 
 ### Sprint 4 — durable alerts and reply-safe Photon routing
 
-- [ ] Add immutable ingress, workspace-assignment, dispatch, completion, and
+- [x] Add immutable ingress, workspace-assignment, dispatch, completion, and
   outbound response-delivery receipts for every actionable Photon webhook.
 - [ ] Deduplicate concurrent Photon webhooks before dispatch and quarantine
   uncertain model dispatch or response delivery for reconciliation.
@@ -1152,3 +1152,4 @@ own bounded implementation spec:
 | 2026-08-14 | Complete the SEC IPO baseline/new/replay/amendment/failure/concurrent-workspace corpus and occurrence-key retry-safe checkpoint semantics | `jiti scripts/verify-sec-ipo-fixtures.ts`, finding/monitor regressions, ephemeral-Redis checkpoint matrix, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Dispatch each occurrence directly to a fresh declared worker task with typed bounded context, exact source-tool fencing, scoped terminal outcomes, and no interactive or cross-workspace state | `jiti scripts/verify-workspace-worker-isolation.ts`, worker auth/source coverage/finding/capability/SEC fixture regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Sprint 3 exit gate: prove a bounded scheduled IPO baseline/no-match and new-filing outcome are occurrence-idempotent with one durable side-effect set | `jiti scripts/verify-sec-ipo-fixtures.ts`, `jiti scripts/verify-workspace-worker-isolation.ts`, source/finding/monitor regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
+| 2026-08-14 | Add content-free immutable Photon ingress/assignment/dispatch/completion and response-delivery receipts before model dispatch or outbound delivery | `jiti scripts/verify-photon-ingress-store.ts`, Photon harness/workspace/approval/scope regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |

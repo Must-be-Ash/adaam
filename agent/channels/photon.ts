@@ -8,6 +8,7 @@ import {
   messageToUserContent,
 } from "eve/channels/chat-sdk";
 import type { InputRequest } from "eve/client";
+import type { SessionContext } from "eve/context";
 
 import {
   createPhotonApprovalPrompt,
@@ -32,8 +33,21 @@ import {
 } from "../lib/photon-approval-store.js";
 import { photonAuth, photonPrincipalId } from "../lib/photon-auth";
 import {
+  assignPhotonIngress,
+  createPhotonCompletionReceipt,
+  createPhotonDispatchReceipt,
+  createPhotonIngressReceipt,
+  createPhotonResponseDeliveryReceipt,
+  markPhotonDispatchAccepted,
+  markPhotonResponseDelivery,
+  photonIngressAuthAttributes,
+  photonIngressIdFromAuth,
+  readPhotonDispatchReceipt,
+} from "../lib/photon-ingress-store";
+import {
   OwnerIdentityDeniedError,
   requirePhotonOwnerAccess,
+  resolvePhotonOwnerConversationIdentity,
 } from "../lib/owner-identity";
 import {
   photonArtifactPresentation,
@@ -69,6 +83,17 @@ const imessageAdapter = createiMessageAdapter({
     : { webhookVerifier: createConnectWebhookVerifier() }),
 });
 const routedImessageAdapter = workspaceAwarePhotonAdapter(imessageAdapter);
+
+async function completePhotonDispatchReceipt(
+  ctx: SessionContext,
+  outcome: "cancelled" | "completed" | "failed",
+): Promise<void> {
+  const ingressId = photonIngressIdFromAuth(ctx.session.auth.current);
+  if (!ingressId) return;
+  const dispatch = await readPhotonDispatchReceipt(ingressId);
+  if (!dispatch) return;
+  await createPhotonCompletionReceipt({ dispatch, outcome });
+}
 
 function approvalRequestText(prompt: PhotonApprovalPrompt): string {
   return `${prompt.approvalText}\n\nOpen the approval card to choose Approve or Deny. If the card does not open, reply YES or NO.`;
@@ -268,12 +293,34 @@ const bridge = chatSdkChannel({
           })
         : null;
       const artifact = photonArtifactPresentation(data.message);
-      await channel.thread.post({
-        markdown: photonWorkspaceLabeledText(
-          workspaceName,
-          artifact?.message ?? data.message,
-        ),
-      });
+      const responseText = photonWorkspaceLabeledText(
+        workspaceName,
+        artifact?.message ?? data.message,
+      );
+      const ingressId = photonIngressIdFromAuth(ctx.session.auth.current);
+      if (ingressId) {
+        await createPhotonResponseDeliveryReceipt({
+          content: responseText,
+          destination: physicalPhotonThreadId(channel.thread.id),
+          ingressId,
+        });
+        await markPhotonResponseDelivery({ ingressId, state: "delivering" });
+      }
+      try {
+        await channel.thread.post({ markdown: responseText });
+        if (ingressId) {
+          await markPhotonResponseDelivery({ ingressId, state: "delivered" });
+        }
+      } catch (error) {
+        if (ingressId) {
+          await markPhotonResponseDelivery({
+            failureCode: "response_delivery_uncertain",
+            ingressId,
+            state: "delivery_uncertain",
+          }).catch(() => undefined);
+        }
+        throw error;
+      }
       if (artifact) {
         try {
           await imessageAdapter.sendMiniApp(
@@ -289,6 +336,7 @@ const bridge = chatSdkChannel({
       }
     },
     async "turn.failed"(data, channel, ctx) {
+      await completePhotonDispatchReceipt(ctx, "failed");
       const release = await releaseApprovedOrderGuard(ctx.session.id);
       console.error("[photon.turn] Eve turn failed", {
         error_code: data.code,
@@ -314,6 +362,7 @@ const bridge = chatSdkChannel({
       );
     },
     async "turn.completed"(_data, channel, ctx) {
+      await completePhotonDispatchReceipt(ctx, "completed");
       const release = await releaseApprovedOrderGuard(ctx.session.id);
       if (release === "retained" && channel.thread) {
         const principalId = ctx.session.auth.current?.principalId;
@@ -333,6 +382,7 @@ const bridge = chatSdkChannel({
       }
     },
     async "turn.cancelled"(_data, channel, ctx) {
+      await completePhotonDispatchReceipt(ctx, "cancelled");
       const release = await releaseApprovedOrderGuard(ctx.session.id);
       if (release !== "missing" && channel.thread) {
         const principalId = ctx.session.auth.current?.principalId;
@@ -922,6 +972,21 @@ async function dispatch(
     return;
   }
   const textDecision = parsePhotonTextDecision(message.text);
+  const ingressIdentity = resolvePhotonOwnerConversationIdentity({
+    principalId,
+    threadId: thread.id,
+  });
+  const ingressCreation = await createPhotonIngressReceipt({
+    classification:
+      textDecision || isPhotonApprovalAlias(message.text)
+        ? "approval_reply"
+        : isPhotonSessionManagerRequest(message.text)
+          ? "session_management"
+          : "ordinary",
+    conversationId: ingressIdentity.conversationId,
+    eventId: message.id,
+    ownerId: ingressIdentity.ownerId,
+  });
   if (textDecision) {
     const decisionSentAtMs = message.metadata.dateSent.getTime();
     if (
@@ -1013,6 +1078,18 @@ async function dispatch(
     threadId: thread.id,
     workspaceId: activeWorkspace.id,
   });
+  const ingress = ingressCreation.record;
+  const assignment = await assignPhotonIngress({
+    generation: activeWorkspace.generation,
+    ingress,
+    reason: "selected_workspace",
+    routingRevision: workspaceState.revision,
+    workspaceId: activeWorkspace.id,
+  });
+  await createPhotonDispatchReceipt({
+    assignment,
+    continuationTarget: `${thread.id}\0${activeWorkspace.id}\0${activeWorkspace.generation}`,
+  });
   const session = await bridge.send(
     {
       context: [
@@ -1021,11 +1098,20 @@ async function dispatch(
       message: messageToUserContent(message),
     },
     {
-      auth: photonAuth(senderId, thread.id, runtimeScope),
+      auth: photonAuth(
+        senderId,
+        thread.id,
+        runtimeScope,
+        photonIngressAuthAttributes(ingress),
+      ),
       thread: photonWorkspaceThread(thread, activeWorkspace),
       turnPolicy: "steer",
     },
   );
+  await markPhotonDispatchAccepted({
+    ingressId: ingress.ingressId,
+    sessionId: session.id,
+  });
   await savePhotonWorkspaceSession({
     generation: activeWorkspace.generation,
     principalId,

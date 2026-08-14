@@ -21,9 +21,11 @@ export function photonAuth(
   senderId: string,
   threadId: string,
   scope: WorkspaceRuntimeScope,
+  additionalAttributes: Readonly<Record<string, string>> = {},
 ): SessionAuthContext {
   return {
     attributes: {
+      ...additionalAttributes,
       channel: "photon",
       thread_id: threadId,
       ...workspaceRuntimeScopeAttributes(scope),

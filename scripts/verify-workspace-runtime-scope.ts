@@ -136,10 +136,15 @@ const ordinaryDispatch = photonRouter.indexOf(
   ordinaryProjection,
 );
 const ordinaryAuth = photonRouter.indexOf(
-  "auth: photonAuth(senderId, thread.id, runtimeScope)",
+  "auth: photonAuth(\n        senderId,\n        thread.id,\n        runtimeScope,",
   ordinaryDispatch,
 );
+const durableAssignment = photonRouter.indexOf(
+  "const assignment = await assignPhotonIngress({",
+  ordinaryProjection,
+);
 assert.ok(ordinaryProjection >= 0 && ordinaryProjection < ordinaryDispatch);
+assert.ok(ordinaryProjection < durableAssignment && durableAssignment < ordinaryDispatch);
 assert.ok(ordinaryDispatch < ordinaryAuth);
 assert.equal(photonRouter.includes("parsePhotonWorkspaceThreadId(ctx"), false);
 
