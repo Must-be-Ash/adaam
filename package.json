@@ -41,6 +41,7 @@
     "verify:workspace-runtime:photon-ingress": "jiti scripts/verify-photon-ingress-store.ts",
     "verify:workspace-runtime:alerts": "jiti scripts/verify-workspace-alert-store.ts",
     "verify:workspace-runtime:alert-presentation": "jiti scripts/verify-workspace-alert-presentation.ts",
+    "verify:workspace-runtime:alert-context": "jiti scripts/verify-photon-alert-context.ts",
     "verify:workspace-runtime:scope": "jiti scripts/verify-workspace-runtime-scope.ts",
     "verify:workspace-runtime:worker-auth": "jiti scripts/verify-workspace-worker-auth.ts",
     "verify:workspace-runtime:worker-isolation": "jiti scripts/verify-workspace-worker-isolation.ts",

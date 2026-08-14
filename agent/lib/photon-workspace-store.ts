@@ -7,7 +7,9 @@ import { photonApprovalGuardKey } from "#photon-approval-store";
 
 const REGISTRY_KEY_PREFIX = "eve:photon:v1:workspace-registry:";
 const MANAGER_KEY_PREFIX = "eve:photon:v1:workspace-manager:";
+const ALERT_ACTION_KEY_PREFIX = "eve:photon:v1:workspace-alert-action:";
 const MANAGER_TTL_SECONDS = 15 * 60;
+const ALERT_ACTION_TTL_SECONDS = 10 * 60;
 const MAX_WORKSPACES = 12;
 const MAX_CAS_ATTEMPTS = 5;
 
@@ -35,10 +37,18 @@ const workspaceSchema = z.object({
   updatedAtMs: z.number().int().nonnegative(),
 });
 
+const pendingAlertContextSchema = z.object({
+  alertId: z.string().min(2).max(160),
+  createdAtMs: z.number().int().nonnegative(),
+  expiresAtMs: z.number().int().nonnegative(),
+  workspaceId: z.string().uuid(),
+}).strict();
+
 const registrySchema = z
   .object({
     activeWorkspaceId: z.string().uuid(),
     lastMutationId: z.string().uuid().optional(),
+    pendingAlertContext: pendingAlertContextSchema.optional(),
     revision: z.number().int().nonnegative(),
     schemaVersion: z.literal(1),
     workspaces: z.array(workspaceSchema).min(1).max(MAX_WORKSPACES),
@@ -85,7 +95,21 @@ const managerCapabilitySchema = z.object({
   threadId: z.string().min(1).max(500),
 });
 
+const alertActionCapabilitySchema = z.object({
+  alertId: z.string().min(2).max(160),
+  conversationId: z.string().min(1).max(160),
+  createdAtMs: z.number().int().nonnegative(),
+  expectedRevision: z.number().int().nonnegative(),
+  expiresAtMs: z.number().int().nonnegative(),
+  ownerId: z.string().min(1).max(160),
+  principalId: z.string().min(1).max(300),
+  schemaVersion: z.literal(1),
+  threadId: z.string().min(1).max(500),
+  workspaceId: z.string().uuid(),
+}).strict();
+
 export type PhotonWorkspace = z.infer<typeof workspaceSchema>;
+export type PhotonPendingAlertContext = z.infer<typeof pendingAlertContextSchema>;
 
 export interface PhotonWorkspaceState {
   activeWorkspace: PhotonWorkspace;
@@ -265,6 +289,10 @@ function managerKey(token: string): string {
   return `${MANAGER_KEY_PREFIX}${sha256(token)}`;
 }
 
+function alertActionKey(token: string): string {
+  return `${ALERT_ACTION_KEY_PREFIX}${sha256(token)}`;
+}
+
 function parseRegistry(value: unknown): z.infer<typeof registrySchema> {
   if (typeof value !== "string") {
     throw new Error("The Photon workspace registry is unavailable.");
@@ -278,6 +306,18 @@ function parseManagerCapability(
   if (typeof value !== "string") return null;
   try {
     const capability = managerCapabilitySchema.parse(JSON.parse(value));
+    return capability.expiresAtMs > Date.now() ? capability : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseAlertActionCapability(
+  value: unknown,
+): z.infer<typeof alertActionCapabilitySchema> | null {
+  if (typeof value !== "string") return null;
+  try {
+    const capability = alertActionCapabilitySchema.parse(JSON.parse(value));
     return capability.expiresAtMs > Date.now() ? capability : null;
   } catch {
     return null;
@@ -418,10 +458,137 @@ function updatedRegistry(
 ): z.infer<typeof registrySchema> {
   return {
     activeWorkspaceId,
+    ...(registry.pendingAlertContext
+      ? { pendingAlertContext: registry.pendingAlertContext }
+      : {}),
     revision: registry.revision + 1,
     schemaVersion: 1,
     workspaces,
   };
+}
+
+export async function mintPhotonAlertDiscussCapability(
+  input: {
+    alertId: string;
+    conversationId: string;
+    expectedRevision: number;
+    ownerId: string;
+    principalId: string;
+    threadId: string;
+    workspaceId: string;
+  },
+  client: PhotonWorkspaceStoreClient = store(),
+): Promise<{ alertToken: string; expiresAtMs: number }> {
+  const state = await getPhotonWorkspaceState(input, client);
+  const target = state.workspaces.find(
+    (workspace) => workspace.id === input.workspaceId,
+  );
+  if (
+    state.revision !== input.expectedRevision ||
+    !target ||
+    target.status !== "active"
+  ) {
+    throw new PhotonWorkspaceConflictError();
+  }
+  const alertToken = randomBytes(32).toString("base64url");
+  const createdAtMs = Date.now();
+  const expiresAtMs = createdAtMs + ALERT_ACTION_TTL_SECONDS * 1_000;
+  const capability = alertActionCapabilitySchema.parse({
+    ...input,
+    createdAtMs,
+    expiresAtMs,
+    schemaVersion: 1,
+  });
+  await client.set(alertActionKey(alertToken), JSON.stringify(capability), {
+    ex: ALERT_ACTION_TTL_SECONDS,
+    nx: true,
+  });
+  return { alertToken, expiresAtMs };
+}
+
+export async function applyPhotonAlertDiscussAction(
+  alertToken: string,
+  client: PhotonWorkspaceStoreClient = store(),
+): Promise<
+  | { status: "applied"; state: PhotonWorkspaceState }
+  | { status: "stale" | "unavailable" }
+> {
+  if (!/^[A-Za-z0-9_-]{43}$/u.test(alertToken)) {
+    return { status: "unavailable" };
+  }
+  const capability = parseAlertActionCapability(
+    await client.get(alertActionKey(alertToken)),
+  );
+  if (!capability) return { status: "unavailable" };
+  const createdAtMs = Date.now();
+  try {
+    const result = await mutateRegistry(
+      {
+        expectedRevision: capability.expectedRevision,
+        principalId: capability.principalId,
+        threadId: capability.threadId,
+      },
+      (registry) => {
+        const target = registry.workspaces.find(
+          (workspace) => workspace.id === capability.workspaceId,
+        );
+        if (!target || target.status !== "active") {
+          throw new PhotonWorkspaceValidationError("That session is unavailable.");
+        }
+        return {
+          registry: {
+            ...updatedRegistry(registry, registry.workspaces, target.id),
+            pendingAlertContext: {
+              alertId: capability.alertId,
+              createdAtMs,
+              expiresAtMs: capability.expiresAtMs,
+              workspaceId: target.id,
+            },
+          },
+          value: undefined,
+        };
+      },
+      client,
+    );
+    return { status: "applied", state: toState(result.registry) };
+  } catch (error) {
+    if (error instanceof PhotonWorkspaceConflictError) return { status: "stale" };
+    if (error instanceof PhotonWorkspaceValidationError) return { status: "unavailable" };
+    throw error;
+  }
+}
+
+export async function consumePhotonPendingAlertContext(
+  input: { principalId: string; threadId: string; workspaceId: string },
+  client: PhotonWorkspaceStoreClient = store(),
+): Promise<{
+  context: PhotonPendingAlertContext | null;
+  state: PhotonWorkspaceState;
+}> {
+  const now = Date.now();
+  const result = await mutateRegistry(
+    input,
+    (registry) => {
+      const pending = registry.pendingAlertContext;
+      if (
+        !pending ||
+        pending.workspaceId !== input.workspaceId ||
+        registry.activeWorkspaceId !== input.workspaceId
+      ) {
+        return { registry, value: null };
+      }
+      const { pendingAlertContext: _pendingAlertContext, ...withoutPending } = registry;
+      return {
+        registry: {
+          ...withoutPending,
+          revision: registry.revision + 1,
+        },
+        value: pending.expiresAtMs > now ? pending : null,
+      };
+    },
+    client,
+  );
+  return { context: result.value, state: toState(result.registry) };
 }
 
 export function normalizePhotonWorkspaceName(name: string): string {
