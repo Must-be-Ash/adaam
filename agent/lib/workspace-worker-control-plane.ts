@@ -19,6 +19,10 @@ import {
   type WorkspaceSourceCoverageClient,
 } from "./workspace-source-coverage";
 import type { WorkspaceStateStoreClient } from "./workspace-state-store";
+import {
+  stageWorkspaceAlert,
+  type WorkspaceAlertStoreClient,
+} from "./workspace-alert-store";
 import { authorizeWorkspaceWorkerStore } from "./workspace-store-authorization";
 import { requireWorkspaceWorkerAuth, type WorkspaceWorkerEnvelope } from "./workspace-worker-auth";
 import { resolveWorkspaceWorkerCapabilitySnapshot } from "./workspace-worker-capabilities";
@@ -31,6 +35,7 @@ type WorkerContext = {
 };
 
 export interface WorkspaceWorkerControlPlaneClients {
+  readonly alert?: WorkspaceAlertStoreClient;
   readonly finding?: WorkspaceFindingStoreClient;
   readonly monitor?: WorkspaceMonitorStoreClient;
   readonly sourceCoverage?: WorkspaceSourceCoverageClient;
@@ -61,7 +66,7 @@ async function assertCurrentMonitor(
   envelope: WorkspaceWorkerEnvelope,
   scope: ReturnType<typeof authorizeWorkspaceWorkerStore>,
   client?: WorkspaceMonitorStoreClient,
-): Promise<void> {
+): Promise<WorkspaceMonitor> {
   const monitor = await getWorkspaceMonitor(scope, envelope.monitorId, client);
   if (
     !monitor ||
@@ -71,6 +76,7 @@ async function assertCurrentMonitor(
   ) {
     throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
   }
+  return monitor;
 }
 
 async function prepareCommit(input: {
@@ -83,6 +89,7 @@ async function prepareCommit(input: {
   coverage: Awaited<ReturnType<typeof completeWorkspaceSourceCoverage>>;
   envelope: WorkspaceWorkerEnvelope;
   maximumDataAccessClassification: "owner_private" | "public";
+  monitor: WorkspaceMonitor;
   scope: ReturnType<typeof authorizeWorkspaceWorkerStore>;
 }> {
   const envelope = requireWorkspaceWorkerAuth(input.ctx, {}, input.environment);
@@ -99,7 +106,7 @@ async function prepareCommit(input: {
   if (!(input.toolId in capabilities.tools)) {
     throw new WorkspaceWorkerCommitError("workspace_worker_capability_denied");
   }
-  await assertCurrentMonitor(envelope, scope, input.clients?.monitor);
+  const monitor = await assertCurrentMonitor(envelope, scope, input.clients?.monitor);
   const currentCoverage = await readWorkspaceSourceCoverage(
     scope,
     envelope.runId,
@@ -121,6 +128,7 @@ async function prepareCommit(input: {
     coverage,
     envelope,
     maximumDataAccessClassification: capabilities.maximumDataAccessClassification,
+    monitor,
     scope,
   };
 }
@@ -152,6 +160,15 @@ export async function writeWorkspaceFindingForWorker(input: {
     now: input.now,
     scope: prepared.scope,
   }, input.clients?.finding);
+  if (!outcome.finding) {
+    throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
+  }
+  await stageWorkspaceAlert({
+    finding: outcome.finding,
+    monitor: prepared.monitor,
+    now: input.now,
+    scope: prepared.scope,
+  }, input.clients?.alert);
   await completeWorkspaceMonitorCheckpoint({
     completedAt: input.now,
     configurationRevision: prepared.envelope.configurationRevision,

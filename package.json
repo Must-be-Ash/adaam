@@ -39,6 +39,7 @@
     "verify:workspace-runtime:flags": "node scripts/verify-workspace-runtime-flags.mjs",
     "verify:workspace-runtime:owner": "node scripts/verify-owner-identity.mjs",
     "verify:workspace-runtime:photon-ingress": "jiti scripts/verify-photon-ingress-store.ts",
+    "verify:workspace-runtime:alerts": "jiti scripts/verify-workspace-alert-store.ts",
     "verify:workspace-runtime:scope": "jiti scripts/verify-workspace-runtime-scope.ts",
     "verify:workspace-runtime:worker-auth": "jiti scripts/verify-workspace-worker-auth.ts",
     "verify:workspace-runtime:worker-isolation": "jiti scripts/verify-workspace-worker-isolation.ts",

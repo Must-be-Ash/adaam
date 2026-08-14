@@ -937,7 +937,7 @@ Exit gate:
   outbound response-delivery receipts for every actionable Photon webhook.
 - [x] Deduplicate concurrent Photon webhooks before dispatch and quarantine
   uncertain model dispatch or response delivery for reconciliation.
-- [ ] Add channel-independent alert/outbox records and Photon delivery receipts.
+- [x] Add channel-independent alert/outbox records and Photon delivery receipts.
 - [ ] Render workspace-headed alert cards with **Discuss** and **Manage**.
 - [ ] Implement atomic workspace selection and one-time pending alert context.
 - [ ] Route held alert replies through the same ingress assignment and dispatch
@@ -1154,3 +1154,4 @@ own bounded implementation spec:
 | 2026-08-14 | Sprint 3 exit gate: prove a bounded scheduled IPO baseline/no-match and new-filing outcome are occurrence-idempotent with one durable side-effect set | `jiti scripts/verify-sec-ipo-fixtures.ts`, `jiti scripts/verify-workspace-worker-isolation.ts`, source/finding/monitor regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Add content-free immutable Photon ingress/assignment/dispatch/completion and response-delivery receipts before model dispatch or outbound delivery | `jiti scripts/verify-photon-ingress-store.ts`, Photon harness/workspace/approval/scope regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Atomically gate duplicate Photon events before any action and quarantine ambiguous model dispatch or response delivery without replay | `jiti scripts/verify-photon-ingress-store.ts`, concurrent Photon harness regression, workspace/approval regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
+| 2026-08-14 | Stage one channel-independent workspace alert per durable finding and one content-free Photon delivery receipt per subscription | `jiti scripts/verify-workspace-alert-store.ts`, `jiti scripts/verify-workspace-finding-store.ts`, Photon receipt regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |

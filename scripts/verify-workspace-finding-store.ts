@@ -29,6 +29,7 @@ import {
 } from "../agent/lib/workspace-worker-auth";
 import type { WorkspaceDispatchReservation } from "../agent/lib/workspace-dispatch-budget";
 import type { ClaimedWorkspaceMonitor } from "../agent/lib/workspace-monitor-store";
+import type { WorkspaceAlertStoreClient } from "../agent/lib/workspace-alert-store";
 
 class MemoryCasStore implements WorkspaceStateStoreClient, WorkspaceSourceCoverageClient {
   readonly values = new Map<string, string>();
@@ -53,6 +54,17 @@ class MemoryFindingStore implements WorkspaceFindingStoreClient {
   async get(key: string) {
     return this.values.get(key) ?? null;
   }
+}
+
+class MemoryAlertStore implements WorkspaceAlertStoreClient {
+  readonly values = new Map<string, string>();
+  async createOrRead(key: string, value: string) {
+    const existing = this.values.get(key);
+    if (existing) return existing;
+    this.values.set(key, value);
+    return value;
+  }
+  async get(key: string) { return this.values.get(key) ?? null; }
 }
 
 class MemoryMonitorStore implements WorkspaceMonitorStoreClient {
@@ -201,6 +213,7 @@ const envelope = createWorkspaceWorkerEnvelope({
 const token = signWorkspaceWorkerEnvelope(envelope, environment);
 const ctx = { session: { auth: { current: workspaceWorkerExecutionAuth(envelope, token) } } };
 const clients = {
+  alert: new MemoryAlertStore(),
   finding: findingClient,
   monitor: monitorClient,
   sourceCoverage: coverageClient,
