@@ -41,6 +41,7 @@ const pendingAlertContextSchema = z.object({
   alertId: z.string().min(2).max(160),
   createdAtMs: z.number().int().nonnegative(),
   expiresAtMs: z.number().int().nonnegative(),
+  findingId: z.string().min(2).max(160),
   workspaceId: z.string().uuid(),
 }).strict();
 
@@ -101,6 +102,7 @@ const alertActionCapabilitySchema = z.object({
   createdAtMs: z.number().int().nonnegative(),
   expectedRevision: z.number().int().nonnegative(),
   expiresAtMs: z.number().int().nonnegative(),
+  findingId: z.string().min(2).max(160),
   ownerId: z.string().min(1).max(160),
   principalId: z.string().min(1).max(300),
   schemaVersion: z.literal(1),
@@ -472,6 +474,7 @@ export async function mintPhotonAlertDiscussCapability(
     alertId: string;
     conversationId: string;
     expectedRevision: number;
+    findingId: string;
     ownerId: string;
     principalId: string;
     threadId: string;
@@ -542,6 +545,7 @@ export async function applyPhotonAlertDiscussAction(
               alertId: capability.alertId,
               createdAtMs,
               expiresAtMs: capability.expiresAtMs,
+              findingId: capability.findingId,
               workspaceId: target.id,
             },
           },

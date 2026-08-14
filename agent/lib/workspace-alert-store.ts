@@ -143,7 +143,7 @@ export async function stageWorkspaceAlert(input: {
     workspaceName: input.monitor.name,
   });
   const value = await client.createOrRead(
-    key(input.scope, "alert", input.finding.findingId),
+    key(input.scope, "alert", alertId),
     JSON.stringify(candidate),
   );
   const result = parse(alertSchema, value, input.scope);
@@ -199,6 +199,23 @@ export async function readWorkspaceAlert(
   client: WorkspaceAlertStoreClient = store(),
 ): Promise<WorkspaceAlert | null> {
   assertAuthorizedWorkspaceStoreScope(scope);
-  const value = await client.get(key(scope, "alert", findingId));
+  const alertId = `alert_${digest(findingId)}`;
+  const value = await client.get(key(scope, "alert", alertId));
   return value === null || value === undefined ? null : parse(alertSchema, value, scope);
+}
+
+export async function readWorkspaceAlertById(
+  scope: AuthorizedWorkspaceStoreScope,
+  alertId: string,
+  client: WorkspaceAlertStoreClient = store(),
+): Promise<WorkspaceAlert | null> {
+  assertAuthorizedWorkspaceStoreScope(scope);
+  const value = await client.get(key(scope, "alert", alertId));
+  const alert = value === null || value === undefined
+    ? null
+    : parse(alertSchema, value, scope);
+  if (alert && alert.alertId !== alertId) {
+    throw new WorkspaceAlertStoreError("alert_conflict");
+  }
+  return alert;
 }

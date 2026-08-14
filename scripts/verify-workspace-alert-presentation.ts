@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 
-import { renderWorkspaceAlertPresentation } from "../agent/lib/workspace-alert-presentation";
+import {
+  renderWorkspaceAlertPresentation,
+  workspaceAlertTurnContext,
+} from "../agent/lib/workspace-alert-presentation";
 import type { WorkspaceAlert } from "../agent/lib/workspace-alert-store";
 
 const alert = {
@@ -36,5 +39,11 @@ const sanitized = renderWorkspaceAlertPresentation({
 });
 assert.equal(sanitized.heading, "Workspace alert · IPO Filings");
 assert.ok(Buffer.byteLength(sanitized.fallbackText, "utf8") <= 4_000);
+
+const turnContext = workspaceAlertTurnContext(alert);
+assert.match(turnContext, new RegExp(alert.alertId, "u"));
+assert.match(turnContext, /New SEC S-1 registration/u);
+assert.equal(turnContext.includes(alert.ownerId), false);
+assert.equal(turnContext.includes(alert.workspaceId), false);
 
 console.info("Workspace alert presentation verification passed.");

@@ -217,6 +217,14 @@ export async function createPhotonIngressReceipt(input: {
   return result;
 }
 
+export async function readPhotonIngressReceipt(
+  ingressId: string,
+  client: PhotonIngressStoreClient = store(),
+): Promise<PhotonIngressReceipt | null> {
+  const value = await client.get(key("ingress", ingressId));
+  return value === null || value === undefined ? null : parse(ingressSchema, value);
+}
+
 export async function assignPhotonIngress(input: {
   generation: number;
   ingress: PhotonIngressReceipt;

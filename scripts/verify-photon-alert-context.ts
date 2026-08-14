@@ -59,6 +59,7 @@ const capability = await mintPhotonAlertDiscussCapability(
     alertId: `alert_${"a".repeat(64)}`,
     conversationId: `conversation_${"b".repeat(64)}`,
     expectedRevision: withResearch.revision,
+    findingId: `finding_${"d".repeat(64)}`,
     ownerId: "owner_fixture",
     workspaceId: ipoWorkspace.id,
   },
@@ -84,6 +85,7 @@ const consumed = await consumePhotonPendingAlertContext(
   client,
 );
 assert.equal(consumed.context?.alertId, `alert_${"a".repeat(64)}`);
+assert.equal(consumed.context?.findingId, `finding_${"d".repeat(64)}`);
 assert.equal(consumed.context?.workspaceId, ipoWorkspace.id);
 const consumedAgain = await consumePhotonPendingAlertContext(
   { ...scope, workspaceId: ipoWorkspace.id },
@@ -97,6 +99,7 @@ const staleCapability = await mintPhotonAlertDiscussCapability(
     alertId: `alert_${"c".repeat(64)}`,
     conversationId: `conversation_${"b".repeat(64)}`,
     expectedRevision: consumedAgain.state.revision,
+    findingId: `finding_${"e".repeat(64)}`,
     ownerId: "owner_fixture",
     workspaceId: initial.activeWorkspace.id,
   },

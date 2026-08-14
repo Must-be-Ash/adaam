@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   readWorkspaceAlert,
+  readWorkspaceAlertById,
   stageWorkspaceAlert,
   stageWorkspaceAlertDelivery,
   type WorkspaceAlertStoreClient,
@@ -90,6 +91,7 @@ assert.equal(alert.workspaceName, "IPO Filings");
 assert.equal(alert.findingId, finding.findingId);
 assert.deepEqual(await stageWorkspaceAlert({ finding, monitor, now: new Date(now.getTime() + 1_000), scope }, client), alert);
 assert.deepEqual(await readWorkspaceAlert(scope, finding.findingId, client), alert);
+assert.deepEqual(await readWorkspaceAlertById(scope, alert.alertId, client), alert);
 assert.equal(await readWorkspaceAlert(otherScope, finding.findingId, client), null);
 
 const delivery = await stageWorkspaceAlertDelivery({

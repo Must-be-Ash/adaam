@@ -43,8 +43,18 @@ import {
   photonIngressAuthAttributes,
   photonIngressIdFromAuth,
   quarantinePhotonDispatch,
+  readPhotonIngressReceipt,
   readPhotonDispatchReceipt,
+  type PhotonIngressReceipt,
 } from "../lib/photon-ingress-store";
+import {
+  claimPhotonHeldAlertReply,
+  classifyPhotonAlertReply,
+  holdPhotonAlertReply,
+  parsePhotonHeldReplyChoice,
+  readActivePhotonHeldReply,
+  readRecentPhotonAlerts,
+} from "../lib/photon-alert-reply-store";
 import {
   OwnerIdentityDeniedError,
   requirePhotonOwnerAccess,
@@ -56,9 +66,11 @@ import {
   photonWorkspaceAppUrl,
 } from "../lib/photon-mini-app";
 import {
+  consumePhotonPendingAlertContext,
   getPhotonWorkspaceState,
   mintPhotonWorkspaceManager,
   savePhotonWorkspaceSession,
+  selectPhotonWorkspace,
   type PhotonWorkspace,
   type PhotonWorkspaceState,
 } from "../lib/photon-workspace-store";
@@ -72,6 +84,9 @@ import {
   workspaceAwarePhotonAdapter,
 } from "../lib/photon-workspace";
 import { projectPhotonWorkspaceRuntimeScope } from "../lib/workspace-runtime-scope";
+import { workspaceAlertTurnContext } from "../lib/workspace-alert-presentation";
+import { readWorkspaceAlertById } from "../lib/workspace-alert-store";
+import { authorizePhotonWorkspaceControlPlaneStore } from "../lib/workspace-store-authorization";
 
 const webhookSecret = process.env.IMESSAGE_WEBHOOK_SECRET;
 const photonConnectorId =
@@ -957,6 +972,82 @@ async function openPhotonSessionManager(input: {
   }
 }
 
+async function dispatchPhotonWorkspaceTurn(input: {
+  alertContext?: string;
+  ingress: PhotonIngressReceipt;
+  messageContent: ReturnType<typeof messageToUserContent> | string;
+  principalId: string;
+  reason: "confirmed_held_reply" | "discuss_action" | "selected_workspace";
+  senderId: string;
+  thread: Thread;
+  workspaceState: PhotonWorkspaceState;
+}): Promise<void> {
+  const activeWorkspace = input.workspaceState.activeWorkspace;
+  const runtimeScope = projectPhotonWorkspaceRuntimeScope({
+    generation: activeWorkspace.generation,
+    principalId: input.principalId,
+    threadId: input.thread.id,
+    workspaceId: activeWorkspace.id,
+  });
+  const assignment = await assignPhotonIngress({
+    generation: activeWorkspace.generation,
+    ingress: input.ingress,
+    reason: input.reason,
+    routingRevision: input.workspaceState.revision,
+    workspaceId: activeWorkspace.id,
+  });
+  const dispatchReceipt = await createPhotonDispatchReceipt({
+    assignment,
+    continuationTarget: `${input.thread.id}\0${activeWorkspace.id}\0${activeWorkspace.generation}`,
+  });
+  if (!dispatchReceipt.created) return;
+  let session;
+  try {
+    session = await bridge.send(
+      {
+        context: [
+          photonWorkspaceContext(activeWorkspace),
+          ...(input.alertContext ? [input.alertContext] : []),
+        ],
+        message: input.messageContent,
+      },
+      {
+        auth: photonAuth(
+          input.senderId,
+          input.thread.id,
+          runtimeScope,
+          photonIngressAuthAttributes(input.ingress),
+        ),
+        thread: photonWorkspaceThread(input.thread, activeWorkspace),
+        turnPolicy: "steer",
+      },
+    );
+    await markPhotonDispatchAccepted({
+      ingressId: input.ingress.ingressId,
+      sessionId: session.id,
+    });
+  } catch (error) {
+    await quarantinePhotonDispatch({
+      failureCode: "model_dispatch_uncertain",
+      ingressId: input.ingress.ingressId,
+      quarantineReason: "manual_reconciliation_required",
+    }).catch(() => undefined);
+    throw error;
+  }
+  await savePhotonWorkspaceSession({
+    generation: activeWorkspace.generation,
+    principalId: input.principalId,
+    sessionId: session.id,
+    threadId: input.thread.id,
+    workspaceId: activeWorkspace.id,
+  }).catch((error: unknown) => {
+    console.error("[photon.workspace] Session binding update failed", {
+      error_type: error instanceof Error ? error.name : typeof error,
+      session_id: session.id,
+    });
+  });
+}
+
 async function dispatch(
   thread: Parameters<
     Parameters<typeof bridge.bot.onDirectMessage>[0]
@@ -1083,69 +1174,109 @@ async function dispatch(
     return;
   }
 
-  const activeWorkspace = workspaceState.activeWorkspace;
-  const runtimeScope = projectPhotonWorkspaceRuntimeScope({
-    generation: activeWorkspace.generation,
-    principalId,
-    threadId: thread.id,
-    workspaceId: activeWorkspace.id,
-  });
-  const ingress = ingressCreation.record;
-  const assignment = await assignPhotonIngress({
-    generation: activeWorkspace.generation,
-    ingress,
-    reason: "selected_workspace",
-    routingRevision: workspaceState.revision,
-    workspaceId: activeWorkspace.id,
-  });
-  const dispatchReceipt = await createPhotonDispatchReceipt({
-    assignment,
-    continuationTarget: `${thread.id}\0${activeWorkspace.id}\0${activeWorkspace.generation}`,
-  });
-  if (!dispatchReceipt.created) return;
-  let session;
-  try {
-    session = await bridge.send(
-      {
-        context: [
-          photonWorkspaceContext(activeWorkspace),
-        ],
-        message: messageToUserContent(message),
-      },
-      {
-        auth: photonAuth(
-          senderId,
-          thread.id,
-          runtimeScope,
-          photonIngressAuthAttributes(ingress),
-        ),
-        thread: photonWorkspaceThread(thread, activeWorkspace),
-        turnPolicy: "steer",
-      },
-    );
-    await markPhotonDispatchAccepted({
-      ingressId: ingress.ingressId,
-      sessionId: session.id,
-    });
-  } catch (error) {
-    await quarantinePhotonDispatch({
-      failureCode: "model_dispatch_uncertain",
-      ingressId: ingress.ingressId,
-      quarantineReason: "manual_reconciliation_required",
-    }).catch(() => undefined);
-    throw error;
+  const held = await readActivePhotonHeldReply(ingressIdentity.conversationId);
+  if (held) {
+    const choice = parsePhotonHeldReplyChoice(message.text, held);
+    if (choice) {
+      if (workspaceState.revision !== held.routingRevision) {
+        await thread.post("The session selection changed, so that alert reply was not routed. Please send it again.");
+        return;
+      }
+      const claimed = await claimPhotonHeldAlertReply({ choice, ingressId: held.ingressId });
+      if (!claimed?.assignedWorkspaceId) return;
+      if (workspaceState.activeWorkspace.id !== claimed.assignedWorkspaceId) {
+        workspaceState = await selectPhotonWorkspace({
+          expectedRevision: workspaceState.revision,
+          principalId,
+          threadId: thread.id,
+          workspaceId: claimed.assignedWorkspaceId,
+        });
+      }
+      const heldIngress = await readPhotonIngressReceipt(claimed.ingressId);
+      if (!heldIngress) {
+        await thread.post("I couldn't recover that held reply, so it was not sent. Please send it again.");
+        return;
+      }
+      await dispatchPhotonWorkspaceTurn({
+        ingress: heldIngress,
+        messageContent: claimed.messageText,
+        principalId,
+        reason: "confirmed_held_reply",
+        senderId,
+        thread,
+        workspaceState,
+      });
+      await thread.post(`Continuing in ${workspaceState.activeWorkspace.name}.`).catch(() => undefined);
+      return;
+    }
   }
-  await savePhotonWorkspaceSession({
-    generation: activeWorkspace.generation,
-    principalId,
-    sessionId: session.id,
-    threadId: thread.id,
-    workspaceId: activeWorkspace.id,
-  }).catch((error: unknown) => {
-    console.error("[photon.workspace] Session binding update failed", {
-      error_type: error instanceof Error ? error.name : typeof error,
-      session_id: session.id,
+
+  const recentAlerts = await readRecentPhotonAlerts(ingressIdentity.conversationId);
+  const alertReply = classifyPhotonAlertReply({
+    candidates: recentAlerts,
+    messageText: message.text,
+    selectedWorkspaceId: workspaceState.activeWorkspace.id,
+  });
+  if (alertReply) {
+    await holdPhotonAlertReply({
+      candidateAlertId: alertReply.alertId,
+      candidateWorkspaceId: alertReply.workspaceId,
+      candidateWorkspaceName: alertReply.workspaceName,
+      conversationId: ingressIdentity.conversationId,
+      ingressId: ingressCreation.record.ingressId,
+      messageText: message.text,
+      ownerId: ingressIdentity.ownerId,
+      routingRevision: workspaceState.revision,
+      selectedWorkspaceId: workspaceState.activeWorkspace.id,
+      selectedWorkspaceName: workspaceState.activeWorkspace.name,
     });
+    await thread.post(
+      `That looks related to the ${alertReply.workspaceName} alert. Reply “use ${alertReply.workspaceName}” to switch and send it there, or “stay in ${workspaceState.activeWorkspace.name}” to keep the current session.`,
+    );
+    return;
+  }
+
+  let alertContext: string | undefined;
+  try {
+    const pending = await consumePhotonPendingAlertContext({
+      principalId,
+      threadId: thread.id,
+      workspaceId: workspaceState.activeWorkspace.id,
+    });
+    workspaceState = pending.state;
+    if (pending.context) {
+      const alertScope = authorizePhotonWorkspaceControlPlaneStore({
+        principalId,
+        resource: "alert",
+        workspaceId: pending.context.workspaceId,
+      });
+      const alert = await readWorkspaceAlertById(alertScope, pending.context.alertId);
+      if (!alert || alert.findingId !== pending.context.findingId) {
+        throw new Error("pending_alert_unavailable");
+      }
+      alertContext = workspaceAlertTurnContext(alert);
+    }
+  } catch (error) {
+    console.error("[photon.alert] Pending context resolution failed", {
+      error_type: error instanceof Error ? error.name : typeof error,
+    });
+    await thread.post(
+      "I couldn't verify that alert context, so this message was not sent. Please try again.",
+    );
+    return;
+  }
+
+  const activeWorkspace = workspaceState.activeWorkspace;
+  const ingress = ingressCreation.record;
+  await dispatchPhotonWorkspaceTurn({
+    ...(alertContext ? { alertContext } : {}),
+    ingress,
+    messageContent: messageToUserContent(message),
+    principalId,
+    reason: alertContext ? "discuss_action" : "selected_workspace",
+    senderId,
+    thread,
+    workspaceState,
   });
 }
 

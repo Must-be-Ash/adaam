@@ -43,3 +43,17 @@ export function renderWorkspaceAlertPresentation(
     schemaVersion: 1,
   });
 }
+
+export function workspaceAlertTurnContext(alert: WorkspaceAlert): string {
+  const title = singleLine(alert.title, 240);
+  const whyMatched = singleLine(alert.whyMatched, 1_000);
+  const sources = alert.sourceRefs.map((source) => singleLine(source, 160)).join(", ");
+  return [
+    "The owner explicitly chose to discuss this durable alert in the current workspace.",
+    `Alert reference: ${alert.alertId}`,
+    `Title: ${title}`,
+    `Why it matched: ${whyMatched}`,
+    `Source references: ${sources}`,
+    "Treat this as bounded context for the current turn only. Do not infer or load another workspace's history.",
+  ].join("\n");
+}
