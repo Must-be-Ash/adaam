@@ -32,6 +32,7 @@ import {
 } from "../lib/photon-approval-store.js";
 import { photonAuth, photonPrincipalId } from "../lib/photon-auth";
 import {
+  photonArtifactPresentation,
   photonApprovalAppUrl,
   photonWorkspaceAppUrl,
 } from "../lib/photon-mini-app";
@@ -203,10 +204,10 @@ async function photonWorkspaceResponseName(input: {
 }
 
 function photonWorkspaceLabeledText(
-  workspaceName: string | null,
+  _workspaceName: string | null,
   text: string,
 ): string {
-  return `[Session: ${workspaceName ?? "unavailable"}]\n\n${text}`;
+  return text;
 }
 
 async function activePhotonWorkspaceForSession(input: {
@@ -260,9 +261,26 @@ const bridge = chatSdkChannel({
             threadId: channel.thread.id,
           })
         : null;
+      const artifact = photonArtifactPresentation(data.message);
       await channel.thread.post({
-        markdown: photonWorkspaceLabeledText(workspaceName, data.message),
+        markdown: photonWorkspaceLabeledText(
+          workspaceName,
+          artifact?.message ?? data.message,
+        ),
       });
+      if (artifact) {
+        try {
+          await imessageAdapter.sendMiniApp(
+            physicalPhotonThreadId(channel.thread.id),
+            artifact.url,
+          );
+        } catch (error) {
+          console.warn("[photon.artifact] Mini-app delivery failed", {
+            error_type: error instanceof Error ? error.name : typeof error,
+            session_id: ctx.session.id,
+          });
+        }
+      }
     },
     async "turn.failed"(data, channel, ctx) {
       const release = await releaseApprovedOrderGuard(ctx.session.id);

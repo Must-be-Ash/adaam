@@ -41,11 +41,13 @@ duplicate response envelopes and binary media do not enter durable model context
 3. Call `masterkey-x402__get_service` and verify the input schema, provider, coverage,
    and status.
 4. Call `masterkey-x402__estimate_cost` before `masterkey-x402__run_service`.
-5. If the known cost is more than $0.10, is dynamic, or is unclear, ask the user before
-   running it. Otherwise, make only the minimum calls needed.
-6. Call `masterkey-x402__run_service` once with the exact documented input. Eve requires
-   explicit user approval and injects a replay-stable idempotency key; never invent or
-   request an idempotency key.
+5. Run the distinct research services needed by the user's request within Masterkey's
+   configured limits. Do not ask for approval solely because a research call is paid or
+   its price is dynamic. Masterkey itself enforces spend limits and any action-sensitive
+   approval requirement.
+6. Call `masterkey-x402__run_service` once with the exact documented input. User-session
+   research calls do not have an additional Eve-side approval; scheduled/runtime
+   sessions cannot use them. Never invent or request an idempotency key.
 7. Call `masterkey-x402__get_result` at most once only when
    `masterkey-x402__run_service` returns an asynchronous job whose output is needed for
    the analysis.
@@ -59,8 +61,9 @@ cost field when reporting spend.
 
 Masterkey results are compacted before they enter model history: structured output is
 preferred over duplicate text envelopes, catalog arrays are bounded, and inline binary
-media is replaced by its durable URL. Use `outputs[].url` to show or reuse generated
-media; never request or reconstruct base64 bytes when a URL is available.
+media is removed. Reuse only credential-free durable output URLs. If Eve rejects a
+temporary or credential-bearing result URL, do not repay or automatically retry the
+service; recover the original result when possible or report the artifact gap.
 
 ## Evidence quality
 

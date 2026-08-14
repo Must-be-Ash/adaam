@@ -4,9 +4,26 @@ Use this as the starting prompt for a new agent taking over the repository.
 It is a snapshot and a distillation of prior work, not a substitute for reading
 the code.
 
-Snapshot date: 2026-08-11  
-Application baseline before this handoff: `161762b` on `main`  
+Snapshot date: 2026-08-13
+
+Repository branch: `main`
+
 Production alias: <https://adaam.vercel.app>
+
+Current production deployment: `dpl_6Vc2Xb5bwxvMJ41dy8MRzZWg7mKq`
+
+That deployment includes the combined Masterkey/Photon work, MCP
+normalizer and bounded-stdio fixes, the public artifact publisher, the Blob-backed
+artifact route, and the crypto-research skill. Do not assume production is
+identical to the current checkout; verify the deployment ID and branch before
+changing production.
+
+The public artifact foundation and the in-context normalizer fixes now exist, but
+automatic MCP-result ingestion and owner-private artifact storage do not; that
+remaining work is scoped under "Wire tool output into the durable artifact store"
+in `BACKLOG.md`, and `MCP_ADAPTER_PATTERN.md` is the guide for how MCP output must
+be handled. Preserve existing work and inspect it before staging, deleting, or
+committing anything.
 
 ## Instructions to the receiving agent
 
@@ -21,8 +38,38 @@ You are taking over Eve. Before changing anything:
 5. Run `npm run typecheck` and, for substantive changes, `npm run build`.
 6. Do not begin work from the gaps listed below unless the owner asks.
 
-There is no unfinished feature assignment at this snapshot. The latest work was
-the accepted session-manager UI polish.
+The x402 research retest succeeded. The generic public artifact foundation also
+passed its real iMessage smoke test using the natural prompt “Make me a short
+public report about Bitcoin and send me a link I can open.” Eve inferred
+`publish_artifact`, returned a standalone internal URL, and Photon delivered the
+mini-app card. The resulting artifact is
+<https://adaam.vercel.app/artifacts/78b6dbde54050a8d04d5d6f923e3eb4a>.
+
+The owner does not need to say “public,” name `publish_artifact`, provide a host,
+or choose a format. Public-data reports default to public shareable Eve URLs.
+Private portfolio/account/personal data remains excluded because owner-private
+artifact delivery is not implemented.
+
+## How to work with the owner
+
+The owner values hardening, but only after the intended core behavior has been
+confirmed. Follow this order:
+
+1. Confirm the product requirement and upstream integration semantics. If
+   anything material is uncertain, ask the owner before designing a fix.
+2. Reproduce the exact user-visible failure and identify the first failing
+   layer. Separate the root failure from downstream fallback/error copy.
+3. Implement the smallest change that restores the intended complete path.
+4. Run focused local tests and type-checking.
+5. When the owner authorizes production testing, deploy and ask for one exact
+   end-to-end prompt through the real channel.
+6. Only after that path works should you broaden tests, harden adjacent paths,
+   refactor, or run specialist/subagent reviews.
+
+Do not use multiple subagents or broad reviews to compensate for an unresolved
+requirement. A thoroughly reviewed implementation of the wrong behavior is
+still wrong. Explain changed assumptions promptly, and ask before expanding
+scope beyond the current failing path.
 
 ## What we are building
 
@@ -37,6 +84,7 @@ but the richer session and approval UX is currently centered on iMessage.
 The product priorities established so far are:
 
 - get the complete user-visible path working before adding broad abstractions;
+- verify core behavior in the real channel before adjacent hardening;
 - isolate unrelated conversations;
 - require exact human approval for financial mutations;
 - keep model context and paid-tool responses bounded;
@@ -51,12 +99,13 @@ implemented. Coinbase has its own separate principal allowlist.
 
 ## Current working baseline
 
-The owner tested these paths successfully before this handoff:
+Across prior deployments, the owner tested these paths successfully:
 
 - natural-language Coinbase balance requests through Eve's normal tool path;
 - Coinbase spot-order preview and creation;
 - order approval through the Spectrum mini app;
-- order approval and denial through one-word text replies;
+- order approval and denial through one-word text replies on the pre-0.33
+  deployment;
 - natural-language requests opening the session manager;
 - creating, selecting, renaming, archiving, restoring, and starting sessions
   fresh;
@@ -71,13 +120,71 @@ Useful historical checkpoints:
 These tags predate the latest session-routing work. Use them for diagnosis, not
 as a blanket rollback target.
 
+Current production evidence from 2026-08-13:
+
+- the primary iMessage identity received a fresh Eve response after recovery;
+- a Coinbase order was placed successfully through the recovered session;
+- the same x402/Coinbase research prompt was rerun after the policy fix;
+- its turn completed normally and returned to `session.waiting` without an Eve
+  approval pause;
+- four `masterkey-x402__run_service` actions succeeded and two later calls
+  failed at Eve's signed-output-URL sanitizer, but the agent recovered;
+- the owner received the complete answer and a public report at
+  <https://hype-recovery-analysis-2026.miniup.app/>, which returns HTTP 200.
+
+Do not treat the historical text-denial result as current 0.33 verification.
+Eve 0.32 changed a negative tool-approval response from `deny` to `cancel`;
+current Photon delivery code still needs a separately scoped verification and,
+if reproduced, a targeted compatibility fix.
+
+## 2026-08-13 incident and active verification
+
+Adding the second owner phone identity did not itself break Eve. The required
+redeploy activated accumulated repository changes that had not been exercised
+against the existing production conversation:
+
+1. The old iMessage session had been created on Eve 0.31.3, while the public
+   quickstart commit upgraded the deployed app to Eve 0.33.0. That durable run
+   stopped processing new messages. It was cancelled and replaced with the
+   isolated `Recovery` session.
+2. The recovered session worked for a Coinbase order.
+3. A chained research request successfully ran market-data and Masterkey
+   discovery tools, then emitted `input.requested` at
+   `masterkey-x402__run_service`.
+4. The local wrapper—not Masterkey—was forcing every user `run_service` call
+   into Eve's `user-approval` flow. Photon did not support that approval, and
+   its attempted auto-denial used an OIDC self-request that returned 401. The
+   resulting `[Session: unavailable]` text was fallback noise, not the root
+   failure and not a Masterkey result.
+5. Production now treats user-initiated Masterkey tools as
+   `not-applicable` for Eve-side approval while retaining the runtime/scheduled
+   denial. Masterkey remains responsible for its own sensitive-action approval
+   and spend enforcement.
+6. The generation-2 `Recovery` retest completed the requested research and
+   public HTML report. This confirms the minimal approval-policy fix. Do not
+   reopen the routing or blanket-approval theories without new contrary
+   evidence.
+
+The earlier 6,156-character response was collapsed behind a
+`[Session: Recovery]` preview because the old response path prepended a visible
+session label and posted only text. The current deployment no longer prepends
+session labels or asks the model to repeat routing metadata; session isolation
+and the manager remain unchanged.
+
 ## User-facing UX contract
 
 - Say **session** in user-facing copy. `workspace` is only an accepted alias and
   an internal implementation term.
 - Recognized session-management requests should send only the Spectrum manager,
   with no model-written companion reply.
-- Every routed iMessage model reply identifies the session that produced it.
+- Normal replies do not prepend `[Session: ...]`. Session identity remains in
+  routing state and the manager; mention it in prose only when the user asks.
+- A safe internal Eve artifact URL or allowlisted MiniUp URL in a completed
+  response produces a Spectrum mini-app card. An explicit `ARTIFACT_URL:` line
+  is converted to a standalone fallback URL before posting.
+- Artifact cards accept only credential-free, query-free HTTPS URLs on the
+  deployment's `/artifacts/<id>` path or on `miniup.app` and its subdomains.
+  They do not render generic citations.
 - **Start fresh** advances only the selected session's model-history generation.
   Old-continuation cleanup can be uncertain, so do not promise hard deletion.
 - The manager UI is intentionally minimal: dark charcoal/grayscale, no blue
@@ -120,10 +227,18 @@ User-facing sessions are `PhotonWorkspace` records internally.
 - `agent/lib/photon-session-store.ts` is legacy migration code and is not used
   by live Photon routing.
 
-Normal iMessage requests use queued Chat SDK handling and
-`turnPolicy: "experimental-steer"`. Approval continuations use a queued Eve
-turn. Do not change these policies casually; earlier queue/migration changes
-blocked working requests.
+The Photon project now has two registered owner phone identities. Because the
+project uses shared Photon lines, each identity has its own assigned agent line
+and must initiate its conversation before outbound messaging is allowed. Both
+owner principals are configured for Coinbase access. Never copy their real
+numbers or principal values into tracked files, logs, or test fixtures.
+
+The Chat SDK adapter uses `concurrency: "queue"`. Normal iMessage dispatch sends
+to Eve with `turnPolicy: "steer"`; approval continuations use
+`turnPolicy: "queue"`. Eve 0.33 also made `steer` the framework default. There
+is no evidence that queueing caused the August 13 x402 failure; that failure was
+the wrapper's explicit approval policy. Do not change concurrency or turn policy
+without a specific reproduced scheduling problem.
 
 ### Coinbase
 
@@ -162,19 +277,128 @@ Every MCP must follow `MCP_ADAPTER_PATTERN.md`.
 - Preserve exact identifiers, monetary decimal strings, timestamps, cursors,
   statuses, and provenance.
 - Strip duplicate envelopes, credentials, unsafe URLs, and inline binary data.
+- Inline binary is stripped, but the normalizer no longer discards an entire
+  result just because auxiliary media rides along. When usable structured or
+  text data is present, that data is kept and the result is annotated
+  `inlineArtifactsOmitted: true`. A result is rejected only when the media is
+  the sole deliverable and there is no durable URL.
+- Retention failures are explicit and distinct from provider failure. When a
+  paid service delivered a result Eve cannot safely keep (inline-only media, a
+  credential-bearing output URL, or an over-limit transport response), the
+  error states the call may have completed and been charged, and instructs the
+  model not to repay or retry — recover via the provider's job or usage history.
+- When context bounds drop data, the model view says what is missing:
+  objects over 100 keys report `fieldsOmittedNames`, the depth cutoff names the
+  depth limit, and a provider-supplied durable artifact URL is prioritized so it
+  survives the budget rather than being trimmed and then rejected.
+- The in-code normalizer work (preserve-accompanying-data and explicit retention
+  states) is implemented, and the generic public artifact store exists. The
+  missing durable half — automatic capture of an MCP response before
+  normalization plus owner-private storage for outputs that cannot be made
+  public — is scoped in `BACKLOG.md` under "Wire tool output into the durable
+  artifact store". `MCP_ADAPTER_PATTERN.md` is the guide for the handling rules.
 
 Masterkey is a guarded paid fallback, not the default source. FMP, SEC, supplied
 files, and official public feeds should be preferred when they answer the
-request. Paid Masterkey `run_service` currently needs approval that Photon's
-custom handler does not support, so do not claim paid Masterkey calls work end
-to end in iMessage.
+request.
+
+Do not add a blanket Eve approval to `masterkey-x402__run_service`. The local
+wrapper now returns `not-applicable` for Eve-side approval in a user session;
+scheduled/runtime sessions remain denied and cannot use paid services.
+Masterkey owns the downstream policy:
+
+- approval pauses are action-sensitive, not price-sensitive: curated
+  `needsApproval` operations, communication/ecommerce/payments-billing/social
+  categories, and recipient-shaped fields can pause;
+- spend limits hard-reject rather than creating a human approval prompt;
+- the current owner-supplied defaults are no per-call maximum, a $50 monthly
+  limit, and a $1 fallback ceiling only when price is unknown;
+- a cumulative run-budget waitpoint exists only when a run explicitly opts into
+  a nonzero budget.
+
+These are upstream Masterkey semantics supplied by the owner. Recheck upstream
+code or ask the owner before changing this integration. The wrapper fix is live
+and the paid iMessage path is now confirmed by the generation-2 `Recovery`
+retest.
+
+That successful turn was not error-free. Two paid-service responses contained
+credential-bearing output URLs, so `assertSafeOutputUrls()` rejected them after
+the provider returned. Keeping those URLs out of model history is correct;
+losing the delivered artifact is not. Do not weaken the sanitizer or
+automatically repay/retry. The rejection message is now explicit that the paid
+call may have completed and that the model must recover via the provider job or
+usage history rather than repaying. The remaining safe fix is owner-scoped
+artifact ingestion built on the existing `agent/lib/artifact-store.ts`, scoped in
+`BACKLOG.md` under "Wire tool output into the durable artifact store" but not yet
+wired into the normalizer. The same old deployment also failed `bash` and `glob` because its
+just-bash template was unavailable. The current deployment built a fresh
+template; runtime success still needs an ordinary live turn to confirm.
 
 Coinbase uses a fresh credential-isolated stdio MCP process per call. Its result
-is normalized before entering model history, but the stdio transport does not
-yet impose a byte limit before parsing the complete response.
+is normalized before entering model history, and the stdio transport now imposes
+a pre-parse byte limit. `agent/lib/bounded-stdio-transport.ts` wraps the child
+process with an 8 MiB per-frame cap that aborts and surfaces
+`McpResponseTooLargeError` before an oversized JSON-RPC frame is parsed or can
+accumulate without bound, matching the bounded HTTP fetch used by Masterkey.
+Both pending and already-newline-terminated oversized frames are covered. Spawn semantics
+(environment inheritance, stdio wiring, abort teardown) are otherwise identical
+to the upstream `Experimental_StdioMCPTransport`.
 
 Financial Datasets is referenced in older prose and an OpenAPI file exists, but
 there is no active Financial Datasets connection at this snapshot.
+
+### Public artifacts
+
+`publish_artifact` provides one generic public-data layer for reports, images,
+audio, video, PDFs, and downloadable files:
+
+- Vercel Blob is the single artifact store. Upstash Redis remains required for
+  sessions, approvals, and triggers; it is not a second artifact database.
+- Every artifact has a deterministic 32-character ID derived from the Eve tool
+  call ID and a versioned JSON manifest under `artifacts/<id>/manifest.json`.
+- Reports are typed JSON rendered by Eve's deterministic, mobile-first React
+  components. The model does not write or host arbitrary HTML. Text blocks
+  safely render CommonMark as a fallback (raw HTML and embedded images remain
+  disabled), while tool/schema instructions tell Eve to prefer native heading,
+  bullet, metric, table, and chart fields.
+- Public media is fetched server-side from credential-free HTTPS, with redirect,
+  DNS/private-address, content-type/signature, timeout, and 100 MB checks before
+  Blob publication. Text files can be plain text, CSV, or JSON.
+- The public page is `/artifacts/<id>`. Photon accepts only same-deployment
+  internal artifact URLs or explicitly allowlisted MiniUp URLs for its card.
+- Publication is allowed only from an authenticated user session and requires
+  `publicDataOnly: true`. All manifests and media are public by design. Never put
+  portfolio, account, personal, credential-bearing, signed-URL, or other private
+  data in this path.
+- Owner-private artifact delivery is not implemented. The normalizer also does
+  not yet hand rejected inline/signed paid outputs to this store automatically.
+
+Production deployment `dpl_J48yK7F4CZYJw21QMEZGAADUyYJK` passed the full build.
+The direct publication smoke created and rendered
+<https://adaam.vercel.app/artifacts/dfc28f90f63210ba10d0455a0d19eb0c>
+at a 390-pixel viewport with no browser console errors. This proves Blob write,
+manifest read, public routing, and report rendering; it does not prove the
+iMessage tool-selection/card path.
+
+The first iMessage artifact-smoke prompt exposed a deployment-only startup
+failure in that deployment: the Eve server function tried to read Photon icon
+files from `/var/task/agent/assets/photon`, but Eve/Nitro had not traced that
+unsupported asset directory into the function. Every webhook returned 500
+before chat initialization, so the prompt never reached Eve. Deployment
+`dpl_AJXBoxYKNtGFsWfm3oNLEX92iw7o` fixes this by generating an imported
+TypeScript module with embedded SVG/PNG data during `prebuild`, `predev`, and
+`pretypecheck`. A production cold-start probe now initializes Photon and reaches
+the expected webhook authentication rejection instead of crashing. The lost
+prompt must be sent again; webhooks are not replayed automatically.
+
+The resent natural Bitcoin prompt completed the channel smoke, but its report
+input used one text block containing a full Markdown document and internal
+`Recovery` session metadata. Deployment
+`dpl_6Vc2Xb5bwxvMJ41dy8MRzZWg7mKq` now renders that existing artifact with safe
+Markdown formatting, removes internal routing metadata and duplicate document
+titles, normalizes heading levels, and instructs future tool calls to use
+structured blocks. Production visual and accessibility checks passed with no
+browser console errors.
 
 ### Dynamic event triggers
 
@@ -216,9 +440,23 @@ Read the files relevant to the task:
 - `agent/lib/photon-approval.ts`: approval rendering and text decisions.
 - `agent/lib/photon-approval-store.ts`: durable approval state machine.
 - `agent/channels/photon-approval-app.ts`: approval mini app.
-- `agent/lib/photon-mini-app.ts`: public mini-app URL selection.
+- `agent/lib/photon-mini-app.ts`: internal mini-app URLs plus safe public
+  MiniUp artifact detection.
+- `agent/lib/artifact-schema.ts`, `agent/lib/artifact-store.ts`, and
+  `agent/lib/public-app-url.ts`: public artifact contracts, Blob persistence,
+  guarded remote ingestion, and stable Eve URLs.
+- `agent/lib/photon-app-icon.ts` and `scripts/embed-photon-assets.mjs`: embedded
+  Photon app icons that do not depend on runtime filesystem tracing.
+- `agent/tools/publish_artifact.ts`: authenticated public artifact tool.
+- `app/artifacts/[artifactId]/`: deterministic report/media renderer.
+- `agent/skills/crypto-asset-research.md`: default dossier workflow for vague
+  crypto research prompts.
 - `agent/lib/mcp-tool-result.ts`: shared result sanitizer.
-- `agent/lib/masterkey-mcp.ts` and `agent/tools/masterkey_mcp.ts`: Masterkey.
+- `agent/lib/mcp-response-limit.ts` and `agent/lib/bounded-stdio-transport.ts`:
+  pre-parse transport byte bounds for HTTP (bounded fetch) and stdio.
+- `agent/lib/masterkey-mcp.ts`, `agent/lib/masterkey-mcp-policy.ts`, and
+  `agent/tools/masterkey_mcp.ts`: Masterkey transport, normalization and
+  Eve-side exposure/approval policy.
 - `agent/lib/coinbase-access.ts`, `agent/lib/coinbase-order.ts`,
   `agent/tools/coinbase_preview_order.ts`,
   `agent/tools/coinbase_create_order.ts`, and
@@ -260,9 +498,58 @@ Coinbase or Masterkey tool.
 10. **UI pre-checks did not prevent Redis races.** Keep atomic Lua operations,
     registry revisions, expected generations, and mutation IDs.
 11. **Hardening while the main path was broken wasted time.** Restore and test
-    the smallest complete path, preserve a checkpoint, then audit or expand.
+    the smallest complete path in the real channel, preserve a checkpoint, then
+    audit or expand.
+12. **A configuration change can deploy unrelated accumulated code.** Adding a
+    second phone identity required a redeploy that also activated the Eve 0.33
+    upgrade and a new Masterkey wrapper. Compare the outgoing and incoming
+    deployment before attributing a regression to the requested configuration.
+13. **Do not invent upstream approval semantics.** The wrapper incorrectly
+    forced every Masterkey `run_service` call into Eve approval. Confirm the
+    provider contract with code, documentation, or the owner before adding an
+    app-level gate.
+14. **A fallback message is not necessarily the root error.** The observed
+    `[Session: unavailable]` followed a failed auto-denial after the real
+    `run_service` approval mistake. Trace the event stream to the first divergent
+    event before designing a fix.
+15. **Reviews cannot validate an unsettled requirement.** Establish intended
+    behavior and prove a minimal implementation first. Use specialist or
+    adversarial reviews after that, or when a confirmed high-risk change
+    specifically warrants them.
+16. **A successful final answer can conceal tool failures.** The recovered
+    research turn completed despite sandbox, signed-URL, and fetch errors.
+    Verify the event stream and error logs, not only the final bubble.
+17. **Do not automatically retry a paid call after artifact ingestion fails.**
+    Provider execution and Eve retention are separate outcomes. Recover from the
+    original provider job/result before authorizing another charge.
+18. **Public artifact publication is not private storage.** Blob URLs and Eve
+    artifact pages are intentionally public. Portfolio, account, personal, and
+    credential-bearing data require an owner-private design that does not exist
+    yet.
+19. **A structured report is data, not model-written HTML.** Keep layout,
+    responsive behavior, and charts in the deterministic renderer. Extend the
+    versioned schema/components when a new presentation is needed.
+20. **A successful build does not prove runtime files were traced.** The first
+    artifact-smoke deployment passed local and Vercel builds but every Photon
+    webhook crashed on a missing icon file. Embed small required runtime assets
+    in generated source (or explicitly verify function tracing), then force a
+    production cold start before asking the owner to test.
+21. **A structured schema does not guarantee the model uses its structure.**
+    The first live report put a complete Markdown document into one text block.
+    Give the model explicit plain-prose/block guidance, but also render the
+    fallback safely so Markdown syntax never leaks into the public page.
 
 ## Remaining work
+
+The natural-language iMessage report/card smoke is complete. The owner can
+choose the next independently verifiable slice:
+
+1. run one vague `research HYPE` dossier through the new
+   `crypto-asset-research` skill and public report renderer;
+2. smoke-test one public image, then audio/video/PDF/file presentation;
+3. design owner-private artifacts for portfolio/account data; or
+4. wire MCP normalization to durable capture so already-paid inline or temporary
+   outputs can be recovered without another paid call.
 
 `BACKLOG.md` is the canonical inventory of incomplete, postponed, and parked
 work. It separates release blockers from foundations, maintenance, and optional
@@ -282,10 +569,11 @@ npm run build
 ```
 
 Use `npm run dev` on a clean checkout so `predev` generates the ignored embedded
-Coinbase CLI source. For headless development:
+Coinbase CLI and Photon icon sources. For headless development:
 
 ```bash
 npm run prepare:coinbase
+npm run prepare:photon
 npm exec -- eve dev --no-ui
 ```
 
@@ -293,13 +581,29 @@ Focused checks:
 
 ```bash
 npm run verify:context
+npm run verify:transport
 npm run verify:approvals
 npm run verify:sessions
 npm run verify:workspaces
+npm run verify:artifacts
 npm run verify:approvals:redis
 npm run verify:workspaces:redis
 npm run eval:coinbase
 ```
+
+`npm run verify:transport` exercises `bounded-stdio-transport.ts`: a JSON-RPC
+round-trip proves framing is preserved, and oversized frames (pending and
+newline-terminated) abort before parsing. It runs in `prebuild`.
+
+`npm run verify:context` asserts that normal user Masterkey tools have no
+Eve-side approval while runtime sessions remain denied. `npm run
+verify:artifacts` covers schemas, deterministic IDs, and safe internal URLs.
+Production deployment `dpl_6Vc2Xb5bwxvMJ41dy8MRzZWg7mKq` passed
+`verify:context`, `verify:transport`, `verify:approvals`, `verify:sessions`,
+`verify:workspaces`, `verify:artifacts`, TypeScript, the Eve build, and the full
+Vercel build. The real iMessage x402 retest passed, and direct production report
+publication/rendering plus the natural-language internal artifact-card smoke
+passed.
 
 The Redis checks require their environment variables to be exported; they do
 not load `.env.local`. Coinbase evals are local-only, fixture-backed, and make

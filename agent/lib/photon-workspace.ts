@@ -139,7 +139,7 @@ export function photonWorkspaceThread(
 export function photonWorkspaceContext(workspace: PhotonWorkspace): string {
   return (
     `This private iMessage turn is routed to the isolated session ${JSON.stringify(workspace.name)}. ` +
-    "Use only this session's history and do not infer context from other sessions. Refer to it as a session in user-facing replies."
+    "Use only this session's history and do not infer context from other sessions. Do not mention its name or routing metadata unless the user asks."
   );
 }
 

@@ -206,6 +206,11 @@ export function safeCoinbaseFailure(error: unknown): Error {
       "Coinbase returned more records than Eve can safely retain. Retry the same read with a smaller limit or narrower filters; do not advance the cursor from the rejected page.",
     );
   }
+  if (/MCP response exceeded \d+ bytes/iu.test(diagnostic)) {
+    return new Error(
+      "Coinbase returned more data than Eve can safely read in one response. Retry the same read with a smaller limit or narrower filters.",
+    );
+  }
 
   return new Error("The Coinbase request failed without a safe diagnostic.");
 }

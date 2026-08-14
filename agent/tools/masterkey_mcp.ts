@@ -6,6 +6,7 @@ import {
   masterkeyAuthorization,
   MasterkeyAuthenticationError,
 } from "../lib/masterkey-mcp";
+import { masterkeyToolApproval } from "../lib/masterkey-mcp-policy";
 import type { JsonObject } from "../lib/mcp-tool-result";
 
 interface MasterkeyToolDefinition {
@@ -191,19 +192,10 @@ export default defineDynamic({
           defineTool({
             description: definition.description,
             inputSchema: definition.inputSchema,
-            approval: (approvalCtx) => {
-              if (
-                approvalCtx.session.auth.current?.principalType === "runtime"
-              ) {
-                return {
-                  type: "denied",
-                  reason: "Scheduled public-feed checks cannot use paid services.",
-                };
-              }
-              return definition.name === "run_service"
-                ? "user-approval"
-                : "not-applicable";
-            },
+            approval: (approvalCtx) =>
+              masterkeyToolApproval(
+                approvalCtx.session.auth.current?.principalType,
+              ),
             async execute(input, toolCtx) {
               if (toolCtx.session.auth.current?.principalType === "runtime") {
                 throw new Error(

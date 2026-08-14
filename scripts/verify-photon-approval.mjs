@@ -22,7 +22,10 @@ import {
   markPhotonApprovalExecution,
   releasePhotonApprovalProcessing,
 } from "../agent/lib/photon-approval-store.ts";
-import { photonApprovalAppUrl } from "../agent/lib/photon-mini-app.ts";
+import {
+  photonApprovalAppUrl,
+  photonArtifactPresentation,
+} from "../agent/lib/photon-mini-app.ts";
 
 function approvalRequest(toolName, input = {}) {
   return {
@@ -499,6 +502,43 @@ assert.deepEqual(
   },
 );
 
+assert.deepEqual(
+  photonArtifactPresentation(
+    "Research complete.\n\nARTIFACT_URL: https://hype-report.miniup.app/",
+  ),
+  {
+    message:
+      "Research complete.\n\nOpen the artifact:\nhttps://hype-report.miniup.app/",
+    url: "https://hype-report.miniup.app/",
+  },
+);
+assert.deepEqual(
+  photonArtifactPresentation(
+    "The public report is available at (https://hype-report.miniup.app/).",
+  ),
+  {
+    message:
+      "The public report is available at (https://hype-report.miniup.app/).",
+    url: "https://hype-report.miniup.app/",
+  },
+);
+assert.equal(
+  photonArtifactPresentation("Source: https://example.com/research"),
+  null,
+);
+assert.equal(
+  photonArtifactPresentation(
+    "ARTIFACT_URL: https://hype-report.miniup.app/?token=secret",
+  ),
+  null,
+);
+assert.equal(
+  photonArtifactPresentation(
+    "ARTIFACT_URL: https://miniup.app.attacker.example/report",
+  ),
+  null,
+);
+
 const deploymentUrlVariables = [
   "PHOTON_MINI_APP_BASE_URL",
   "VERCEL_PROJECT_PRODUCTION_URL",
@@ -514,6 +554,28 @@ try {
   assert.equal(appUrl.pathname, "/eve/v1/photon-approval");
   assert.equal(appUrl.search, "");
   assert.equal(appUrl.hash, `#${approvalToken}`);
+  const artifactId = "a".repeat(32);
+  assert.deepEqual(
+    photonArtifactPresentation(
+      `Published.\n\nARTIFACT_URL: https://eve.example/artifacts/${artifactId}`,
+    ),
+    {
+      message: `Published.\n\nOpen the artifact:\nhttps://eve.example/artifacts/${artifactId}`,
+      url: `https://eve.example/artifacts/${artifactId}`,
+    },
+  );
+  assert.equal(
+    photonArtifactPresentation(
+      `ARTIFACT_URL: https://attacker.example/artifacts/${artifactId}`,
+    ),
+    null,
+  );
+  assert.equal(
+    photonArtifactPresentation(
+      `ARTIFACT_URL: https://eve.example/artifacts/${artifactId}?token=secret`,
+    ),
+    null,
+  );
 
   delete process.env.PHOTON_MINI_APP_BASE_URL;
   process.env.VERCEL_PROJECT_PRODUCTION_URL = "eve-production.example";

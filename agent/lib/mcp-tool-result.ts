@@ -36,10 +36,12 @@ const DEFAULT_MAX_ARRAY_ITEMS = 50;
 const HARD_MAX_ARRAY_ITEMS = 500;
 const HARD_MAX_OUTPUT_CHARACTERS = 120_000;
 const MAX_OBJECT_KEYS = 100;
+const MAX_OMITTED_KEY_NAMES = 50;
 const DEFAULT_PRIORITY_KEYS = [
   "serviceId",
   "serviceName",
   "status",
+  "inlineArtifactsOmitted",
   "jobId",
   "providerCostUsd",
   "summary",
@@ -58,6 +60,41 @@ const DEFAULT_PRIORITY_KEYS = [
   "transcript",
   "raw",
 ] as const;
+
+// Keys that carry a durable artifact reference. When an inline-media result also
+// supplies a durable URL, that URL is the only recoverable copy, so it must
+// outrank every other field for the context budget regardless of the provider's
+// own priority list (which may not mention URL fields at all).
+const MANDATORY_ARTIFACT_PRIORITY_KEYS = [
+  "resourceLinks",
+  "outputUrl",
+  "downloadUrl",
+  "publicUrl",
+  "fileUrl",
+  "artifactUrl",
+  "url",
+  "uri",
+  "href",
+  "inlineArtifactsOmitted",
+] as const;
+
+function withArtifactPriorityKeys(
+  keys: readonly string[],
+  prepend: boolean,
+): readonly string[] {
+  if (prepend) {
+    const artifact = new Set<string>(MANDATORY_ARTIFACT_PRIORITY_KEYS);
+    return [
+      ...MANDATORY_ARTIFACT_PRIORITY_KEYS,
+      ...keys.filter((key) => !artifact.has(key)),
+    ];
+  }
+  const present = new Set(keys);
+  const missing = MANDATORY_ARTIFACT_PRIORITY_KEYS.filter(
+    (key) => !present.has(key),
+  );
+  return missing.length === 0 ? keys : [...keys, ...missing];
+}
 
 export class McpToolResultError extends Error {
   constructor(message: string) {
@@ -330,6 +367,14 @@ function prioritizedEntries<T>(
   });
 }
 
+function boundedNameList(names: readonly string[]): JsonValue[] {
+  if (names.length <= MAX_OMITTED_KEY_NAMES) return [...names];
+  return [
+    ...names.slice(0, MAX_OMITTED_KEY_NAMES),
+    `[${names.length - MAX_OMITTED_KEY_NAMES} more field names omitted]`,
+  ];
+}
+
 function sanitizeValue(
   value: unknown,
   limits: SanitizeLimits,
@@ -350,7 +395,9 @@ function sanitizeValue(
     }
     return truncatedString(redacted, limits.maxStringCharacters);
   }
-  if (depth >= limits.maxDepth) return "[nested data omitted]";
+  if (depth >= limits.maxDepth) {
+    return `[nested data omitted: exceeds Eve's ${limits.maxDepth}-level depth limit]`;
+  }
 
   if (Array.isArray(value)) {
     const maximum =
@@ -391,6 +438,11 @@ function sanitizeValue(
   }
   if (entries.length > MAX_OBJECT_KEYS) {
     result.fieldsOmitted = entries.length - MAX_OBJECT_KEYS;
+    // Report which fields were dropped, not just how many, so the model knows a
+    // field exists and can ask for it instead of assuming it was never returned.
+    result.fieldsOmittedNames = boundedNameList(
+      entries.slice(MAX_OBJECT_KEYS).map(([entryKey]) => entryKey),
+    );
   }
   return result;
 }
@@ -519,13 +571,21 @@ function fitToBudget(
 function boundedValue(
   value: unknown,
   options: McpNormalizationPolicy,
+  prependArtifactKeys = false,
 ): JsonValue {
   const maxOutputCharacters = boundedLimit(
     options.maxOutputCharacters,
     DEFAULT_MAX_OUTPUT_CHARACTERS,
     HARD_MAX_OUTPUT_CHARACTERS,
   );
-  const priorityKeys = options.priorityKeys ?? DEFAULT_PRIORITY_KEYS;
+  // Durable artifact-URL keys are always kept in the priority list so a provider
+  // policy that omits them cannot push a URL below unknown fields; when the
+  // result carries inline media, those keys move to the very front so the one
+  // recoverable reference survives the budget ahead of everything else.
+  const priorityKeys = withArtifactPriorityKeys(
+    options.priorityKeys ?? DEFAULT_PRIORITY_KEYS,
+    prependArtifactKeys,
+  );
   const normalLimits: SanitizeLimits = {
     maxArrayItems: boundedLimit(
       options.maxArrayItems,
@@ -601,7 +661,7 @@ function assertSafeOutputUrls(
   if (typeof value === "string") {
     if (containsUnsafeUrl(value, key)) {
       throw new McpToolResultError(
-        "The MCP service returned a credential-bearing output URL instead of a safe durable URL, so Eve did not retain it.",
+        "The MCP service returned a credential-bearing output URL instead of a safe durable URL, so Eve did not retain it. The service may have completed and been charged, so do not repay or retry this call; recover the result from the provider's existing job or usage history instead.",
       );
     }
     return;
@@ -641,6 +701,60 @@ function containsInlineBinary(
   );
 }
 
+function isInlineMediaMetadataKey(key: string): boolean {
+  const normalized = key.replaceAll(/[-_.]/gu, "").toLowerCase();
+  return /^(?:bytelength|bytes|contenttype|duration|durationms|encoding|filename|format|height|mediatype|mimetype|name|size|type|width)$/u.test(
+    normalized,
+  );
+}
+
+function hasUsableNonBinaryContent(
+  value: unknown,
+  key?: string,
+  parent?: Record<string, unknown>,
+  seen = new Set<object>(),
+  mediaEnvelope = false,
+): boolean {
+  if (typeof value === "string") {
+    if (isBinaryString(key, value, parent)) return false;
+    if (mediaEnvelope && key && isInlineMediaMetadataKey(key)) return false;
+    return value.trim().length > 0;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return !(mediaEnvelope && key && isInlineMediaMetadataKey(key));
+  }
+  if (typeof value !== "object" || value === null || seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value.some((entry) =>
+      hasUsableNonBinaryContent(
+        entry,
+        key,
+        parent,
+        seen,
+        mediaEnvelope,
+      ),
+    );
+  }
+  if (!isRecord(value)) return false;
+
+  const entries = Object.entries(value);
+  const isMediaEnvelope = entries.some(([entryKey, entry]) =>
+    containsInlineBinary(entry, entryKey, value),
+  );
+  return entries.some(([entryKey, entry]) =>
+    hasUsableNonBinaryContent(
+      entry,
+      entryKey,
+      value,
+      seen,
+      isMediaEnvelope,
+    ),
+  );
+}
+
 function isArtifactUrlField(key: string): boolean {
   const normalized = key.replaceAll(/[-_.]/gu, "").toLowerCase();
   return /^(?:artifacturl|downloadurl|fileurl|href|outputurl|publicurl|uri|url)$/u.test(
@@ -675,18 +789,10 @@ function hasDurableArtifactReference(
   );
 }
 
-function assertUsableInlineArtifacts(
-  content: unknown,
-  selected: unknown,
-): boolean {
-  const hasInlineBinary =
-    containsInlineBinary(content) || containsInlineBinary(selected);
-  if (hasInlineBinary && !hasDurableArtifactReference(selected)) {
-    throw new McpToolResultError(
-      "The MCP service returned inline media without a durable URL, so Eve did not retain the binary payload.",
-    );
-  }
-  return hasInlineBinary;
+function annotateInlineArtifactsOmitted(value: unknown): unknown {
+  return isRecord(value)
+    ? { ...value, inlineArtifactsOmitted: true }
+    : { result: value, inlineArtifactsOmitted: true };
 }
 
 function errorMessage(result: CallToolResult): string {
@@ -787,14 +893,47 @@ export function normalizeMcpToolResult(
 
   const selectedWithLinks = withResourceLinks(selected, links);
   assertSafeOutputUrls(selectedWithLinks);
-  const hadInlineBinary = assertUsableInlineArtifacts(
-    content,
-    selectedWithLinks,
-  );
-  const bounded = boundedValue(selectedWithLinks, options);
-  if (hadInlineBinary && !hasDurableArtifactReference(bounded)) {
+
+  const hasInlineBinary =
+    containsInlineBinary(content) || containsInlineBinary(selectedWithLinks);
+  const hasDurableArtifact = hasDurableArtifactReference(selectedWithLinks);
+
+  // Inline media (base64 image/audio/video/file) can never enter model history,
+  // and this synchronous normalizer cannot publish it. But rejecting the whole
+  // result is only correct when the media was the sole useful deliverable. When
+  // the provider also returned usable structured/text data, keep that data and
+  // record that a non-retained artifact rode along.
+  if (
+    hasInlineBinary &&
+    !hasDurableArtifact &&
+    !hasUsableNonBinaryContent(selectedWithLinks)
+  ) {
     throw new McpToolResultError(
-      "The MCP service returned inline media whose durable URL could not fit safely in Eve's context, so Eve did not retain the result.",
+      "The MCP service returned inline media without a durable URL, so Eve did not retain the binary payload. The service may have completed and been charged, so do not repay or retry this call; recover the result from the provider's existing job or usage history instead.",
+    );
+  }
+
+  const projected =
+    hasInlineBinary && !hasDurableArtifact
+      ? annotateInlineArtifactsOmitted(selectedWithLinks)
+      : selectedWithLinks;
+
+  const bounded = boundedValue(
+    projected,
+    options,
+    hasInlineBinary && hasDurableArtifact,
+  );
+
+  // A durable URL that the provider DID supply must not be silently dropped by
+  // the context budget while its inline media is stripped; fail explicitly so
+  // the artifact is never reported as lost without a recovery path.
+  if (
+    hasInlineBinary &&
+    hasDurableArtifact &&
+    !hasDurableArtifactReference(bounded)
+  ) {
+    throw new McpToolResultError(
+      "The MCP service returned inline media whose durable URL could not fit safely in Eve's context, so Eve did not retain the result. The service may have completed and been charged, so do not repay or retry this call; recover the result from the provider's existing job or usage history instead.",
     );
   }
   return bounded;

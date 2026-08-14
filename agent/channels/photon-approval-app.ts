@@ -10,10 +10,31 @@ import {
   getPhotonApprovalView,
   type PhotonApprovalDelivery,
 } from "../lib/photon-approval-store";
+import {
+  PHOTON_APP_ICON_PNG,
+  PHOTON_APP_ICON_PNG_PATH,
+  PHOTON_APP_ICON_SVG,
+  PHOTON_APP_ICON_SVG_PATH,
+  PHOTON_APP_MANIFEST_PATH,
+  photonAppIconHeadHtml,
+  photonAppIconManifest,
+} from "../lib/photon-app-icon";
 import { photonAuth, photonSenderId } from "../lib/photon-auth";
 import { PHOTON_APPROVAL_APP_PATH } from "../lib/photon-mini-app";
 import { getPhotonWorkspaceState } from "../lib/photon-workspace-store";
 
+const PHOTON_APPROVAL_ICON_PATH = `${PHOTON_APPROVAL_APP_PATH}/${PHOTON_APP_ICON_SVG_PATH}`;
+const PHOTON_APPROVAL_ICON_PNG_PATH = `${PHOTON_APPROVAL_APP_PATH}/${PHOTON_APP_ICON_PNG_PATH}`;
+const PHOTON_APPROVAL_MANIFEST_PATH = `${PHOTON_APPROVAL_APP_PATH}/${PHOTON_APP_MANIFEST_PATH}`;
+
+function assetHeaders(contentType: string): Record<string, string> {
+  return {
+    "cache-control": "public, max-age=31536000, immutable",
+    "content-type": contentType,
+    "cross-origin-resource-policy": "same-origin",
+    "x-content-type-options": "nosniff",
+  };
+}
 const requestSchema = z.object({
   approvalToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
 });
@@ -192,15 +213,17 @@ async function approvalWorkspaceIsActive(
   }
 }
 
-function approvalHtml(nonce: string): string {
+function approvalHtml(nonce: string, origin: string): string {
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <meta property="og:title" content="Eve order approval">
-  <meta property="og:description" content="Review an order and choose Approve or Deny.">
+  ${photonAppIconHeadHtml(origin, PHOTON_APPROVAL_APP_PATH, {
+    description: "Review an order and choose Approve or Deny.",
+    title: "Eve order approval",
+  })}
   <title>Eve order approval</title>
   <style nonce="${nonce}">
     :root {
@@ -407,12 +430,35 @@ function approvalHtml(nonce: string): string {
 
 export default defineChannel({
   routes: [
-    GET(PHOTON_APPROVAL_APP_PATH, async () => {
+    GET(PHOTON_APPROVAL_ICON_PATH, async () => {
+      return new Response(PHOTON_APP_ICON_SVG, {
+        headers: assetHeaders("image/svg+xml; charset=utf-8"),
+      });
+    }),
+    GET(PHOTON_APPROVAL_ICON_PNG_PATH, async () => {
+      return new Response(PHOTON_APP_ICON_PNG, {
+        headers: assetHeaders("image/png"),
+      });
+    }),
+    GET(PHOTON_APPROVAL_MANIFEST_PATH, async (request) => {
+      return new Response(
+        photonAppIconManifest(new URL(request.url).origin, PHOTON_APPROVAL_APP_PATH),
+        {
+          headers: assetHeaders(
+            "application/manifest+json; charset=utf-8",
+          ),
+        },
+      );
+    }),
+    GET(PHOTON_APPROVAL_APP_PATH, async (request) => {
       const nonce = randomBytes(18).toString("base64url");
       const headers = responseHeaders("text/html; charset=utf-8");
       headers["content-security-policy"] =
         `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'self'`;
-      return new Response(approvalHtml(nonce), { headers });
+      return new Response(
+        approvalHtml(nonce, new URL(request.url).origin),
+        { headers },
+      );
     }),
     POST(
       `${PHOTON_APPROVAL_APP_PATH}/state`,

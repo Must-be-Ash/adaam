@@ -31,6 +31,38 @@ cp .env.example .env.local
 
 Never commit `.env.local`.
 
+## Public artifacts
+
+Eve can publish public-data research and media at stable
+`/artifacts/<artifact-id>` URLs. Structured report JSON and image, audio, video,
+PDF, or downloadable-file bytes all live in one public Vercel Blob store. Eve
+renders reports through its own mobile page because Blob intentionally serves
+HTML as a download rather than a hosted website.
+
+Create and connect the store once per fork:
+
+```bash
+vercel blob create-store eve-artifacts --access public --yes
+```
+
+Vercel injects the Blob credential into the connected project. The existing
+Upstash Redis resource is still required for Eve sessions, approvals, and
+triggers; it is not used as a second artifact database.
+
+`publish_artifact` accepts structured reports plus credential-free public media
+URLs. Users do not need to say “public,” name the tool, or choose a host: a
+request for an openable/shareable public-data report defaults to a public Eve
+artifact URL. This path rejects scheduled/runtime callers. Never put balances,
+holdings, account data, personal information, credentials, or signed URLs in a
+public artifact. Owner-private artifact delivery is not yet implemented.
+
+To verify Blob publication and retrieval against a deployed origin:
+
+```bash
+ARTIFACT_SMOKE_BASE_URL=https://YOUR_HOST \
+  npm run smoke:artifacts -- --confirm-public-write
+```
+
 ## Telegram
 
 Create a bot with BotFather, set `TELEGRAM_BOT_TOKEN`,

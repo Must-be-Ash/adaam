@@ -119,15 +119,19 @@ paid Masterkey approvals are denied by the Photon approval allowlist.
 
 Current state: `agent/channels/eve.ts` still uses `placeholderAuth()`.
 
-### Bound Coinbase stdio transport before parsing
+### Bound Coinbase stdio transport before parsing — done
 
-- [ ] Add a byte limit to the Coinbase stdio MCP transport before accepting and
+- [x] Add a byte limit to the Coinbase stdio MCP transport before accepting and
   parsing the complete response.
-- [ ] Preserve the existing timeout and result-normalization limits.
-- [ ] Add oversized-response regression coverage.
+- [x] Preserve the existing timeout and result-normalization limits.
+- [x] Add oversized-response regression coverage.
 
-Current state: model context is bounded after parsing, but process memory is not
-bounded at the stdio transport boundary.
+Current state: done. `agent/lib/bounded-stdio-transport.ts` wraps the Coinbase
+child process with an 8 MiB per-frame byte cap that aborts before an oversized
+JSON-RPC frame (complete or pending) is buffered and parsed, propagating the
+failure to the call's `AbortSignal`. Timeouts and post-parse normalization are
+unchanged. `npm run verify:transport` covers framing round-trips and oversized
+aborts and runs in `prebuild`.
 
 ## 2. Session and control-plane foundation
 
@@ -154,6 +158,78 @@ bounded at the stdio transport boundary.
 Current state: iMessage sessions isolate model histories, but they are not the
 full durable workspaces described in `NORTH_STAR.md`.
 
+### Wire tool output into the durable artifact store
+
+Goal: stop discarding results a paid provider actually delivered. The normalizer
+already handles the *context* half (bounded model view, explicit retention-failure
+states, accompanying-data preservation; see `MCP_ADAPTER_PATTERN.md` for the
+rules). This item is the *retention* half: capture the complete artifact outside
+model history and hand the model a compact internal reference.
+
+What already exists (do not rebuild):
+
+- `agent/lib/artifact-store.ts` on Vercel Blob, with SSRF-guarded server-side
+  download (`assertPublicRemoteUrl`), manual redirect handling, magic-byte
+  signature validation, a streamed 100 MB (`MAX_ARTIFACT_BYTES`) cap, and manifest
+  writes. Exposes `publishRemoteMediaArtifact` (URL source), `publishTextFileArtifact`,
+  `publishReportArtifact`, `artifactIdForCall(callId)` (deterministic, replay-stable
+  id), and `readArtifactManifest`.
+- `agent/tools/publish_artifact.ts`, `#artifact-schema`, and the `app/artifacts/`
+  page already consume the store.
+
+Key design decisions to make first:
+
+- **Keep `normalizeMcpToolResult` pure and synchronous.** Ingestion is async I/O;
+  do it in the adapter/transport layer (`masterkey-mcp.ts`, `coinbase-mcp.ts`)
+  *before* the sync normalizer runs. Detect inline media / signed URLs on the raw
+  `CallToolResult`, ingest to the store, rewrite the result to carry only the safe
+  internal `publicUrl`, then normalize as today. Do not make the normalizer async.
+- **Ordering vs. the sanitizer.** Signed URLs pass the store's SSRF guard (public
+  host, HTTPS) but `assertSafeOutputUrls()` rejects them. Ingestion must run before
+  the normalizer so the credential-bearing URL is consumed server-side and never
+  reaches it; the sanitizer stays unchanged as the backstop.
+- **Owner scoping / visibility.** The store currently writes `visibility: "public"`
+  (capability-URL by unguessable id). Decide whether paid results need
+  owner-scoped/authenticated retrieval before storing potentially sensitive
+  provider output this way.
+
+Phase 1 — inline + signed media (closes the Gap A/B retention half):
+
+- [ ] Add a store entrypoint that ingests raw bytes / base64 (not only a source
+  URL): e.g. `publishInlineMediaArtifact({ bytes, contentType, kind, ... })`,
+  reusing the existing signature/size/manifest validation.
+- [ ] In the Masterkey adapter, when a result carries inline base64 media or a
+  credential-bearing output URL, ingest it (`artifactIdForCall(callId)` for
+  replay-stable ids) and replace it with the internal `publicUrl` before
+  normalization.
+- [ ] Preserve the current explicit failure contract: if the provider delivered
+  but storage fails, report a distinct "delivered but not retained" state, keep
+  the provider job id, and never auto-repay/retry.
+- [ ] Extend `verify:artifacts`/`verify:context` with: inline base64 stored and
+  referenced; signed URL consumed server-side and replaced; storage-failure
+  distinct from provider-failure; no auto-retry after storage failure.
+
+Phase 2 — large structured results (closes the Gap D/E retention half):
+
+- [ ] Persist the complete raw structured result (compressed JSON artifact) when
+  the model view is externalized, keyed by an immutable content hash.
+- [ ] Return a bounded projection that already reports counts, `fieldsOmittedNames`,
+  and a `resultRef`, plus a `status` of `complete` / `externalized` / `partial`.
+- [ ] Add a bounded retrieval tool (selected fields, JSON path, page, record
+  range) that reads back from the stored artifact without loading the whole result.
+- [ ] Tests: an omitted field is retrievable later; hashes are stable; financial
+  pages never appear complete when records were externalized.
+
+Phase 3 — transport coverage:
+
+- [ ] Decide how oversized (>8 MiB Masterkey / >8 MiB Coinbase frame) media should
+  stream directly into the store instead of aborting, within `MAX_ARTIFACT_BYTES`.
+
+Current state: the store exists and is used by the artifact-card path, but the MCP
+result path does not yet ingest inline media, signed URLs, or large structured
+results into it. Rejections are currently explicit and safe, but the delivered
+data is still lost.
+
 ### Default-deny capability manifests
 
 - [ ] Define the tools, data classes, mutation rights, schedules, and budgets
@@ -161,6 +237,17 @@ full durable workspaces described in `NORTH_STAR.md`.
 - [ ] Make capability changes explicit and testable.
 - [ ] Ensure strategy packs can tighten shared safety limits but never loosen
   them.
+- [ ] Detect provider tool drift: compare the live MCP tool inventory against the
+  manifest and report removed, newly discovered, and schema-changed tools rather
+  than silently hiding a needed tool or exposing a changed one. New tools are
+  reviewed before exposure, never auto-surfaced; mutations stay default-deny.
+- [ ] When a task needs an intentionally hidden or unsupported capability, report
+  which capability is unavailable and why (authorization, safety policy, runtime
+  restriction, or missing integration) instead of hallucinating an answer or
+  claiming the provider lacks it.
+- [ ] Consider compact two-stage discovery (a capability index, then load full
+  tool schemas only for the selected category) if static allowlists become a
+  token or coverage problem.
 
 ### Topic-change routing
 
@@ -314,6 +401,26 @@ Current state: one global model, `google/gemini-3.6-flash`, handles all work.
   and stable mini-app URLs.
 - [ ] Add bounded cost/context observations without logging message text,
   balances, financial amounts, credentials, or PII.
+
+### Fix failing Coinbase order-approval evals
+
+- [ ] Reconcile `evals/coinbase/order-approval.eval.ts` and
+  `evals/coinbase/order-denial.eval.ts` with the current approval emission.
+- [ ] First determine whether this is a stale eval or a real approval-shape
+  regression on the financial path; treat it as release-relevant until proven to
+  be only the eval.
+- [ ] Once fixed, keep both green in `eval:coinbase` and in CI when it exists.
+
+Current state: `npm run eval:coinbase` fails `order-approval` and `order-denial`
+at the `requireInputRequest` gate (the `coinbase_preview_order` and pending
+`coinbase_create_order` gates pass). The harness reports one pending request
+exists but does not match the expected shape
+(`optionIds: ["approve", "deny"]`, `toolName: "coinbase_create_order"`, a `$1
+BTC-USD` market buy). The three `balance-language` evals pass, so tool discovery
+and the read path are healthy. This is pre-existing: it reproduces identically on
+`HEAD` and is unrelated to the MCP-normalizer and bounded-stdio changes. Inspect
+the actual pending request's `optionIds`/`toolName`/`input` before deciding
+whether to update the eval or fix the approval emission.
 - [ ] If metrics are introduced, keep identifiers, principals, URLs,
   timestamps, hashes, and user data out of tags.
 

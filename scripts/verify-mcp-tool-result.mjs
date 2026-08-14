@@ -10,8 +10,18 @@ import {
   normalizeCoinbaseMcpToolResult,
   validateCoinbaseMcpInput,
 } from "../agent/lib/coinbase-mcp-policy.ts";
-import { masterkeyMcpNormalizationPolicy } from "../agent/lib/masterkey-mcp-policy.ts";
+import {
+  masterkeyMcpNormalizationPolicy,
+  masterkeyToolApproval,
+} from "../agent/lib/masterkey-mcp-policy.ts";
 import { createBoundedFetch } from "../agent/lib/mcp-response-limit.ts";
+
+assert.equal(masterkeyToolApproval("user"), "not-applicable");
+assert.equal(masterkeyToolApproval(undefined), "not-applicable");
+assert.deepEqual(masterkeyToolApproval("runtime"), {
+  reason: "Scheduled public-feed checks cannot use paid services.",
+  type: "denied",
+});
 
 const imageBytes = "A".repeat(750_000);
 const imageResult = {
@@ -314,6 +324,53 @@ const immutableResultCap = normalizeMcpToolResult(
 assert.equal(immutableResultCap.results.length, 501);
 assert.match(String(immutableResultCap.results.at(-1)), /10 additional items/u);
 
+// Gap D: objects beyond the 100-key cap must report which fields were dropped,
+// not only the count, so the model can retrieve a known-but-omitted field.
+const wideObject = normalizeMcpToolResult({
+  content: [],
+  structuredContent: Object.fromEntries(
+    Array.from({ length: 180 }, (_, index) => [
+      `field_${String(index).padStart(3, "0")}`,
+      index,
+    ]),
+  ),
+  isError: false,
+});
+assert.equal(wideObject.fieldsOmitted, 80);
+assert.ok(Array.isArray(wideObject.fieldsOmittedNames));
+// The name list itself is bounded (50 names + one overflow marker).
+assert.equal(wideObject.fieldsOmittedNames.length, 51);
+assert.match(String(wideObject.fieldsOmittedNames.at(-1)), /more field names omitted/u);
+// Specific dropped fields are nameable (not just counted); names beyond the cap
+// fall under the overflow marker rather than being listed individually.
+assert.ok(wideObject.fieldsOmittedNames.includes("field_100"));
+assert.ok(wideObject.fieldsOmittedNames.includes("field_149"));
+assert.ok(!wideObject.fieldsOmittedNames.includes("field_179"));
+
+const modestlyWideObject = normalizeMcpToolResult({
+  content: [],
+  structuredContent: Object.fromEntries(
+    Array.from({ length: 120 }, (_, index) => [`k_${index}`, index]),
+  ),
+  isError: false,
+});
+assert.equal(modestlyWideObject.fieldsOmitted, 20);
+assert.equal(modestlyWideObject.fieldsOmittedNames.length, 20);
+assert.ok(!String(modestlyWideObject.fieldsOmittedNames).includes("more field names"));
+
+// Gap E: the depth cutoff marker must name why data was dropped (a depth limit),
+// so the model does not read it as "the field was empty/absent".
+let deeplyNested = { leaf: "value" };
+for (let index = 0; index < 15; index += 1) {
+  deeplyNested = { nested: deeplyNested };
+}
+const depthLimited = normalizeMcpToolResult({
+  content: [],
+  structuredContent: deeplyNested,
+  isError: false,
+});
+assert.match(JSON.stringify(depthLimited), /nested data omitted: exceeds Eve's 10-level depth limit/u);
+
 const mixedContent = normalizeMcpToolResult({
   content: [
     { type: "text", text: "Result summary" },
@@ -471,28 +528,105 @@ const normalizedManySafeUris = normalizeMcpToolResult({
 });
 assert.ok(JSON.stringify(normalizedManySafeUris).length <= 120_000);
 
-assert.throws(
-  () =>
-    normalizeMcpToolResult({
-      content: [{ type: "image", data: imageBytes, mimeType: "image/jpeg" }],
-      structuredContent: { status: "complete" },
-      isError: false,
-    }),
-  /without a durable URL/u,
+// Gap A: an auxiliary inline preview riding alongside usable structured data
+// must NOT discard that data. Keep the payload and flag the omitted artifact.
+const auxiliaryImageWithData = normalizeMcpToolResult({
+  content: [{ type: "image", data: imageBytes, mimeType: "image/jpeg" }],
+  structuredContent: {
+    revenue: "123456789.00",
+    analysis: "Q3 beat expectations with 12% YoY growth.",
+    status: "complete",
+  },
+  isError: false,
+});
+assert.equal(JSON.stringify(auxiliaryImageWithData).includes(imageBytes), false);
+assert.equal(auxiliaryImageWithData.revenue, "123456789.00");
+assert.equal(
+  auxiliaryImageWithData.analysis,
+  "Q3 beat expectations with 12% YoY growth.",
 );
+assert.equal(auxiliaryImageWithData.inlineArtifactsOmitted, true);
 
-assert.throws(
-  () =>
-    normalizeMcpToolResult({
-      content: [],
-      structuredContent: {
-        status: "complete",
-        nested: { images: [imageBytes] },
+// A thin status wrapper is still usable data: keep it, flag the omitted artifact,
+// and never embed the binary.
+const statusWithAuxiliaryImage = normalizeMcpToolResult({
+  content: [{ type: "image", data: imageBytes, mimeType: "image/jpeg" }],
+  structuredContent: { status: "complete" },
+  isError: false,
+});
+assert.equal(statusWithAuxiliaryImage.status, "complete");
+assert.equal(statusWithAuxiliaryImage.inlineArtifactsOmitted, true);
+assert.equal(JSON.stringify(statusWithAuxiliaryImage).includes(imageBytes), false);
+
+const embeddedImageWithStatus = normalizeMcpToolResult({
+  content: [],
+  structuredContent: {
+    status: "complete",
+    nested: { images: [imageBytes] },
+  },
+  isError: false,
+});
+assert.equal(embeddedImageWithStatus.status, "complete");
+assert.equal(embeddedImageWithStatus.inlineArtifactsOmitted, true);
+assert.equal(JSON.stringify(embeddedImageWithStatus).includes(imageBytes), false);
+
+// When the media IS the whole deliverable (no structured/text payload), Eve still
+// cannot retain it and must fail explicitly rather than pretend success.
+for (const mediaOnlyResult of [
+  {
+    content: [{ type: "image", data: imageBytes, mimeType: "image/jpeg" }],
+  },
+  {
+    content: [],
+    structuredContent: { imageData: imageBytes },
+  },
+  {
+    content: [],
+    structuredContent: {
+      artifact: {
+        data: imageBytes,
+        mimeType: "image/jpeg",
+        type: "image",
       },
-      isError: false,
-    }),
-  /without a durable URL/u,
-);
+    },
+  },
+]) {
+  assert.throws(
+    () =>
+      normalizeMcpToolResult({
+        ...mediaOnlyResult,
+        isError: false,
+      }),
+    /without a durable URL/u,
+  );
+}
+
+// Gap B: retention failures must read as "provider delivered, Eve could not
+// retain" and must steer away from repaying/retrying, distinct from a provider
+// failure. The guidance travels with both the inline-media and signed-URL paths.
+for (const failing of [
+  { content: [{ type: "image", data: imageBytes, mimeType: "image/jpeg" }] },
+  {
+    content: [],
+    structuredContent: {
+      outputs: [
+        {
+          url: "https://bucket.example.com/object?X-Amz-Signature=secret-output-signature",
+        },
+      ],
+    },
+  },
+]) {
+  let retentionError;
+  try {
+    normalizeMcpToolResult({ isError: false, ...failing });
+  } catch (error) {
+    retentionError = error;
+  }
+  assert.ok(retentionError instanceof McpToolResultError);
+  assert.match(retentionError.message, /do not repay or retry/u);
+  assert.match(retentionError.message, /job or usage history/u);
+}
 
 const nestedDurableMedia = normalizeMcpToolResult({
   content: [],
@@ -546,27 +680,30 @@ const durableVideo = normalizeMcpToolResult({
 assert.equal(JSON.stringify(durableVideo).includes(wrappedMediaBytes), false);
 assert.match(JSON.stringify(durableVideo), /generated\.mp4/u);
 
-assert.throws(
-  () =>
-    normalizeMcpToolResult(
-      {
-        content: [],
-        structuredContent: {
-          artifact: {
-            imageData: imageBytes,
-            diagnostic: "x".repeat(5_000),
-            outputUrl: "https://files.example.com/must-survive.jpg",
-          },
-        },
-        isError: false,
+// Gap F: even when a custom policy prioritizes an unrelated (and large) field
+// and omits URL keys entirely, an inline-media result's durable URL must survive
+// the context budget rather than being trimmed away and then rejected.
+const durableUrlUnderHostilePolicy = normalizeMcpToolResult(
+  {
+    content: [],
+    structuredContent: {
+      artifact: {
+        imageData: imageBytes,
+        diagnostic: "x".repeat(5_000),
+        outputUrl: "https://files.example.com/must-survive.jpg",
       },
-      {
-        maxOutputCharacters: 2_000,
-        priorityKeys: ["diagnostic"],
-      },
-    ),
-  /durable URL could not fit/u,
+    },
+    isError: false,
+  },
+  {
+    maxOutputCharacters: 2_000,
+    priorityKeys: ["diagnostic"],
+  },
 );
+const durableUrlText = JSON.stringify(durableUrlUnderHostilePolicy);
+assert.match(durableUrlText, /must-survive\.jpg/u);
+assert.equal(durableUrlText.includes(imageBytes), false);
+assert.ok(durableUrlText.length <= 2_000);
 
 const mediaArray = normalizeMcpToolResult({
   content: [],

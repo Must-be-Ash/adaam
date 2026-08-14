@@ -62,7 +62,7 @@ function safeMasterkeyFailure(error: unknown): Error {
   if (error instanceof McpToolResultError) return error;
   if (error instanceof McpResponseTooLargeError) {
     return new Error(
-      "Masterkey returned more than 8 MiB inline. Ask for fewer records or a durable output URL instead of binary data.",
+      "Masterkey returned more than 8 MiB inline, so Eve aborted before retaining it. A paid call may have completed; inspect usage or the returned job before retrying, and ask for fewer records or a durable output URL instead of binary data.",
     );
   }
   const failure =
@@ -73,7 +73,7 @@ function safeMasterkeyFailure(error: unknown): Error {
 
   if (/MCP response exceeded \d+ bytes/iu.test(diagnostic)) {
     return new Error(
-      "Masterkey returned more than 8 MiB inline. Ask for fewer records or a durable output URL instead of binary data.",
+      "Masterkey returned more than 8 MiB inline, so Eve aborted before retaining it. A paid call may have completed; inspect usage or the returned job before retrying, and ask for fewer records or a durable output URL instead of binary data.",
     );
   }
   if (

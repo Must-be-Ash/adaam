@@ -28,8 +28,17 @@ credentials, and replay oversized payloads on every later model step.
 3. **Shared result normalization**
    - Call `normalizeMcpToolResult` from `agent/lib/mcp-tool-result.ts`.
    - Prefer one structured result over duplicate text envelopes.
-   - Reject inline-only binary media and credential-bearing output URLs.
+   - Strip auxiliary inline binary media while preserving useful structured or text
+     data and setting `inlineArtifactsOmitted: true`.
+   - Reject inline-only binary media and credential-bearing output URLs. A paid
+     provider may already have completed, so the resulting error must direct the
+     caller to recover the existing job instead of paying to retry.
+   - Always prioritize durable artifact URL fields, including when a
+     provider-specific policy omits them, and fail explicitly if a supplied URL
+     cannot survive the final context budget.
    - Redact credentials in success values, errors, URLs, and nested objects.
+   - Name fields dropped by the object-key cap and use an explicit marker when
+     nested data exceeds the depth limit.
    - Enforce the final serialized-size ceiling before returning from `execute`.
 
 4. **Transport controls**
@@ -38,8 +47,10 @@ credentials, and replay oversized payloads on every later model step.
      `AbortSignal`, and use explicit initialization/tool timeouts.
    - Stdio MCPs must use a pinned trusted binary, an isolated minimal environment,
      disabled command history, ignored or sanitized stderr, explicit timeouts, and the
-     shared result normalizer. Add a transport byte limit before accepting an untrusted
-     or media-producing stdio server.
+     shared result normalizer.
+   - Stdio responses must pass through `BoundedStdioMCPTransport` (or an
+     equivalently tested transport) so every newline-delimited frame is byte-bounded
+     before `JSON.parse`, whether the oversized frame is complete or still pending.
 
 5. **Write safety**
    - Require explicit approval for financial, account, data, or external mutations.
@@ -77,11 +88,13 @@ instead of reporting a broken or credential-bearing URL.
 ## Current implementations
 
 - Masterkey uses guarded HTTP MCP wrappers, a provider policy, bounded streaming
-  responses, user approval, and replay-stable paid-call IDs. It does not register a raw
-  discoverable MCP connection.
+  responses, replay-stable paid-call IDs, and denial of paid calls from runtime
+  sessions. User-initiated research calls do not receive a redundant Eve-side
+  approval. It does not register a raw discoverable MCP connection.
 - Coinbase uses a credential-isolated stdio MCP bridge, a Coinbase policy that preserves
-  financial fields and pagination cursors, rejects partial pages, shared result
-  normalization, approval gates, replay protection, and spot-product preflight checks.
+  financial fields and pagination cursors, rejects partial pages, byte-bounds each
+  JSON-RPC frame before parsing, applies shared result normalization, and retains
+  approval gates, replay protection, and spot-product preflight checks.
 
 Any exception to this pattern requires an explicit security review and a regression test
 demonstrating why raw MCP output is safe.

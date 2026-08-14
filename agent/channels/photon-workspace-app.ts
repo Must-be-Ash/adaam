@@ -3,6 +3,15 @@ import { randomBytes } from "node:crypto";
 import { defineChannel, GET, POST } from "eve/channels";
 import { z } from "zod";
 
+import {
+  PHOTON_APP_ICON_PNG,
+  PHOTON_APP_ICON_PNG_PATH,
+  PHOTON_APP_ICON_SVG,
+  PHOTON_APP_ICON_SVG_PATH,
+  PHOTON_APP_MANIFEST_PATH,
+  photonAppIconHeadHtml,
+  photonAppIconManifest,
+} from "../lib/photon-app-icon";
 import { getCurrentPhotonApprovalActivity } from "../lib/photon-approval-store";
 import { PHOTON_WORKSPACE_APP_PATH } from "../lib/photon-mini-app";
 import {
@@ -18,14 +27,9 @@ import {
 
 const tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
 const workspaceIdSchema = z.string().uuid();
-const PHOTON_SESSION_ICON_PATH = `${PHOTON_WORKSPACE_APP_PATH}/logo.svg`;
-const PHOTON_SESSION_MANIFEST_PATH = `${PHOTON_WORKSPACE_APP_PATH}/manifest.webmanifest`;
-const PHOTON_SESSION_ICON =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 726.15 726.15">' +
-  '<rect width="726.15" height="726.15" rx="107.9" ry="107.9" fill="#1733ff"/>' +
-  '<path fill="#fff" d="M256.31 323.87c11.83-37.31 44.54-63.92 83.91-70.79 48.52-8.47 96.93 15.39 119.31 59.41 21.43 42.15 14.42 95.38-20.25 130.31-27.4 27.6-66.36 37.18-102.06 29.3-39-8.6-70.08-36.21-82.76-74.85 18.03 12.07 39.46 15.06 56.57 1.85 19.14-14.78 22.12-42.22 9.32-60.84-13.79-20.06-39.11-26.97-64.04-14.4Z"/>' +
-  '<path fill="#fff" d="M363.08 172.98c-104.99 0-190.1 85.11-190.1 190.1s85.11 190.1 190.1 190.1 190.1-85.11 190.1-190.1-85.11-190.1-190.1-190.1Zm0 345.56c-85.86 0-155.46-69.6-155.46-155.46s69.6-155.46 155.46-155.46 155.46 69.6 155.46 155.46-69.6 155.46-155.46 155.46Z"/>' +
-  "</svg>";
+const PHOTON_SESSION_ICON_PATH = `${PHOTON_WORKSPACE_APP_PATH}/${PHOTON_APP_ICON_SVG_PATH}`;
+const PHOTON_SESSION_ICON_PNG_PATH = `${PHOTON_WORKSPACE_APP_PATH}/${PHOTON_APP_ICON_PNG_PATH}`;
+const PHOTON_SESSION_MANIFEST_PATH = `${PHOTON_WORKSPACE_APP_PATH}/${PHOTON_APP_MANIFEST_PATH}`;
 const stateRequestSchema = z.object({
   managerToken: tokenSchema,
 });
@@ -163,8 +167,6 @@ async function resetRetiredSession(
 }
 
 function workspaceHtml(nonce: string, origin: string): string {
-  const iconUrl = new URL(PHOTON_SESSION_ICON_PATH, origin).toString();
-  const manifestUrl = new URL(PHOTON_SESSION_MANIFEST_PATH, origin).toString();
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -172,18 +174,10 @@ function workspaceHtml(nonce: string, origin: string): string {
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#171717">
-  <meta name="apple-mobile-web-app-title" content="Eve">
-  <meta property="og:type" content="website">
-  <meta property="og:site_name" content="Eve">
-  <meta property="og:title" content="Manage Eve Sessions">
-  <meta property="og:description" content="Create and switch isolated Eve sessions.">
-  <meta property="og:image" content="${iconUrl}">
-  <meta property="og:image:type" content="image/svg+xml">
-  <meta property="og:image:width" content="726">
-  <meta property="og:image:height" content="726">
-  <link rel="icon" type="image/svg+xml" sizes="any" href="${iconUrl}">
-  <link rel="apple-touch-icon" href="${iconUrl}">
-  <link rel="manifest" href="${manifestUrl}">
+  ${photonAppIconHeadHtml(origin, PHOTON_WORKSPACE_APP_PATH, {
+    description: "Create and switch isolated Eve sessions.",
+    title: "Manage Eve Sessions",
+  })}
   <title>Manage Eve Sessions</title>
   <style nonce="${nonce}">
     :root {
@@ -574,31 +568,18 @@ function workspaceHtml(nonce: string, origin: string): string {
 export default defineChannel({
   routes: [
     GET(PHOTON_SESSION_ICON_PATH, async () => {
-      return new Response(PHOTON_SESSION_ICON, {
+      return new Response(PHOTON_APP_ICON_SVG, {
         headers: assetHeaders("image/svg+xml; charset=utf-8"),
       });
     }),
+    GET(PHOTON_SESSION_ICON_PNG_PATH, async () => {
+      return new Response(PHOTON_APP_ICON_PNG, {
+        headers: assetHeaders("image/png"),
+      });
+    }),
     GET(PHOTON_SESSION_MANIFEST_PATH, async (request) => {
-      const iconUrl = new URL(
-        PHOTON_SESSION_ICON_PATH,
-        new URL(request.url).origin,
-      ).toString();
       return new Response(
-        JSON.stringify({
-          background_color: "#171717",
-          display: "standalone",
-          icons: [
-            {
-              purpose: "any maskable",
-              sizes: "any",
-              src: iconUrl,
-              type: "image/svg+xml",
-            },
-          ],
-          name: "Eve Sessions",
-          short_name: "Eve",
-          theme_color: "#171717",
-        }),
+        photonAppIconManifest(new URL(request.url).origin, PHOTON_WORKSPACE_APP_PATH),
         {
           headers: assetHeaders(
             "application/manifest+json; charset=utf-8",

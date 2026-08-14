@@ -2,8 +2,8 @@ import {
   createMCPClient,
   type MCPClient,
 } from "@ai-sdk/mcp";
-import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 
+import { BoundedStdioMCPTransport } from "./bounded-stdio-transport";
 import {
   COINBASE_CLI_PATH,
   coinbaseChildEnvironment,
@@ -25,6 +25,12 @@ import {
 
 const INITIALIZE_TIMEOUT_MS = 10_000;
 const TOOL_TIMEOUT_MS = 30_000;
+const MAX_COINBASE_STDIO_BYTES = 8 * 1024 * 1024;
+
+interface CoinbaseClientHandle {
+  client: MCPClient;
+  transportErrors: AbortController;
+}
 
 export interface CoinbaseMcpToolDefinition {
   description?: string;
@@ -52,36 +58,50 @@ function boundedInputSchema(schema: JsonObject): JsonObject {
   };
 }
 
-async function createCoinbaseClient(): Promise<MCPClient> {
-  return createMCPClient({
+async function createCoinbaseClient(): Promise<CoinbaseClientHandle> {
+  const transportErrors = new AbortController();
+  const signalTransportError = (error: unknown): void => {
+    if (!transportErrors.signal.aborted) transportErrors.abort(error);
+  };
+  const client = await createMCPClient({
     clientName: "eve-coinbase",
-    initializationOptions: { timeout: INITIALIZE_TIMEOUT_MS },
+    initializationOptions: {
+      signal: transportErrors.signal,
+      timeout: INITIALIZE_TIMEOUT_MS,
+    },
     maxRetries: 0,
-    transport: new Experimental_StdioMCPTransport({
+    onUncaughtError: signalTransportError,
+    transport: new BoundedStdioMCPTransport({
       args: [COINBASE_CLI_PATH, "mcp"],
       command: process.execPath,
       env: coinbaseEvalFixtureEnabled()
         ? coinbaseEvalChildEnvironment()
         : coinbaseChildEnvironment(),
+      maximumBytes: MAX_COINBASE_STDIO_BYTES,
+      onLimitExceeded: signalTransportError,
       stderr: "ignore",
     }),
     version: "1.0.0",
   });
+  return { client, transportErrors };
 }
 
 export async function listCoinbaseMcpTools(): Promise<
   CoinbaseMcpToolDefinition[]
 > {
-  let client: MCPClient | undefined;
+  let handle: CoinbaseClientHandle | undefined;
   try {
-    client = await createCoinbaseClient();
+    handle = await createCoinbaseClient();
     const definitions: CoinbaseMcpToolDefinition[] = [];
     let cursor: string | undefined;
 
     do {
-      const page = await client.listTools({
+      const page = await handle.client.listTools({
         ...(cursor ? { params: { cursor } } : {}),
-        options: { timeout: INITIALIZE_TIMEOUT_MS },
+        options: {
+          signal: handle.transportErrors.signal,
+          timeout: INITIALIZE_TIMEOUT_MS,
+        },
       });
       for (const tool of page.tools) {
         definitions.push({
@@ -95,9 +115,9 @@ export async function listCoinbaseMcpTools(): Promise<
 
     return definitions;
   } catch (error) {
-    throw safeCoinbaseFailure(error);
+    throw safeCoinbaseFailure(handle?.transportErrors.signal.reason ?? error);
   } finally {
-    if (client) await client.close().catch(() => undefined);
+    if (handle) await handle.client.close().catch(() => undefined);
   }
 }
 
@@ -110,21 +130,25 @@ export async function callCoinbaseMcpTool(
     if (options.signal?.aborted) throw options.signal.reason;
     return callCoinbaseEvalTool(name, input);
   }
-  let client: MCPClient | undefined;
+  let handle: CoinbaseClientHandle | undefined;
   try {
-    client = await createCoinbaseClient();
-    const result = await client.callTool({
+    handle = await createCoinbaseClient();
+    const signals = [
+      handle.transportErrors.signal,
+      ...(options.signal ? [options.signal] : []),
+    ];
+    const result = await handle.client.callTool({
       arguments: input,
       name,
       options: {
+        signal: signals.length === 1 ? signals[0] : AbortSignal.any(signals),
         timeout: TOOL_TIMEOUT_MS,
-        ...(options.signal ? { signal: options.signal } : {}),
       },
     });
     return normalizeCoinbaseMcpToolResult(result, name);
   } catch (error) {
-    throw safeCoinbaseFailure(error);
+    throw safeCoinbaseFailure(handle?.transportErrors.signal.reason ?? error);
   } finally {
-    if (client) await client.close().catch(() => undefined);
+    if (handle) await handle.client.close().catch(() => undefined);
   }
 }
