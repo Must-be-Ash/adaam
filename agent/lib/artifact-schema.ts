@@ -10,6 +10,7 @@ export const artifactIdSchema = z
 
 export const artifactKindSchema = z.enum([
   "report",
+  "chart",
   "image",
   "audio",
   "video",
@@ -120,7 +121,7 @@ const tableBlockSchema = z.object({
   type: z.literal("table"),
 });
 
-const lineChartBlockSchema = z.object({
+export const lineChartBlockSchema = z.object({
   heading: boundedText(180),
   note: boundedText(1_000).optional(),
   series: z
@@ -145,7 +146,7 @@ const lineChartBlockSchema = z.object({
   valueSuffix: z.string().max(12).optional(),
 });
 
-const barChartBlockSchema = z.object({
+export const barChartBlockSchema = z.object({
   heading: boundedText(180),
   items: z
     .array(
@@ -163,7 +164,7 @@ const barChartBlockSchema = z.object({
   valueSuffix: z.string().max(12).optional(),
 });
 
-const pieChartBlockSchema = z.object({
+export const pieChartBlockSchema = z.object({
   heading: boundedText(180),
   items: z
     .array(
@@ -178,7 +179,7 @@ const pieChartBlockSchema = z.object({
   type: z.literal("pie-chart"),
 });
 
-const candlestickChartBlockSchema = z.object({
+export const candlestickChartBlockSchema = z.object({
   candles: z
     .array(
       z.object({
@@ -198,7 +199,7 @@ const candlestickChartBlockSchema = z.object({
   valuePrefix: z.string().max(12).optional(),
 });
 
-const depthChartBlockSchema = z.object({
+export const depthChartBlockSchema = z.object({
   asks: z
     .array(
       z.object({
@@ -222,6 +223,14 @@ const depthChartBlockSchema = z.object({
   type: z.literal("depth-chart"),
   valuePrefix: z.string().max(12).optional(),
 });
+
+export const chartBlockSchema = z.discriminatedUnion("type", [
+  lineChartBlockSchema,
+  barChartBlockSchema,
+  pieChartBlockSchema,
+  candlestickChartBlockSchema,
+  depthChartBlockSchema,
+]);
 
 export const reportBlockSchema = z.discriminatedUnion("type", [
   textBlockSchema,
@@ -296,27 +305,71 @@ const mediaInputBase = {
   title: boundedText(200),
 };
 
-export const publishArtifactInputSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("report"),
+export const reportRequirementSchema = z.enum([
+  "text",
+  "callout",
+  "metrics",
+  "table",
+  "chart",
+  "line-chart",
+  "bar-chart",
+  "pie-chart",
+  "candlestick-chart",
+  "depth-chart",
+  "sources",
+]);
+
+export const publishReportInputSchema = z.object({
+  publicDataOnly: publicDataOnlySchema,
+  report: researchReportSchema,
+  requirements: z
+    .array(reportRequirementSchema)
+    .min(1)
+    .max(20)
+    .describe(
+      "Every report element explicitly requested by the user or required by the loaded workflow. The final validation guard rejects a report that omits one.",
+    ),
+});
+
+export const publishChartInputSchema = researchReportSchema
+  .omit({ blocks: true })
+  .extend({
+    charts: z
+      .array(chartBlockSchema)
+      .min(1)
+      .max(6)
+      .describe(
+        "Actual numeric chart data. Labels, prose, source URLs, or a table are not substitutes for points, bars, slices, OHLC candles, or order-book levels.",
+      ),
     publicDataOnly: publicDataOnlySchema,
-    report: researchReportSchema,
-  }),
-  z.object({ ...mediaInputBase, kind: z.literal("image") }),
-  z.object({ ...mediaInputBase, kind: z.literal("audio") }),
-  z.object({ ...mediaInputBase, kind: z.literal("video") }),
-  z.object({ ...mediaInputBase, kind: z.literal("pdf") }),
-  z.object({
+  });
+
+const publishRemoteMediaInputSchema = z.object(mediaInputBase);
+
+export const publishImageInputSchema = publishRemoteMediaInputSchema;
+export const publishAudioInputSchema = publishRemoteMediaInputSchema;
+export const publishVideoInputSchema = publishRemoteMediaInputSchema;
+export const publishPdfInputSchema = publishRemoteMediaInputSchema;
+
+export const publishFileInputSchema = z
+  .object({
     contentType: boundedText(120).optional(),
     description: boundedText(320).optional(),
     fileName: boundedText(180),
-    kind: z.literal("file"),
     publicDataOnly: publicDataOnlySchema,
     sourceUrl: sourceUrlSchema.optional(),
     text: z.string().min(1).max(500_000).optional(),
     title: boundedText(200),
-  }),
-]);
+  })
+  .refine(
+    (input) =>
+      Number(input.sourceUrl !== undefined) + Number(input.text !== undefined) ===
+      1,
+    {
+      message: "Provide exactly one sourceUrl or text value.",
+      path: ["sourceUrl"],
+    },
+  );
 
 const mediaManifestSchema = z.object({
   byteLength: z.number().int().nonnegative().max(MAX_ARTIFACT_BYTES),
@@ -339,6 +392,11 @@ export const artifactManifestSchema = z.discriminatedUnion("kind", [
   z.object({
     ...manifestBase,
     kind: z.literal("report"),
+    report: researchReportSchema,
+  }),
+  z.object({
+    ...manifestBase,
+    kind: z.literal("chart"),
     report: researchReportSchema,
   }),
   z.object({
@@ -370,6 +428,13 @@ export const artifactManifestSchema = z.discriminatedUnion("kind", [
 
 export type ArtifactKind = z.infer<typeof artifactKindSchema>;
 export type ArtifactManifest = z.infer<typeof artifactManifestSchema>;
-export type PublishArtifactInput = z.infer<typeof publishArtifactInputSchema>;
+export type ChartBlock = z.infer<typeof chartBlockSchema>;
+export type PublishChartInput = z.infer<typeof publishChartInputSchema>;
+export type PublishFileInput = z.infer<typeof publishFileInputSchema>;
+export type PublishRemoteMediaInput = z.infer<
+  typeof publishRemoteMediaInputSchema
+>;
+export type PublishReportInput = z.infer<typeof publishReportInputSchema>;
+export type ReportRequirement = z.infer<typeof reportRequirementSchema>;
 export type ResearchReport = z.infer<typeof researchReportSchema>;
 export type ReportBlock = z.infer<typeof reportBlockSchema>;

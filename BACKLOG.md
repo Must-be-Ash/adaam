@@ -174,8 +174,10 @@ What already exists (do not rebuild):
   writes. Exposes `publishRemoteMediaArtifact` (URL source), `publishTextFileArtifact`,
   `publishReportArtifact`, `artifactIdForCall(callId)` (deterministic, replay-stable
   id), and `readArtifactManifest`.
-- `agent/tools/publish_artifact.ts`, `#artifact-schema`, and the `app/artifacts/`
-  page already consume the store.
+- The narrow `agent/tools/publish_{report,chart,image,audio,video,pdf,file}.ts`
+  surface, `#artifact-schema`, and the `app/artifacts/` page already consume the
+  store. The chart tool requires concrete numeric data; one turn-bound final
+  guard rejects incomplete report requirements without retrying publication.
 
 Key design decisions to make first:
 

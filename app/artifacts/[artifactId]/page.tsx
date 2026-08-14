@@ -61,10 +61,13 @@ export default async function ArtifactPage({ params }: ArtifactPageProps) {
   const artifact = await loadArtifact(artifactId);
   if (!artifact) notFound();
 
-  if (artifact.kind === "report") {
+  if (artifact.kind === "report" || artifact.kind === "chart") {
     return (
       <div className={styles.artifactShell}>
-        <ResearchReportView report={artifact.report} />
+        <ResearchReportView
+          presentation={artifact.kind}
+          report={artifact.report}
+        />
       </div>
     );
   }

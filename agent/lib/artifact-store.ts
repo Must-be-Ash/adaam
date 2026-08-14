@@ -21,8 +21,10 @@ const MANIFEST_CACHE_SECONDS = 60;
 const REMOTE_FETCH_TIMEOUT_MS = 90_000;
 const MAX_REMOTE_REDIRECTS = 4;
 
-const MEDIA_CONTENT_TYPES: Record<Exclude<ArtifactKind, "report" | "file">, Set<string>> =
-  {
+const MEDIA_CONTENT_TYPES: Record<
+  Exclude<ArtifactKind, "report" | "chart" | "file">,
+  Set<string>
+> = {
     audio: new Set([
       "audio/aac",
       "audio/flac",
@@ -90,7 +92,7 @@ interface PublishMediaInput {
   readonly contentType?: string;
   readonly description: string;
   readonly fileName?: string;
-  readonly kind: Exclude<ArtifactKind, "report">;
+  readonly kind: Exclude<ArtifactKind, "report" | "chart">;
   readonly signal?: AbortSignal;
   readonly sourceUrl: string;
   readonly title: string;
@@ -164,7 +166,7 @@ function resolveRemoteContentType(input: {
 }
 
 function validateKindContentType(
-  kind: Exclude<ArtifactKind, "report">,
+  kind: Exclude<ArtifactKind, "report" | "chart">,
   contentType: string,
 ): void {
   if (kind === "file") return;
@@ -413,7 +415,7 @@ async function boundedRemoteBody(input: {
 function sanitizeFileName(
   requested: string | undefined,
   contentType: string,
-  kind: Exclude<ArtifactKind, "report">,
+  kind: Exclude<ArtifactKind, "report" | "chart">,
 ): string {
   const fallback = kind === "file" ? "artifact" : kind;
   const cleaned = (requested ?? fallback)
@@ -430,7 +432,7 @@ function sanitizeFileName(
 }
 
 function mediaStorageContentType(
-  kind: Exclude<ArtifactKind, "report">,
+  kind: Exclude<ArtifactKind, "report" | "chart">,
   contentType: string,
 ): string {
   return kind === "file" ? "application/octet-stream" : contentType;
@@ -463,29 +465,51 @@ export function artifactIdForCall(callId: string): string {
     .slice(0, 32);
 }
 
+async function publishStructuredArtifact(
+  kind: "report" | "chart",
+  input: {
+    readonly artifactId: string;
+    readonly report: ResearchReport;
+    readonly signal?: AbortSignal;
+  },
+): Promise<PublishedArtifact> {
+  const artifactId = artifactIdSchema.parse(input.artifactId);
+  const publicUrl = artifactPageUrl(artifactId);
+  const manifestBase = {
+    createdAt: new Date().toISOString(),
+    description: input.report.description,
+    id: artifactId,
+    report: input.report,
+    schemaVersion: 1 as const,
+    title: input.report.title,
+    visibility: "public" as const,
+  };
+  const manifest: ArtifactManifest =
+    kind === "chart"
+      ? { ...manifestBase, kind: "chart" }
+      : { ...manifestBase, kind: "report" };
+  await writeManifest(manifest, input.signal);
+  return {
+    artifactId,
+    kind,
+    publicUrl,
+  };
+}
+
 export async function publishReportArtifact(input: {
   readonly artifactId: string;
   readonly report: ResearchReport;
   readonly signal?: AbortSignal;
 }): Promise<PublishedArtifact> {
-  const artifactId = artifactIdSchema.parse(input.artifactId);
-  const publicUrl = artifactPageUrl(artifactId);
-  const manifest: ArtifactManifest = {
-    createdAt: new Date().toISOString(),
-    description: input.report.description,
-    id: artifactId,
-    kind: "report",
-    report: input.report,
-    schemaVersion: 1,
-    title: input.report.title,
-    visibility: "public",
-  };
-  await writeManifest(manifest, input.signal);
-  return {
-    artifactId,
-    kind: "report",
-    publicUrl,
-  };
+  return publishStructuredArtifact("report", input);
+}
+
+export async function publishChartArtifact(input: {
+  readonly artifactId: string;
+  readonly report: ResearchReport;
+  readonly signal?: AbortSignal;
+}): Promise<PublishedArtifact> {
+  return publishStructuredArtifact("chart", input);
 }
 
 export async function publishRemoteMediaArtifact(

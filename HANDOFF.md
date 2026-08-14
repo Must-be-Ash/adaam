@@ -90,6 +90,11 @@ context compaction, a seven-day session timeout, and no cumulative input/output
 caps. `agent/instructions.md` defines the model's source priority, tool rules,
 artifact behavior, monitoring contract, and financial boundaries.
 
+Eve's system identity is the owner's single personal investment and research
+agent, not an earnings-call-only agent. Earnings calls, crypto research, public
+market research, monitoring, artifacts, and guarded brokerage are specialized
+workflows under that one user-facing identity.
+
 Eve sessions and workflows are durable. A step interrupted before its checkpoint
 may run again while completed steps are not rerun, so external side effects must
 be idempotent. Structured responses do not steer an active turn. Dynamic tools
@@ -251,20 +256,33 @@ provided through Vercel Connect.
 
 ### Public artifacts
 
-`publish_artifact` is the generic public-data delivery layer for reports,
-images, audio, video, PDFs, and downloadable files.
+Seven narrow model-facing publishers deliver public artifacts:
+`publish_report`, `publish_chart`, `publish_image`, `publish_audio`,
+`publish_video`, `publish_pdf`, and `publish_file`. The former generic
+`publish_artifact` tool is removed so the requested primary medium determines
+the tool and schema.
 
 - Only authenticated user sessions can publish, and callers must assert
   `publicDataOnly: true`.
 - The 32-character artifact ID is deterministic from the Eve tool-call ID.
 - Vercel Blob stores the versioned manifest and any copied media. Upstash is not
   an artifact database.
-- Reports are typed JSON rendered by deterministic, mobile-first React
-  components. The model does not author or host arbitrary HTML.
+- Reports and chart-first artifacts are typed JSON rendered by deterministic,
+  mobile-first React components. The model does not author or host arbitrary
+  HTML. Chart-first pages persist as `kind: "chart"`, not as generic reports.
+- `publish_chart` cannot be called without real numeric series, bars, slices,
+  OHLC candles, or bid/ask levels. `publish_report` requires a non-empty
+  declaration of requested elements and checks the corresponding blocks.
+- Every narrow publisher shares one turn-bound final validation guard. A failed
+  guard returns `status: "not_published"` and `retryAllowed: false`; durable
+  session state blocks another publisher in the same turn rather than creating
+  a repair loop.
 - The renderer supports structured text, callouts, metrics, tables, line/bar/pie
   charts, candlesticks, and order-book depth. Safe CommonMark is a fallback;
   raw HTML and embedded Markdown images remain disabled, and internal session
   metadata is stripped from fallback report content.
+- Source records render as high-contrast external links with an arrow, visible
+  hover/focus treatment, and a 44-pixel mobile target.
 - Remote media ingestion is server-side and checks HTTPS, redirects, DNS and
   private addresses, content type, file signature, timeout, and a 100 MB limit.
 - Public pages live at `/artifacts/<id>` and are `noindex`.
@@ -424,7 +442,7 @@ Focused regression scripts map to the important boundaries:
 | `verify:approvals` | Photon approval parsing, binding, and lifecycle behavior |
 | `verify:sessions` | legacy session migration behavior |
 | `verify:workspaces` | named-session registry and Photon routing |
-| `verify:artifacts` | schemas, deterministic IDs, and safe artifact URLs |
+| `verify:artifacts` | narrow input schemas, chart data, one-shot guard, manifests, deterministic IDs, and safe URLs |
 | `verify:approvals:redis` | approval transitions against a real Redis instance |
 | `verify:workspaces:redis` | workspace atomicity against a real Redis instance |
 | `eval:coinbase` | fixture-backed model/tool behavior with no real Coinbase call |
@@ -439,6 +457,11 @@ named-session operations and isolation, Coinbase balance and spot-order flows,
 Spectrum order approval, guarded Masterkey research, public report publication,
 and natural-language artifact-card delivery. These establish a baseline, not a
 guarantee that the current checkout and production alias are identical.
+
+The narrow artifact publishers, chart artifact kind, and one-shot final guard
+have deterministic, typecheck, Eve-build, Next-build, and local mobile-render
+coverage. They still need one post-deployment iMessage smoke for report-with-
+charts, chart-only, image-only, and source-link behavior.
 
 ## Diagnostic lessons that remain relevant
 
@@ -469,6 +492,10 @@ guarantee that the current checkout and production alias are identical.
    safe and readable.
 10. **UI checks do not prevent state races.** Redis Lua, revisions, generations,
     and mutation IDs are the authoritative concurrency controls.
+11. **Tool shape is part of model reliability.** One generic artifact union let
+    the model wrap charts and images in text reports. Narrow publisher names and
+    schemas, required chart data, and one terminal completeness guard make the
+    requested primary medium explicit without a model repair loop.
 
 ## Code map
 
@@ -523,8 +550,15 @@ system is divided.
 
 - `agent/lib/artifact-schema.ts`: versioned public artifact contract.
 - `agent/lib/artifact-store.ts`: Blob persistence and guarded media ingestion.
+- `agent/lib/artifact-validation.ts`: requested-element checks and the durable
+  one-failure-per-turn publication guard.
+- `agent/lib/artifact-publication.ts`: shared authorization, persistence, and
+  bounded model-output behavior for the narrow publishers.
 - `agent/lib/public-app-url.ts`: stable public Eve URLs.
-- `agent/tools/publish_artifact.ts`: authenticated public-data publication.
+- `agent/tools/publish_{report,chart,image,audio,video,pdf,file}.ts`: narrow
+  authenticated public-data publication tools.
+- `agent/skills/artifact-publishing.md`: primary-medium routing and publication
+  procedure loaded on demand.
 - `app/artifacts/[artifactId]/`: report and media renderer.
 - `agent/lib/photon-app-icon.ts` and `scripts/embed-photon-assets.mjs`: traced
   Photon app assets.

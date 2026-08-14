@@ -51,11 +51,11 @@ The default dossier covers:
 
 ## Deliverable
 
-For a substantial dossier, call `publish_artifact` with `kind: "report"` and
-`publicDataOnly: true`. This is the default for a public-data dossier; the user does not
-need to say “public,” request a link, name the tool, or choose a host. Supply structured
-report blocks rather than writing HTML or pasting a Markdown document into one text
-block:
+For a substantial dossier, load the `artifact-publishing` skill and call
+`publish_report` with `publicDataOnly: true`. This is the default for a public-data
+dossier; the user does not need to say “public,” request a link, name the tool, or choose
+a host. Supply structured report blocks rather than writing HTML or pasting a Markdown
+document into one text block:
 
 - executive summary, confidence, and verdict;
 - metric cards for the highest-signal facts;
@@ -64,6 +64,11 @@ block:
 - a depth chart for order-book levels;
 - text/callout blocks for flows, sentiment, catalysts, risks, and data gaps;
 - source records for every material claim.
+
+Set `requirements` to `metrics`, `candlestick-chart`, `line-chart` or `bar-chart`
+(matching the volume representation), `depth-chart`, and `sources` when those datasets
+are available. If a required dataset is unavailable, do not invent it or publish a
+different block under that label; explain the gap before publication.
 
 The deterministic renderer owns typography, layout, mobile behavior, and chart
 presentation. Keep the chat response concise and end with the exact `artifactMarker`

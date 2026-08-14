@@ -641,8 +641,10 @@ function MetricGrid({
 }
 
 export function ResearchReportView({
+  presentation = "report",
   report,
 }: {
+  readonly presentation?: "report" | "chart";
   readonly report: ResearchReport;
 }) {
   const identity = [report.subject?.symbol, report.subject?.assetClass]
@@ -653,7 +655,7 @@ export function ResearchReportView({
     <main className={styles.report}>
       <header className={styles.reportHero}>
         <div className={styles.brandRow}>
-          <span>Eve Research</span>
+          <span>{presentation === "chart" ? "Eve Chart" : "Eve Research"}</span>
           {report.asOf ? <time>{report.asOf}</time> : null}
         </div>
         <p className={styles.eyebrow}>
@@ -670,7 +672,9 @@ export function ResearchReportView({
       </header>
 
       <section className={styles.summaryCard}>
-        <p className={styles.sectionKicker}>Executive summary</p>
+        <p className={styles.sectionKicker}>
+          {presentation === "chart" ? "Chart summary" : "Executive summary"}
+        </p>
         <p>{report.summary}</p>
         {report.verdict ? (
           <div
@@ -699,10 +703,18 @@ export function ResearchReportView({
           <ol>
             {report.sources.map((source, index) => (
               <li key={`${source.url}-${index}`}>
-                <a href={source.url} rel="noreferrer" target="_blank">
+                <a
+                  className={styles.sourceLink}
+                  href={source.url}
+                  rel="noreferrer"
+                  target="_blank"
+                >
                   {source.label}
+                  <span aria-hidden className={styles.sourceArrow}>
+                    ↗
+                  </span>
                 </a>
-                <span>
+                <span className={styles.sourceMeta}>
                   {[source.publisher, source.publishedAt]
                     .filter(Boolean)
                     .join(" · ")}

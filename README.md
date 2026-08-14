@@ -1,9 +1,10 @@
 # Adaam
 
-Eve is currently an earnings-call research agent that compares management
-language across calls, quantifies linguistic shifts, cross-checks them against
-financial and SEC data, and monitors official public feeds for user-defined
-events.
+Eve is a single-owner personal investment and research agent. It investigates
+public markets and strategy ideas, analyzes supplied material, monitors public
+events, produces shareable research and media artifacts, and supports guarded
+brokerage workflows. Earnings-call language analysis remains one specialized
+workflow rather than Eve's identity.
 
 The primary product direction is a single-owner iMessage agent. Optional HTTP
 and Telegram adapters accept public URLs and PDF, image, Markdown, or plain-text
@@ -34,8 +35,8 @@ Never commit `.env.local`.
 ## Public artifacts
 
 Eve can publish public-data research and media at stable
-`/artifacts/<artifact-id>` URLs. Structured report JSON and image, audio, video,
-PDF, or downloadable-file bytes all live in one public Vercel Blob store. Eve
+`/artifacts/<artifact-id>` URLs. Structured report/chart JSON and image, audio,
+video, PDF, or downloadable-file bytes all live in one public Vercel Blob store. Eve
 renders reports through its own mobile page because Blob intentionally serves
 HTML as a download rather than a hosted website.
 
@@ -49,12 +50,15 @@ Vercel injects the Blob credential into the connected project. The existing
 Upstash Redis resource is still required for Eve sessions, approvals, and
 triggers; it is not used as a second artifact database.
 
-`publish_artifact` accepts structured reports plus credential-free public media
-URLs. Users do not need to say “public,” name the tool, or choose a host: a
-request for an openable/shareable public-data report defaults to a public Eve
-artifact URL. This path rejects scheduled/runtime callers. Never put balances,
-holdings, account data, personal information, credentials, or signed URLs in a
-public artifact. Owner-private artifact delivery is not yet implemented.
+Narrow model-facing publishers handle reports, chart-first pages, images, audio,
+video, PDFs, and downloadable files. Users do not need to say “public,” name a
+tool, or choose a host: an openable/shareable public-data deliverable defaults
+to a public Eve artifact URL. Chart publication requires actual numeric series,
+OHLC candles, or order-book levels, and report publication checks explicitly
+requested elements once before writing. This path rejects scheduled/runtime
+callers. Never put balances, holdings, account data, personal information,
+credentials, or signed URLs in a public artifact. Owner-private artifact
+delivery is not yet implemented.
 
 To verify Blob publication and retrieval against a deployed origin:
 
@@ -96,8 +100,8 @@ The manager link is a short-lived capability carried in the URL fragment, and ev
 change uses a registry revision so stale or repeated actions cannot overwrite newer
 routing state. Permanent deletion is not presented because Eve cannot yet promise
 complete deletion of durable workflow and safety records. An active or processing
-financial approval blocks session changes, and every routed response is labeled with
-the session that produced it.
+financial approval blocks session changes. Routing state remains internal, so normal
+replies do not carry a session-name prefix.
 
 ## Masterkey fallback
 

@@ -5,8 +5,15 @@ import {
 } from "../agent/lib/artifact-store.ts";
 import {
   artifactManifestSchema,
-  publishArtifactInputSchema,
+  publishChartInputSchema,
+  publishFileInputSchema,
+  publishImageInputSchema,
+  publishReportInputSchema,
 } from "../agent/lib/artifact-schema.ts";
+import {
+  artifactFinalValidationDecision,
+  validateReportForPublication,
+} from "../agent/lib/artifact-validation.ts";
 import {
   artifactPageUrl,
   publicArtifactPageUrl,
@@ -85,30 +92,40 @@ const report = {
 };
 
 assert.doesNotThrow(() =>
-  publishArtifactInputSchema.parse({
-    kind: "report",
+  publishReportInputSchema.parse({
     publicDataOnly: true,
     report,
+    requirements: [
+      "metrics",
+      "line-chart",
+      "candlestick-chart",
+      "depth-chart",
+      "sources",
+    ],
   }),
 );
 assert.throws(() =>
-  publishArtifactInputSchema.parse({
-    kind: "report",
+  publishReportInputSchema.parse({
+    publicDataOnly: true,
+    report,
+    requirements: [],
+  }),
+);
+assert.throws(() =>
+  publishReportInputSchema.parse({
     publicDataOnly: false,
     report,
   }),
 );
 assert.throws(() =>
-  publishArtifactInputSchema.parse({
-    kind: "image",
+  publishImageInputSchema.parse({
     publicDataOnly: true,
     sourceUrl: "https://cdn.example/image.png?token=secret",
     title: "Unsafe image",
   }),
 );
 assert.throws(() =>
-  publishArtifactInputSchema.parse({
-    kind: "report",
+  publishReportInputSchema.parse({
     publicDataOnly: true,
     report: {
       ...report,
@@ -117,8 +134,7 @@ assert.throws(() =>
   }),
 );
 assert.throws(() =>
-  publishArtifactInputSchema.parse({
-    kind: "report",
+  publishReportInputSchema.parse({
     publicDataOnly: true,
     report: {
       ...report,
@@ -130,6 +146,94 @@ assert.throws(() =>
       ],
     },
   }),
+);
+
+const { blocks: _reportBlocks, ...chartMetadata } = report;
+const chartInput = {
+  ...chartMetadata,
+  charts: [report.blocks[1]],
+  publicDataOnly: true,
+};
+assert.doesNotThrow(() => publishChartInputSchema.parse(chartInput));
+assert.throws(() =>
+  publishChartInputSchema.parse({
+    ...chartInput,
+    charts: [],
+  }),
+);
+assert.throws(() =>
+  publishChartInputSchema.parse({
+    ...chartInput,
+    charts: [
+      {
+        heading: "Missing numeric series",
+        series: [{ name: "Price", points: [] }],
+        type: "line-chart",
+      },
+    ],
+  }),
+);
+
+assert.doesNotThrow(() =>
+  publishFileInputSchema.parse({
+    fileName: "market-data.csv",
+    publicDataOnly: true,
+    sourceUrl: "https://files.example/market-data.csv",
+    title: "Market data",
+  }),
+);
+assert.throws(() =>
+  publishFileInputSchema.parse({
+    fileName: "market-data.csv",
+    publicDataOnly: true,
+    sourceUrl: "https://files.example/market-data.csv",
+    text: "date,value\n2026-08-13,1",
+    title: "Market data",
+  }),
+);
+
+const reportRequirements = [
+  "metrics",
+  "line-chart",
+  "candlestick-chart",
+  "depth-chart",
+  "sources",
+];
+assert.deepEqual(
+  validateReportForPublication(report, reportRequirements),
+  [],
+);
+assert.deepEqual(
+  validateReportForPublication(
+    {
+      ...report,
+      blocks: report.blocks.filter(
+        (block) => block.type !== "candlestick-chart",
+      ),
+      sources: [],
+    },
+    reportRequirements,
+  ),
+  ["candlestick-chart", "sources"],
+);
+
+const firstValidation = artifactFinalValidationDecision(
+  { rejection: null, turnId: null },
+  "turn-1",
+  ["candlestick-chart"],
+);
+assert.equal(firstValidation.rejection?.status, "not_published");
+assert.equal(firstValidation.rejection?.retryAllowed, false);
+const blockedRepair = artifactFinalValidationDecision(
+  firstValidation.state,
+  "turn-1",
+  [],
+);
+assert.deepEqual(blockedRepair.rejection, firstValidation.rejection);
+assert.equal(
+  artifactFinalValidationDecision(firstValidation.state, "turn-2", [])
+    .rejection,
+  null,
 );
 
 const firstId = artifactIdForCall("call_artifact_test");
@@ -158,6 +262,22 @@ try {
     process.env.PHOTON_MINI_APP_BASE_URL = previousBaseUrl;
   }
 }
+
+assert.doesNotThrow(() =>
+  artifactManifestSchema.parse({
+    createdAt: "2026-08-13T20:00:00.000Z",
+    description: report.description,
+    id: firstId,
+    kind: "chart",
+    report: {
+      ...report,
+      blocks: [report.blocks[1]],
+    },
+    schemaVersion: 1,
+    title: "HYPE volume chart",
+    visibility: "public",
+  }),
+);
 
 assert.doesNotThrow(() =>
   artifactManifestSchema.parse({
@@ -197,4 +317,4 @@ assert.throws(() =>
   }),
 );
 
-console.log("Artifact schema and URL verification passed.");
+console.log("Artifact publication schema, guard, and URL verification passed.");
