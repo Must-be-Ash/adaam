@@ -153,11 +153,9 @@
 }
 
 .metric {
-  --tone: #565d5d;
   min-width: 0;
   padding: 18px;
   border: 1px solid var(--artifact-border);
-  border-top: 2px solid var(--tone);
   border-radius: 15px;
   background: var(--artifact-surface);
 }
@@ -360,6 +358,209 @@
 .axisLabel {
   fill: #899090;
   font-size: 10px;
+}
+
+.traderChart {
+  display: grid;
+  min-width: 0;
+  gap: 13px;
+}
+
+.chartReadout {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--artifact-border);
+  font-variant-numeric: tabular-nums;
+}
+
+.chartReadout > strong {
+  flex: 0 0 auto;
+  color: #f1f3ed;
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.chartReadoutValues {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 13px;
+  color: #c7cbc6;
+  font-size: 11px;
+}
+
+.chartReadoutValues span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.chartReadoutValues small {
+  color: #737b7b;
+  font-size: 9px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.chartReadoutValues .chartPositive {
+  color: #6ee7d2;
+}
+
+.chartReadoutValues .chartNegative {
+  color: #ff7e79;
+}
+
+.traderChartSvg {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  overflow: visible;
+  border-radius: 10px;
+  outline: none;
+  touch-action: pan-y;
+}
+
+.traderChartSvg:focus-visible {
+  outline: 2px solid #e8f16a;
+  outline-offset: 3px;
+}
+
+.traderGridLine {
+  stroke: #2a2e2e;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.traderAxisLabel {
+  fill: #8f9696;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.traderAxisTitle {
+  fill: #727979;
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.lastPriceLine {
+  stroke: #737b7b;
+  stroke-dasharray: 4 4;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.lastPriceLabel {
+  fill: #0c0d0d;
+  font-size: 9px;
+  font-weight: 780;
+  font-variant-numeric: tabular-nums;
+}
+
+.chartCrosshair {
+  stroke: #737b7b;
+  stroke-dasharray: 3 3;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.chartInteractionHint {
+  margin: -3px 0 0;
+  color: #737b7b;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.depthStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--artifact-border);
+  border-radius: 10px;
+  background: var(--artifact-border);
+}
+
+.depthStats > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 11px 12px;
+  background: #121414;
+}
+
+.depthStats small {
+  color: #7f8787;
+  font-size: 9px;
+  font-weight: 720;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.depthStats strong {
+  overflow-wrap: anywhere;
+  color: #f1f3ed;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.depthStats em {
+  display: block;
+  margin-top: 2px;
+  color: #8f9696;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.depthSelection {
+  display: flex;
+  min-height: 18px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: #8f9696;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.depthSelection strong {
+  flex: 0 0 auto;
+  color: #c7cbc6;
+  font-size: 10px;
+}
+
+.depthSelection span {
+  min-width: 0;
+  text-align: right;
+}
+
+.bidDepthLine {
+  stroke: #6ee7d2;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.askDepthLine {
+  stroke: #ff7e79;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.midPriceLine {
+  stroke: #6f7676;
+  stroke-dasharray: 4 4;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
 }
 
 .chartNote {
@@ -704,6 +905,23 @@
 
   .metricGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chartReadout {
+    display: grid;
+  }
+
+  .chartReadoutValues {
+    justify-content: flex-start;
+  }
+
+  .depthSelection {
+    display: grid;
+    gap: 3px;
+  }
+
+  .depthSelection span {
+    text-align: left;
   }
 
   .pieLayout {

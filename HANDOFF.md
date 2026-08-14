@@ -278,9 +278,13 @@ the tool and schema.
   session state blocks another publisher in the same turn rather than creating
   a repair loop.
 - The renderer supports structured text, callouts, metrics, tables, line/bar/pie
-  charts, candlesticks, and order-book depth. Safe CommonMark is a fallback;
-  raw HTML and embedded Markdown images remain disabled, and internal session
-  metadata is stripped from fallback report content.
+  charts, candlesticks, and order-book depth. Dense time-series bars,
+  candlesticks, and depth are responsive client views rather than fixed-width
+  canvases: candles expose OHLC inspection and a right-side price scale, while
+  depth exposes both filled book sides, best bid/ask, spread, cumulative-size
+  ticks, and level inspection. Safe CommonMark is a fallback; raw HTML and
+  embedded Markdown images remain disabled, and internal session metadata is
+  stripped from fallback report content.
 - Source records render as high-contrast external links with an arrow, visible
   hover/focus treatment, and a 44-pixel mobile target.
 - Remote media ingestion is server-side and checks HTTPS, redirects, DNS and
@@ -442,7 +446,7 @@ Focused regression scripts map to the important boundaries:
 | `verify:approvals` | Photon approval parsing, binding, and lifecycle behavior |
 | `verify:sessions` | legacy session migration behavior |
 | `verify:workspaces` | named-session registry and Photon routing |
-| `verify:artifacts` | narrow input schemas, chart data, one-shot guard, manifests, deterministic IDs, and safe URLs |
+| `verify:artifacts` | narrow input schemas, chart data, chart display math, one-shot guard, manifests, deterministic IDs, and safe URLs |
 | `verify:approvals:redis` | approval transitions against a real Redis instance |
 | `verify:workspaces:redis` | workspace atomicity against a real Redis instance |
 | `eval:coinbase` | fixture-backed model/tool behavior with no real Coinbase call |
@@ -458,10 +462,12 @@ Spectrum order approval, guarded Masterkey research, public report publication,
 and natural-language artifact-card delivery. These establish a baseline, not a
 guarantee that the current checkout and production alias are identical.
 
-The narrow artifact publishers, chart artifact kind, and one-shot final guard
-have deterministic, typecheck, Eve-build, Next-build, and local mobile-render
-coverage. They still need one post-deployment iMessage smoke for report-with-
-charts, chart-only, image-only, and source-link behavior.
+The first post-deployment report-with-charts smoke produced metrics, all three
+requested financial-chart blocks, a table, and linked sources. Its fixed-width
+chart presentation prompted the responsive renderer revision above, which now
+has deterministic, typecheck, Eve-build, Next-build, and local mobile/desktop
+layout coverage but still needs owner visual sign-off after deployment.
+Chart-only and image-only iMessage smokes remain outstanding.
 
 ## Diagnostic lessons that remain relevant
 
@@ -496,6 +502,10 @@ charts, chart-only, image-only, and source-link behavior.
     the model wrap charts and images in text reports. Narrow publisher names and
     schemas, required chart data, and one terminal completeness guard make the
     requested primary medium explicit without a model repair loop.
+12. **Valid chart data does not guarantee a usable chart.** Fixed-width SVGs
+    clipped financial series on mobile and let axis text overlap candles. Keep
+    the data contract strict, but derive responsive geometry, readable ticks,
+    and trading context in the deterministic renderer.
 
 ## Code map
 
@@ -559,7 +569,10 @@ system is divided.
   authenticated public-data publication tools.
 - `agent/skills/artifact-publishing.md`: primary-medium routing and publication
   procedure loaded on demand.
-- `app/artifacts/[artifactId]/`: report and media renderer.
+- `app/artifacts/[artifactId]/`: report and media renderer;
+  `financial-charts.tsx` owns responsive financial interactions and
+  `chart-display.ts` owns tested tick, precision, quote-prefix, and cumulative
+  depth calculations.
 - `agent/lib/photon-app-icon.ts` and `scripts/embed-photon-assets.mjs`: traced
   Photon app assets.
 - `app/page.tsx`, `app/layout.tsx`, and `app/skill/route.ts`: landing page,

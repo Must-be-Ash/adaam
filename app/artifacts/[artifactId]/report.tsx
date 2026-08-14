@@ -7,6 +7,11 @@ import type {
 } from "@/agent/lib/artifact-schema";
 
 import styles from "./artifact.module.css";
+import {
+  CandlestickFinancialChart,
+  DenseBarFinancialChart,
+  DepthFinancialChart,
+} from "./financial-charts";
 
 const CHART_COLORS = [
   "#e8f16a",
@@ -196,6 +201,18 @@ function LineChart({ block }: { readonly block: BlockOf<"line-chart"> }) {
 }
 
 function BarChart({ block }: { readonly block: BlockOf<"bar-chart"> }) {
+  const useDenseChart =
+    block.items.length > 10 &&
+    block.items.every((item) => item.value >= 0) &&
+    block.items.some((item) => item.value > 0);
+  if (useDenseChart) {
+    return (
+      <ChartFrame heading={block.heading} note={block.note}>
+        <DenseBarFinancialChart block={block} />
+      </ChartFrame>
+    );
+  }
+
   const maximum = Math.max(...block.items.map((item) => Math.abs(item.value)), 1);
   return (
     <ChartFrame heading={block.heading} note={block.note}>
@@ -278,213 +295,17 @@ function CandlestickChart({
 }: {
   readonly block: BlockOf<"candlestick-chart">;
 }) {
-  const candles = block.candles.slice(-90);
-  const width = 720;
-  const height = 320;
-  const padding = 38;
-  const range = chartRange(
-    candles.flatMap((candle) => [candle.low, candle.high]),
-  );
-  const plotWidth = width - padding * 2;
-  const slotWidth = plotWidth / candles.length;
-  const candleWidth = Math.max(2, Math.min(8, slotWidth * 0.58));
-  const labelIndexes = [0, Math.floor((candles.length - 1) / 2), candles.length - 1];
-
   return (
     <ChartFrame heading={block.heading} note={block.note}>
-      <div className={styles.chartScroll}>
-        <svg
-          aria-label={block.heading}
-          className={styles.chart}
-          role="img"
-          viewBox={`0 0 ${width} ${height}`}
-        >
-          <title>{block.heading}</title>
-          {[0, 1, 2, 3, 4].map((line) => {
-            const y = padding + (line / 4) * (height - padding * 2);
-            const value =
-              range.maximum -
-              (line / 4) * (range.maximum - range.minimum);
-            return (
-              <g key={line}>
-                <line
-                  className={styles.gridLine}
-                  x1={padding}
-                  x2={width - padding}
-                  y1={y}
-                  y2={y}
-                />
-                <text className={styles.axisLabel} x={4} y={y + 4}>
-                  {numericLabel(value, block.valuePrefix)}
-                </text>
-              </g>
-            );
-          })}
-          {candles.map((candle, index) => {
-            const x = padding + slotWidth * index + slotWidth / 2;
-            const openY = chartY(candle.open, range, height, padding);
-            const closeY = chartY(candle.close, range, height, padding);
-            const highY = chartY(candle.high, range, height, padding);
-            const lowY = chartY(candle.low, range, height, padding);
-            const rising = candle.close >= candle.open;
-            const color = rising ? "#6ee7d2" : "#ff7e79";
-            return (
-              <g key={`${candle.label}-${index}`}>
-                <line
-                  stroke={color}
-                  strokeWidth="1.4"
-                  x1={x}
-                  x2={x}
-                  y1={highY}
-                  y2={lowY}
-                />
-                <rect
-                  fill={color}
-                  height={Math.max(1.5, Math.abs(closeY - openY))}
-                  width={candleWidth}
-                  x={x - candleWidth / 2}
-                  y={Math.min(openY, closeY)}
-                />
-              </g>
-            );
-          })}
-          {labelIndexes.map((index) => {
-            const candle = candles[index];
-            const x = padding + slotWidth * index + slotWidth / 2;
-            return (
-              <text
-                className={styles.axisLabel}
-                key={`${candle?.label}-${index}`}
-                textAnchor={
-                  index === 0
-                    ? "start"
-                    : index === candles.length - 1
-                      ? "end"
-                      : "middle"
-                }
-                x={x}
-                y={height - 8}
-              >
-                {candle?.label}
-              </text>
-            );
-          })}
-        </svg>
-      </div>
-      <div className={styles.legend}>
-        <span>
-          <i style={{ background: "#6ee7d2" }} />
-          Close at or above open
-        </span>
-        <span>
-          <i style={{ background: "#ff7e79" }} />
-          Close below open
-        </span>
-      </div>
+      <CandlestickFinancialChart block={block} />
     </ChartFrame>
   );
 }
 
-function cumulativeDepth(
-  points: Array<{ price: number; size: number }>,
-  direction: "ascending" | "descending",
-): Array<{ price: number; size: number }> {
-  const sorted = [...points].sort((left, right) =>
-    direction === "ascending"
-      ? left.price - right.price
-      : right.price - left.price,
-  );
-  let cumulative = 0;
-  return sorted.map((point) => {
-    cumulative += point.size;
-    return { price: point.price, size: cumulative };
-  });
-}
-
 function DepthChart({ block }: { readonly block: BlockOf<"depth-chart"> }) {
-  const bids = cumulativeDepth(block.bids, "descending");
-  const asks = cumulativeDepth(block.asks, "ascending");
-  const points = [...bids, ...asks];
-  const width = 720;
-  const height = 300;
-  const padding = 38;
-  const priceRange = chartRange(points.map((point) => point.price));
-  const maximumSize = Math.max(...points.map((point) => point.size), 1);
-  const x = (price: number) =>
-    padding +
-    ((price - priceRange.minimum) /
-      (priceRange.maximum - priceRange.minimum)) *
-      (width - padding * 2);
-  const y = (size: number) =>
-    height - padding - (size / maximumSize) * (height - padding * 2);
-  const bidPoints = [...bids]
-    .reverse()
-    .map((point) => `${x(point.price)},${y(point.size)}`)
-    .join(" ");
-  const askPoints = asks
-    .map((point) => `${x(point.price)},${y(point.size)}`)
-    .join(" ");
-
   return (
     <ChartFrame heading={block.heading} note={block.note}>
-      <div className={styles.chartScroll}>
-        <svg
-          aria-label={block.heading}
-          className={styles.chart}
-          role="img"
-          viewBox={`0 0 ${width} ${height}`}
-        >
-          <title>{block.heading}</title>
-          {[0, 1, 2, 3, 4].map((line) => {
-            const lineY = padding + (line / 4) * (height - padding * 2);
-            return (
-              <line
-                className={styles.gridLine}
-                key={line}
-                x1={padding}
-                x2={width - padding}
-                y1={lineY}
-                y2={lineY}
-              />
-            );
-          })}
-          <polyline
-            fill="none"
-            points={bidPoints}
-            stroke="#6ee7d2"
-            strokeLinejoin="round"
-            strokeWidth="3"
-          />
-          <polyline
-            fill="none"
-            points={askPoints}
-            stroke="#ff7e79"
-            strokeLinejoin="round"
-            strokeWidth="3"
-          />
-          <text className={styles.axisLabel} textAnchor="start" x={padding} y={height - 8}>
-            {numericLabel(priceRange.minimum, block.valuePrefix)}
-          </text>
-          <text
-            className={styles.axisLabel}
-            textAnchor="end"
-            x={width - padding}
-            y={height - 8}
-          >
-            {numericLabel(priceRange.maximum, block.valuePrefix)}
-          </text>
-        </svg>
-      </div>
-      <div className={styles.legend}>
-        <span>
-          <i style={{ background: "#6ee7d2" }} />
-          Cumulative bids
-        </span>
-        <span>
-          <i style={{ background: "#ff7e79" }} />
-          Cumulative asks
-        </span>
-      </div>
+      <DepthFinancialChart block={block} />
     </ChartFrame>
   );
 }

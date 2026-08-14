@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 
 import {
+  chartNiceTicks,
+  chartPricePrecision,
+  cumulativeDepthPoints,
+  inferredChartPricePrefix,
+} from "../app/artifacts/[artifactId]/chart-display.ts";
+import {
   artifactIdForCall,
 } from "../agent/lib/artifact-store.ts";
 import {
@@ -18,6 +24,35 @@ import {
   artifactPageUrl,
   publicArtifactPageUrl,
 } from "../agent/lib/public-app-url.ts";
+
+assert.deepEqual(chartNiceTicks([62_209.81, 66_923.95]), [
+  62_000,
+  64_000,
+  66_000,
+  68_000,
+]);
+assert.equal(chartPricePrecision([63_252.09]), 2);
+assert.equal(chartPricePrecision([0.0042]), 6);
+assert.equal(
+  inferredChartPricePrefix(undefined, "30-Day Candles (BTC-USD)"),
+  "$",
+);
+assert.equal(inferredChartPricePrefix("", "BTC-USD"), "");
+assert.deepEqual(
+  cumulativeDepthPoints(
+    [
+      { price: 99, size: 2 },
+      { price: 101, size: 1 },
+      { price: 100, size: 3 },
+    ],
+    "descending",
+  ),
+  [
+    { price: 101, size: 1 },
+    { price: 100, size: 4 },
+    { price: 99, size: 6 },
+  ],
+);
 
 const report = {
   asOf: "August 13, 2026",
