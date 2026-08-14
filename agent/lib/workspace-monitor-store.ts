@@ -166,6 +166,9 @@ const sourceSchema = z
     const canonical = new URL(source.canonicalUrl);
     if (
       canonical.protocol !== "https:" ||
+      canonical.username !== "" ||
+      canonical.password !== "" ||
+      canonical.hash !== "" ||
       canonical.origin !== source.origin ||
       new URL(source.origin).origin !== source.origin
     ) {

@@ -202,6 +202,24 @@ await assert.rejects(
     error instanceof WorkspaceMonitorError && error.code === "monitor_invalid",
 );
 
+await assert.rejects(
+  createWorkspaceMonitor(
+    {
+      deliverySubscriptionId: "delivery.fragment",
+      instruction: "Reject a source whose fragment changes its exact fence.",
+      name: "Fragment source",
+      nextOccurrenceAt: scheduledFor,
+      now,
+      schedule: { at: scheduledFor, kind: "one_time" },
+      scope,
+      sources: [{ ...source(0), canonicalUrl: `${source(0).canonicalUrl}#fragment` }],
+    },
+    client,
+  ),
+  (error) =>
+    error instanceof WorkspaceMonitorError && error.code === "monitor_invalid",
+);
+
 const occurrenceIdentity = "2026-08-14T12:05:00.000Z";
 const occurrenceKey = workspaceMonitorOccurrenceKey({
   configurationRevision: monitor.configurationRevision,
