@@ -955,7 +955,7 @@ Exit gate:
 
 ### Sprint 5 — natural-language and Spectrum management
 
-- [ ] Add workspace-derived monitor CRUD tools and compatibility aliases.
+- [x] Add workspace-derived monitor CRUD tools and compatibility aliases.
 - [ ] Support “also run at 4 PM,” source additions, budget changes, and status
   questions through natural language.
 - [ ] Extend the session manager with monitor details, pause/resume, schedule,
@@ -1162,3 +1162,4 @@ own bounded implementation spec:
 | 2026-08-14 | Expand the network- and broker-free Photon harness across routing, concurrent duplicate webhooks, switching, Start fresh, alert dedupe, uncertain-delivery denial, stale actions, Discuss routing, and owner denial | `node scripts/verify-workspace-photon-harness.mjs` and `tsc --noEmit` — passed |
 | 2026-08-14 | Add the fragment-token Photon alert action route so Discuss performs only the atomic workspace/pending-context mutation and never starts a model turn | `node scripts/verify-photon-alert-app.mjs`, alert-context regression, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Sprint 4 exit gate: prove durable Photon ingress outcomes, alert dedupe/uncertainty quarantine, safe non-selected-workspace alerts, explicit Discuss routing, and no cross-routing | Photon approval/workspace/ingress/alert/action/harness regressions, ephemeral Redis runtime verification, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
+| 2026-08-14 | Complete workspace-derived monitor create/list/update/pause/resume/recoverable-retire tools while retaining the isolated legacy event-trigger compatibility surface | `jiti scripts/verify-workspace-monitor-tools.mjs`, monitor store/input regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
