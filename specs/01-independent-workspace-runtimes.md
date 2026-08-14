@@ -903,7 +903,7 @@ Exit gate:
 - [x] Adapt the existing minute dispatcher to claim workspace monitor runs.
 - [x] Enforce workspace and global concurrency/run budgets before dispatch.
 - [x] Preserve exact source fencing and complete-coverage checkpoints.
-- [ ] Align monitor create/update tools, manager validation, and storage on the
+- [x] Align monitor create/update tools, manager validation, and storage on the
   maximum of eight combined sources.
 - [ ] Add legacy trigger compatibility and explicit immutable-workspace
   assignment flow.
@@ -1141,3 +1141,4 @@ own bounded implementation spec:
 | 2026-08-14 | Adapt the single legacy minute schedule to claim bounded workspace-monitor occurrences with inflight lease recovery | `jiti scripts/verify-workspace-monitor-store.ts`, `jiti scripts/verify-workspace-monitor-schedule.ts`, and `tsc --noEmit` — passed |
 | 2026-08-14 | Enforce CAS-atomic workspace and deployment concurrency/run admission before workspace worker handoff | `jiti scripts/verify-workspace-dispatch-budget.ts`, `jiti scripts/verify-workspace-monitor-store.ts`, `jiti scripts/verify-workspace-budget-ledger.ts`, and `tsc --noEmit` — passed |
 | 2026-08-14 | Preserve exact configured-source fences, at-most-once attempts, and all-sources-success durable checkpoints | `jiti scripts/verify-workspace-source-coverage.ts`, `jiti scripts/verify-workspace-monitor-store.ts`, and `tsc --noEmit` — passed |
+| 2026-08-14 | Align workspace and compatibility monitor create/update schemas, manager validation, and storage on the same eight-source ceiling and bounded ninth-source code | `jiti scripts/verify-workspace-monitor-input.ts`, `jiti scripts/verify-workspace-monitor-store.ts`, `node scripts/verify-photon-workspaces.mjs`, `tsc --noEmit`, and `eve build` with fixture-only storage configuration — passed |

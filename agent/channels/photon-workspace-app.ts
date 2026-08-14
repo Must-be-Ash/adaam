@@ -14,6 +14,7 @@ import {
 } from "../lib/photon-app-icon";
 import { getCurrentPhotonApprovalActivity } from "../lib/photon-approval-store";
 import { PHOTON_WORKSPACE_APP_PATH } from "../lib/photon-mini-app";
+import { workspaceMonitorManagerSourcesSchema } from "../lib/workspace-monitor-input";
 import {
   OwnerIdentityDeniedError,
   requirePhotonOwnerAccess,
@@ -31,6 +32,8 @@ import {
 
 const tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
 const workspaceIdSchema = z.string().uuid();
+export const photonWorkspaceMonitorSourcesSchema =
+  workspaceMonitorManagerSourcesSchema;
 const PHOTON_SESSION_ICON_PATH = `${PHOTON_WORKSPACE_APP_PATH}/${PHOTON_APP_ICON_SVG_PATH}`;
 const PHOTON_SESSION_ICON_PNG_PATH = `${PHOTON_WORKSPACE_APP_PATH}/${PHOTON_APP_ICON_PNG_PATH}`;
 const PHOTON_SESSION_MANIFEST_PATH = `${PHOTON_WORKSPACE_APP_PATH}/${PHOTON_APP_MANIFEST_PATH}`;

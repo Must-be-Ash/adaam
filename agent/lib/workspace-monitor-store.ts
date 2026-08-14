@@ -12,6 +12,11 @@ import {
   nextWorkspaceMonitorOccurrence,
   selectWorkspaceMonitorDueOccurrence,
 } from "./workspace-monitor-schedule";
+import {
+  WORKSPACE_MONITOR_SOURCE_LIMIT,
+  WORKSPACE_MONITOR_SOURCE_LIMIT_CODE,
+  workspaceMonitorSourcesSchema,
+} from "./workspace-monitor-input";
 
 const KEY_PREFIX = "eve:workspace-runtime:v1:monitor:";
 const DUE_KEY = `${KEY_PREFIX}due`;
@@ -109,7 +114,7 @@ return cjson.encode(result)
 
 const idSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_./:@-]{1,159}$/u);
 const timestampSchema = z.string().datetime({ offset: true });
-const scheduleSchema = z.discriminatedUnion("kind", [
+export const workspaceMonitorScheduleSchema = z.discriminatedUnion("kind", [
   z.object({ at: timestampSchema, kind: z.literal("one_time") }).strict(),
   z
     .object({
@@ -154,28 +159,6 @@ const scheduleSchema = z.discriminatedUnion("kind", [
     })
     .strict(),
 ]);
-const sourceSchema = z
-  .object({
-    accessClassification: z.enum(["public", "owner_private"]),
-    canonicalUrl: z.string().url().max(2_048),
-    origin: z.string().url().max(500),
-    sourceId: idSchema,
-  })
-  .strict()
-  .superRefine((source, context) => {
-    const canonical = new URL(source.canonicalUrl);
-    if (
-      canonical.protocol !== "https:" ||
-      canonical.username !== "" ||
-      canonical.password !== "" ||
-      canonical.hash !== "" ||
-      canonical.origin !== source.origin ||
-      new URL(source.origin).origin !== source.origin
-    ) {
-      context.addIssue({ code: "custom", message: "Source origin mismatch." });
-    }
-  });
-
 const monitorSchema = z
   .object({
     configurationRevision: z.number().int().positive(),
@@ -201,7 +184,7 @@ const monitorSchema = z
     pauseReason: z.string().max(64).nullable(),
     pausedAt: timestampSchema.nullable(),
     requiredCapabilityIds: z.array(idSchema).max(32),
-    schedule: scheduleSchema,
+    schedule: workspaceMonitorScheduleSchema,
     schemaVersion: z.literal(1),
     sourceCheckpoint: z
       .object({
@@ -209,7 +192,7 @@ const monitorSchema = z
         watermark: timestampSchema.nullable(),
       })
       .strict(),
-    sources: z.array(sourceSchema).min(1).max(8),
+    sources: workspaceMonitorSourcesSchema,
     tighteningLimits: z
       .object({
         inputTokensPerRun: z.number().int().positive().nullable(),
@@ -228,11 +211,6 @@ const monitorSchema = z
   .superRefine((monitor, context) => {
     if (new Set(monitor.requiredCapabilityIds).size !== monitor.requiredCapabilityIds.length) {
       context.addIssue({ code: "custom", message: "Duplicate capability." });
-    }
-    const sourceIds = monitor.sources.map((source) => source.sourceId);
-    const sourceUrls = monitor.sources.map((source) => source.canonicalUrl);
-    if (new Set(sourceIds).size !== sourceIds.length || new Set(sourceUrls).size !== sourceUrls.length) {
-      context.addIssue({ code: "custom", message: "Duplicate source." });
     }
     if (monitor.lifecycleState === "enabled") {
       if (monitor.pauseReason !== null || monitor.pausedAt !== null) {
@@ -262,7 +240,7 @@ const occurrenceSchema = z
   .strict();
 
 export type WorkspaceMonitor = z.infer<typeof monitorSchema>;
-export type WorkspaceMonitorSchedule = z.infer<typeof scheduleSchema>;
+export type WorkspaceMonitorSchedule = z.infer<typeof workspaceMonitorScheduleSchema>;
 export type WorkspaceMonitorOccurrence = z.infer<typeof occurrenceSchema>;
 
 export interface ClaimedWorkspaceMonitor {
@@ -333,7 +311,8 @@ export class WorkspaceMonitorError extends Error {
     | "monitor_occurrence_duplicate"
     | "monitor_occurrence_leased"
     | "monitor_occurrence_not_due"
-    | "monitor_occurrence_stale";
+    | "monitor_occurrence_stale"
+    | typeof WORKSPACE_MONITOR_SOURCE_LIMIT_CODE;
 
   constructor(code: WorkspaceMonitorError["code"]) {
     super(code);
@@ -655,12 +634,15 @@ export async function createWorkspaceMonitor(
     requiredCapabilityIds?: string[];
     schedule: WorkspaceMonitorSchedule;
     scope: AuthorizedWorkspaceStoreScope;
-    sources: z.input<typeof sourceSchema>[];
+    sources: z.input<typeof workspaceMonitorSourcesSchema>;
     tighteningLimits?: z.input<typeof monitorSchema>["tighteningLimits"];
   },
   client: WorkspaceMonitorStoreClient = store(),
 ): Promise<WorkspaceMonitor> {
   assertAuthorizedWorkspaceStoreScope(input.scope);
+  if (input.sources.length > WORKSPACE_MONITOR_SOURCE_LIMIT) {
+    throw new WorkspaceMonitorError(WORKSPACE_MONITOR_SOURCE_LIMIT_CODE);
+  }
   const now = (input.now ?? new Date()).toISOString();
   const candidate = monitorSchema.safeParse({
     configurationRevision: 1,
@@ -741,6 +723,12 @@ export async function updateWorkspaceMonitor(
   client: WorkspaceMonitorStoreClient = store(),
 ): Promise<WorkspaceMonitor> {
   assertAuthorizedWorkspaceStoreScope(input.scope);
+  if (
+    input.patch.sources &&
+    input.patch.sources.length > WORKSPACE_MONITOR_SOURCE_LIMIT
+  ) {
+    throw new WorkspaceMonitorError(WORKSPACE_MONITOR_SOURCE_LIMIT_CODE);
+  }
   const key = recordKey(input.scope, input.monitorId);
   const currentRaw = rawValue(await client.get(key));
   if (currentRaw === null) throw new WorkspaceMonitorError("monitor_not_found");

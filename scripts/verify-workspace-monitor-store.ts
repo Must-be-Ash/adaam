@@ -185,6 +185,22 @@ assert.deepEqual(await listWorkspaceMonitors(scope, client), [monitor]);
 assert.deepEqual(await listWorkspaceMonitors(otherScope, client), []);
 
 await assert.rejects(
+  updateWorkspaceMonitor(
+    {
+      expectedRevision: monitor.configurationRevision,
+      monitorId: monitor.monitorId,
+      now,
+      patch: { sources: Array.from({ length: 9 }, (_, index) => source(index)) },
+      scope,
+    },
+    client,
+  ),
+  (error) =>
+    error instanceof WorkspaceMonitorError &&
+    error.code === "monitor_source_limit_exceeded",
+);
+
+await assert.rejects(
   createWorkspaceMonitor(
     {
       deliverySubscriptionId: "delivery.too-many",
@@ -199,7 +215,8 @@ await assert.rejects(
     client,
   ),
   (error) =>
-    error instanceof WorkspaceMonitorError && error.code === "monitor_invalid",
+    error instanceof WorkspaceMonitorError &&
+    error.code === "monitor_source_limit_exceeded",
 );
 
 await assert.rejects(
