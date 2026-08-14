@@ -878,7 +878,7 @@ Exit gate:
 - [x] Add stable deployment-owner mapping for approved Photon principals.
 - [x] Enforce that mapping before Photon session, monitor, manager, worker, and
   alert access; add negative tests for an authenticated unmapped principal.
-- [ ] Project typed owner/conversation/workspace/generation metadata from the
+- [x] Project typed owner/conversation/workspace/generation metadata from the
   Photon router and reject missing or mismatched tool scope.
 - [ ] Add versioned, bounded workspace brief, durable strategy configuration,
   capability manifest, and budget stores.
@@ -1128,3 +1128,4 @@ own bounded implementation spec:
 | 2026-08-14 | Sprint 0 exit gate: exercise every declared allowed and forbidden transition | All `verify:workspace-runtime:*`, `verify:workspaces`, `verify:approvals`, and `tsc --noEmit` — passed |
 | 2026-08-14 | Add fail-closed deployment-owner mapping with HMAC-derived Photon aliases | `node scripts/verify-owner-identity.mjs` and `tsc --noEmit` — passed |
 | 2026-08-14 | Enforce deployment-owner authorization before Photon session, monitor, manager, worker, and alert access | `node scripts/verify-owner-identity.mjs`, `node scripts/verify-photon-workspaces.mjs`, `node scripts/verify-photon-approval.mjs`, and `tsc --noEmit` — passed |
+| 2026-08-14 | Project typed Photon runtime scope through signed auth and reject missing or mismatched tool scope | `jiti scripts/verify-workspace-runtime-scope.ts`, `node scripts/verify-photon-workspaces.mjs`, `node scripts/verify-photon-approval.mjs`, and `tsc --noEmit` — passed |

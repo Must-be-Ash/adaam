@@ -21,7 +21,11 @@ import {
 } from "../lib/photon-app-icon";
 import { photonAuth, photonSenderId } from "../lib/photon-auth";
 import { PHOTON_APPROVAL_APP_PATH } from "../lib/photon-mini-app";
-import { getPhotonWorkspaceState } from "../lib/photon-workspace-store";
+import {
+  getPhotonWorkspaceState,
+  type PhotonWorkspace,
+} from "../lib/photon-workspace-store";
+import { projectPhotonWorkspaceRuntimeScope } from "../lib/workspace-runtime-scope";
 
 const PHOTON_APPROVAL_ICON_PATH = `${PHOTON_APPROVAL_APP_PATH}/${PHOTON_APP_ICON_SVG_PATH}`;
 const PHOTON_APPROVAL_ICON_PNG_PATH = `${PHOTON_APPROVAL_APP_PATH}/${PHOTON_APP_ICON_PNG_PATH}`;
@@ -101,6 +105,7 @@ async function readJson<T>(
 
 async function deliverApproval(
   delivery: PhotonApprovalDelivery,
+  workspace: PhotonWorkspace,
   attachSession: AttachSession,
 ): Promise<"accepted" | "uncertain"> {
   const senderId = photonSenderId(delivery.principalId);
@@ -109,6 +114,12 @@ async function deliverApproval(
   }
   let result;
   try {
+    const runtimeScope = projectPhotonWorkspaceRuntimeScope({
+      generation: workspace.generation,
+      principalId: delivery.principalId,
+      threadId: delivery.threadId,
+      workspaceId: workspace.id,
+    });
     result = await attachSession(delivery.sessionId).respond(
       [
         {
@@ -117,7 +128,7 @@ async function deliverApproval(
         },
       ],
       {
-        auth: photonAuth(senderId, delivery.threadId),
+        auth: photonAuth(senderId, delivery.threadId, runtimeScope),
       },
     );
   } catch (error) {
@@ -182,7 +193,7 @@ async function deliverApproval(
 
 async function approvalWorkspaceIsActive(
   delivery: PhotonApprovalDelivery,
-): Promise<boolean> {
+): Promise<PhotonWorkspace | null> {
   try {
     const state = await getPhotonWorkspaceState({
       principalId: delivery.principalId,
@@ -202,14 +213,18 @@ async function approvalWorkspaceIsActive(
       return (
         workspace.status === "active" &&
         workspace.id === state.activeWorkspace.id
-      );
+      )
+        ? workspace
+        : null;
     }
     return (
       !delivery.workspaceId &&
       state.activeWorkspace.continuation === "physical"
-    );
+    )
+      ? state.activeWorkspace
+      : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -508,7 +523,10 @@ export default defineChannel({
           );
         }
 
-        if (!(await approvalWorkspaceIsActive(claim.delivery))) {
+        const approvalWorkspace = await approvalWorkspaceIsActive(
+          claim.delivery,
+        );
+        if (!approvalWorkspace) {
           await failPhotonApprovalDecision({
             decision: claim.delivery.decision,
             recordKey: claim.delivery.recordKey,
@@ -525,6 +543,7 @@ export default defineChannel({
         try {
           const result = await deliverApproval(
             claim.delivery,
+            approvalWorkspace,
             attachSession,
           );
           if (result === "uncertain") return json({ status: "uncertain" });

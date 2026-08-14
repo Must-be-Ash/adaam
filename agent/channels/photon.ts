@@ -55,6 +55,7 @@ import {
   physicalPhotonThreadId,
   workspaceAwarePhotonAdapter,
 } from "../lib/photon-workspace";
+import { projectPhotonWorkspaceRuntimeScope } from "../lib/workspace-runtime-scope";
 
 const webhookSecret = process.env.IMESSAGE_WEBHOOK_SECRET;
 const photonConnectorId =
@@ -813,6 +814,12 @@ async function submitApprovalDecision(
         ? "Approved. Continuing…"
         : "Denied. No action will be taken.";
   try {
+    const runtimeScope = projectPhotonWorkspaceRuntimeScope({
+      generation: workspace.generation,
+      principalId,
+      threadId: thread.id,
+      workspaceId: workspace.id,
+    });
     await bridge.send(
       {
         inputResponses: [
@@ -823,7 +830,7 @@ async function submitApprovalDecision(
         ],
       },
       {
-        auth: photonAuth(senderId, thread.id),
+        auth: photonAuth(senderId, thread.id, runtimeScope),
         thread: photonWorkspaceThread(thread, workspace),
         turnPolicy: "queue",
       },
@@ -1020,6 +1027,12 @@ async function dispatch(
   }
 
   const activeWorkspace = workspaceState.activeWorkspace;
+  const runtimeScope = projectPhotonWorkspaceRuntimeScope({
+    generation: activeWorkspace.generation,
+    principalId,
+    threadId: thread.id,
+    workspaceId: activeWorkspace.id,
+  });
   const session = await bridge.send(
     {
       context: [
@@ -1028,7 +1041,7 @@ async function dispatch(
       message: messageToUserContent(message),
     },
     {
-      auth: photonAuth(senderId, thread.id),
+      auth: photonAuth(senderId, thread.id, runtimeScope),
       thread: photonWorkspaceThread(thread, activeWorkspace),
       turnPolicy: "steer",
     },

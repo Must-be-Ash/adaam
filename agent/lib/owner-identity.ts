@@ -10,6 +10,10 @@ export interface OwnerIdentity {
   readonly principalAlias: string;
 }
 
+export interface OwnerConversationIdentity extends OwnerIdentity {
+  readonly conversationId: string;
+}
+
 export const OWNER_RESOURCE_KINDS = [
   "session",
   "monitor",
@@ -38,6 +42,19 @@ function ownerAlias(secret: Buffer, principalId: string): string {
     .update("eve:owner-alias:v1\0")
     .update(principalId)
     .digest("hex");
+}
+
+function conversationAlias(
+  secret: Buffer,
+  ownerId: string,
+  threadId: string,
+): string {
+  return `conversation_${createHmac("sha256", secret)
+    .update("eve:conversation-alias:v1\0")
+    .update(ownerId)
+    .update("\0")
+    .update(threadId)
+    .digest("hex")}`;
 }
 
 function configuredPhotonPrincipals(value: string | undefined): Set<string> {
@@ -92,4 +109,17 @@ export function requirePhotonOwnerAccess(
 ): OwnerIdentity {
   if (!OWNER_RESOURCE_KINDS.includes(input.resource)) denied();
   return resolvePhotonOwnerIdentity(input.principalId, environment);
+}
+
+export function resolvePhotonOwnerConversationIdentity(
+  input: { principalId: string; threadId: string },
+  environment: NodeJS.ProcessEnv = process.env,
+): OwnerConversationIdentity {
+  if (input.threadId.length < 1 || input.threadId.length > 500) denied();
+  const owner = resolvePhotonOwnerIdentity(input.principalId, environment);
+  const secret = configuredSecret(environment.EVE_OWNER_ALIAS_HMAC_SECRET);
+  return Object.freeze({
+    ...owner,
+    conversationId: conversationAlias(secret, owner.ownerId, input.threadId),
+  });
 }
