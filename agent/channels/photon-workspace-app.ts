@@ -15,6 +15,10 @@ import {
 import { getCurrentPhotonApprovalActivity } from "../lib/photon-approval-store";
 import { PHOTON_WORKSPACE_APP_PATH } from "../lib/photon-mini-app";
 import {
+  OwnerIdentityDeniedError,
+  requirePhotonOwnerAccess,
+} from "../lib/owner-identity";
+import {
   applyPhotonWorkspaceManagerAction,
   getPhotonWorkspaceManagerScope,
   getPhotonWorkspaceManagerState,
@@ -600,6 +604,19 @@ export default defineChannel({
     POST(`${PHOTON_WORKSPACE_APP_PATH}/state`, async (request) => {
       const body = await readJson(request, stateRequestSchema);
       if (body instanceof Response) return body;
+      const scope = await getPhotonWorkspaceManagerScope(body.managerToken);
+      if (!scope) {
+        return json({ error: "This session manager link expired." }, 410);
+      }
+      try {
+        requirePhotonOwnerAccess({
+          principalId: scope.principalId,
+          resource: "manager",
+        });
+      } catch (error) {
+        if (!(error instanceof OwnerIdentityDeniedError)) throw error;
+        return json({ error: "This identity is not authorized." }, 403);
+      }
       const state = await getPhotonWorkspaceManagerState(body.managerToken);
       return state
         ? json(publicState(state))
@@ -613,6 +630,15 @@ export default defineChannel({
         const scope = await getPhotonWorkspaceManagerScope(body.managerToken);
         if (!scope) {
           return json({ error: "This session manager link expired." }, 410);
+        }
+        try {
+          requirePhotonOwnerAccess({
+            principalId: scope.principalId,
+            resource: "manager",
+          });
+        } catch (error) {
+          if (!(error instanceof OwnerIdentityDeniedError)) throw error;
+          return json({ error: "This identity is not authorized." }, 403);
         }
         const approvalActivity =
           await getCurrentPhotonApprovalActivity(scope).catch(() => "active");

@@ -32,6 +32,10 @@ import {
 } from "../lib/photon-approval-store.js";
 import { photonAuth, photonPrincipalId } from "../lib/photon-auth";
 import {
+  OwnerIdentityDeniedError,
+  requirePhotonOwnerAccess,
+} from "../lib/owner-identity";
+import {
   photonArtifactPresentation,
   photonApprovalAppUrl,
   photonWorkspaceAppUrl,
@@ -922,6 +926,14 @@ async function dispatch(
   if (message.author.isBot || !thread.isDM) return;
 
   const senderId = message.author.userId;
+  const principalId = photonPrincipalId(senderId);
+  try {
+    requirePhotonOwnerAccess({ principalId, resource: "session" });
+  } catch (error) {
+    if (!(error instanceof OwnerIdentityDeniedError)) throw error;
+    await thread.post("This iMessage identity is not authorized to use Eve.");
+    return;
+  }
   const textDecision = parsePhotonTextDecision(message.text);
   if (textDecision) {
     const decisionSentAtMs = message.metadata.dateSent.getTime();
@@ -991,7 +1003,6 @@ async function dispatch(
     return;
   }
 
-  const principalId = photonPrincipalId(senderId);
   let workspaceState: PhotonWorkspaceState;
   try {
     workspaceState = await getPhotonWorkspaceState({

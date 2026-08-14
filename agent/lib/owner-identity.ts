@@ -10,6 +10,16 @@ export interface OwnerIdentity {
   readonly principalAlias: string;
 }
 
+export const OWNER_RESOURCE_KINDS = [
+  "session",
+  "monitor",
+  "manager",
+  "worker",
+  "alert",
+] as const;
+
+export type OwnerResourceKind = (typeof OWNER_RESOURCE_KINDS)[number];
+
 export class OwnerIdentityDeniedError extends Error {
   readonly code = "owner_unmapped";
 
@@ -71,4 +81,15 @@ export function resolvePhotonOwnerIdentity(
     ownerId,
     principalAlias: ownerAlias(secret, principalId),
   });
+}
+
+export function requirePhotonOwnerAccess(
+  input: {
+    principalId: string;
+    resource: OwnerResourceKind;
+  },
+  environment: NodeJS.ProcessEnv = process.env,
+): OwnerIdentity {
+  if (!OWNER_RESOURCE_KINDS.includes(input.resource)) denied();
+  return resolvePhotonOwnerIdentity(input.principalId, environment);
 }
