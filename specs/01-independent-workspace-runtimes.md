@@ -975,7 +975,7 @@ Exit gate:
 - [x] Run all deterministic suites, Redis-backed race tests, typecheck, Eve
   build, and application build.
 - [x] Publish and execute the local schedule-test runbook.
-- [ ] Verify two simultaneous workspace runs and controlled budget exhaustion.
+- [x] Verify two simultaneous workspace runs and controlled budget exhaustion.
 - [ ] Run the SEC read-only live smoke.
 - [ ] With owner authorization, deploy behind flags and execute the real Photon
   IPO alert/discuss/manager flow.
@@ -1171,3 +1171,4 @@ own bounded implementation spec:
 | 2026-08-14 | Sprint 5 exit gate: initialize the exact public-only IPO reference runtime from the owner’s monitor request, use Eve call IDs for retry-safe creation, and fail closed for unconfigured generic runtimes | Owner-workflow, monitor, monitor-tool, SEC reference/fixture, worker-isolation, Photon manager/workspace regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Run the complete deterministic verification matrix, ephemeral-Redis runtime races, typecheck, Eve build, and application production build | All package-mapped non-live verification scripts, `REDIS_SERVER_BIN=<ephemeral redis-server> jiti scripts/verify-workspace-runtime-redis.ts`, `tsc --noEmit`, fixture-configured `eve build`, and `next build --webpack` (documented fallback for a Turbopack worktree-symlink panic) — passed |
 | 2026-08-14 | Publish and execute the local schedule-test runbook with disposable Redis and the real Eve development dispatch route | Runbook contract verification, local REST-proxy command/pipeline check, `POST /eve/v1/dev/schedules/event-triggers` returning an empty successful dispatch, and deliberate internal-runner 404 — passed |
+| 2026-08-14 | Hold two isolated workspace runs concurrently, deny a third at the global cap, reconcile both, and prove controlled admission recovery | Dispatch-budget overlap/barrier verification, ephemeral-Redis concurrent claims, SEC concurrent-workspace fixtures, worker-isolation regression, and `tsc --noEmit` — passed |

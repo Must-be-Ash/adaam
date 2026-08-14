@@ -263,6 +263,87 @@ const race = await Promise.allSettled([
 assert.equal(race.filter((result) => result.status === "fulfilled").length, 1);
 assert.equal(race.filter((result) => result.status === "rejected").length, 1);
 
+const overlapGlobal = new MemoryStore();
+const overlapState = new MemoryStore();
+const overlapWorkspace = new MemoryStore();
+await Promise.all([
+  putPolicy(scopeA, overlapState),
+  putPolicy(scopeB, overlapState),
+  putPolicy(scopeC, overlapState),
+]);
+const overlapClients = {
+  global: overlapGlobal,
+  state: overlapState,
+  workspace: overlapWorkspace,
+};
+const overlapJobA = job(scopeA, "overlapa");
+const overlapJobB = job(scopeB, "overlapb");
+const [overlapBudgetA, overlapBudgetB] = await Promise.all([
+  reserveWorkspaceMonitorDispatchBudget(overlapJobA, {
+    clients: overlapClients,
+    environment,
+    now,
+  }),
+  reserveWorkspaceMonitorDispatchBudget(overlapJobB, {
+    clients: overlapClients,
+    environment,
+    now,
+  }),
+]);
+let releaseWorkers!: () => void;
+const workerGate = new Promise<void>((resolve) => { releaseWorkers = resolve; });
+let confirmOverlap!: () => void;
+const overlapped = new Promise<void>((resolve) => { confirmOverlap = resolve; });
+const activeWorkspaces = new Set<string>();
+let maximumOverlap = 0;
+async function executeFixtureWorker(
+  fixtureJob: ClaimedWorkspaceMonitor,
+  reservation: Awaited<ReturnType<typeof reserveWorkspaceMonitorDispatchBudget>>,
+) {
+  activeWorkspaces.add(fixtureJob.scope.workspaceId);
+  maximumOverlap = Math.max(maximumOverlap, activeWorkspaces.size);
+  if (activeWorkspaces.size === 2) confirmOverlap();
+  await workerGate;
+  activeWorkspaces.delete(fixtureJob.scope.workspaceId);
+  await finishWorkspaceMonitorDispatchBudget(
+    fixtureJob,
+    reservation,
+    { actualInputTokens: 100, actualOutputTokens: 25, now, outcome: "reconciled" },
+    overlapClients,
+  );
+}
+const runningWorkers = [
+  executeFixtureWorker(overlapJobA, overlapBudgetA),
+  executeFixtureWorker(overlapJobB, overlapBudgetB),
+];
+await overlapped;
+assert.deepEqual(activeWorkspaces, new Set([scopeA.workspaceId, scopeB.workspaceId]));
+await assert.rejects(
+  reserveWorkspaceMonitorDispatchBudget(job(scopeC, "overlapc"), {
+    clients: overlapClients,
+    environment,
+    now,
+  }),
+  (error) =>
+    error instanceof WorkspaceDispatchBudgetError &&
+    error.code === "global_budget_exhausted",
+);
+releaseWorkers();
+await Promise.all(runningWorkers);
+assert.equal(maximumOverlap, 2);
+const recoveredJob = job(scopeC, "overlapd");
+const recoveredBudget = await reserveWorkspaceMonitorDispatchBudget(recoveredJob, {
+  clients: overlapClients,
+  environment,
+  now,
+});
+await finishWorkspaceMonitorDispatchBudget(
+  recoveredJob,
+  recoveredBudget,
+  { now, outcome: "released" },
+  overlapClients,
+);
+
 const scheduleSource = await readFile(
   new URL("../agent/schedules/event-triggers.ts", import.meta.url),
   "utf8",
