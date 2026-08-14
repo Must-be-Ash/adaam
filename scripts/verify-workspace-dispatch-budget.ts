@@ -70,6 +70,7 @@ function job(
   suffix: string,
 ): ClaimedWorkspaceMonitor {
   return {
+    leaseExpiresAt: new Date(now.getTime() + 60_000).toISOString(),
     leaseToken: `lease_${suffix}`,
     monitor: {
       configurationRevision: 1,

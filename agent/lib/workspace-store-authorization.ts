@@ -9,6 +9,7 @@ import {
   requirePhotonWorkspaceToolScope,
   type WorkspaceRuntimeScope,
 } from "./workspace-runtime-scope";
+import { requireWorkspaceWorkerAuth } from "./workspace-worker-auth";
 
 const workspaceIdSchema = z.string().uuid();
 const ownerIdSchema = z.string().regex(/^[a-z][a-z0-9_-]{2,63}$/u);
@@ -77,6 +78,14 @@ export function authorizeDeploymentWorkspaceStore(
   const configuredOwnerId = environment.EVE_DEPLOYMENT_OWNER_ID;
   if (!configuredOwnerId || input.ownerId !== configuredOwnerId) forbidden();
   return mint(input);
+}
+
+export function authorizeWorkspaceWorkerStore(
+  ctx: Pick<SessionContext, "session">,
+  environment: NodeJS.ProcessEnv = process.env,
+): AuthorizedWorkspaceStoreScope {
+  const envelope = requireWorkspaceWorkerAuth(ctx, {}, environment);
+  return mint({ ownerId: envelope.ownerId, workspaceId: envelope.workspaceId });
 }
 
 export function assertAuthorizedWorkspaceStoreScope(

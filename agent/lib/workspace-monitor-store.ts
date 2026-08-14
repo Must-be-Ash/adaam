@@ -252,6 +252,7 @@ export type WorkspaceMonitorSchedule = z.infer<typeof workspaceMonitorScheduleSc
 export type WorkspaceMonitorOccurrence = z.infer<typeof occurrenceSchema>;
 
 export interface ClaimedWorkspaceMonitor {
+  readonly leaseExpiresAt: string;
   readonly leaseToken: string;
   readonly monitor: WorkspaceMonitor;
   readonly occurrence: WorkspaceMonitorOccurrence;
@@ -637,6 +638,7 @@ export async function claimDueWorkspaceMonitors(
     if (result.status !== "claimed" || !result.attempt) continue;
     claims.push(
       Object.freeze({
+        leaseExpiresAt: new Date(input.now.getTime() + input.leaseForMs).toISOString(),
         leaseToken,
         monitor,
         occurrence: occurrenceSchema.parse({

@@ -445,6 +445,10 @@ const dispatchClaims = await claimDueWorkspaceMonitors(
   dispatcherClient,
 );
 assert.equal(dispatchClaims.length, 1);
+assert.equal(
+  dispatchClaims[0]?.leaseExpiresAt,
+  new Date(new Date(scheduledFor).getTime() + 60_000).toISOString(),
+);
 assert.equal(dispatchClaims[0]?.monitor.monitorId, dispatcherMonitor.monitorId);
 assert.equal(dispatchClaims[0]?.occurrence.attempt, 1);
 assert.equal(
