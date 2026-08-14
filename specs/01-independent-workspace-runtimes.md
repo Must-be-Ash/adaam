@@ -976,7 +976,7 @@ Exit gate:
   build, and application build.
 - [x] Publish and execute the local schedule-test runbook.
 - [x] Verify two simultaneous workspace runs and controlled budget exhaustion.
-- [ ] Run the SEC read-only live smoke.
+- [x] Run the SEC read-only live smoke.
 - [ ] With owner authorization, deploy behind flags and execute the real Photon
   IPO alert/discuss/manager flow.
 - [ ] Verify event streams and delivery receipts, not only the final iMessage.
@@ -1172,3 +1172,4 @@ own bounded implementation spec:
 | 2026-08-14 | Run the complete deterministic verification matrix, ephemeral-Redis runtime races, typecheck, Eve build, and application production build | All package-mapped non-live verification scripts, `REDIS_SERVER_BIN=<ephemeral redis-server> jiti scripts/verify-workspace-runtime-redis.ts`, `tsc --noEmit`, fixture-configured `eve build`, and `next build --webpack` (documented fallback for a Turbopack worktree-symlink panic) — passed |
 | 2026-08-14 | Publish and execute the local schedule-test runbook with disposable Redis and the real Eve development dispatch route | Runbook contract verification, local REST-proxy command/pipeline check, `POST /eve/v1/dev/schedules/event-triggers` returning an empty successful dispatch, and deliberate internal-runner 404 — passed |
 | 2026-08-14 | Hold two isolated workspace runs concurrently, deny a third at the global cap, reconcile both, and prove controlled admission recovery | Dispatch-budget overlap/barrier verification, ephemeral-Redis concurrent claims, SEC concurrent-workspace fixtures, worker-isolation regression, and `tsc --noEmit` — passed |
+| 2026-08-14 | Run one bounded, declared, read-only SEC IPO feed smoke and establish a local no-alert baseline checkpoint | Fixture-tested live-smoke contract plus one configured-user-agent GET of the exact SEC S-1 Atom feed; 10 entries parsed and checkpoint watermark `2026-08-14T21:23:15.000Z` created without remote writes — passed |
