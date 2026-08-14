@@ -109,7 +109,18 @@ const scheduleSchema = z.discriminatedUnion("kind", [
             context.addIssue({ code: "custom", message: "Daily times must be sorted." });
           }
         }),
-      timezone: z.string().min(1).max(80),
+      timezone: z
+        .string()
+        .min(1)
+        .max(80)
+        .refine((value) => {
+          try {
+            new Intl.DateTimeFormat("en", { timeZone: value });
+            return true;
+          } catch {
+            return false;
+          }
+        }),
     })
     .strict(),
   z

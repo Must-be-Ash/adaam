@@ -46,6 +46,7 @@
     "verify:workspace-runtime:start-fresh": "jiti scripts/verify-workspace-start-fresh.ts",
     "verify:workspace-runtime:isolation": "jiti scripts/verify-workspace-isolation.ts",
     "verify:workspace-runtime:monitors": "jiti scripts/verify-workspace-monitor-store.ts",
+    "verify:workspace-runtime:schedules": "jiti scripts/verify-workspace-monitor-schedule.ts",
     "verify:workspaces": "node scripts/verify-photon-workspaces.mjs",
     "verify:workspaces:redis": "node scripts/verify-photon-workspaces-redis.mjs"
   },
