@@ -40,10 +40,19 @@ export function createWorkspacePhotonHarness({ handleWebhook }) {
   const assignments = new Map();
   const eveDispatches = [];
   const photonDeliveries = [];
+  const alertDeliveries = new Map();
   const toolCalls = [];
   const ownersByAliasDigest = new Map([
     [digest("photon_fixture_alias"), "owner_fixture"],
   ]);
+  const routing = {
+    revision: 0,
+    selectedWorkspaceId: "workspace_main",
+    workspaces: new Map([
+      ["workspace_main", { generation: 1, name: "Main", status: "active" }],
+      ["workspace_ipo", { generation: 1, name: "IPO Filings", status: "active" }],
+    ]),
+  };
 
   const ports = Object.freeze({
     auth: Object.freeze({
@@ -81,6 +90,31 @@ export function createWorkspacePhotonHarness({ handleWebhook }) {
         events.push({ type: "assignment.persisted", ingressId: input.ingressId });
         return assignment;
       },
+      routing() {
+        return structuredClone({
+          revision: routing.revision,
+          selectedWorkspaceId: routing.selectedWorkspaceId,
+          workspaces: Object.fromEntries(routing.workspaces),
+        });
+      },
+      selectWorkspace({ expectedRevision, workspaceId }) {
+        if (expectedRevision !== routing.revision) throw new Error("fixture_stale_action");
+        const workspace = routing.workspaces.get(workspaceId);
+        if (!workspace || workspace.status !== "active") throw new Error("fixture_workspace_unavailable");
+        routing.selectedWorkspaceId = workspaceId;
+        routing.revision += 1;
+        events.push({ type: "workspace.selected", workspaceId });
+        return this.routing();
+      },
+      startFresh({ expectedRevision, workspaceId }) {
+        if (expectedRevision !== routing.revision) throw new Error("fixture_stale_action");
+        const workspace = routing.workspaces.get(workspaceId);
+        if (!workspace || workspace.status !== "active") throw new Error("fixture_workspace_unavailable");
+        workspace.generation += 1;
+        routing.revision += 1;
+        events.push({ type: "workspace.started_fresh", workspaceId });
+        return this.routing();
+      },
     }),
     eve: Object.freeze({
       async dispatch(input) {
@@ -101,6 +135,24 @@ export function createWorkspacePhotonHarness({ handleWebhook }) {
         events.push({ type: "photon.delivered", ingressId: input.ingressId });
         return Object.freeze({ deliveryId: `delivery_${input.ingressId}` });
       },
+      async deliverAlert(input) {
+        const deliveryKey = `${input.alertId}\0${input.destinationId}`;
+        const existing = alertDeliveries.get(deliveryKey);
+        if (existing) {
+          if (existing.state === "delivery_uncertain") throw new Error("fixture_uncertain_replay_denied");
+          return { duplicate: true, ...existing };
+        }
+        const delivery = Object.freeze({
+          alertId: input.alertId,
+          destinationId: input.destinationId,
+          state: input.uncertain ? "delivery_uncertain" : "delivered",
+          workspaceId: input.workspaceId,
+        });
+        alertDeliveries.set(deliveryKey, delivery);
+        events.push({ type: input.uncertain ? "alert.uncertain" : "alert.delivered", alertId: input.alertId });
+        if (input.uncertain) throw new Error("fixture_alert_delivery_uncertain");
+        return { duplicate: false, ...delivery };
+      },
     }),
     tools: Object.freeze({
       async invoke(toolName, input) {
@@ -117,13 +169,18 @@ export function createWorkspacePhotonHarness({ handleWebhook }) {
     async receive(event) {
       return await handleWebhook(structuredClone(event), ports);
     },
+    async deliverAlert(input) {
+      return ports.photon.deliverAlert(structuredClone(input));
+    },
     snapshot() {
       return structuredClone({
         assignments: [...assignments.values()],
+        alertDeliveries: [...alertDeliveries.values()],
         eveDispatches,
         events,
         photonDeliveries,
         toolCalls,
+        routing: ports.state.routing(),
       });
     },
   });

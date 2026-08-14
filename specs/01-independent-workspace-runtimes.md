@@ -943,7 +943,7 @@ Exit gate:
 - [x] Route held alert replies through the same ingress assignment and dispatch
   state machine as ordinary messages.
 - [x] Add delivery uncertainty quarantine and explicit recovery controls.
-- [ ] Complete the deterministic Photon integration harness for routing,
+- [x] Complete the deterministic Photon integration harness for routing,
   duplicate webhooks, session switching, `Start fresh`, alerts, and stale
   actions.
 
@@ -1159,3 +1159,4 @@ own bounded implementation spec:
 | 2026-08-14 | Mint short-lived owner/conversation/workspace/alert/revision-bound Discuss capabilities in URL fragments, atomically select and stage one pending alert reference, and make stale taps and consumption harmless | `jiti scripts/verify-photon-alert-context.ts`, Photon workspace/ingress/alert regressions, ephemeral Redis runtime verification, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Hold only strong quoted or exact workspace-and-title alert replies outside workspace history, require an explicit workspace choice, and dispatch the original ingress exactly once through immutable assignment and dispatch receipts | `jiti scripts/verify-photon-alert-replies.ts`, alert-context/store regressions, Photon workspace and ingress regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Add CAS alert-delivery transitions, never replay uncertain Photon sends, pause the owning monitor on ambiguity, and require an explicit recorded reconciliation outcome | `jiti scripts/verify-workspace-alert-store.ts`, `jiti scripts/verify-photon-alert-delivery.ts`, monitor and alert-reply regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
+| 2026-08-14 | Expand the network- and broker-free Photon harness across routing, concurrent duplicate webhooks, switching, Start fresh, alert dedupe, uncertain-delivery denial, stale actions, Discuss routing, and owner denial | `node scripts/verify-workspace-photon-harness.mjs` and `tsc --noEmit` — passed |

@@ -97,4 +97,113 @@ for (const forbiddenImport of [
 assert.equal(/\bfetch\s*\(/u.test(harnessSource), false);
 assert.equal(/\bspawn\s*\(/u.test(harnessSource), false);
 
+const routingHarness = createWorkspacePhotonHarness({
+  async handleWebhook(event, ports) {
+    const ownerId = ports.auth.resolveOwner(event.alias);
+    const ingress = ports.state.createIngress(event);
+    if (!ingress.created) return { duplicate: true };
+    if (event.action === "select") {
+      return ports.state.selectWorkspace({
+        expectedRevision: event.expectedRevision,
+        workspaceId: event.workspaceId,
+      });
+    }
+    if (event.action === "start_fresh") {
+      return ports.state.startFresh({
+        expectedRevision: event.expectedRevision,
+        workspaceId: event.workspaceId,
+      });
+    }
+    const routing = ports.state.routing();
+    const workspace = routing.workspaces[routing.selectedWorkspaceId];
+    ports.state.persistAssignment({
+      generation: workspace.generation,
+      ingressId: ingress.receipt.ingressId,
+      ownerId,
+      workspaceId: routing.selectedWorkspaceId,
+    });
+    return ports.eve.dispatch({
+      generation: workspace.generation,
+      ingressId: ingress.receipt.ingressId,
+      ownerId,
+      workspaceId: routing.selectedWorkspaceId,
+    });
+  },
+});
+
+await routingHarness.receive({ alias: "photon_fixture_alias", eventId: "route_main", text: "hello" });
+await routingHarness.receive({
+  action: "select",
+  alias: "photon_fixture_alias",
+  eventId: "select_ipo",
+  expectedRevision: 0,
+  workspaceId: "workspace_ipo",
+});
+await assert.rejects(() => routingHarness.receive({
+  action: "select",
+  alias: "photon_fixture_alias",
+  eventId: "stale_select",
+  expectedRevision: 0,
+  workspaceId: "workspace_main",
+}), /fixture_stale_action/u);
+await routingHarness.receive({
+  action: "start_fresh",
+  alias: "photon_fixture_alias",
+  eventId: "fresh_ipo",
+  expectedRevision: 1,
+  workspaceId: "workspace_ipo",
+});
+const [firstDuplicate, secondDuplicate] = await Promise.all([
+  routingHarness.receive({ alias: "photon_fixture_alias", eventId: "route_once", text: "once" }),
+  routingHarness.receive({ alias: "photon_fixture_alias", eventId: "route_once", text: "duplicate" }),
+]);
+assert.equal([firstDuplicate, secondDuplicate].filter((result) => result.duplicate).length, 1);
+const alert = await routingHarness.deliverAlert({
+  alertId: "alert_fixture",
+  destinationId: "conversation_fixture",
+  workspaceId: "workspace_main",
+});
+assert.equal(alert.duplicate, false);
+assert.equal((await routingHarness.deliverAlert({
+  alertId: "alert_fixture",
+  destinationId: "conversation_fixture",
+  workspaceId: "workspace_main",
+})).duplicate, true);
+assert.equal(routingHarness.snapshot().routing.selectedWorkspaceId, "workspace_ipo");
+await assert.rejects(() => routingHarness.deliverAlert({
+  alertId: "alert_uncertain",
+  destinationId: "conversation_fixture",
+  uncertain: true,
+  workspaceId: "workspace_main",
+}), /fixture_alert_delivery_uncertain/u);
+await assert.rejects(() => routingHarness.deliverAlert({
+  alertId: "alert_uncertain",
+  destinationId: "conversation_fixture",
+  workspaceId: "workspace_main",
+}), /fixture_uncertain_replay_denied/u);
+await routingHarness.receive({
+  action: "select",
+  alias: "photon_fixture_alias",
+  eventId: "discuss_main",
+  expectedRevision: 2,
+  workspaceId: "workspace_main",
+});
+await routingHarness.receive({ alias: "photon_fixture_alias", eventId: "discuss_message", text: "discuss it" });
+await assert.rejects(() => routingHarness.receive({
+  alias: "photon_unknown_alias",
+  eventId: "owner_denied",
+  text: "must fail",
+}), /fixture_owner_denied/u);
+const routingSnapshot = routingHarness.snapshot();
+assert.equal(routingSnapshot.routing.selectedWorkspaceId, "workspace_main");
+assert.equal(routingSnapshot.routing.workspaces.workspace_ipo.generation, 2);
+assert.deepEqual(
+  routingSnapshot.eveDispatches.map((entry) => [entry.workspaceId, entry.generation]),
+  [
+    ["workspace_main", 1],
+    ["workspace_ipo", 2],
+    ["workspace_main", 1],
+  ],
+);
+
 console.log("Fixture-backed Photon integration harness passed.");
