@@ -884,7 +884,7 @@ Exit gate:
   capability manifest, and budget stores.
 - [x] Add owner/workspace-scoped authorization helpers used by every store.
 - [x] Add atomic run and paid-budget reservation/reconciliation primitives.
-- [ ] Add default-deny dynamic capability resolution for runtime sessions.
+- [x] Add default-deny dynamic capability resolution for runtime sessions.
 - [ ] Add provider tool-inventory/schema drift reporting and typed unavailable-
   capability reasons; newly discovered tools remain disabled.
 - [ ] Verify `Start fresh` retains the new workspace state and revokes stale
@@ -1132,3 +1132,4 @@ own bounded implementation spec:
 | 2026-08-14 | Add versioned, byte-bounded CAS stores for workspace briefs, strategy configuration, capability manifests, and budget policies | `jiti scripts/verify-workspace-state-store.ts` and `tsc --noEmit` — passed |
 | 2026-08-14 | Require non-serializable owner/workspace authorization scopes for every workspace state-store read and write | `jiti scripts/verify-workspace-state-store.ts` and `tsc --noEmit` — passed |
 | 2026-08-14 | Add CAS-atomic run/token/paid-budget reservations with exact decimal reconciliation and retained uncertainty | `jiti scripts/verify-workspace-budget-ledger.ts`, `jiti scripts/verify-workspace-state-store.ts`, and `tsc --noEmit` — passed |
+| 2026-08-14 | Add step-level default-deny runtime capability resolution with shared hard denials and reviewed provider schemas | `jiti scripts/verify-workspace-runtime-capabilities.ts` and `tsc --noEmit` — passed |
