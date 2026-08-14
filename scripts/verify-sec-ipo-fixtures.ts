@@ -135,6 +135,11 @@ assert.throws(
 
 class FixtureWorkspaceRuntime {
   readonly checkpoints = new Map<string, SecIpoCheckpoint>();
+  readonly occurrenceOutcomes = new Map<string, {
+    findingId: string | null;
+    kind: "finding" | "no_match";
+    watermark: string;
+  }>();
   run(workspace: typeof workspaceA, page: typeof initialPage) {
     const result = evaluateSecIpoPage(
       page,
@@ -143,6 +148,25 @@ class FixtureWorkspaceRuntime {
     );
     this.checkpoints.set(workspace.workspaceId, result.checkpoint);
     return result;
+  }
+  runOccurrence(input: {
+    occurrenceKey: string;
+    page: typeof initialPage;
+    promptBytes: number;
+    workspace: typeof workspaceA;
+  }) {
+    assert.ok(input.promptBytes > 0 && input.promptBytes <= 96 * 1_024);
+    const key = `${input.workspace.workspaceId}:${input.occurrenceKey}`;
+    const existing = this.occurrenceOutcomes.get(key);
+    if (existing) return existing;
+    const result = this.run(input.workspace, input.page);
+    const outcome = {
+      findingId: result.findings[0]?.findingId ?? null,
+      kind: result.findings.length > 0 ? "finding" as const : "no_match" as const,
+      watermark: result.checkpoint.watermark,
+    };
+    this.occurrenceOutcomes.set(key, outcome);
+    return outcome;
   }
 }
 const runtime = new FixtureWorkspaceRuntime();
@@ -173,6 +197,31 @@ assert.notStrictEqual(
 );
 assert.deepEqual(runtime.checkpoints.get(workspaceA.workspaceId), concurrentA.checkpoint);
 assert.deepEqual(runtime.checkpoints.get(workspaceB.workspaceId), concurrentB.checkpoint);
+
+const scheduledRuntime = new FixtureWorkspaceRuntime();
+const baselineOccurrence = {
+  occurrenceKey: "scheduled-ipo-baseline",
+  page: initialPage,
+  promptBytes: Buffer.byteLength(JSON.stringify({
+    brief: { goal: "Track public IPO registrations." },
+    instruction: "Evaluate the exact SEC S-1 source window.",
+    sources: [SEC_IPO_SOURCE_URL],
+  }), "utf8"),
+  workspace: workspaceA,
+};
+const noMatch = scheduledRuntime.runOccurrence(baselineOccurrence);
+assert.equal(noMatch.kind, "no_match");
+assert.equal(noMatch.findingId, null);
+assert.strictEqual(scheduledRuntime.runOccurrence(baselineOccurrence), noMatch);
+assert.equal(scheduledRuntime.occurrenceOutcomes.size, 1);
+const scheduledFinding = scheduledRuntime.runOccurrence({
+  ...baselineOccurrence,
+  occurrenceKey: "scheduled-ipo-new-filing",
+  page: laterPage,
+});
+assert.equal(scheduledFinding.kind, "finding");
+assert.match(scheduledFinding.findingId ?? "", /^finding_[a-f0-9]{64}$/u);
+assert.equal(scheduledRuntime.occurrenceOutcomes.size, 2);
 
 const scenarios = JSON.parse(await fixture("scenarios.json"));
 assert.deepEqual(scenarios.failures, [

@@ -928,7 +928,7 @@ Exit gate:
 
 Exit gate:
 
-- [ ] A scheduled IPO fixture occurrence produces one correct durable finding or
+- [x] A scheduled IPO fixture occurrence produces one correct durable finding or
   no-match checkpoint with bounded context and no duplicate side effects.
 
 ### Sprint 4 — durable alerts and reply-safe Photon routing
@@ -1151,3 +1151,4 @@ own bounded implementation spec:
 | 2026-08-14 | Add the public-only IPO Filings capability manifest, exact filtered SEC source, and bounded versioned S-1/S-1/A Atom normalizer | `jiti scripts/verify-sec-ipo-reference.ts`, finding regression, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Complete the SEC IPO baseline/new/replay/amendment/failure/concurrent-workspace corpus and occurrence-key retry-safe checkpoint semantics | `jiti scripts/verify-sec-ipo-fixtures.ts`, finding/monitor regressions, ephemeral-Redis checkpoint matrix, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Dispatch each occurrence directly to a fresh declared worker task with typed bounded context, exact source-tool fencing, scoped terminal outcomes, and no interactive or cross-workspace state | `jiti scripts/verify-workspace-worker-isolation.ts`, worker auth/source coverage/finding/capability/SEC fixture regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
+| 2026-08-14 | Sprint 3 exit gate: prove a bounded scheduled IPO baseline/no-match and new-filing outcome are occurrence-idempotent with one durable side-effect set | `jiti scripts/verify-sec-ipo-fixtures.ts`, `jiti scripts/verify-workspace-worker-isolation.ts`, source/finding/monitor regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
