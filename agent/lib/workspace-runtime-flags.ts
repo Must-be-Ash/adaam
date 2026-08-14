@@ -8,8 +8,34 @@ export interface WorkspaceRuntimeFlags {
   readonly legacyTriggerCreation: boolean;
 }
 
+export class WorkspaceRuntimeFlagError extends Error {
+  readonly code: "legacy_trigger_creation_disabled" | "workspace_monitor_writes_disabled";
+
+  constructor(code: WorkspaceRuntimeFlagError["code"]) {
+    super(code);
+    this.code = code;
+    this.name = "WorkspaceRuntimeFlagError";
+  }
+}
+
 function enabled(value: string | undefined): boolean {
   return value === "1";
+}
+
+export function requireLegacyTriggerCreation(
+  environment: NodeJS.ProcessEnv = process.env,
+): void {
+  if (!resolveWorkspaceRuntimeFlags(environment).legacyTriggerCreation) {
+    throw new WorkspaceRuntimeFlagError("legacy_trigger_creation_disabled");
+  }
+}
+
+export function requireWorkspaceMonitorWrites(
+  environment: NodeJS.ProcessEnv = process.env,
+): void {
+  if (!resolveWorkspaceRuntimeFlags(environment).monitorWrites) {
+    throw new WorkspaceRuntimeFlagError("workspace_monitor_writes_disabled");
+  }
 }
 
 function legacyCreationEnabled(value: string | undefined): boolean {

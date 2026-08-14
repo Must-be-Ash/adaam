@@ -7,6 +7,7 @@ import {
   WORKSPACE_MONITOR_SOURCE_LIMIT,
   WORKSPACE_MONITOR_SOURCE_LIMIT_CODE,
 } from "../lib/workspace-monitor-input";
+import { requireLegacyTriggerCreation } from "../lib/workspace-runtime-flags";
 
 const MAX_FUTURE_MS = 89 * 24 * 60 * 60 * 1_000;
 
@@ -49,6 +50,7 @@ export default defineTool({
       : "not-applicable",
   inputSchema: createEventTriggerInputSchema,
   async execute(input, ctx) {
+    requireLegacyTriggerCreation();
     const now = Date.now();
     const requested = new Date(input.firstRunAt);
     if (requested.getTime() < now - 2 * 60_000) {

@@ -8,6 +8,7 @@ import {
 } from "../lib/workspace-monitor-store";
 import { workspaceMonitorCreateSourcesSchema } from "../lib/workspace-monitor-input";
 import { requirePhotonWorkspaceToolScope } from "../lib/workspace-runtime-scope";
+import { requireWorkspaceMonitorWrites } from "../lib/workspace-runtime-flags";
 import { authorizePhotonWorkspaceToolStore } from "../lib/workspace-store-authorization";
 
 export const createWorkspaceMonitorInputSchema = z.object({
@@ -33,6 +34,7 @@ export default defineTool({
     "Create a durable monitor in the current authenticated workspace. Sources are exact and limited to eight combined entries.",
   inputSchema: createWorkspaceMonitorInputSchema,
   async execute(input, ctx) {
+    requireWorkspaceMonitorWrites();
     const runtimeScope = requirePhotonWorkspaceToolScope(ctx);
     const scope = authorizePhotonWorkspaceToolStore(ctx, runtimeScope);
     const now = new Date();

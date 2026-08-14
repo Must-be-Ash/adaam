@@ -7,6 +7,7 @@ import {
   workspaceMonitorScheduleSchema,
 } from "../lib/workspace-monitor-store";
 import { workspaceMonitorUpdateSourcesSchema } from "../lib/workspace-monitor-input";
+import { requireWorkspaceMonitorWrites } from "../lib/workspace-runtime-flags";
 import { authorizePhotonWorkspaceToolStore } from "../lib/workspace-store-authorization";
 
 export const updateWorkspaceMonitorInputSchema = z.object({
@@ -34,6 +35,7 @@ export default defineTool({
     "Update an exact monitor ID in the current authenticated workspace using its current configuration revision.",
   inputSchema: updateWorkspaceMonitorInputSchema,
   async execute({ expectedRevision, monitorId, schedule, ...patch }, ctx) {
+    requireWorkspaceMonitorWrites();
     const scope = authorizePhotonWorkspaceToolStore(ctx);
     const now = new Date();
     const next = schedule ? nextWorkspaceMonitorOccurrence(schedule, now) : undefined;

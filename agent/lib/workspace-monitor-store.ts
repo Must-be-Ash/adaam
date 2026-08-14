@@ -450,6 +450,17 @@ function parseMonitor(raw: string, scope: AuthorizedWorkspaceStoreScope): Worksp
   return parsed;
 }
 
+export function validateWorkspaceMonitorValue(
+  value: unknown,
+  scope: AuthorizedWorkspaceStoreScope,
+): WorkspaceMonitor {
+  assertAuthorizedWorkspaceStoreScope(scope);
+  return parseMonitor(
+    typeof value === "string" ? value : JSON.stringify(value),
+    scope,
+  );
+}
+
 function parseUnscopedMonitor(raw: string): WorkspaceMonitor {
   if (Buffer.byteLength(raw, "utf8") > MAX_RECORD_BYTES) {
     throw new WorkspaceMonitorError("monitor_invalid");

@@ -905,7 +905,7 @@ Exit gate:
 - [x] Preserve exact source fencing and complete-coverage checkpoints.
 - [x] Align monitor create/update tools, manager validation, and storage on the
   maximum of eight combined sources.
-- [ ] Add legacy trigger compatibility and explicit immutable-workspace
+- [x] Add legacy trigger compatibility and explicit immutable-workspace
   assignment flow.
 - [ ] Add Redis-backed tests for leases, competing claims, budgets, retries,
   checkpoints, failure pause, archive/pause races, expiration, and uncertain
@@ -1142,3 +1142,4 @@ own bounded implementation spec:
 | 2026-08-14 | Enforce CAS-atomic workspace and deployment concurrency/run admission before workspace worker handoff | `jiti scripts/verify-workspace-dispatch-budget.ts`, `jiti scripts/verify-workspace-monitor-store.ts`, `jiti scripts/verify-workspace-budget-ledger.ts`, and `tsc --noEmit` — passed |
 | 2026-08-14 | Preserve exact configured-source fences, at-most-once attempts, and all-sources-success durable checkpoints | `jiti scripts/verify-workspace-source-coverage.ts`, `jiti scripts/verify-workspace-monitor-store.ts`, and `tsc --noEmit` — passed |
 | 2026-08-14 | Align workspace and compatibility monitor create/update schemas, manager validation, and storage on the same eight-source ceiling and bounded ninth-source code | `jiti scripts/verify-workspace-monitor-input.ts`, `jiti scripts/verify-workspace-monitor-store.ts`, `node scripts/verify-photon-workspaces.mjs`, `tsc --noEmit`, and `eve build` with fixture-only storage configuration — passed |
+| 2026-08-14 | Add labeled legacy compatibility and explicit current-workspace assignment with one atomic monitor-create/legacy-disable transaction | `jiti scripts/verify-workspace-legacy-assignment.ts`, `node scripts/verify-workspace-runtime-flags.mjs`, `jiti scripts/verify-workspace-monitor-store.ts`, `jiti scripts/verify-workspace-monitor-input.ts`, and `tsc --noEmit` — passed |

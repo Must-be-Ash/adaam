@@ -138,6 +138,7 @@ const scheduledSessionRunSchema = z.object({
 });
 
 export interface EventTriggerView {
+  runtimeKind: "legacy_monitor";
   id: string;
   name: string;
   instruction: string;
@@ -297,6 +298,7 @@ function toIso(timestamp: number | null): string | null {
 
 function toView(record: EventTriggerRecord): EventTriggerView {
   return {
+    runtimeKind: "legacy_monitor",
     id: record.id,
     name: record.name,
     instruction: record.instruction,

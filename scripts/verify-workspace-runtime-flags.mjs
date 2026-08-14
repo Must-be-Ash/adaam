@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-import { resolveWorkspaceRuntimeFlags } from "../agent/lib/workspace-runtime-flags.ts";
+import {
+  requireLegacyTriggerCreation,
+  requireWorkspaceMonitorWrites,
+  resolveWorkspaceRuntimeFlags,
+  WorkspaceRuntimeFlagError,
+} from "../agent/lib/workspace-runtime-flags.ts";
 
 const defaults = resolveWorkspaceRuntimeFlags({});
 assert.deepEqual(defaults, {
@@ -14,6 +19,13 @@ assert.deepEqual(defaults, {
   legacyTriggerCreation: true,
 });
 assert.equal(Object.isFrozen(defaults), true);
+requireLegacyTriggerCreation({});
+assert.throws(
+  () => requireWorkspaceMonitorWrites({}),
+  (error) =>
+    error instanceof WorkspaceRuntimeFlagError &&
+    error.code === "workspace_monitor_writes_disabled",
+);
 
 assert.deepEqual(
   resolveWorkspaceRuntimeFlags({
@@ -34,6 +46,20 @@ assert.deepEqual(
     sourceEvents: true,
     legacyTriggerCreation: false,
   },
+);
+requireWorkspaceMonitorWrites({
+  EVE_WORKSPACE_STATE_ENABLED: "1",
+  EVE_WORKSPACE_MONITOR_WRITES_ENABLED: "1",
+});
+assert.throws(
+  () =>
+    requireLegacyTriggerCreation({
+      EVE_WORKSPACE_STATE_ENABLED: "1",
+      EVE_WORKSPACE_MONITOR_WRITES_ENABLED: "1",
+    }),
+  (error) =>
+    error instanceof WorkspaceRuntimeFlagError &&
+    error.code === "legacy_trigger_creation_disabled",
 );
 
 assert.deepEqual(
