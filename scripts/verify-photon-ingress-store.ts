@@ -7,8 +7,10 @@ import {
   createPhotonIngressReceipt,
   createPhotonResponseDeliveryReceipt,
   markPhotonDispatchAccepted,
+  markPhotonResponseDelivery,
   photonIngressAuthAttributes,
   PhotonIngressStoreError,
+  quarantinePhotonDispatch,
   readPhotonDispatchReceipt,
   type PhotonIngressStoreClient,
 } from "../agent/lib/photon-ingress-store";
@@ -90,6 +92,12 @@ const dispatchCreation = await createPhotonDispatchReceipt({
   now,
 }, client);
 assert.equal(dispatchCreation.created, true);
+const duplicateDispatch = await createPhotonDispatchReceipt({
+  assignment,
+  continuationTarget: "private-continuation-target",
+  now,
+}, client);
+assert.equal(duplicateDispatch.created, false);
 assert.equal(dispatchCreation.record.state, "dispatching");
 assert.equal(JSON.stringify([...client.values.values()]).includes("private-continuation-target"), false);
 const dispatched = await markPhotonDispatchAccepted({
@@ -122,5 +130,52 @@ assert.equal(response.record.state, "staged");
 const serialized = JSON.stringify(response.record);
 assert.equal(serialized.includes("private assistant response"), false);
 assert.equal(serialized.includes("private physical thread"), false);
+await markPhotonResponseDelivery({
+  ingressId: first.record.ingressId,
+  now,
+  state: "delivering",
+}, client);
+const uncertainDelivery = await markPhotonResponseDelivery({
+  failureCode: "response_delivery_uncertain",
+  ingressId: first.record.ingressId,
+  now,
+  state: "delivery_uncertain",
+}, client);
+assert.equal(uncertainDelivery.state, "delivery_uncertain");
+assert.equal((await markPhotonResponseDelivery({
+  ingressId: first.record.ingressId,
+  now,
+  state: "delivering",
+}, client)).state, "delivery_uncertain");
+
+const uncertainIngress = (await createPhotonIngressReceipt({
+  ...input,
+  eventId: "uncertain-provider-event",
+}, client)).record;
+const uncertainAssignment = await assignPhotonIngress({
+  generation: 1,
+  ingress: uncertainIngress,
+  now,
+  reason: "selected_workspace",
+  routingRevision: 1,
+  workspaceId: assignment.workspaceId,
+}, client);
+await createPhotonDispatchReceipt({
+  assignment: uncertainAssignment,
+  continuationTarget: "uncertain-target",
+  now,
+}, client);
+const quarantined = await quarantinePhotonDispatch({
+  failureCode: "model_dispatch_uncertain",
+  ingressId: uncertainIngress.ingressId,
+  now,
+  quarantineReason: "manual_reconciliation_required",
+}, client);
+assert.equal(quarantined.state, "quarantined");
+assert.equal((await createPhotonDispatchReceipt({
+  assignment: uncertainAssignment,
+  continuationTarget: "uncertain-target",
+  now,
+}, client)).created, false);
 
 console.info("Photon ingress and response receipt verification passed.");

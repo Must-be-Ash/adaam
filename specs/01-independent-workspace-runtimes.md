@@ -145,9 +145,9 @@ The completed foundation must support this experience:
 - [ ] Every authenticated Photon message that can cause a control-plane or model
   action receives one immutable ingress receipt. An ordinary message is assigned
   to exactly one workspace before any workspace model sees it.
-- [ ] Duplicate Photon webhooks reuse the original ingress receipt and cannot
+- [x] Duplicate Photon webhooks reuse the original ingress receipt and cannot
   cause a second model dispatch, control action, paid call, or response.
-- [ ] A dispatch or outbound delivery whose completion cannot be proven is
+- [x] A dispatch or outbound delivery whose completion cannot be proven is
   quarantined for reconciliation; it is never replayed blindly.
 - [ ] The selected-workspace pointer affects interactive routing only. It never
   controls whether another workspace's monitors run.
@@ -935,7 +935,7 @@ Exit gate:
 
 - [x] Add immutable ingress, workspace-assignment, dispatch, completion, and
   outbound response-delivery receipts for every actionable Photon webhook.
-- [ ] Deduplicate concurrent Photon webhooks before dispatch and quarantine
+- [x] Deduplicate concurrent Photon webhooks before dispatch and quarantine
   uncertain model dispatch or response delivery for reconciliation.
 - [ ] Add channel-independent alert/outbox records and Photon delivery receipts.
 - [ ] Render workspace-headed alert cards with **Discuss** and **Manage**.
@@ -1153,3 +1153,4 @@ own bounded implementation spec:
 | 2026-08-14 | Dispatch each occurrence directly to a fresh declared worker task with typed bounded context, exact source-tool fencing, scoped terminal outcomes, and no interactive or cross-workspace state | `jiti scripts/verify-workspace-worker-isolation.ts`, worker auth/source coverage/finding/capability/SEC fixture regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Sprint 3 exit gate: prove a bounded scheduled IPO baseline/no-match and new-filing outcome are occurrence-idempotent with one durable side-effect set | `jiti scripts/verify-sec-ipo-fixtures.ts`, `jiti scripts/verify-workspace-worker-isolation.ts`, source/finding/monitor regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Add content-free immutable Photon ingress/assignment/dispatch/completion and response-delivery receipts before model dispatch or outbound delivery | `jiti scripts/verify-photon-ingress-store.ts`, Photon harness/workspace/approval/scope regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
+| 2026-08-14 | Atomically gate duplicate Photon events before any action and quarantine ambiguous model dispatch or response delivery without replay | `jiti scripts/verify-photon-ingress-store.ts`, concurrent Photon harness regression, workspace/approval regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |

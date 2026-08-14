@@ -132,11 +132,11 @@ const ordinaryProjection = photonRouter.lastIndexOf(
   "const runtimeScope = projectPhotonWorkspaceRuntimeScope({",
 );
 const ordinaryDispatch = photonRouter.indexOf(
-  "const session = await bridge.send(",
+  "session = await bridge.send(",
   ordinaryProjection,
 );
 const ordinaryAuth = photonRouter.indexOf(
-  "auth: photonAuth(\n        senderId,\n        thread.id,\n        runtimeScope,",
+  "auth: photonAuth(",
   ordinaryDispatch,
 );
 const durableAssignment = photonRouter.indexOf(

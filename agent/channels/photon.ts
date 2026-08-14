@@ -42,6 +42,7 @@ import {
   markPhotonResponseDelivery,
   photonIngressAuthAttributes,
   photonIngressIdFromAuth,
+  quarantinePhotonDispatch,
   readPhotonDispatchReceipt,
 } from "../lib/photon-ingress-store";
 import {
@@ -299,11 +300,21 @@ const bridge = chatSdkChannel({
       );
       const ingressId = photonIngressIdFromAuth(ctx.session.auth.current);
       if (ingressId) {
-        await createPhotonResponseDeliveryReceipt({
+        const delivery = await createPhotonResponseDeliveryReceipt({
           content: responseText,
           destination: physicalPhotonThreadId(channel.thread.id),
           ingressId,
         });
+        if (!delivery.created) {
+          if (delivery.record.state === "delivering") {
+            await markPhotonResponseDelivery({
+              failureCode: "response_delivery_uncertain",
+              ingressId,
+              state: "delivery_uncertain",
+            });
+          }
+          return;
+        }
         await markPhotonResponseDelivery({ ingressId, state: "delivering" });
       }
       try {
@@ -987,6 +998,7 @@ async function dispatch(
     eventId: message.id,
     ownerId: ingressIdentity.ownerId,
   });
+  if (!ingressCreation.created) return;
   if (textDecision) {
     const decisionSentAtMs = message.metadata.dateSent.getTime();
     if (
@@ -1086,32 +1098,43 @@ async function dispatch(
     routingRevision: workspaceState.revision,
     workspaceId: activeWorkspace.id,
   });
-  await createPhotonDispatchReceipt({
+  const dispatchReceipt = await createPhotonDispatchReceipt({
     assignment,
     continuationTarget: `${thread.id}\0${activeWorkspace.id}\0${activeWorkspace.generation}`,
   });
-  const session = await bridge.send(
-    {
-      context: [
-        photonWorkspaceContext(activeWorkspace),
-      ],
-      message: messageToUserContent(message),
-    },
-    {
-      auth: photonAuth(
-        senderId,
-        thread.id,
-        runtimeScope,
-        photonIngressAuthAttributes(ingress),
-      ),
-      thread: photonWorkspaceThread(thread, activeWorkspace),
-      turnPolicy: "steer",
-    },
-  );
-  await markPhotonDispatchAccepted({
-    ingressId: ingress.ingressId,
-    sessionId: session.id,
-  });
+  if (!dispatchReceipt.created) return;
+  let session;
+  try {
+    session = await bridge.send(
+      {
+        context: [
+          photonWorkspaceContext(activeWorkspace),
+        ],
+        message: messageToUserContent(message),
+      },
+      {
+        auth: photonAuth(
+          senderId,
+          thread.id,
+          runtimeScope,
+          photonIngressAuthAttributes(ingress),
+        ),
+        thread: photonWorkspaceThread(thread, activeWorkspace),
+        turnPolicy: "steer",
+      },
+    );
+    await markPhotonDispatchAccepted({
+      ingressId: ingress.ingressId,
+      sessionId: session.id,
+    });
+  } catch (error) {
+    await quarantinePhotonDispatch({
+      failureCode: "model_dispatch_uncertain",
+      ingressId: ingress.ingressId,
+      quarantineReason: "manual_reconciliation_required",
+    }).catch(() => undefined);
+    throw error;
+  }
   await savePhotonWorkspaceSession({
     generation: activeWorkspace.generation,
     principalId,

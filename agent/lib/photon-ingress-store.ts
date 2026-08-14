@@ -299,6 +299,24 @@ export function markPhotonDispatchAccepted(input: {
   }), client);
 }
 
+export function quarantinePhotonDispatch(input: {
+  failureCode: string;
+  ingressId: string;
+  now?: Date;
+  quarantineReason: string;
+}, client: PhotonIngressStoreClient = store()) {
+  return transitionDispatch(input.ingressId, (record) => {
+    if (record.state === "completed" || record.state === "quarantined") return record;
+    return {
+      ...record,
+      failureCode: input.failureCode.slice(0, 64),
+      quarantineReason: input.quarantineReason.slice(0, 64),
+      state: "quarantined",
+      updatedAt: (input.now ?? new Date()).toISOString(),
+    };
+  }, client);
+}
+
 export async function createPhotonCompletionReceipt(input: {
   dispatch: PhotonDispatchReceipt;
   now?: Date;
@@ -363,6 +381,13 @@ export async function markPhotonResponseDelivery(input: {
   const currentRaw = raw(await client.get(recordKey));
   if (!currentRaw) throw new PhotonIngressStoreError("photon_receipt_conflict");
   const current = parse(responseDeliverySchema, currentRaw);
+  if (
+    current.state === "delivered" ||
+    current.state === "delivery_uncertain" ||
+    (input.state === "delivering" && current.state !== "staged")
+  ) {
+    return current;
+  }
   const next = responseDeliverySchema.parse({
     ...current,
     failureCode: input.failureCode ?? null,
@@ -381,6 +406,16 @@ export async function readPhotonDispatchReceipt(
 ): Promise<PhotonDispatchReceipt | null> {
   const value = await client.get(key("dispatch", ingressId));
   return value === null || value === undefined ? null : parse(dispatchSchema, value);
+}
+
+export async function readPhotonResponseDeliveryReceipt(
+  ingressId: string,
+  client: PhotonIngressStoreClient = store(),
+): Promise<PhotonResponseDeliveryReceipt | null> {
+  const value = await client.get(key("response", ingressId));
+  return value === null || value === undefined
+    ? null
+    : parse(responseDeliverySchema, value);
 }
 
 export function photonIngressAuthAttributes(receipt: PhotonIngressReceipt) {
