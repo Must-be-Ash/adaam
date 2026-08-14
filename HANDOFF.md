@@ -10,7 +10,8 @@ Repository branch: `main`
 
 Production alias: <https://adaam.vercel.app>
 
-Current production deployment: `dpl_6Vc2Xb5bwxvMJ41dy8MRzZWg7mKq`
+Production tracks Git-backed `main`. Run `vercel inspect adaam.vercel.app` for
+the current immutable deployment ID.
 
 That deployment includes the combined Masterkey/Photon work, MCP
 normalizer and bounded-stdio fixes, the public artifact publisher, the Blob-backed
