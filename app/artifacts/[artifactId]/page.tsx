@@ -5,6 +5,7 @@ import { cache } from "react";
 import { readArtifactManifest } from "@/agent/lib/artifact-store";
 
 import styles from "./artifact.module.css";
+import { ImageSaveAction } from "./image-save-action";
 import { ResearchReportView } from "./report";
 
 export const dynamic = "force-dynamic";
@@ -106,11 +107,12 @@ export default async function ArtifactPage({ params }: ArtifactPageProps) {
               </span>
               <a
                 className={styles.artifactButton}
+                download={
+                  artifact.kind === "file" ? media.fileName : undefined
+                }
                 href={
                   artifact.kind === "pdf" ? media.url : media.downloadUrl
                 }
-                rel="noreferrer"
-                target="_blank"
               >
                 {artifact.kind === "pdf" ? "Open PDF" : "Download file"}
               </a>
@@ -118,14 +120,19 @@ export default async function ArtifactPage({ params }: ArtifactPageProps) {
           )}
         </section>
 
-        {artifact.kind === "image" ||
-        artifact.kind === "audio" ||
-        artifact.kind === "video" ? (
+        {artifact.kind === "image" ? (
+          <ImageSaveAction
+            contentType={media.contentType}
+            downloadUrl={media.downloadUrl}
+            fileName={media.fileName}
+            imageUrl={media.url}
+            title={artifact.title}
+          />
+        ) : artifact.kind === "audio" || artifact.kind === "video" ? (
           <a
             className={styles.artifactButton}
+            download={media.fileName}
             href={media.downloadUrl}
-            rel="noreferrer"
-            target="_blank"
           >
             Download original
           </a>
