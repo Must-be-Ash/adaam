@@ -40,6 +40,7 @@
     "verify:workspace-runtime:owner": "node scripts/verify-owner-identity.mjs",
     "verify:workspace-runtime:scope": "jiti scripts/verify-workspace-runtime-scope.ts",
     "verify:workspace-runtime:state-store": "jiti scripts/verify-workspace-state-store.ts",
+    "verify:workspace-runtime:budget": "jiti scripts/verify-workspace-budget-ledger.ts",
     "verify:workspaces": "node scripts/verify-photon-workspaces.mjs",
     "verify:workspaces:redis": "node scripts/verify-photon-workspaces-redis.mjs"
   },

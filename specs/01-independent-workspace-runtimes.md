@@ -883,7 +883,7 @@ Exit gate:
 - [x] Add versioned, bounded workspace brief, durable strategy configuration,
   capability manifest, and budget stores.
 - [x] Add owner/workspace-scoped authorization helpers used by every store.
-- [ ] Add atomic run and paid-budget reservation/reconciliation primitives.
+- [x] Add atomic run and paid-budget reservation/reconciliation primitives.
 - [ ] Add default-deny dynamic capability resolution for runtime sessions.
 - [ ] Add provider tool-inventory/schema drift reporting and typed unavailable-
   capability reasons; newly discovered tools remain disabled.
@@ -1131,3 +1131,4 @@ own bounded implementation spec:
 | 2026-08-14 | Project typed Photon runtime scope through signed auth and reject missing or mismatched tool scope | `jiti scripts/verify-workspace-runtime-scope.ts`, `node scripts/verify-photon-workspaces.mjs`, `node scripts/verify-photon-approval.mjs`, and `tsc --noEmit` — passed |
 | 2026-08-14 | Add versioned, byte-bounded CAS stores for workspace briefs, strategy configuration, capability manifests, and budget policies | `jiti scripts/verify-workspace-state-store.ts` and `tsc --noEmit` — passed |
 | 2026-08-14 | Require non-serializable owner/workspace authorization scopes for every workspace state-store read and write | `jiti scripts/verify-workspace-state-store.ts` and `tsc --noEmit` — passed |
+| 2026-08-14 | Add CAS-atomic run/token/paid-budget reservations with exact decimal reconciliation and retained uncertainty | `jiti scripts/verify-workspace-budget-ledger.ts`, `jiti scripts/verify-workspace-state-store.ts`, and `tsc --noEmit` — passed |

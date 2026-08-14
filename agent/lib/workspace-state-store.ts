@@ -163,7 +163,7 @@ const budgetValueSchema = z.object({
   maximumPaidPerCall: decimalSchema.nullable(),
   maximumPaidPerDay: decimalSchema.nullable(),
   maximumPaidPerMonth: decimalSchema.nullable(),
-  maximumScheduledRunsPerDay: z.number().int().positive().max(10_000),
+  maximumScheduledRunsPerDay: z.number().int().positive().max(32),
   ownerTimezone: z.string().min(1).max(80).refine((value) => {
     try {
       new Intl.DateTimeFormat("en", { timeZone: value });
@@ -204,6 +204,16 @@ export type WorkspaceStrategyConfigurationValue = z.infer<
 export type WorkspaceDocument<K extends WorkspaceDocumentKind> = z.infer<
   (typeof schemas)[K]
 >;
+
+export function validateWorkspaceBudgetPolicyValue(
+  value: unknown,
+): WorkspaceBudgetPolicyValue {
+  const parsed = budgetValueSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new WorkspaceStateValidationError("workspace_state_invalid");
+  }
+  return parsed.data;
+}
 
 export interface WorkspaceStateStoreClient {
   compareAndSet(
