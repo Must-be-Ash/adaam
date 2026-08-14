@@ -1,0 +1,668 @@
+{
+  "metadata": {
+    "description": "Non-politician informed traders worth systematically tracking for convergence signals. These individuals file publicly with the SEC (13F, 13D, or public reports) and have demonstrated sustained market-beating performance through 2025-2026.",
+    "last_updated": "2026-02-17",
+    "filing_types": {
+      "13F": "Quarterly holdings disclosure, 45-day lag after quarter end. Best for concentrated, low-turnover managers.",
+      "13D": "Filed within 10 business days of acquiring 5%+ stake with activist intent. Timely and high-signal.",
+      "public_report": "Short seller reports published publicly, immediate signal but noisy."
+    },
+    "selection_criteria": "Each individual must be (1) still actively trading as of 2025-2026, (2) demonstrating strong recent performance, and (3) trackable through public filings. Individuals who have dissolved, retired, are under criminal investigation, or have significantly underperformed over the last 5+ years are excluded or deprioritized.",
+    "how_to_use": "Cross-reference these traders' filings with our insider buying cluster detection and quantitative value screen. When a company passes our value screen AND has insider cluster buying AND one of these traders has taken a position — that's multi-signal convergence."
+  },
+  "super_investors_13f": {
+    "description": "Investors tracked via quarterly 13F filings. Best used as a conviction confirmation signal, not a primary trigger (due to 45-day lag). Prioritize concentrated portfolios where new position initiations carry high signal value.",
+    "tier_1": [
+      {
+        "name": "Sir Christopher Hohn",
+        "firm": "TCI Fund Management",
+        "filing_type": "13F",
+        "filing_lag_days": 45,
+        "track_record": {
+          "cagr_percent": 18,
+          "years_active": 22,
+          "inception_year": 2003,
+          "recent_performance": "$18.9B in gains in 2025. TCI returned approximately 30% in 2024.",
+          "total_aum": "$50B+"
+        },
+        "current_status": "ACTIVE — one of the most successful hedge fund managers globally",
+        "strategy": "Ultra-concentrated quality compounding. Buys dominant businesses with pricing power and holds for years. Anti-activist — rarely engages publicly but will push for capital returns privately.",
+        "concentration": "8-10 positions. Extreme concentration — top 3 positions often represent 50%+ of portfolio.",
+        "key_holdings_2025": ["Visa", "Alphabet", "Canadian Pacific Kansas City", "Moody's", "Charles Schwab"],
+        "signal_value": "HIGH — when Hohn initiates a NEW position, it represents deep conviction. His concentration means each position matters. Low turnover means 45-day lag is manageable.",
+        "what_to_watch": "New position initiations (rare, 1-2 per year). Significant position increases. Any position exit (also rare — signals thesis broken).",
+        "why_track": "22-year track record across multiple market cycles. Ultra-concentrated so each move has meaning. Holds for years so 13F lag irrelevant. $18.9B gains in a single year proves continued edge.",
+        "data_sources": ["SEC EDGAR 13F", "WhaleWisdom", "Dataroma"],
+        "research_status": "researched"
+      },
+      {
+        "name": "Bill Ackman",
+        "firm": "Pershing Square Capital Management",
+        "filing_type": "13F + 13D (when activist)",
+        "filing_lag_days": 45,
+        "track_record": {
+          "cagr_percent": 23,
+          "years_active": 20,
+          "inception_year": 2004,
+          "recent_performance": "8-year CAGR of 23% through end of 2024. Pershing Square Holdings NAV up significantly in 2024-2025.",
+          "total_aum": "$18B+"
+        },
+        "current_status": "ACTIVE — highly public, concentrated portfolio, occasional activist campaigns",
+        "strategy": "Concentrated long-only with occasional activist campaigns. Buys high-quality businesses at reasonable prices. Willing to take large, public positions and push for change. Macro hedging during tail events (famous COVID CDS trade made $2.6B in March 2020).",
+        "concentration": "6-10 core positions. Very concentrated. Each position represents 10-20% of portfolio.",
+        "key_holdings_2025": ["Alphabet", "Brookfield", "Hilton", "Restaurant Brands International", "Howard Hughes Holdings", "Nike"],
+        "signal_value": "HIGH — extremely concentrated, each new position is high-conviction. Public communication (letters, tweets) provides additional context for thesis. Activist campaigns (13D) are timelier than 13F.",
+        "what_to_watch": "New position initiations. 13D filings (activist intent). His public letters and social media posts — he often explains his thesis in detail, which helps assess conviction quality. Major hedges (like the COVID CDS).",
+        "why_track": "23% CAGR over 8 years in a highly efficient market. Extreme concentration means high signal per trade. Public communication gives thesis transparency. Dual signal: 13F for positions + 13D when activist.",
+        "data_sources": ["SEC EDGAR 13F", "SEC EDGAR 13D", "Pershing Square Holdings annual reports", "WhaleWisdom"],
+        "research_status": "researched"
+      },
+      {
+        "name": "Stanley Druckenmiller",
+        "firm": "Duquesne Family Office",
+        "filing_type": "13F",
+        "filing_lag_days": 45,
+        "track_record": {
+          "cagr_percent": 30,
+          "years_active": 40,
+          "inception_year": 1986,
+          "recent_performance": "106% cumulative return over 3 years (2022-2024). Portfolio heavily rotated into AI/tech in 2023-2024 ahead of the market.",
+          "total_aum": "$3B+ (family office, personal capital)"
+        },
+        "current_status": "ACTIVE — manages personal/family capital through Duquesne Family Office",
+        "strategy": "Macro + growth hybrid. Famous for sizing aggressively when conviction is high. Rotates sectors and themes quickly relative to other super investors. Will concentrate into a theme (e.g., AI) when he sees a secular shift.",
+        "concentration": "15-25 positions but top 5 typically represent 40-50% of portfolio.",
+        "key_holdings_2025": ["Natera", "Coherent", "Teva Pharmaceutical", "Coupang", "Philip Morris"],
+        "signal_value": "MODERATE-HIGH — high turnover means some 13F positions may already be exited by the time you see them. But his large, new initiations tend to persist for multiple quarters. Best used for sector/theme conviction (when Druckenmiller rotates heavily into a sector, the sector tends to work).",
+        "what_to_watch": "Large new position initiations. Major sector rotations (when his portfolio composition shifts dramatically between quarters). Complete exits of large positions.",
+        "why_track": "Arguably the greatest living macro investor. 30% CAGR over 40 years with zero down years at Duquesne Capital. 106% over 3 years proves continued edge at age 70+. Sector rotations are a strong thematic signal.",
+        "data_sources": ["SEC EDGAR 13F", "WhaleWisdom", "Dataroma"],
+        "research_status": "researched"
+      },
+      {
+        "name": "David Tepper",
+        "firm": "Appaloosa Management",
+        "filing_type": "13F",
+        "filing_lag_days": 45,
+        "track_record": {
+          "cagr_percent": 25,
+          "years_active": 31,
+          "inception_year": 1993,
+          "recent_performance": "Strong 2023-2024. Known for massive calls at market bottoms — bought heavily during the 2008 crisis, March 2020, and late 2022.",
+          "total_aum": "$6B+ (mix of personal and external capital)"
+        },
+        "current_status": "ACTIVE — converted to family office in 2019 but still files 13F, still trades actively",
+        "strategy": "Distressed debt and equity. Goes all-in during market panics. Concentrated, high-conviction bets on recovery. Also does event-driven and macro. Famous for buying banks at the 2009 bottom and making $7B in a single year.",
+        "concentration": "15-25 positions. Concentrates heavily during high-conviction periods.",
+        "key_holdings_2025": ["Alibaba", "Meta", "Alphabet", "Amazon", "Vistra"],
+        "signal_value": "HIGH — Tepper's buying during market stress is one of the most reliable signals in the industry. When he goes aggressive during a selloff, the bottom is usually near. His distressed expertise also makes him a strong signal for recovery plays.",
+        "what_to_watch": "Aggressive buying during market downturns. New positions in distressed or beaten-down sectors. Large position increases during panic periods.",
+        "why_track": "25% CAGR over 30+ years. One of the most successful crisis investors in history. His willingness to go all-in at bottoms makes his buying during fear an extremely strong convergence signal with our insider cluster system.",
+        "data_sources": ["SEC EDGAR 13F", "WhaleWisdom", "Dataroma"],
+        "research_status": "researched"
+      },
+      {
+        "name": "Felix & Julian Baker",
+        "firm": "Baker Brothers Advisors",
+        "filing_type": "13F",
+        "filing_lag_days": 45,
+        "track_record": {
+          "cagr_percent": null,
+          "years_active": 25,
+          "inception_year": 2000,
+          "recent_performance": "$8B windfall on Seagen (25% stake, Pfizer acquired for $43B in 2023). Made 41 portfolio moves in Q4 2024 alone. Long-term returns have significantly exceeded biotech indices.",
+          "total_aum": "$22B total; $13.8B in 13F securities"
+        },
+        "current_status": "ACTIVE — the gold standard for biotech investing. Actively filing with significant quarterly portfolio activity.",
+        "strategy": "Deep biotech specialist. Combines scientific expertise with concentrated, high-conviction positions in development-stage and commercial biotech. Willing to hold through clinical trial volatility. Focus on companies approaching FDA catalysts.",
+        "concentration": "20-40 positions. Concentrated in mid-cap biotech with some large-cap anchors.",
+        "key_holdings_2025": ["BeOne Medicines", "Incyte", "Summit Therapeutics", "Ultragenyx", "Alkermes"],
+        "signal_value": "HIGH — fills our biotech/healthcare gap entirely. Their portfolio is a roadmap of biotech companies approaching catalysts. New position initiations signal deep scientific diligence. Significant overlap with our $50M-$500M universe for their smaller holdings.",
+        "what_to_watch": "New position initiations (signal upcoming catalysts). Large stake increases (conviction rising). Exits (thesis broken or catalyst failed). FDA calendar cross-reference for their holdings.",
+        "why_track": "25-year biotech track record with no comparable peer. The Seagen outcome ($8B from a single position) demonstrates their ability to identify transformative therapies early. When Baker Brothers buys a biotech AND insiders at that company are cluster-buying, the convergence of scientific + operational conviction is extremely strong.",
+        "data_sources": ["SEC EDGAR 13F", "WhaleWisdom", "Insider Monkey"],
+        "research_status": "researched"
+      },
+      {
+        "name": "David Abrams",
+        "firm": "Abrams Capital Management",
+        "filing_type": "13F",
+        "filing_lag_days": 45,
+        "track_record": {
+          "cagr_percent": 20,
+          "years_active": 26,
+          "inception_year": 1999,
+          "recent_performance": "Portfolio rose to $6.17B in Q3 2025. ~20% annualized net of fees over 12+ years. $5.7B in 13F securities as of Q4 2025.",
+          "total_aum": "$8B total"
+        },
+        "current_status": "ACTIVE — filing 13F with 12 extremely concentrated positions. One of the most under-followed superinvestors relative to track record.",
+        "strategy": "Ultra-concentrated deep value. Typically holds only 10-15 stocks. Massive conviction positions — single holdings can represent 30-40% of portfolio. Focuses on overlooked mid-caps in auto dealerships, specialty industrials, and other unglamorous sectors. Very low media profile.",
+        "concentration": "10-15 positions. Extreme concentration — top holding (Loar Holdings) at 42% of portfolio.",
+        "key_holdings_2025": ["Loar Holdings", "Lithia Motors", "Asbury Automotive", "specialty industrials"],
+        "signal_value": "HIGH — extreme concentration means every position is maximum conviction. His holdings tend to be in overlooked sectors (auto dealerships, specialty industrials) that overlap well with our value screen universe. Ultra-low turnover so 45-day lag is irrelevant. Under-followed = less crowded signal.",
+        "what_to_watch": "New position initiations (extremely rare, extremely high conviction). Any exit (also extremely rare). Position size changes in top holdings.",
+        "why_track": "20% annualized net of fees for 12+ years with virtually zero media presence. Possibly the most under-followed great investor alive. His sector focus (unglamorous mid-cap industrials, auto dealers) directly overlaps with our system's target universe. When Abrams takes a new position in a company our screen has flagged, it's strong convergence.",
+        "data_sources": ["SEC EDGAR 13F", "WhaleWisdom", "HedgeFollow"],
+        "research_status": "researched"
+      }
+    ],
+    "tier_2": [
+      {
+        "name": "Warren Buffett / Greg Abel",
+        "firm": "Berkshire Hathaway",
+        "filing_type": "13F",
+        "filing_lag_days": 45,
+        "track_record": {
+          "cagr_percent": 19.8,
+          "years_active": 59,
+          "inception_year": 1965,
+          "recent_performance": "Berkshire stock +27% in 2024. $334B cash pile as of late 2024. Buffett largely selling, not buying, since 2023 — massively reduced Apple position. Transition to Greg Abel underway.",
+          "total_aum": "$300B+ equity portfolio"
+        },
+        "current_status": "TRANSITIONING — Buffett stepping back, Greg Abel taking over investment decisions. Still files 13F. New purchases under Abel's leadership are the ones to watch.",
+        "strategy": "Quality value investing with permanent hold periods. Under Buffett: focused on quality moats, insurance float, and concentrated bets. Under Abel: TBD, but initial signals suggest continuation of the quality approach.",
+        "concentration": "Top 5 positions historically represent 70%+ of portfolio. Apple alone was 50% before the 2024 reduction.",
+        "key_holdings_2025": ["Apple (reduced)", "Bank of America", "American Express", "Coca-Cola", "Chevron"],
+        "signal_value": "MODERATE — the massive AUM means Berkshire can't operate in our $50M-$500M universe. But Berkshire's SELL signals are highly informative (when Buffett/Abel sells a major position, it's a sector/market timing signal). New purchases under Abel's leadership will be important to establish his pattern.",
+        "what_to_watch": "Greg Abel's first independent purchases. Any new position initiations (rare, ~1-2 per year). Major position reductions or exits. Cash pile changes (increasing cash = bearish macro view).",
+        "why_track": "The most successful investor in history. Even at this scale, Berkshire's moves signal macro views and sector conviction. The Buffett-to-Abel transition is a unique moment — Abel's early purchases will reveal whether the edge transfers.",
+        "data_sources": ["SEC EDGAR 13F", "Berkshire annual letters", "WhaleWisdom"],
+        "research_status": "researched"
+      },
+      {
+        "name": "Chuck Akre (now Chris Cerrone)",
+        "firm": "Akre Capital Management",
+        "filing_type": "13F",
+        "filing_lag_days": 45,
+        "track_record": {
+          "cagr_percent": 18,
+          "years_active": 30,
+          "inception_year": 1993,
+          "recent_performance": "Akre Focus Fund has compounded at 18% since inception. Chuck Akre retired in 2022; Chris Cerrone now leads. Fund continued to perform well through transition.",
+          "total_aum": "$12B+"
+        },
+        "current_status": "ACTIVE — under Chris Cerrone's leadership since 2022. Philosophy unchanged: compounding machines with high ROIC and reinvestment runways.",
+        "strategy": "Ultra-concentrated quality compounding. Seeks businesses that compound intrinsic value at 15%+ annually through reinvestment. Holds for 5-10+ years. Very low turnover.",
+        "concentration": "15-20 positions. Top 5 represent ~50% of portfolio.",
+        "key_holdings_2025": ["Mastercard", "American Tower", "Constellation Software", "O'Reilly Automotive", "Moody's"],
+        "signal_value": "MODERATE-HIGH — ultra-low turnover means new position initiations are rare and carry very high conviction. 45-day lag is irrelevant because they hold for years. Best used to identify compounding businesses for our long-term hold bucket.",
+        "what_to_watch": "New position initiations (extremely rare). Any full exits (signals thesis broken — very informative).",
+        "why_track": "30-year track record of identifying compounding businesses early. Leadership transition appears seamless. Portfolio serves as a quality filter — if Akre owns it and it also passes our value screen, it's likely a genuine quality-at-a-discount situation.",
+        "data_sources": ["SEC EDGAR 13F", "Akre Capital shareholder letters", "WhaleWisdom"],
+        "research_status": "researched"
+      },
+      {
+        "name": "Li Lu",
+        "firm": "Himalaya Capital Management",
+        "filing_type": "13F",
+        "filing_lag_days": 45,
+        "track_record": {
+          "cagr_percent": 26,
+          "years_active": 27,
+          "inception_year": 1997,
+          "recent_performance": "Himalaya continues to outperform. Known for extremely concentrated bets. Charlie Munger's chosen successor for managing Munger's personal portfolio until Munger's death in 2023.",
+          "total_aum": "$3B+"
+        },
+        "current_status": "ACTIVE — low-profile, rarely speaks publicly, lets performance speak",
+        "strategy": "Deep value with Asian market expertise. Will hold a single stock as 50%+ of portfolio if conviction warrants. Extremely patient — average hold period measured in years to decades.",
+        "concentration": "3-8 positions. One of the most concentrated portfolios among institutional managers.",
+        "key_holdings_2025": ["Micron Technology", "Bank of America", "Alphabet", "Berkshire Hathaway"],
+        "signal_value": "HIGH — extreme concentration means every position is maximum conviction. New position initiations are the strongest signal. Low turnover makes 45-day lag a non-issue.",
+        "what_to_watch": "New position initiations (extremely rare and extremely high-conviction). Major position size changes. Any exit.",
+        "why_track": "26% CAGR over 27 years. Munger trusted him with his personal money — the ultimate endorsement. One of the most concentrated, highest-conviction investors alive. When Li Lu buys something new, it deserves serious attention.",
+        "data_sources": ["SEC EDGAR 13F", "WhaleWisdom"],
+        "research_status": "researched"
+      },
+      {
+        "name": "Michael Burry",
+        "firm": "Scion Asset Management",
+        "filing_type": "13F",
+        "filing_lag_days": 45,
+        "track_record": {
+          "cagr_percent": null,
+          "years_active": 25,
+          "inception_year": 2000,
+          "recent_performance": "Highly variable. Famous for the 2008 housing short (+489%). Has had strong and weak years since. Known for high turnover — often completely rebuilds portfolio each quarter. Beat the market significantly in 2022-2023 with Chinese tech bets.",
+          "total_aum": "$200M-$400M (varies significantly)"
+        },
+        "current_status": "ACTIVE — continues to file 13F with significant position changes each quarter. Small AUM but high public visibility.",
+        "strategy": "Deep value contrarian. Buys what everyone hates. Willingness to take concentrated, unpopular positions. Very high turnover — often has completely different portfolio quarter to quarter. Occasional use of put options for hedging/shorting.",
+        "concentration": "Varies wildly — sometimes 1-3 positions, sometimes 15-20. Has gone to 100% cash multiple times.",
+        "key_holdings_2025": "Changes frequently. Check most recent 13F.",
+        "signal_value": "MODERATE — the high turnover and small AUM mean many positions may be exited by the time the 13F is filed. But Burry's LARGE, NEW positions that persist across 2+ quarters tend to work well. Also useful as a contrarian sentiment indicator — when Burry goes to cash, it's a bearish signal worth noting.",
+        "what_to_watch": "Positions that persist across multiple quarters (rare and therefore high conviction). Complete portfolio liquidation to cash (strong bearish signal). Large put positions (hedging/shorting conviction). Sector concentration shifts.",
+        "why_track": "One of the few investors who predicted and profited from the 2008 crisis. His contrarian positioning is a useful signal precisely because he goes where nobody else will. When Burry's contrarian position converges with our insider cluster system, it's a strong setup because two completely independent approaches reached the same conclusion.",
+        "data_sources": ["SEC EDGAR 13F", "WhaleWisdom", "Dataroma"],
+        "research_status": "researched"
+      },
+      {
+        "name": "Francois Rochon",
+        "firm": "Giverny Capital",
+        "filing_type": "13F",
+        "filing_lag_days": 45,
+        "track_record": {
+          "cagr_percent": 15.1,
+          "years_active": 30,
+          "inception_year": 1993,
+          "recent_performance": "Turned $100K into $7.6M over 30 years. Up 30.3% in 2023 vs. 26.3% for S&P 500. $2.95B portfolio as of Q3 2025.",
+          "total_aum": "$3B"
+        },
+        "current_status": "ACTIVE — filing 13F with 52 holdings. Montreal-based with consistent 30-year record.",
+        "strategy": "Quality SMID-cap compounding. Applies an engineer's discipline to identifying 'owner earnings' compounders. Significant exposure to small and mid-cap quality businesses. Holds for years. International perspective (Canadian-based) provides different lens than Wall Street consensus.",
+        "concentration": "50-55 positions. More diversified than other tier 2 names but with meaningful conviction in top holdings.",
+        "key_holdings_2025": ["HEICO", "AMETEK", "Copart", "Berkshire Hathaway", "Meta"],
+        "signal_value": "MODERATE-HIGH — 30-year verified track record of beating the market consistently is rare. His SMID-cap holdings are where his edge is strongest and where overlap with our universe is highest. Low turnover makes 45-day lag irrelevant.",
+        "what_to_watch": "New position initiations in the SMID-cap range. Full exits. His annual letter (provides detailed thesis for each holding).",
+        "why_track": "One of the most consistent 30-year track records in existence. His SMID-cap focus overlaps with our target universe. The Montreal base means he's not part of the Wall Street echo chamber — his views are independently formed.",
+        "data_sources": ["SEC EDGAR 13F", "Giverny Capital website", "WhaleWisdom"],
+        "research_status": "researched"
+      },
+      {
+        "name": "Joseph Edelman",
+        "firm": "Perceptive Advisors",
+        "filing_type": "13F",
+        "filing_lag_days": 45,
+        "track_record": {
+          "cagr_percent": null,
+          "years_active": 26,
+          "inception_year": 1999,
+          "recent_performance": "Up 75% in 2025 through November, driven by biotech M&A boom. Major holder of Verona Pharma (surged 130%+ on Merck's $10B acquisition). 67 holdings as of Q3 2025.",
+          "total_aum": "$9.7B total; $3.5B in 13F securities"
+        },
+        "current_status": "ACTIVE — one of the top-performing biotech funds in 2025",
+        "strategy": "Biotech M&A catalyst specialist. Identifies likely acquisition targets ahead of the $180B patent cliff (2027-2028). Complements Baker Brothers — where Baker Brothers holds through development, Perceptive focuses on companies approaching takeout. Portfolio is a roadmap of potential biotech M&A targets.",
+        "concentration": "60-70 positions. More diversified than Baker Brothers but with concentrated bets on highest-conviction M&A targets.",
+        "key_holdings_2025": ["Verona Pharma (acquired)", "various mid-cap biotech M&A targets"],
+        "signal_value": "HIGH — biotech M&A is a specific, identifiable catalyst. When Perceptive takes a large position in a biotech company, there's a meaningful probability that company is acquired within 12-24 months. Combined with Baker Brothers, provides dual biotech signal coverage (development thesis + M&A thesis).",
+        "what_to_watch": "New large positions (potential M&A targets). Position exits after acquisitions close. Holdings in companies approaching patent cliffs or with attractive pipelines.",
+        "why_track": "+75% in 2025 proves the M&A thesis is working in the current environment. The patent cliff creates a structural tailwind for biotech M&A through 2028. Perceptive's portfolio essentially pre-identifies the most likely targets.",
+        "data_sources": ["SEC EDGAR 13F", "WhaleWisdom", "Insider Monkey"],
+        "research_status": "researched"
+      },
+      {
+        "name": "Michel Massoud",
+        "firm": "Melqart Asset Management",
+        "filing_type": "13F",
+        "filing_lag_days": 45,
+        "track_record": {
+          "cagr_percent": null,
+          "years_active": 10,
+          "inception_year": 2015,
+          "recent_performance": "Melqart Opportunities fund returned 45.1% in 2025. 15.5% in 2023. Average holding period of 3.57 quarters.",
+          "total_aum": "$3.9B"
+        },
+        "current_status": "ACTIVE — strong recent performance driven by special situations and merger arbitrage",
+        "strategy": "Event-driven / special situations. Specializes in merger arbitrage, spinoffs, and corporate restructurings — exactly the event types our system tracks through other pipelines. Dynamic allocation between merger arb and special situations based on opportunity set.",
+        "concentration": "Moderate — varies based on active deal flow.",
+        "key_holdings_2025": "Varies with active M&A and spinoff pipeline. Check most recent 13F.",
+        "signal_value": "MODERATE-HIGH — fills our event-driven/special situations gap. When Melqart takes a position in a spinoff or restructuring that our system has also flagged, it's convergence between our event pipeline and a dedicated event-driven specialist. The 45.1% in 2025 validates the approach.",
+        "what_to_watch": "New positions in companies undergoing spinoffs, mergers, or restructurings. Overlap with our spinoff and post-bankruptcy pipelines. Position sizing (larger = higher conviction on deal closing).",
+        "why_track": "Dedicated event-driven specialist that directly complements our spinoff, post-bankruptcy, and forced-selling pipelines. When our system flags a corporate event AND Melqart is already positioned, it confirms the opportunity is real and the event is likely to create value.",
+        "data_sources": ["SEC EDGAR 13F", "WhaleWisdom"],
+        "research_status": "researched"
+      }
+    ],
+    "tier_3_monitor": [
+      {
+        "name": "Terry Smith",
+        "firm": "Fundsmith",
+        "filing_type": "13F (for US holdings)",
+        "track_record": "15% annualized since 2010 inception. Concentrated quality compounder. Based in London but holds significant US equities.",
+        "current_status": "ACTIVE",
+        "signal_value": "MODERATE — low turnover, quality filter. Useful for identifying compounding businesses but unlikely to overlap with our small/micro-cap universe.",
+        "research_status": "researched"
+      },
+      {
+        "name": "Howard Marks",
+        "firm": "Oaktree Capital Management",
+        "filing_type": "13F + public memos",
+        "track_record": "16% annualized across distressed debt funds since 1995. Famous for cycle-timing memos that called 2000, 2008, and 2020.",
+        "current_status": "ACTIVE — still writes influential memos, Oaktree still investing",
+        "signal_value": "MODERATE — his equity 13F is less useful (Oaktree is primarily credit). But his MEMOS are a strong macro signal. When Marks turns cautious, it's worth noting. When Marks says 'it's time to be aggressive,' it's a strong green light for our crisis-buying framework.",
+        "research_status": "researched"
+      },
+      {
+        "name": "Glen Kacher",
+        "firm": "Light Street Capital",
+        "filing_type": "13F",
+        "track_record": "+59.4% in 2024, +45.7% in 2023. Led all Tiger Cub hedge funds. However, -26% in 2021 and -54% in 2022. $1.1B AUM, ~$594M in 13F securities.",
+        "current_status": "ACTIVE — concentrated tech/semiconductor specialist",
+        "signal_value": "MODERATE — extreme volatility limits reliability, but his semiconductor/AI positioning has been exceptionally well-timed in 2023-2024. Best used as a directional signal for semiconductor cycle positioning, not as a core holding tracker. Top holding is TSMC.",
+        "research_status": "researched"
+      },
+      {
+        "name": "Royce Investment Partners",
+        "firm": "Royce Investment Partners (Franklin Templeton)",
+        "filing_type": "13F",
+        "track_record": "761 holdings, $9.86B in 13F securities. Small-Cap Portfolio returned 25.53% in 2023, 3.26% in 2024, 8.73% in 2025. Long-term pioneer in small-cap investing.",
+        "current_status": "ACTIVE — the largest dedicated small-cap manager",
+        "signal_value": "LOW-MODERATE as a conviction signal (too diversified at 761 holdings), but HIGH as a universe screener. Their 13F is essentially a professionally-curated map of the investable small-cap universe. Filter for their highest-conviction new positions and largest stake increases. Most useful for identifying companies entering institutional small-cap radars for the first time.",
+        "research_status": "researched"
+      },
+      {
+        "name": "William B. Gray",
+        "firm": "Orbis Investment Management",
+        "filing_type": "13F",
+        "track_record": "$23.3B in 13F securities. Orbis EM Equity returned 13.5% in 2024, beating MSCI EM by 5.6%. Orbis Fund returned 54% in 2025 per Bloomberg. Founded 1989, connected to Allan Gray (top African investment firm).",
+        "current_status": "ACTIVE — large global fund with EM expertise filing 13F for US holdings",
+        "signal_value": "MODERATE — provides the international/EM perspective our list otherwise lacks entirely. Their US positions are informed by global macro views that domestic-only managers miss. 41-stock top-10 concentration means each position carries moderate conviction. Best used for identifying US companies with EM-relevant business models.",
+        "research_status": "researched"
+      }
+    ]
+  },
+  "activist_investors_13d": {
+    "description": "Investors tracked via 13D filings (5%+ ownership with activist intent). Filed within 10 business days — much more timely than 13F. The 13D filing itself often moves the stock 5-10%, so the signal is partially in knowing WHO filed and assessing their track record of successful activism.",
+    "tier_1": [
+      {
+        "name": "Paul Singer / Jesse Cohn",
+        "firm": "Elliott Investment Management",
+        "filing_type": "13D",
+        "filing_lag_days": 10,
+        "track_record": {
+          "cagr_percent": 13,
+          "years_active": 47,
+          "inception_year": 1977,
+          "recent_performance": "Elliott returned ~12% annualized net over the past 5 years. The firm has grown to $70B+ AUM, making it the largest activist fund globally. Won proxy fights at major companies including Salesforce, Pinterest, and SoftBank.",
+          "total_aum": "$70B+"
+        },
+        "current_status": "ACTIVE — most prolific activist globally. Jesse Cohn increasingly leads campaigns while Singer provides strategic oversight.",
+        "strategy": "Multi-strategy activism. Targets underperforming companies across all market caps. Pushes for operational improvements, board refreshment, strategic alternatives (M&A, spinoffs, asset sales). Known for thorough preparation and willingness to wage extended proxy fights.",
+        "avg_announcement_return_pct": 7.5,
+        "avg_campaign_duration_months": 12,
+        "signal_value": "HIGH — Elliott's involvement is a strong catalyst signal. They do extensive diligence before filing. When they target a company in our value screen universe, it's convergence between our fundamental analysis and their activist thesis. Their resources ($70B) mean they can force change at almost any company.",
+        "what_to_watch": "New 13D filings. 13D/A amendments (position increases or strategy changes). Proxy fight announcements. Settlement agreements (often include board seats, buybacks, or strategic review).",
+        "why_track": "47-year track record with no down year. The most experienced activist firm. Their filing is both a signal (they've identified undervaluation) and a catalyst (their involvement triggers revaluation). When Elliott files on a company we've already flagged as cheap with insider buying, it's extremely high conviction.",
+        "data_sources": ["SEC EDGAR 13D/13D-A", "WhaleWisdom", "Activist Insight"],
+        "research_status": "researched"
+      },
+      {
+        "name": "Jeff Smith",
+        "firm": "Starboard Value",
+        "filing_type": "13D",
+        "filing_lag_days": 10,
+        "track_record": {
+          "cagr_percent": 15,
+          "years_active": 22,
+          "inception_year": 2002,
+          "recent_performance": "Claimed 87% win rate on activist campaigns. Major wins include Darden Restaurants (replaced entire board), Papa John's, and multiple tech companies.",
+          "total_aum": "$8B+"
+        },
+        "current_status": "ACTIVE — one of the most prolific U.S.-focused activists, consistently launching new campaigns",
+        "strategy": "Operational activism. Focuses on companies where operational margins lag peers. Deep research into cost structure and margin improvement. Often pushes for management changes and operational benchmarking. Targets mid-cap and large-cap, but occasionally operates in small-cap.",
+        "avg_announcement_return_pct": 6.5,
+        "avg_campaign_duration_months": 10,
+        "signal_value": "HIGH — Starboard's operational focus means their thesis is fundamentally driven (margin improvement, cost cuts) rather than financial engineering. This makes their signal complementary to our value screen — they're identifying cheap companies where operations can be fixed.",
+        "what_to_watch": "New 13D filings. Slide deck publications (Starboard often releases detailed operational analysis publicly). Board seat gains. Margin improvements at target companies (validates thesis).",
+        "why_track": "87% claimed win rate. Deep operational expertise means their targets tend to see real fundamental improvement, not just financial engineering. When Starboard targets a company that's cheap on our screen AND has insider cluster buying, the insiders may already be positioning for the operational improvements Starboard will push for.",
+        "data_sources": ["SEC EDGAR 13D/13D-A", "WhaleWisdom", "Activist Insight"],
+        "research_status": "researched"
+      },
+      {
+        "name": "Nelson Peltz",
+        "firm": "Trian Fund Management",
+        "filing_type": "13D",
+        "filing_lag_days": 10,
+        "track_record": {
+          "cagr_percent": 12,
+          "years_active": 19,
+          "inception_year": 2005,
+          "recent_performance": "Won Disney proxy fight in 2024 — one of the most high-profile activist campaigns in history. Previously won at P&G, Unilever. Strong returns in 2023-2024.",
+          "total_aum": "$10B+"
+        },
+        "current_status": "ACTIVE — won Disney board seat in 2024, continues to launch campaigns",
+        "strategy": "Governance and strategic activism. Focuses on large-cap companies with bloated cost structures and underperforming management. Publishes detailed 'white papers' outlining thesis. Seeks board representation to drive change from inside.",
+        "avg_announcement_return_pct": 5.5,
+        "avg_campaign_duration_months": 18,
+        "signal_value": "MODERATE-HIGH — Trian targets large-caps outside our primary universe, but their sector analysis and white papers are valuable for understanding industry dynamics. When Trian targets a large-cap and insiders at SMALL-CAP peers in the same industry start buying, it may signal that the same operational improvements could apply industry-wide.",
+        "what_to_watch": "New 13D filings. Published white papers. Proxy contest announcements. Board seat wins.",
+        "why_track": "Major wins at some of the world's largest companies. Their published analysis is some of the best free investment research available. Even when the target is outside our universe, the sector analysis informs our small-cap picks.",
+        "data_sources": ["SEC EDGAR 13D/13D-A", "Trian Partners website (white papers)", "WhaleWisdom"],
+        "research_status": "researched"
+      },
+      {
+        "name": "James Chadwick",
+        "firm": "Ancora Holdings (Bellator Fund)",
+        "filing_type": "13F + 13D",
+        "filing_lag_days": 10,
+        "track_record": {
+          "cagr_percent": null,
+          "years_active": 5,
+          "inception_year": 2020,
+          "recent_performance": "Bellator fund gained 17%+ in 2025. Norfolk Southern campaign projected 33-45% ROI. Won board seats at Berry Global and Norfolk Southern in 2024-2025.",
+          "total_aum": "$11B firm; $1.3B Bellator activist fund"
+        },
+        "current_status": "ACTIVE — the most successful newer activist to emerge in recent years. Currently pursuing Warner Bros. Discovery and CSX campaigns.",
+        "strategy": "Transportation and industrial activism. Targets operational underperformance in sectors (railroads, packaging, industrials) that established activists typically ignore. Norfolk Southern campaign — removing CEO, installing 4 directors, supporting $85B Union Pacific merger — is a textbook value creation story.",
+        "avg_announcement_return_pct": 8.0,
+        "avg_campaign_duration_months": 12,
+        "signal_value": "HIGH — fills the transportation/industrial activism gap that Elliott, Starboard, and Trian don't cover. Their sector focus overlaps with industrial companies in our value screen universe. Strong early track record despite smaller AUM.",
+        "what_to_watch": "New 13D filings (especially in transport/industrial sectors). Board seat wins. Campaign outcomes at Norfolk Southern and Warner Bros. Discovery.",
+        "why_track": "Most promising new activist firm. Sector focus (transport/industrials) is differentiated from all existing activists on our list. When Ancora targets an industrial company that our value screen has flagged AND insiders are buying, it's a rare triple-convergence in an underserved sector.",
+        "data_sources": ["SEC EDGAR 13D/13D-A", "SEC EDGAR 13F", "Activist Insight"],
+        "research_status": "researched"
+      }
+    ],
+    "tier_2": [
+      {
+        "name": "Dan Loeb",
+        "firm": "Third Point LLC",
+        "filing_type": "13D + 13F",
+        "filing_lag_days": 10,
+        "track_record": {
+          "cagr_percent": 15,
+          "years_active": 29,
+          "inception_year": 1995,
+          "recent_performance": "Third Point returned ~15% in 2024. Active in tech and healthcare activism.",
+          "total_aum": "$12B+"
+        },
+        "current_status": "ACTIVE — continues activist campaigns and event-driven investing",
+        "strategy": "Event-driven + activist hybrid. Targets companies with upcoming catalysts (spinoffs, management changes, regulatory shifts) and uses activist tactics to accelerate the catalyst. Known for provocative public letters to management.",
+        "signal_value": "HIGH — Loeb's event-driven approach means his 13D filings often precede specific catalysts, making them timely signals. His public letters explain his thesis in detail.",
+        "what_to_watch": "New 13D filings. Public investor letters. Position in companies with upcoming spinoffs or management transitions.",
+        "research_status": "researched"
+      },
+      {
+        "name": "Barry Rosenstein",
+        "firm": "Jana Partners",
+        "filing_type": "13D",
+        "filing_lag_days": 10,
+        "track_record": {
+          "cagr_percent": 12,
+          "years_active": 23,
+          "inception_year": 2001,
+          "recent_performance": "Active in 2024-2025 with campaigns in tech and consumer sectors.",
+          "total_aum": "$3B+"
+        },
+        "current_status": "ACTIVE — continues filing 13Ds on mid-cap targets",
+        "strategy": "Activism focused on strategic alternatives — pushes for M&A, asset sales, and divestitures. Often targets companies where sum-of-parts exceeds market cap.",
+        "signal_value": "MODERATE-HIGH — Jana's M&A-focused activism means their targets often get acquired, providing a clear price catalyst. When Jana files on a company our screen has flagged as cheap, the M&A catalyst could be the event that closes the value gap.",
+        "what_to_watch": "New 13D filings. 'Explore strategic alternatives' demands. Merger announcements at target companies.",
+        "research_status": "researched"
+      },
+      {
+        "name": "Jeff Ubben",
+        "firm": "Inclusive Capital Partners (formerly ValueAct)",
+        "filing_type": "13D",
+        "filing_lag_days": 10,
+        "track_record": {
+          "cagr_percent": 14,
+          "years_active": 24,
+          "inception_year": 2000,
+          "recent_performance": "Founded Inclusive Capital in 2020 after leaving ValueAct. Focuses on companies where ESG improvements drive shareholder value. Mason Morfit now runs ValueAct separately — both are active.",
+          "total_aum": "$3B+ (Inclusive Capital)"
+        },
+        "current_status": "ACTIVE — Ubben at Inclusive Capital, Morfit at ValueAct. Both file 13Ds.",
+        "strategy": "Constructive activism. Takes board seats and works collaboratively with management rather than waging public battles. Ubben's Inclusive Capital focuses on sustainability-driven value creation.",
+        "signal_value": "MODERATE — constructive approach means less immediate catalyst effect than confrontational activists, but higher long-term value creation. Useful as a multi-quarter signal.",
+        "what_to_watch": "New 13D filings from either Inclusive Capital or ValueAct. Board seat appointments.",
+        "research_status": "researched"
+      },
+      {
+        "name": "Scott Ferguson",
+        "firm": "Sachem Head Capital Management",
+        "filing_type": "13F + 13D",
+        "filing_lag_days": 10,
+        "track_record": {
+          "cagr_percent": null,
+          "years_active": 12,
+          "inception_year": 2012,
+          "recent_performance": "Sharpe Ratio of 1.33 (strong risk-adjusted returns). 154.81% portfolio gain since June 2013. Won board seats at Performance Food Group and Six Flags in 2025. 18 equity positions with ~$3B in 13F securities.",
+          "total_aum": "$3.4B"
+        },
+        "current_status": "ACTIVE — Pershing Square alumnus running concentrated activist/value fund. Multiple active campaigns in 2025.",
+        "strategy": "Consumer and food services activism. Targets companies where operational improvements and M&A can unlock value. Seeks board representation. Focus area (food/consumer services) is distinct from all other activists on this list.",
+        "avg_announcement_return_pct": 6.0,
+        "avg_campaign_duration_months": 12,
+        "signal_value": "MODERATE-HIGH — consumer/food sector focus is differentiated. Performance Food Group campaign (pushing for US Foods merger) is a clear M&A catalyst play. Ackman pedigree suggests strong fundamental analysis.",
+        "what_to_watch": "New 13D filings. Board seat wins. M&A announcements at target companies (especially Performance Food Group / US Foods).",
+        "research_status": "researched"
+      },
+      {
+        "name": "Ben Dell",
+        "firm": "Kimmeridge Energy Management",
+        "filing_type": "13F + 13D",
+        "filing_lag_days": 10,
+        "track_record": {
+          "cagr_percent": null,
+          "years_active": 12,
+          "inception_year": 2012,
+          "recent_performance": "Civitas Resources combination and SilverBow campaign (forced sale to Crescent Energy) demonstrate consistent value creation. Q2 2025 13F showed $902M in 2 concentrated positions.",
+          "total_aum": "$4.7B"
+        },
+        "current_status": "ACTIVE — the only dedicated energy sector activist. Extremely concentrated (2 public positions).",
+        "strategy": "Energy sector activist. Focuses exclusively on upstream oil and gas. Targets operational improvements and strategic M&A (consolidation). Deep sector expertise — published influential research on energy industry capital allocation. Unique combination of sector knowledge + activist catalyst.",
+        "avg_announcement_return_pct": null,
+        "avg_campaign_duration_months": 18,
+        "signal_value": "MODERATE — extremely concentrated (only 2 public positions) limits signal frequency, but high signal value when it fires. The only energy activist on our list. When Kimmeridge files a 13D on an energy company that our value screen has also flagged, it's sector-specialist convergence.",
+        "what_to_watch": "New 13D filings in upstream energy. Campaign outcomes. Energy sector consolidation M&A that Kimmeridge initiates or benefits from.",
+        "research_status": "researched"
+      }
+    ]
+  },
+  "short_sellers": {
+    "description": "Short sellers who publish research reports alleging fraud, accounting manipulation, or overvaluation. Their reports are immediate (public on release) and often trigger 10-30% single-day declines. Useful as a SELL/AVOID signal — if a company on our watchlist gets hit by a credible short report, it's a kill trigger. Also useful for identifying competitors who might benefit.",
+    "active": [
+      {
+        "name": "Carson Block",
+        "firm": "Muddy Waters Research",
+        "filing_type": "public_report",
+        "filing_lag_days": 0,
+        "track_record": {
+          "years_active": 15,
+          "inception_year": 2010,
+          "notable_wins": "Sino-Forest (fraud, delisted), Luckin Coffee (fraud, delisted), Ollie's Bargain Outlet, NovaBay Pharmaceuticals",
+          "win_rate_estimate": "~65-70% of targets see sustained declines"
+        },
+        "current_status": "ACTIVE — expanded beyond China fraud focus to include global companies with accounting issues",
+        "strategy": "Deep forensic accounting research. Identifies revenue fabrication, related-party manipulation, and governance failures. Publishes detailed reports with evidence.",
+        "signal_value": "HIGH (as SELL/AVOID signal) — if Muddy Waters publishes a report on a company in our universe, it's an immediate kill trigger. Also useful for validating our own forensic analysis — if our kill criteria flag something that Muddy Waters later targets, our system is working.",
+        "what_to_watch": "New research reports (published on muddywatersresearch.com and social media). Pre-report unusual put option activity.",
+        "why_track": "Proven track record of identifying actual fraud. Their reports are a free, high-quality kill signal for our system. A short report on one company in a sector can also signal industry-wide accounting practices worth investigating.",
+        "data_sources": ["Muddy Waters website", "Twitter/X @muaborern"],
+        "research_status": "researched"
+      },
+      {
+        "name": "Hao Li",
+        "firm": "Fuzzy Panda Research",
+        "filing_type": "public_report",
+        "filing_lag_days": 0,
+        "track_record": {
+          "years_active": 5,
+          "inception_year": 2020,
+          "notable_wins": "SOS Limited, PAX Global Technology. Operates both long and short.",
+          "win_rate_estimate": "Newer firm — track record still building but credible research quality"
+        },
+        "current_status": "ACTIVE — publishing regular reports on both long and short ideas",
+        "strategy": "Forensic research on both long and short side. Unique model — publishes long reports too, not just shorts. Focuses on smaller companies where due diligence uncovers hidden issues or hidden value.",
+        "signal_value": "MODERATE — newer firm with shorter track record, but their long+short model means they can provide both buy and sell signals. Their focus on smaller companies overlaps with our $50M-$500M universe.",
+        "what_to_watch": "New reports (both long and short). Focus on their small-cap coverage — most relevant to our universe.",
+        "why_track": "One of the few short sellers focused on the small/micro-cap space where our system operates. Their long reports are a rare source of positive signals from the short-selling community.",
+        "data_sources": ["Fuzzy Panda website", "Twitter/X"],
+        "research_status": "researched"
+      },
+      {
+        "name": "Hunterbrook Media / Hunterbrook Capital",
+        "firm": "Hunterbrook",
+        "filing_type": "public_report + 13F (fund side)",
+        "filing_lag_days": 0,
+        "track_record": {
+          "years_active": 2,
+          "inception_year": 2024,
+          "notable_wins": "New model — journalism arm publishes investigative reports, fund arm trades on them. Founded by former Bloomberg journalist Sam Koppelman. Hybrid model is novel.",
+          "win_rate_estimate": "Too early to assess statistically, but model is innovative"
+        },
+        "current_status": "ACTIVE — publishing investigative journalism + trading simultaneously",
+        "strategy": "Investigative journalism drives trading thesis. Hunterbrook Media publishes reports (free, public) while Hunterbrook Capital trades on the same thesis. Transparent about the conflict. Focuses on corporate fraud, regulatory evasion, and governance failures.",
+        "signal_value": "MODERATE — novel model worth monitoring. Their journalism arm provides free investigative research. But very new — need 2-3 more years of track record before high conviction.",
+        "what_to_watch": "New investigative reports from Hunterbrook Media. Fund disclosures via 13F.",
+        "why_track": "The journalism + fund hybrid is a new model that could produce high-quality signals. Worth monitoring as the track record develops. If their reports consistently identify real problems, they become a valuable kill signal.",
+        "data_sources": ["Hunterbrook Media website", "SEC EDGAR 13F (Hunterbrook Capital)"],
+        "research_status": "researched"
+      }
+    ],
+    "dissolved_or_compromised": [
+      {
+        "name": "Nate Anderson",
+        "firm": "Hindenburg Research",
+        "status": "DISSOLVED — shut down January 2025. Anderson cited personal burnout. Famous for Adani Group, Nikola, and Carl Icahn reports. No longer producing research.",
+        "signal_value": "NONE — no longer active. Historical reports may still be relevant for companies still under SEC investigation from Hindenburg's findings."
+      },
+      {
+        "name": "Andrew Left",
+        "firm": "Citron Research",
+        "status": "CRIMINAL TRIAL — Left indicted on securities fraud charges in 2024 for allegedly front-running his own short reports. Trial ongoing as of 2026. Citron not publishing new research.",
+        "signal_value": "NONE — under criminal prosecution. Historical credibility compromised. Do not use as a signal source."
+      }
+    ]
+  },
+  "deprioritized": {
+    "description": "Investors who meet the 'actively trading' criterion but fail the 'still performing great' criterion, or whose edge has demonstrably diminished. Included for transparency — we researched them and made a deliberate decision to deprioritize.",
+    "entries": [
+      {
+        "name": "Seth Klarman",
+        "firm": "Baupost Group",
+        "reason": "4% annualized return 2014-2024. One of the greatest historical track records (20%+ over 30 years) but last decade has been persistently below market. Still manages $28B. The value-oriented approach may be structurally challenged at this AUM. Still worth checking occasionally but not high-conviction.",
+        "status": "ACTIVE but underperforming"
+      },
+      {
+        "name": "David Einhorn",
+        "firm": "Greenlight Capital",
+        "reason": "0.4% YTD as of mid-2025. Greenlight has struggled since 2015. Famous for the Lehman short (2008) and Allied Capital short (2002), but recent short positions (Tesla, Netflix) were costly mistakes. Still actively trading and filing 13F but track record has deteriorated significantly.",
+        "status": "ACTIVE but underperforming"
+      },
+      {
+        "name": "Chase Coleman",
+        "firm": "Tiger Global Management",
+        "reason": "Still recovering from catastrophic 2022 losses (52% drawdown in venture/growth portfolio). Fund closed long-term fund to new investors. Has pivoted more toward public equities with better 2023-2024 returns, but trust is damaged. Not yet back to peak form.",
+        "status": "ACTIVE but recovering"
+      },
+      {
+        "name": "Carl Icahn",
+        "firm": "Icahn Enterprises",
+        "reason": "Diminished significantly after Hindenburg Research exposed inflated NAV at Icahn Enterprises (IEP) in 2023. IEP stock dropped 50%+ and dividend was cut. Icahn is 89 years old. Still occasionally takes activist positions but scale and impact have materially declined.",
+        "status": "ACTIVE but diminished"
+      }
+    ]
+  },
+  "research_plan": {
+    "status": "COMPLETE — all categories researched and tiered",
+    "total_tracked": 30,
+    "breakdown": {
+      "super_investors_13f_tier_1": 6,
+      "super_investors_13f_tier_2": 7,
+      "super_investors_13f_tier_3_monitor": 5,
+      "activist_investors_13d_tier_1": 4,
+      "activist_investors_13d_tier_2": 5,
+      "short_sellers_active": 3,
+      "short_sellers_dissolved": 2,
+      "deprioritized": 4
+    },
+    "notes": [
+      "The 13F super investors are most useful for concentrated, low-turnover managers where the 45-day filing lag doesn't matter. High-turnover managers (like Burry) require the persistence filter — only trust positions that appear across 2+ consecutive 13F filings.",
+      "13D activists provide the most timely signal (10-day filing). Their involvement is both a signal (they identified undervaluation) and a catalyst (their campaign forces revaluation).",
+      "Short sellers are used as KILL signals, not BUY signals. If a credible short seller targets a company we own or are considering, it's an immediate review trigger.",
+      "The multi-signal convergence framework (see insider-buying-clusters.md) is the key to making these signals actionable: individual signals are noisy, but when 3+ independent signals point to the same company, conviction is high.",
+      "This file should be reviewed quarterly. Investors' performance and activity levels change. New activists emerge, old ones retire. Keep the list current."
+    ]
+  }
+}

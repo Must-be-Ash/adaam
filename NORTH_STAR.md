@@ -248,21 +248,21 @@ The detailed strategy-research documents remain separate. Each describes a
 candidate strategy pack. This index records what each one contributes without
 copying its rules:
 
-- [`../idea/earnings-call-language-analysis.md`](../idea/earnings-call-language-analysis.md):
+- [`idea/earnings-call-language-analysis.md`](idea/earnings-call-language-analysis.md):
   quarter-over-quarter management-language, specificity, hedging, guidance, and
   Q&A evasion analysis.
-- [`../idea/insider-buying-clusters.md`](../idea/insider-buying-clusters.md):
+- [`idea/insider-buying-clusters.md`](idea/insider-buying-clusters.md):
   opportunistic Form 4 purchase clusters and multi-signal convergence.
-- [`../idea/congressional-trading-signals.md`](../idea/congressional-trading-signals.md):
+- [`idea/congressional-trading-signals.md`](idea/congressional-trading-signals.md):
   committee relevance, disclosure lag, member quality, and political-trade
   clusters.
-- [`../idea/social-signal-arbitrage.md`](../idea/social-signal-arbitrage.md):
+- [`idea/social-signal-arbitrage.md`](idea/social-signal-arbitrage.md):
   real-world demand changes that may lead reported financial results.
-- [`../idea/post-bankruptcy-equities.md`](../idea/post-bankruptcy-equities.md):
+- [`idea/post-bankruptcy-equities.md`](idea/post-bankruptcy-equities.md):
   fresh-start financials, creditor selling, and post-emergence operating quality.
-- [`../idea/credit-equity-dislocations.md`](../idea/credit-equity-dislocations.md):
+- [`idea/credit-equity-dislocations.md`](idea/credit-equity-dislocations.md):
   disagreements between credit-market and equity-market signals.
-- [`../idea/buffett-modern-playbook.md`](../idea/buffett-modern-playbook.md):
+- [`idea/buffett-modern-playbook.md`](idea/buffett-modern-playbook.md):
   the long-horizon value framework, kill criteria, concentration, and use of
   other signals as confirmation.
 
@@ -272,33 +272,33 @@ into one universal strategy.
 
 ## Canonical data-source research
 
-- [`../idea/data/house-disclosures-api.md`](../idea/data/house-disclosures-api.md):
+- [`idea/data/house-disclosures-api.md`](idea/data/house-disclosures-api.md):
   official House Clerk ZIP/XML index and PTR PDF workflow; the primary House
   disclosure source.
-- [`../idea/data/congressional-data-sources.md`](../idea/data/congressional-data-sources.md):
+- [`idea/data/congressional-data-sources.md`](idea/data/congressional-data-sources.md):
   source comparison and the House/Senate coverage plan.
-- [`../idea/data/capitol-trades-api.md`](../idea/data/capitol-trades-api.md):
+- [`idea/data/capitol-trades-api.md`](idea/data/capitol-trades-api.md):
   derived House and Senate data used as enrichment or fallback, especially for
   the Senate gap.
-- [`../idea/data/finnhub-api.md`](../idea/data/finnhub-api.md):
+- [`idea/data/finnhub-api.md`](idea/data/finnhub-api.md):
   quotes, Form 4 transactions, news, metrics, recommendations, and earnings
   enrichment; congressional trades are paywalled.
 
 ## Canonical watchlists
 
-- [`../idea/congressional-leaders-watchlist.json`](../idea/congressional-leaders-watchlist.json):
+- [`idea/congressional-leaders-watchlist.json`](idea/congressional-leaders-watchlist.json):
   researched 119th Congress leadership, committee members, active traders, and
   evidence-based signal tiers.
-- [`../idea/informed-traders-watchlist.json`](../idea/informed-traders-watchlist.json):
+- [`idea/informed-traders-watchlist.json`](idea/informed-traders-watchlist.json):
   tracked 13F managers, 13D activists, short sellers, and deprioritized sources.
-- [`../idea/watchlist.json`](../idea/watchlist.json):
+- [`idea/watchlist.json`](idea/watchlist.json):
   currently appears to mirror the congressional watchlist and should be
   reconciled before it is treated as a separate canonical dataset.
 
-The research corpus currently lives beside this repository. Before publishing
-the template, migrate these files—without combining them—into versioned
-`docs/strategies`, `docs/data-sources`, and `config/watchlists` directories so a
-fork contains its own north-star sources.
+The research corpus lives in the repository's `idea/` directory. Before
+publishing the template, migrate these files—without combining them—into
+versioned `docs/strategies`, `docs/data-sources`, and `config/watchlists`
+directories so a fork contains its own north-star sources.
 
 ## Non-goals
 
