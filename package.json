@@ -50,6 +50,7 @@
     "verify:workspace-runtime:monitors": "jiti scripts/verify-workspace-monitor-store.ts",
     "verify:workspace-runtime:monitor-input": "jiti scripts/verify-workspace-monitor-input.ts",
     "verify:workspace-runtime:legacy-assignment": "jiti scripts/verify-workspace-legacy-assignment.ts",
+    "verify:workspace-runtime:redis": "jiti scripts/verify-workspace-runtime-redis.ts",
     "verify:workspace-runtime:schedules": "jiti scripts/verify-workspace-monitor-schedule.ts",
     "verify:workspaces": "node scripts/verify-photon-workspaces.mjs",
     "verify:workspaces:redis": "node scripts/verify-photon-workspaces-redis.mjs"

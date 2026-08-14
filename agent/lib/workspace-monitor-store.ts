@@ -112,6 +112,14 @@ end
 return cjson.encode(result)
 `;
 
+export const WORKSPACE_MONITOR_REDIS_SCRIPTS = Object.freeze({
+  claim: CLAIM_SCRIPT,
+  create: CREATE_SCRIPT,
+  listDue: LIST_DUE_SCRIPT,
+  releaseLease: RELEASE_LEASE_SCRIPT,
+  update: UPDATE_SCRIPT,
+});
+
 const idSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_./:@-]{1,159}$/u);
 const timestampSchema = z.string().datetime({ offset: true });
 export const workspaceMonitorScheduleSchema = z.discriminatedUnion("kind", [
@@ -545,6 +553,25 @@ export async function claimDueWorkspaceMonitors(
     if (recordKey(scope, monitor.monitorId) !== entry.recordKey || !monitor.nextOccurrenceAt) {
       continue;
     }
+    if (monitor.endAt && new Date(monitor.endAt).getTime() <= input.now.getTime()) {
+      const expired = monitorSchema.parse({
+        ...monitor,
+        configurationRevision: monitor.configurationRevision + 1,
+        lifecycleState: "paused",
+        nextOccurrenceAt: null,
+        pauseReason: "end_time_reached",
+        pausedAt: input.now.toISOString(),
+        updatedAt: input.now.toISOString(),
+      });
+      await client.update({
+        dueAtMs: null,
+        dueKey: DUE_KEY,
+        expected: raw,
+        next: JSON.stringify(expired),
+        recordKey: entry.recordKey,
+      });
+      continue;
+    }
     const selection = selectWorkspaceMonitorDueOccurrence({
       nextOccurrenceAt: monitor.nextOccurrenceAt,
       now: input.now,
@@ -728,7 +755,7 @@ export async function updateWorkspaceMonitor(
     expectedRevision: number;
     monitorId: string;
     now?: Date;
-    patch: Partial<Pick<WorkspaceMonitor, "endAt" | "instruction" | "lifecycleState" | "name" | "nextOccurrenceAt" | "pauseReason" | "pausedAt" | "requiredCapabilityIds" | "schedule" | "sources" | "tighteningLimits">>;
+    patch: Partial<Pick<WorkspaceMonitor, "consecutiveFailures" | "endAt" | "instruction" | "lastErrorCode" | "lastRunAt" | "lifecycleState" | "name" | "nextOccurrenceAt" | "pauseReason" | "pausedAt" | "requiredCapabilityIds" | "schedule" | "sources" | "tighteningLimits">>;
     scope: AuthorizedWorkspaceStoreScope;
   },
   client: WorkspaceMonitorStoreClient = store(),
@@ -791,6 +818,13 @@ export async function claimWorkspaceMonitorOccurrence(
   }
   const scheduledForMs = new Date(input.scheduledFor).getTime();
   if (!Number.isFinite(scheduledForMs)) throw new WorkspaceMonitorError("monitor_invalid");
+  const current = await getWorkspaceMonitor(input.scope, input.monitorId, client);
+  if (
+    !current ||
+    (current.endAt !== null && new Date(current.endAt).getTime() <= (input.now ?? new Date()).getTime())
+  ) {
+    throw new WorkspaceMonitorError("monitor_occurrence_not_due");
+  }
   const occurrenceKey = workspaceMonitorOccurrenceKey(input);
   const leaseToken = randomBytes(32).toString("base64url");
   const now = input.now ?? new Date();
@@ -840,6 +874,87 @@ export async function claimWorkspaceMonitorOccurrence(
       updatedAt,
     }),
   };
+}
+
+function boundedMonitorErrorCode(value: string): string {
+  return /^[a-z][a-z0-9_]{0,63}$/u.test(value)
+    ? value
+    : "workspace_run_failed";
+}
+
+export async function recordWorkspaceMonitorFailure(
+  input: {
+    errorCode: string;
+    expectedRevision: number;
+    failureThreshold?: number;
+    monitorId: string;
+    now?: Date;
+    scope: AuthorizedWorkspaceStoreScope;
+  },
+  client: WorkspaceMonitorStoreClient = store(),
+): Promise<WorkspaceMonitor> {
+  const current = await getWorkspaceMonitor(input.scope, input.monitorId, client);
+  if (!current) throw new WorkspaceMonitorError("monitor_not_found");
+  const threshold = input.failureThreshold ?? 5;
+  if (!Number.isSafeInteger(threshold) || threshold < 1 || threshold > 20) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  const now = input.now ?? new Date();
+  const failures = current.consecutiveFailures + 1;
+  const paused = failures >= threshold;
+  return updateWorkspaceMonitor(
+    {
+      expectedRevision: input.expectedRevision,
+      monitorId: input.monitorId,
+      now,
+      patch: {
+        consecutiveFailures: failures,
+        lastErrorCode: paused
+          ? "auto_paused_after_repeated_failures"
+          : boundedMonitorErrorCode(input.errorCode),
+        lastRunAt: now.toISOString(),
+        ...(paused
+          ? {
+              lifecycleState: "paused_failure" as const,
+              nextOccurrenceAt: null,
+              pauseReason: "auto_paused_after_repeated_failures",
+              pausedAt: now.toISOString(),
+            }
+          : {}),
+      },
+      scope: input.scope,
+    },
+    client,
+  );
+}
+
+export async function pauseWorkspaceMonitorAfterUncertainAlert(
+  input: {
+    expectedRevision: number;
+    monitorId: string;
+    now?: Date;
+    scope: AuthorizedWorkspaceStoreScope;
+  },
+  client: WorkspaceMonitorStoreClient = store(),
+): Promise<WorkspaceMonitor> {
+  const now = input.now ?? new Date();
+  return updateWorkspaceMonitor(
+    {
+      expectedRevision: input.expectedRevision,
+      monitorId: input.monitorId,
+      now,
+      patch: {
+        lastErrorCode: "alert_delivery_checkpoint_uncertain",
+        lastRunAt: now.toISOString(),
+        lifecycleState: "paused_failure",
+        nextOccurrenceAt: null,
+        pauseReason: "alert_delivery_checkpoint_uncertain",
+        pausedAt: now.toISOString(),
+      },
+      scope: input.scope,
+    },
+    client,
+  );
 }
 
 export async function releaseWorkspaceMonitorLease(

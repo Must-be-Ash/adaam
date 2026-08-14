@@ -34,6 +34,8 @@ redis.call("SET", KEYS[8], ARGV[6])
 return ARGV[6]
 `;
 
+export const WORKSPACE_LEGACY_ASSIGNMENT_REDIS_SCRIPT = ASSIGN_SCRIPT;
+
 const legacySchema = z.object({
   consecutiveFailures: z.number().int().nonnegative(),
   createdAtMs: z.number().int().nonnegative(),
