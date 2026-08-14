@@ -61,6 +61,7 @@
     "verify:workspace-runtime:isolation": "jiti scripts/verify-workspace-isolation.ts",
     "verify:workspace-runtime:monitors": "jiti scripts/verify-workspace-monitor-store.ts",
     "verify:workspace-runtime:monitor-tools": "jiti scripts/verify-workspace-monitor-tools.mjs",
+    "verify:workspace-runtime:manager": "node scripts/verify-photon-workspace-runtime-manager.mjs",
     "verify:workspace-runtime:monitor-input": "jiti scripts/verify-workspace-monitor-input.ts",
     "verify:workspace-runtime:legacy-assignment": "jiti scripts/verify-workspace-legacy-assignment.ts",
     "verify:workspace-runtime:redis": "jiti scripts/verify-workspace-runtime-redis.ts",

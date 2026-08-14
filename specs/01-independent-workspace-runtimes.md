@@ -958,7 +958,7 @@ Exit gate:
 - [x] Add workspace-derived monitor CRUD tools and compatibility aliases.
 - [x] Support “also run at 4 PM,” source additions, budget changes, and status
   questions through natural language.
-- [ ] Extend the session manager with monitor details, pause/resume, schedule,
+- [x] Extend the session manager with monitor details, pause/resume, schedule,
   and workspace budget controls.
 - [ ] Implement archive/restore/start-fresh monitor lifecycle behavior.
 - [ ] Correct trigger-deletion approval copy or replace it with the dedicated
@@ -1164,3 +1164,4 @@ own bounded implementation spec:
 | 2026-08-14 | Sprint 4 exit gate: prove durable Photon ingress outcomes, alert dedupe/uncertainty quarantine, safe non-selected-workspace alerts, explicit Discuss routing, and no cross-routing | Photon approval/workspace/ingress/alert/action/harness regressions, ephemeral Redis runtime verification, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Complete workspace-derived monitor create/list/update/pause/resume/recoverable-retire tools while retaining the isolated legacy event-trigger compatibility surface | `jiti scripts/verify-workspace-monitor-tools.mjs`, monitor store/input regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Add deterministic additive daily-time/source updates, authenticated workspace budget mutation, read-only workspace status, and monitor-first natural-language guidance | `jiti scripts/verify-workspace-monitor-tools.mjs`, monitor/state-store regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
+| 2026-08-14 | Extend the existing Spectrum session manager with scoped monitor health/schedule/source details, pause/resume and daily-schedule controls, and revision-bound workspace budget controls | `node scripts/verify-photon-workspace-runtime-manager.mjs`, Photon workspace and monitor/state-store regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |

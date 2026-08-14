@@ -15,6 +15,19 @@ import {
 import { getCurrentPhotonApprovalActivity } from "../lib/photon-approval-store";
 import { PHOTON_WORKSPACE_APP_PATH } from "../lib/photon-mini-app";
 import { workspaceMonitorManagerSourcesSchema } from "../lib/workspace-monitor-input";
+import { nextWorkspaceMonitorOccurrence } from "../lib/workspace-monitor-schedule";
+import {
+  getWorkspaceMonitor,
+  listWorkspaceMonitors,
+  updateWorkspaceMonitor,
+  workspaceMonitorScheduleSchema,
+} from "../lib/workspace-monitor-store";
+import {
+  readWorkspaceDocument,
+  writeWorkspaceDocument,
+} from "../lib/workspace-state-store";
+import { authorizePhotonWorkspaceControlPlaneStore } from "../lib/workspace-store-authorization";
+import { requireWorkspaceMonitorWrites } from "../lib/workspace-runtime-flags";
 import {
   OwnerIdentityDeniedError,
   requirePhotonOwnerAccess,
@@ -78,6 +91,34 @@ const actionRequestSchema = z.discriminatedUnion("action", [
     action: z.literal("start-fresh"),
     expectedRevision: z.number().int().nonnegative(),
     managerToken: tokenSchema,
+    workspaceId: workspaceIdSchema,
+  }),
+]);
+const runtimeActionRequestSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.enum(["monitor-pause", "monitor-resume"]),
+    expectedMonitorRevision: z.number().int().positive(),
+    expectedRoutingRevision: z.number().int().nonnegative(),
+    managerToken: tokenSchema,
+    monitorId: workspaceIdSchema,
+    workspaceId: workspaceIdSchema,
+  }),
+  z.object({
+    action: z.literal("monitor-schedule"),
+    expectedMonitorRevision: z.number().int().positive(),
+    expectedRoutingRevision: z.number().int().nonnegative(),
+    managerToken: tokenSchema,
+    monitorId: workspaceIdSchema,
+    schedule: workspaceMonitorScheduleSchema,
+    workspaceId: workspaceIdSchema,
+  }),
+  z.object({
+    action: z.literal("workspace-budget"),
+    expectedBudgetRevision: z.number().int().positive(),
+    expectedRoutingRevision: z.number().int().nonnegative(),
+    managerToken: tokenSchema,
+    maximumConcurrentWorkers: z.number().int().positive().max(32),
+    maximumScheduledRunsPerDay: z.number().int().positive().max(32),
     workspaceId: workspaceIdSchema,
   }),
 ]);
@@ -151,6 +192,43 @@ function publicState(state: PhotonWorkspaceState) {
       id: workspace.id,
       name: workspace.name,
       status: workspace.status,
+    })),
+  };
+}
+
+async function publicManagerState(
+  principalId: string,
+  state: PhotonWorkspaceState,
+) {
+  const base = publicState(state);
+  return {
+    ...base,
+    workspaces: await Promise.all(base.workspaces.map(async (workspace) => {
+      const scope = authorizePhotonWorkspaceControlPlaneStore({
+        principalId,
+        resource: "manager",
+        workspaceId: workspace.id,
+      });
+      const [monitors, budget] = await Promise.all([
+        listWorkspaceMonitors(scope),
+        readWorkspaceDocument("budget", scope),
+      ]);
+      return {
+        ...workspace,
+        budget,
+        monitors: monitors.map((monitor) => ({
+          configurationRevision: monitor.configurationRevision,
+          lastCompletedAt: monitor.lastCompletedAt,
+          lastErrorCode: monitor.lastErrorCode,
+          lastRunAt: monitor.lastRunAt,
+          lifecycleState: monitor.lifecycleState,
+          monitorId: monitor.monitorId,
+          name: monitor.name,
+          nextOccurrenceAt: monitor.nextOccurrenceAt,
+          schedule: monitor.schedule,
+          sources: monitor.sources,
+        })),
+      };
     })),
   };
 }
@@ -334,6 +412,10 @@ function workspaceHtml(nonce: string, origin: string): string {
       font-size: 12px;
       line-height: 1.3;
     }
+    .runtime { display: grid; gap: 9px; }
+    .runtime-row { padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; }
+    .runtime-row .actions { margin-top: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .runtime-row .actions button { grid-column: auto; }
     .actions {
       display: grid;
       grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -439,6 +521,15 @@ function workspaceHtml(nonce: string, origin: string): string {
         return element;
       };
 
+      const runtimeButton = (label, action, workspace, monitor = null) => {
+        const element = document.createElement("button");
+        element.type = "button";
+        element.textContent = label;
+        element.disabled = busy;
+        element.addEventListener("click", () => void handleRuntime(action, workspace, monitor));
+        return element;
+      };
+
       const render = () => {
         list.replaceChildren();
         if (!state) return;
@@ -466,6 +557,44 @@ function workspaceHtml(nonce: string, origin: string): string {
           titleWrap.append(title, meta);
           titleRow.append(titleWrap);
 
+          const runtime = document.createElement("div");
+          runtime.className = "runtime";
+          for (const monitor of workspace.monitors || []) {
+            const row = document.createElement("div");
+            row.className = "runtime-row";
+            const monitorName = document.createElement("p");
+            monitorName.className = "name";
+            monitorName.textContent = monitor.name;
+            const monitorMeta = document.createElement("p");
+            monitorMeta.className = "meta";
+            monitorMeta.textContent = monitor.lifecycleState + " · next " +
+              (monitor.nextOccurrenceAt || "none") + " · last " +
+              (monitor.lastRunAt || "never") + " · " + monitor.sources.length + " source(s)" +
+              (monitor.lastErrorCode ? " · " + monitor.lastErrorCode : "");
+            const monitorActions = document.createElement("div");
+            monitorActions.className = "actions";
+            monitorActions.append(
+              runtimeButton(monitor.lifecycleState === "enabled" ? "Pause" : "Resume",
+                monitor.lifecycleState === "enabled" ? "monitor-pause" : "monitor-resume", workspace, monitor),
+              runtimeButton("Edit schedule", "monitor-schedule", workspace, monitor),
+            );
+            row.append(monitorName, monitorMeta, monitorActions);
+            runtime.append(row);
+          }
+          if (workspace.budget) {
+            const budget = document.createElement("div");
+            budget.className = "runtime-row";
+            const budgetMeta = document.createElement("p");
+            budgetMeta.className = "meta";
+            budgetMeta.textContent = "Budget · " + workspace.budget.value.maximumScheduledRunsPerDay +
+              " runs/day · " + workspace.budget.value.maximumConcurrentWorkers + " concurrent worker(s)";
+            const budgetActions = document.createElement("div");
+            budgetActions.className = "actions";
+            budgetActions.append(runtimeButton("Edit budget", "workspace-budget", workspace));
+            budget.append(budgetMeta, budgetActions);
+            runtime.append(budget);
+          }
+
           const actions = document.createElement("div");
           actions.className = "actions";
           if (workspace.status === "archived") {
@@ -486,7 +615,7 @@ function workspaceHtml(nonce: string, origin: string): string {
               );
             }
           }
-          card.append(titleRow, actions);
+          card.append(titleRow, runtime, actions);
           list.append(card);
         }
       };
@@ -539,6 +668,53 @@ function workspaceHtml(nonce: string, origin: string): string {
           busy = false;
           render();
         }
+      };
+
+      const runtimeMutate = async (action) => {
+        if (!state || busy) return;
+        busy = true;
+        render();
+        try {
+          state = await request("${PHOTON_WORKSPACE_APP_PATH}/runtime-action", {
+            ...action,
+            expectedRoutingRevision: state.revision,
+            managerToken: token,
+          });
+          status.textContent = "Monitor settings updated.";
+        } catch (error) {
+          status.classList.add("error");
+          status.textContent = error instanceof Error ? error.message : "Could not update monitor settings.";
+          if (error && error.status === 409) await load();
+        } finally {
+          busy = false;
+          render();
+        }
+      };
+
+      const handleRuntime = async (action, workspace, monitor) => {
+        if (action === "workspace-budget") {
+          const runs = Number(prompt("Maximum scheduled runs per day", workspace.budget.value.maximumScheduledRunsPerDay));
+          const workers = Number(prompt("Maximum concurrent workers", workspace.budget.value.maximumConcurrentWorkers));
+          if (!Number.isInteger(runs) || !Number.isInteger(workers)) return;
+          await runtimeMutate({ action, expectedBudgetRevision: workspace.budget.revision,
+            maximumConcurrentWorkers: workers, maximumScheduledRunsPerDay: runs, workspaceId: workspace.id });
+          return;
+        }
+        if (action === "monitor-schedule") {
+          if (monitor.schedule.kind !== "daily_local") {
+            alert("This editor currently supports local daily schedules. Ask Eve in chat to change other schedule types.");
+            return;
+          }
+          const times = prompt("Daily times (24-hour, comma-separated)", monitor.schedule.times.join(", "));
+          const timezone = prompt("IANA time zone", monitor.schedule.timezone);
+          if (!times || !timezone) return;
+          await runtimeMutate({ action, expectedMonitorRevision: monitor.configurationRevision,
+            monitorId: monitor.monitorId, schedule: { kind: "daily_local",
+              times: times.split(",").map((value) => value.trim()).filter(Boolean), timezone }, workspaceId: workspace.id });
+          return;
+        }
+        await runtimeMutate({ action, expectedMonitorRevision: monitor.configurationRevision,
+          monitorId: monitor.monitorId, workspaceId: workspace.id });
       };
 
       const handle = async (action, workspace) => {
@@ -622,7 +798,7 @@ export default defineChannel({
       }
       const state = await getPhotonWorkspaceManagerState(body.managerToken);
       return state
-        ? json(publicState(state))
+        ? json(await publicManagerState(scope.principalId, state))
         : json({ error: "This session manager link expired." }, 410);
     }),
     POST(
@@ -671,7 +847,7 @@ export default defineChannel({
                 )
               : true;
           return json({
-            ...publicState(result.state),
+            ...await publicManagerState(scope.principalId, result.state),
             ...(!retired ? { cleanupPending: true } : {}),
           });
         } catch (error) {
@@ -698,5 +874,109 @@ export default defineChannel({
         }
       },
     ),
+    POST(`${PHOTON_WORKSPACE_APP_PATH}/runtime-action`, async (request) => {
+      const body = await readJson(request, runtimeActionRequestSchema);
+      if (body instanceof Response) return body;
+      const managerScope = await getPhotonWorkspaceManagerScope(body.managerToken);
+      if (!managerScope) return json({ error: "This session manager link expired." }, 410);
+      try {
+        requirePhotonOwnerAccess({ principalId: managerScope.principalId, resource: "manager" });
+        const approvalActivity = await getCurrentPhotonApprovalActivity(managerScope).catch(() => "active");
+        if (approvalActivity) {
+          return json({ error: "Finish or cancel the pending financial approval before changing monitors." }, 409);
+        }
+        requireWorkspaceMonitorWrites();
+        const routing = await getPhotonWorkspaceManagerState(body.managerToken);
+        if (!routing) return json({ error: "This session manager link expired." }, 410);
+        if (routing.revision !== body.expectedRoutingRevision) {
+          return json({ error: "The session state changed. Refresh and try again." }, 409);
+        }
+        const workspace = routing.workspaces.find(
+          (candidate) => candidate.id === body.workspaceId && candidate.status === "active",
+        );
+        if (!workspace) return json({ error: "That session is unavailable." }, 400);
+        const scope = authorizePhotonWorkspaceControlPlaneStore({
+          principalId: managerScope.principalId,
+          resource: "manager",
+          workspaceId: workspace.id,
+        });
+        const now = new Date();
+        if (body.action === "workspace-budget") {
+          const budget = await readWorkspaceDocument("budget", scope);
+          if (!budget || budget.revision !== body.expectedBudgetRevision) {
+            return json({ error: "The workspace budget changed. Refresh and try again." }, 409);
+          }
+          await writeWorkspaceDocument("budget", {
+            expectedRevision: budget.revision,
+            now,
+            scope,
+            value: {
+              ...budget.value,
+              effectiveAt: now.toISOString(),
+              maximumConcurrentWorkers: body.maximumConcurrentWorkers,
+              maximumScheduledRunsPerDay: body.maximumScheduledRunsPerDay,
+            },
+          });
+        } else {
+          const monitor = await getWorkspaceMonitor(scope, body.monitorId);
+          if (!monitor || monitor.configurationRevision !== body.expectedMonitorRevision) {
+            return json({ error: "The monitor changed. Refresh and try again." }, 409);
+          }
+          if (body.action === "monitor-schedule") {
+            const next = nextWorkspaceMonitorOccurrence(body.schedule, now);
+            if (!next) return json({ error: "That schedule has no future occurrence." }, 400);
+            await updateWorkspaceMonitor({
+              expectedRevision: monitor.configurationRevision,
+              monitorId: monitor.monitorId,
+              now,
+              patch: { nextOccurrenceAt: next.scheduledAt, schedule: body.schedule },
+              scope,
+            });
+          } else if (body.action === "monitor-resume") {
+            const next = nextWorkspaceMonitorOccurrence(monitor.schedule, now);
+            if (!next) return json({ error: "That monitor schedule is complete." }, 400);
+            await updateWorkspaceMonitor({
+              expectedRevision: monitor.configurationRevision,
+              monitorId: monitor.monitorId,
+              now,
+              patch: {
+                lastErrorCode: null,
+                lifecycleState: "enabled",
+                nextOccurrenceAt: next.scheduledAt,
+                pauseReason: null,
+                pausedAt: null,
+              },
+              scope,
+            });
+          } else {
+            await updateWorkspaceMonitor({
+              expectedRevision: monitor.configurationRevision,
+              monitorId: monitor.monitorId,
+              now,
+              patch: {
+                lifecycleState: "paused",
+                nextOccurrenceAt: null,
+                pauseReason: "owner_paused",
+                pausedAt: now.toISOString(),
+              },
+              scope,
+            });
+          }
+        }
+        const refreshed = await getPhotonWorkspaceManagerState(body.managerToken);
+        return refreshed
+          ? json(await publicManagerState(managerScope.principalId, refreshed))
+          : json({ error: "This session manager link expired." }, 410);
+      } catch (error) {
+        if (error instanceof OwnerIdentityDeniedError) {
+          return json({ error: "This identity is not authorized." }, 403);
+        }
+        console.error("[photon.workspace] Runtime manager action failed", {
+          action: body.action,
+          error_type: error instanceof Error ? error.name : typeof error,
+        });
+        return json({ error: "Eve could not confirm the monitor update. Refresh and try again." }, 503);
+      }
+    }),
   ],
 });
