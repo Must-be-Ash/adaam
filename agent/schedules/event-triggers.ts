@@ -2,18 +2,97 @@ import { defineSchedule, type ScheduleToFn } from "eve/schedules";
 import type { SessionAuthContext } from "eve/context";
 
 import eventTriggerRunner from "../channels/event-trigger-runner";
+import { startWorkspaceWorkerTask } from "../lib/eve-workspace-worker-runtime";
 import {
   buildEventTriggerPrompt,
   type ClaimedEventTrigger,
   eventTriggerExecutionAuth,
   eventTriggerStore,
 } from "../lib/event-trigger-store";
-import { reserveWorkspaceMonitorDispatchBudget } from "../lib/workspace-dispatch-budget";
+import {
+  finishWorkspaceMonitorDispatchBudget,
+  reserveWorkspaceMonitorDispatchBudget,
+  type WorkspaceDispatchReservation,
+} from "../lib/workspace-dispatch-budget";
 import {
   claimDueWorkspaceMonitors,
+  recordWorkspaceMonitorFailure,
   releaseWorkspaceMonitorLease,
+  type ClaimedWorkspaceMonitor,
 } from "../lib/workspace-monitor-store";
 import { resolveWorkspaceRuntimeFlags } from "../lib/workspace-runtime-flags";
+import {
+  prepareWorkspaceWorkerRun,
+  requireWorkspaceWorkerOutcome,
+} from "../lib/workspace-worker-runner";
+
+async function executeWorkspaceJob(
+  job: ClaimedWorkspaceMonitor,
+  budget: WorkspaceDispatchReservation,
+): Promise<void> {
+  let started = false;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  try {
+    const prepared = await prepareWorkspaceWorkerRun({
+      claimed: job,
+      dispatchBudget: budget,
+    });
+    const session = await startWorkspaceWorkerTask(prepared.request);
+    started = true;
+    let terminalFailure = false;
+    for await (const event of session.events) {
+      if (event.type === "step.completed") {
+        inputTokens += event.data.usage?.inputTokens ?? 0;
+        outputTokens += event.data.usage?.outputTokens ?? 0;
+      } else if (
+        event.type === "turn.failed" ||
+        event.type === "turn.cancelled" ||
+        event.type === "session.failed"
+      ) {
+        terminalFailure = true;
+      }
+    }
+    if (terminalFailure) throw new Error("workspace_worker_session_failed");
+    await requireWorkspaceWorkerOutcome(prepared);
+    await finishWorkspaceMonitorDispatchBudget(job, budget, {
+      actualInputTokens: inputTokens,
+      actualOutputTokens: outputTokens,
+      outcome: "reconciled",
+    });
+  } catch (error) {
+    if (started) {
+      try {
+        await recordWorkspaceMonitorFailure({
+          errorCode:
+            error instanceof Error &&
+            error.message === "workspace_worker_required_outcome_missing"
+              ? "worker_outcome_missing"
+              : "workspace_worker_failed",
+          expectedRevision: job.monitor.configurationRevision,
+          monitorId: job.monitor.monitorId,
+          scope: job.scope,
+        });
+      } catch {
+        // A concurrent lifecycle/configuration edit is authoritative.
+      }
+      try {
+        await releaseWorkspaceMonitorLease({
+          leaseToken: job.leaseToken,
+          monitorId: job.monitor.monitorId,
+          scope: job.scope,
+        });
+      } catch {
+        // Lease expiry recovery remains authoritative.
+      }
+    }
+    await finishWorkspaceMonitorDispatchBudget(job, budget, {
+      actualInputTokens: started ? inputTokens : undefined,
+      actualOutputTokens: started ? outputTokens : undefined,
+      outcome: started ? "reconciled" : "released",
+    });
+  }
+}
 
 async function deliver(
   to: ScheduleToFn,
@@ -81,6 +160,12 @@ export default defineSchedule({
             admitted_count: admittedWorkspaceJobs.length,
           });
         }
+
+        await Promise.all(
+          admittedWorkspaceJobs.map(({ budget, job }) =>
+            executeWorkspaceJob(job, budget),
+          ),
+        );
 
         await Promise.all(
           jobs.map(async (job) => {

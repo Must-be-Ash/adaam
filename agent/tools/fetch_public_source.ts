@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
@@ -11,6 +13,13 @@ import {
   getPublicFeed,
   type PublicFeedFormat,
 } from "../lib/public-feeds";
+import {
+  authorizeWorkspaceSourceFetch,
+  markWorkspaceSourceSuccess,
+  reserveWorkspaceSourceAttempt,
+} from "../lib/workspace-source-coverage";
+import { authorizeWorkspaceWorkerStore } from "../lib/workspace-store-authorization";
+import { requireWorkspaceWorkerAuth } from "../lib/workspace-worker-auth";
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
@@ -438,18 +447,59 @@ export default defineTool({
     }
 
     const initialUrl = publicGovernmentUrl(input.url ?? source?.url ?? "");
-    const scheduledScope = await assertScheduledSourceAllowed(ctx, {
-      ...(input.sourceId ? { sourceId: input.sourceId } : {}),
-      url: initialUrl.toString(),
-    });
-    await reserveScheduledSourceAttempt(scheduledScope);
+    const workerRun =
+      ctx.session.auth.current?.authenticator === "workspace-monitor-runtime"
+        ? {
+            envelope: requireWorkspaceWorkerAuth(ctx),
+            scope: authorizeWorkspaceWorkerStore(ctx),
+          }
+        : null;
+    const scheduledScope = workerRun
+      ? null
+      : await assertScheduledSourceAllowed(ctx, {
+          ...(input.sourceId ? { sourceId: input.sourceId } : {}),
+          url: initialUrl.toString(),
+        });
+    const workspaceSource = workerRun
+      ? await authorizeWorkspaceSourceFetch({
+          runId: workerRun.envelope.runId,
+          scope: workerRun.scope,
+          ...(input.sourceId ? { sourceId: input.sourceId } : {}),
+          url: initialUrl.toString(),
+        })
+      : null;
+    if (workspaceSource) {
+      await reserveWorkspaceSourceAttempt({
+        runId: workerRun!.envelope.runId,
+        scope: workerRun!.scope,
+        sourceId: workspaceSource.sourceId,
+      });
+    } else {
+      await reserveScheduledSourceAttempt(scheduledScope);
+    }
     const expectedFormat = input.expectedFormat ?? source?.format;
     if (expectedFormat === "html") {
       throw new Error("Use web_fetch for HTML sources.");
     }
 
     const { response, finalUrl } = await fetchOfficialSource(initialUrl);
+    if (workspaceSource && finalUrl.toString() !== workspaceSource.canonicalUrl) {
+      throw new Error("A workspace source redirect crossed the exact configured URL fence.");
+    }
     const body = await readLimitedText(response);
+    const contentDigest = createHash("sha256").update(body).digest("hex");
+    const markSuccess = async (): Promise<void> => {
+      if (workspaceSource) {
+        await markWorkspaceSourceSuccess({
+          contentDigest,
+          runId: workerRun!.envelope.runId,
+          scope: workerRun!.scope,
+          sourceId: workspaceSource.sourceId,
+        });
+      } else {
+        await markScheduledSourceSuccess(scheduledScope);
+      }
+    };
     const contentType = response.headers.get("content-type") ?? "";
     const looksJson =
       expectedFormat === "json" ||
@@ -491,24 +541,26 @@ export default defineTool({
         fetchedAt: new Date().toISOString(),
         data: truncateJson(parsedJson, input.maxItems),
       };
-      await markScheduledSourceSuccess(scheduledScope);
+      await markSuccess();
       return result;
     }
 
     const parsed = parseXmlFeed(body, expectedFormat);
+    const windowStartAtMs = workerRun
+      ? Date.parse(workerRun.envelope.window.startAt)
+      : scheduledScope?.windowStartAtMs;
+    const windowEndAtMs = workerRun
+      ? Date.parse(workerRun.envelope.window.endAt)
+      : scheduledScope?.windowEndAtMs;
     if (
-      scheduledScope &&
-      (!input.since ||
-        Date.parse(input.since) !== scheduledScope.windowStartAtMs)
+      windowStartAtMs !== undefined &&
+      (!input.since || Date.parse(input.since) !== windowStartAtMs)
     ) {
       throw new Error(
         "Scheduled RSS and Atom fetches must use the exact evaluation-window start as since.",
       );
     }
-    if (
-      scheduledScope &&
-      parsed.items.some((item) => eventTimestamp(item) === 0)
-    ) {
+    if (windowEndAtMs !== undefined && parsed.items.some((item) => eventTimestamp(item) === 0)) {
       throw new Error(
         "The feed contains an entry without a parseable timestamp, so this run cannot prove complete window coverage.",
       );
@@ -522,13 +574,12 @@ export default defineTool({
             (sinceTimestamp === null ||
               timestamp === 0 ||
               timestamp > sinceTimestamp) &&
-            (!scheduledScope ||
-              timestamp <= scheduledScope.windowEndAtMs)
+            (windowEndAtMs === undefined || timestamp <= windowEndAtMs)
           );
         },
       )
       .sort((a, b) => eventTimestamp(b) - eventTimestamp(a));
-    if (scheduledScope && matchingItems.length > input.maxItems) {
+    if (windowEndAtMs !== undefined && matchingItems.length > input.maxItems) {
       throw new Error(
         "The feed has more in-window items than this run can evaluate completely. Narrow the source or trigger.",
       );
@@ -550,7 +601,7 @@ export default defineTool({
           ? "Some entries have no parseable publication timestamp and were retained."
           : null,
     };
-    await markScheduledSourceSuccess(scheduledScope);
+    await markSuccess();
     return result;
   },
 });

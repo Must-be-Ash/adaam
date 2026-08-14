@@ -145,13 +145,25 @@ export async function writeWorkspaceFindingForWorker(input: {
   ) {
     throw new WorkspaceWorkerCommitError("workspace_worker_classification_denied");
   }
-  return stageWorkspaceFinding({
+  const outcome = await stageWorkspaceFinding({
     coverage: prepared.coverage,
     envelope: prepared.envelope,
     finding: input.finding,
     now: input.now,
     scope: prepared.scope,
   }, input.clients?.finding);
+  await completeWorkspaceMonitorCheckpoint({
+    completedAt: input.now,
+    configurationRevision: prepared.envelope.configurationRevision,
+    contentDigest: outcome.checkpoint.contentDigest,
+    leaseTokenDigest: prepared.envelope.leaseTokenDigest,
+    monitorId: prepared.envelope.monitorId,
+    occurrenceKey: prepared.envelope.occurrenceKey,
+    scheduledFor: prepared.envelope.scheduledFor,
+    scope: prepared.scope,
+    watermark: outcome.checkpoint.watermark,
+  }, input.clients?.monitor);
+  return outcome;
 }
 
 export async function completeWorkspaceRunForWorker(input: {

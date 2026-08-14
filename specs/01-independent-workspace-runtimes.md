@@ -151,10 +151,10 @@ The completed foundation must support this experience:
   quarantined for reconciliation; it is never replayed blindly.
 - [ ] The selected-workspace pointer affects interactive routing only. It never
   controls whether another workspace's monitors run.
-- [ ] A worker receives only its workspace ID, monitor configuration, bounded
+- [x] A worker receives only its workspace ID, monitor configuration, bounded
   brief, approved structured findings, declared sources, and allowed
   capabilities.
-- [ ] A worker cannot read any workspace's raw chat history, including its own.
+- [x] A worker cannot read any workspace's raw chat history, including its own.
 - [ ] No workspace can read or mutate another workspace's brief, findings,
   monitors, budget, runs, or alerts.
 - [ ] Model-supplied owner IDs and arbitrary workspace IDs are never trusted.
@@ -565,15 +565,15 @@ The worker does not receive:
 - shell/filesystem tools unless a later reviewed capability explicitly needs
   them and the shared core permits them.
 
-- [ ] Build worker prompts from typed records, not concatenated model prose from
+- [x] Build worker prompts from typed records, not concatenated model prose from
   another session.
-- [ ] Enforce exact source fencing in both prompt and tool execution.
-- [ ] Require every configured source to be attempted at most once per run and
+- [x] Enforce exact source fencing in both prompt and tool execution.
+- [x] Require every configured source to be attempted at most once per run and
   successfully covered before committing no-match or alert state.
-- [ ] Keep provider result normalization and transport byte limits in force.
-- [ ] Write findings through a scoped control-plane tool that derives workspace
+- [x] Keep provider result normalization and transport byte limits in force.
+- [x] Write findings through a scoped control-plane tool that derives workspace
   and run identity from runtime auth.
-- [ ] Treat a final model answer without the required completion/finding tool as
+- [x] Treat a final model answer without the required completion/finding tool as
   a failed evaluation, not a successful checkpoint.
 
 ## Capability and budget enforcement
@@ -924,7 +924,7 @@ Exit gate:
 - [x] Add scoped finding and completion tools.
 - [x] Implement the `IPO Filings` reference manifest and SEC Atom normalizer.
 - [x] Complete all reference fixture tests, including concurrent workspaces.
-- [ ] Prove the worker has no interactive history or cross-workspace state.
+- [x] Prove the worker has no interactive history or cross-workspace state.
 
 Exit gate:
 
@@ -1150,3 +1150,4 @@ own bounded implementation spec:
 | 2026-08-14 | Add capability-gated worker completion and structured-finding tools backed by one CAS-atomic, source-complete run outcome | `jiti scripts/verify-workspace-finding-store.ts`, source-coverage/worker-auth/capability/monitor regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Add the public-only IPO Filings capability manifest, exact filtered SEC source, and bounded versioned S-1/S-1/A Atom normalizer | `jiti scripts/verify-sec-ipo-reference.ts`, finding regression, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Complete the SEC IPO baseline/new/replay/amendment/failure/concurrent-workspace corpus and occurrence-key retry-safe checkpoint semantics | `jiti scripts/verify-sec-ipo-fixtures.ts`, finding/monitor regressions, ephemeral-Redis checkpoint matrix, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
+| 2026-08-14 | Dispatch each occurrence directly to a fresh declared worker task with typed bounded context, exact source-tool fencing, scoped terminal outcomes, and no interactive or cross-workspace state | `jiti scripts/verify-workspace-worker-isolation.ts`, worker auth/source coverage/finding/capability/SEC fixture regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
