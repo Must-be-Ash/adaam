@@ -963,7 +963,7 @@ Exit gate:
 - [x] Implement archive/restore/start-fresh monitor lifecycle behavior.
 - [x] Correct trigger-deletion approval copy or replace it with the dedicated
   recoverable monitor-retirement action.
-- [ ] Add stale/replayed mini-app action tests and plain-text fallbacks.
+- [x] Add stale/replayed mini-app action tests and plain-text fallbacks.
 
 Exit gate:
 
@@ -1167,3 +1167,4 @@ own bounded implementation spec:
 | 2026-08-14 | Extend the existing Spectrum session manager with scoped monitor health/schedule/source details, pause/resume and daily-schedule controls, and revision-bound workspace budget controls | `node scripts/verify-photon-workspace-runtime-manager.mjs`, Photon workspace and monitor/state-store regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Suspend monitors before workspace archive, restore them to manual pause without auto-resume, and preserve monitor state across Start fresh generation changes | manager/lifecycle verification, monitor-store and Start-fresh regressions, Photon approval regression, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Remove legacy trigger deletion from the Photon rich-approval protocol and direct new workspace monitors to authenticated recoverable retirement without altering Coinbase approval behavior | `node scripts/verify-photon-approval.mjs`, monitor-tool compatibility verification, and `tsc --noEmit` — passed |
+| 2026-08-14 | Require one-time UUID request claims for every Spectrum mutation, reject stale or replayed actions, and expose chat fallbacks for essential monitor operations | Photon workspace/manager/monitor-tool regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |

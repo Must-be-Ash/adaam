@@ -36,6 +36,7 @@ import {
 } from "../lib/owner-identity";
 import {
   applyPhotonWorkspaceManagerAction,
+  claimPhotonWorkspaceManagerRequest,
   getPhotonWorkspaceManagerScope,
   getPhotonWorkspaceManagerState,
   PhotonWorkspaceApprovalBlockedError,
@@ -47,6 +48,7 @@ import {
 
 const tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
 const workspaceIdSchema = z.string().uuid();
+const requestIdSchema = z.string().uuid();
 export const photonWorkspaceMonitorSourcesSchema =
   workspaceMonitorManagerSourcesSchema;
 const PHOTON_SESSION_ICON_PATH = `${PHOTON_WORKSPACE_APP_PATH}/${PHOTON_APP_ICON_SVG_PATH}`;
@@ -60,6 +62,7 @@ const actionRequestSchema = z.discriminatedUnion("action", [
     action: z.literal("archive"),
     expectedRevision: z.number().int().nonnegative(),
     managerToken: tokenSchema,
+    requestId: requestIdSchema,
     replacementWorkspaceId: workspaceIdSchema.optional(),
     workspaceId: workspaceIdSchema,
   }),
@@ -67,6 +70,7 @@ const actionRequestSchema = z.discriminatedUnion("action", [
     action: z.literal("create"),
     expectedRevision: z.number().int().nonnegative(),
     managerToken: tokenSchema,
+    requestId: requestIdSchema,
     name: z.string().min(1).max(80),
     select: z.boolean().optional(),
   }),
@@ -74,6 +78,7 @@ const actionRequestSchema = z.discriminatedUnion("action", [
     action: z.literal("rename"),
     expectedRevision: z.number().int().nonnegative(),
     managerToken: tokenSchema,
+    requestId: requestIdSchema,
     name: z.string().min(1).max(80),
     workspaceId: workspaceIdSchema,
   }),
@@ -81,18 +86,21 @@ const actionRequestSchema = z.discriminatedUnion("action", [
     action: z.literal("restore"),
     expectedRevision: z.number().int().nonnegative(),
     managerToken: tokenSchema,
+    requestId: requestIdSchema,
     workspaceId: workspaceIdSchema,
   }),
   z.object({
     action: z.literal("select"),
     expectedRevision: z.number().int().nonnegative(),
     managerToken: tokenSchema,
+    requestId: requestIdSchema,
     workspaceId: workspaceIdSchema,
   }),
   z.object({
     action: z.literal("start-fresh"),
     expectedRevision: z.number().int().nonnegative(),
     managerToken: tokenSchema,
+    requestId: requestIdSchema,
     workspaceId: workspaceIdSchema,
   }),
 ]);
@@ -102,6 +110,7 @@ const runtimeActionRequestSchema = z.discriminatedUnion("action", [
     expectedMonitorRevision: z.number().int().positive(),
     expectedRoutingRevision: z.number().int().nonnegative(),
     managerToken: tokenSchema,
+    requestId: requestIdSchema,
     monitorId: workspaceIdSchema,
     workspaceId: workspaceIdSchema,
   }),
@@ -110,6 +119,7 @@ const runtimeActionRequestSchema = z.discriminatedUnion("action", [
     expectedMonitorRevision: z.number().int().positive(),
     expectedRoutingRevision: z.number().int().nonnegative(),
     managerToken: tokenSchema,
+    requestId: requestIdSchema,
     monitorId: workspaceIdSchema,
     schedule: workspaceMonitorScheduleSchema,
     workspaceId: workspaceIdSchema,
@@ -119,6 +129,7 @@ const runtimeActionRequestSchema = z.discriminatedUnion("action", [
     expectedBudgetRevision: z.number().int().positive(),
     expectedRoutingRevision: z.number().int().nonnegative(),
     managerToken: tokenSchema,
+    requestId: requestIdSchema,
     maximumConcurrentWorkers: z.number().int().positive().max(32),
     maximumScheduledRunsPerDay: z.number().int().positive().max(32),
     workspaceId: workspaceIdSchema,
@@ -483,7 +494,7 @@ function workspaceHtml(nonce: string, origin: string): string {
     <section>
       <div id="workspaces"></div>
     </section>
-    <p class="note">Start fresh clears that session’s conversation history. Archived sessions can be restored later.</p>
+    <p class="note">Start fresh clears that session’s conversation history. Archived sessions can be restored later. If a monitor control is unavailable, ask Eve in chat to list, pause, resume, reschedule, retire, or update the budget for a monitor.</p>
   </main>
   <script nonce="${nonce}">
     (() => {
@@ -656,6 +667,7 @@ function workspaceHtml(nonce: string, origin: string): string {
             ...action,
             expectedRevision: state.revision,
             managerToken: token,
+            requestId: crypto.randomUUID(),
           });
           status.textContent = state.cleanupPending
             ? "Fresh routing is active, but cleanup of the prior session could not be confirmed."
@@ -681,6 +693,7 @@ function workspaceHtml(nonce: string, origin: string): string {
             ...action,
             expectedRoutingRevision: state.revision,
             managerToken: token,
+            requestId: crypto.randomUUID(),
           });
           status.textContent = "Monitor settings updated.";
         } catch (error) {
@@ -834,6 +847,16 @@ export default defineChannel({
         }
         const { managerToken: _managerToken, ...action } = body;
         try {
+          const requestClaim = await claimPhotonWorkspaceManagerRequest(
+            body.managerToken,
+            body.requestId,
+          );
+          if (requestClaim === "unavailable") {
+            return json({ error: "This session manager link expired." }, 410);
+          }
+          if (requestClaim === "replayed") {
+            return json({ error: "That manager action was already consumed. Refresh to see current state." }, 409);
+          }
           const lifecycleScope = "workspaceId" in action
             ? authorizePhotonWorkspaceControlPlaneStore({
                 principalId: scope.principalId,
@@ -901,6 +924,16 @@ export default defineChannel({
           return json({ error: "Finish or cancel the pending financial approval before changing monitors." }, 409);
         }
         requireWorkspaceMonitorWrites();
+        const requestClaim = await claimPhotonWorkspaceManagerRequest(
+          body.managerToken,
+          body.requestId,
+        );
+        if (requestClaim === "unavailable") {
+          return json({ error: "This session manager link expired." }, 410);
+        }
+        if (requestClaim === "replayed") {
+          return json({ error: "That manager action was already consumed. Refresh to see current state." }, 409);
+        }
         const routing = await getPhotonWorkspaceManagerState(body.managerToken);
         if (!routing) return json({ error: "This session manager link expired." }, 410);
         if (routing.revision !== body.expectedRoutingRevision) {

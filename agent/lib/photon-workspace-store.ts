@@ -8,6 +8,7 @@ import { photonApprovalGuardKey } from "#photon-approval-store";
 const REGISTRY_KEY_PREFIX = "eve:photon:v1:workspace-registry:";
 const MANAGER_KEY_PREFIX = "eve:photon:v1:workspace-manager:";
 const ALERT_ACTION_KEY_PREFIX = "eve:photon:v1:workspace-alert-action:";
+const MANAGER_REQUEST_KEY_PREFIX = "eve:photon:v1:workspace-manager-request:";
 const MANAGER_TTL_SECONDS = 15 * 60;
 const ALERT_ACTION_TTL_SECONDS = 10 * 60;
 const MAX_WORKSPACES = 12;
@@ -123,34 +124,40 @@ export type PhotonWorkspaceAction =
   | {
       action: "archive";
       expectedRevision: number;
+      requestId?: string;
       replacementWorkspaceId?: string;
       workspaceId: string;
     }
   | {
       action: "create";
       expectedRevision: number;
+      requestId?: string;
       name: string;
       select?: boolean;
     }
   | {
       action: "rename";
       expectedRevision: number;
+      requestId?: string;
       name: string;
       workspaceId: string;
     }
   | {
       action: "restore";
       expectedRevision: number;
+      requestId?: string;
       workspaceId: string;
     }
   | {
       action: "select";
       expectedRevision: number;
+      requestId?: string;
       workspaceId: string;
     }
   | {
       action: "start-fresh";
       expectedRevision: number;
+      requestId?: string;
       workspaceId: string;
     };
 
@@ -289,6 +296,10 @@ function registryKey(principalId: string, threadId: string): string {
 
 function managerKey(token: string): string {
   return `${MANAGER_KEY_PREFIX}${sha256(token)}`;
+}
+
+function managerRequestKey(token: string, requestId: string): string {
+  return `${MANAGER_REQUEST_KEY_PREFIX}${sha256(`${token}\0${requestId}`)}`;
 }
 
 function alertActionKey(token: string): string {
@@ -1000,6 +1011,25 @@ export async function mintPhotonWorkspaceManager(
     nx: true,
   });
   return { expiresAtMs, managerToken };
+}
+
+export async function claimPhotonWorkspaceManagerRequest(
+  managerToken: string,
+  requestId: string,
+  client: PhotonWorkspaceStoreClient = store(),
+): Promise<"claimed" | "replayed" | "unavailable"> {
+  if (!/^[A-Za-z0-9_-]{43}$/u.test(managerToken) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestId)) {
+    return "unavailable";
+  }
+  const capability = await resolveManagerCapability(managerToken, client);
+  if (!capability) return "unavailable";
+  const result = await client.set(
+    managerRequestKey(managerToken, requestId),
+    JSON.stringify({ requestId, schemaVersion: 1 }),
+    { ex: Math.max(1, Math.ceil((capability.expiresAtMs - Date.now()) / 1_000)), nx: true },
+  );
+  return result === null ? "replayed" : "claimed";
 }
 
 async function resolveManagerCapability(
