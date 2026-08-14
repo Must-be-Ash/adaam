@@ -949,7 +949,7 @@ Exit gate:
 
 Exit gate:
 
-- [ ] Every fixture Photon message has one durable outcome, duplicate or
+- [x] Every fixture Photon message has one durable outcome, duplicate or
   uncertain delivery cannot cause blind replay, and an IPO alert arriving while
   another workspace is selected can be discussed safely without cross-routing.
 
@@ -1161,3 +1161,4 @@ own bounded implementation spec:
 | 2026-08-14 | Add CAS alert-delivery transitions, never replay uncertain Photon sends, pause the owning monitor on ambiguity, and require an explicit recorded reconciliation outcome | `jiti scripts/verify-workspace-alert-store.ts`, `jiti scripts/verify-photon-alert-delivery.ts`, monitor and alert-reply regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Expand the network- and broker-free Photon harness across routing, concurrent duplicate webhooks, switching, Start fresh, alert dedupe, uncertain-delivery denial, stale actions, Discuss routing, and owner denial | `node scripts/verify-workspace-photon-harness.mjs` and `tsc --noEmit` — passed |
 | 2026-08-14 | Add the fragment-token Photon alert action route so Discuss performs only the atomic workspace/pending-context mutation and never starts a model turn | `node scripts/verify-photon-alert-app.mjs`, alert-context regression, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
+| 2026-08-14 | Sprint 4 exit gate: prove durable Photon ingress outcomes, alert dedupe/uncertainty quarantine, safe non-selected-workspace alerts, explicit Discuss routing, and no cross-routing | Photon approval/workspace/ingress/alert/action/harness regressions, ephemeral Redis runtime verification, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
