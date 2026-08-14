@@ -865,7 +865,7 @@ real Coinbase mutation endpoints.
   exhaustion, archive, restore, start-fresh, and ambiguous alert replies.
 - [x] Define the fixture-backed Photon integration harness and prove it cannot
   reach real Coinbase mutation endpoints.
-- [ ] Define low-cardinality error codes and operational counters.
+- [x] Define low-cardinality error codes and operational counters.
 - [ ] Document feature flags and rollback behavior.
 
 Exit gate:
@@ -1123,3 +1123,4 @@ own bounded implementation spec:
 | 2026-08-14 | Add state diagrams and schema fixtures for durable workspace-runtime records | `node scripts/verify-workspace-runtime-contracts.mjs` and `jq empty specs/fixtures/01-independent-workspace-runtimes/*.json` — passed |
 | 2026-08-14 | Write deterministic pre-implementation failure fixtures for isolation, idempotency, uncertainty, drift, budgets, lifecycle, and alert routing | `node scripts/verify-workspace-runtime-failures.mjs` — passed |
 | 2026-08-14 | Define a fixture-backed Photon integration harness with no live broker or network surface | `node scripts/verify-workspace-photon-harness.mjs` — passed |
+| 2026-08-14 | Define fixed runtime error codes, counters, and routing-confirmation outcomes | `node scripts/verify-workspace-runtime-observability.mjs` and `tsc --noEmit` — passed |

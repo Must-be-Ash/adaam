@@ -35,6 +35,7 @@
     "verify:workspace-runtime:contracts": "node scripts/verify-workspace-runtime-contracts.mjs",
     "verify:workspace-runtime:failures": "node scripts/verify-workspace-runtime-failures.mjs",
     "verify:workspace-runtime:photon-harness": "node scripts/verify-workspace-photon-harness.mjs",
+    "verify:workspace-runtime:observability": "node scripts/verify-workspace-runtime-observability.mjs",
     "verify:workspaces": "node scripts/verify-photon-workspaces.mjs",
     "verify:workspaces:redis": "node scripts/verify-photon-workspaces-redis.mjs"
   },
