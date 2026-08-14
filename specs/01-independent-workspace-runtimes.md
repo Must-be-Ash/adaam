@@ -859,7 +859,7 @@ real Coinbase mutation endpoints.
 - [x] Add state diagrams and schema fixtures for owner mapping, Photon ingress,
   assignment, dispatch, workspace, monitor, run, budget, finding, alert,
   delivery, and routing-decision records.
-- [ ] Write failing tests for cross-workspace access, duplicate dispatch,
+- [x] Write failing tests for cross-workspace access, duplicate dispatch,
   duplicate webhooks, immutable assignment, dispatch/delivery uncertainty,
   duplicate alert delivery, stale configuration, capability drift, budget
   exhaustion, archive, restore, start-fresh, and ambiguous alert replies.
@@ -1121,3 +1121,4 @@ own bounded implementation spec:
 | Date | Checklist item | Verification |
 | --- | --- | --- |
 | 2026-08-14 | Add state diagrams and schema fixtures for durable workspace-runtime records | `node scripts/verify-workspace-runtime-contracts.mjs` and `jq empty specs/fixtures/01-independent-workspace-runtimes/*.json` — passed |
+| 2026-08-14 | Write deterministic pre-implementation failure fixtures for isolation, idempotency, uncertainty, drift, budgets, lifecycle, and alert routing | `node scripts/verify-workspace-runtime-failures.mjs` — passed |
