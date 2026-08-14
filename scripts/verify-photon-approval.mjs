@@ -127,14 +127,11 @@ for (const toolName of [
 assert.equal(coinbaseToolIsPrivateRead("coinbase_products_get"), false);
 assert.equal(coinbaseToolRequiresApproval("coinbase_products_get"), false);
 
-const genericPrompt = createPhotonApprovalPrompt(
-  approvalRequest("delete_event_trigger", {
+assert.equal(
+  isPhotonApprovalSupported(approvalRequest("delete_event_trigger", {
     id: "123e4567-e89b-42d3-a456-426614174000",
-  }),
-);
-assert.match(
-  genericPrompt.approvalText,
-  /^Delete event trigger 123e4567-e89b-42d3-a456-426614174000\?/u,
+  })),
+  false,
 );
 
 for (const text of ["YES", "yes.", "APPROVE", "approve!"]) {
