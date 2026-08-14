@@ -875,7 +875,7 @@ Exit gate:
 
 ### Sprint 1 — owner, workspace state, capabilities, and budgets
 
-- [ ] Add stable deployment-owner mapping for approved Photon principals.
+- [x] Add stable deployment-owner mapping for approved Photon principals.
 - [ ] Enforce that mapping before Photon session, monitor, manager, worker, and
   alert access; add negative tests for an authenticated unmapped principal.
 - [ ] Project typed owner/conversation/workspace/generation metadata from the
@@ -1126,3 +1126,4 @@ own bounded implementation spec:
 | 2026-08-14 | Define fixed runtime error codes, counters, and routing-confirmation outcomes | `node scripts/verify-workspace-runtime-observability.mjs` and `tsc --noEmit` — passed |
 | 2026-08-14 | Document and enforce fail-closed rollout flags and non-destructive rollback behavior | `node scripts/verify-workspace-runtime-flags.mjs` and `tsc --noEmit` — passed |
 | 2026-08-14 | Sprint 0 exit gate: exercise every declared allowed and forbidden transition | All `verify:workspace-runtime:*`, `verify:workspaces`, `verify:approvals`, and `tsc --noEmit` — passed |
+| 2026-08-14 | Add fail-closed deployment-owner mapping with HMAC-derived Photon aliases | `node scripts/verify-owner-identity.mjs` and `tsc --noEmit` — passed |
