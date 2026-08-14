@@ -151,9 +151,9 @@ function store(): WorkspaceFindingStoreClient {
   return defaultClient;
 }
 
-function key(scope: AuthorizedWorkspaceStoreScope, runId: string): string {
+function key(scope: AuthorizedWorkspaceStoreScope, occurrenceKey: string): string {
   const digest = createHash("sha256")
-    .update(`run-outcome\0${scope.ownerId}\0${scope.workspaceId}\0${runId}`)
+    .update(`run-outcome\0${scope.ownerId}\0${scope.workspaceId}\0${occurrenceKey}`)
     .digest("hex");
   return `${KEY_PREFIX}${digest}`;
 }
@@ -247,7 +247,10 @@ async function createOutcome(
   if (Buffer.byteLength(raw, "utf8") > MAX_RECORD_BYTES) {
     throw new WorkspaceFindingError("finding_invalid");
   }
-  const stored = parseOutcome(rawValue(await client.createOrRead(key(scope, candidate.runId), raw)) ?? "", scope);
+  const stored = parseOutcome(
+    rawValue(await client.createOrRead(key(scope, candidate.occurrenceKey), raw)) ?? "",
+    scope,
+  );
   const same =
     stored.outcome === candidate.outcome &&
     stored.occurrenceKey === candidate.occurrenceKey &&
@@ -330,10 +333,10 @@ export async function completeWorkspaceRunNoMatch(
 
 export async function readWorkspaceRunOutcome(
   scope: AuthorizedWorkspaceStoreScope,
-  runId: string,
+  occurrenceKey: string,
   client: WorkspaceFindingStoreClient = store(),
 ): Promise<WorkspaceRunOutcome | null> {
   assertAuthorizedWorkspaceStoreScope(scope);
-  const raw = rawValue(await client.get(key(scope, runId)));
+  const raw = rawValue(await client.get(key(scope, occurrenceKey)));
   return raw === null ? null : parseOutcome(raw, scope);
 }

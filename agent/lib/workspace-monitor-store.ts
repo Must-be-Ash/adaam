@@ -98,6 +98,31 @@ if raw then
 end
 return 1
 `;
+const COMPLETE_SCRIPT = `
+local raw = redis.call("GET", KEYS[1])
+if not raw then return "missing" end
+if redis.call("EXISTS", KEYS[2]) ~= 1 then return "lease_mismatch" end
+local occurrence_raw = redis.call("GET", KEYS[5])
+if not occurrence_raw then return "lease_mismatch" end
+local occurrence_ok, occurrence = pcall(cjson.decode, occurrence_raw)
+if not occurrence_ok then return "stale" end
+if raw ~= ARGV[3] or tonumber(occurrence.configurationRevision) ~= tonumber(ARGV[1]) or
+   occurrence.status ~= "leased" or occurrence.leaseTokenDigest ~= ARGV[2] then
+  return "stale"
+end
+occurrence.status = "completed"
+occurrence.updatedAt = ARGV[5]
+redis.call("SET", KEYS[1], ARGV[4])
+redis.call("SET", KEYS[5], cjson.encode(occurrence), "EX", ARGV[6])
+redis.call("DEL", KEYS[2])
+redis.call("ZREM", KEYS[4], KEYS[1])
+if ARGV[7] == "" then
+  redis.call("ZREM", KEYS[3], KEYS[1])
+else
+  redis.call("ZADD", KEYS[3], ARGV[7], KEYS[1])
+end
+return "completed"
+`;
 const LIST_DUE_SCRIPT = `
 local expired = redis.call("ZRANGEBYSCORE", KEYS[2], "-inf", ARGV[1], "LIMIT", 0, ARGV[2])
 for _, record_key in ipairs(expired) do
@@ -109,11 +134,13 @@ local result = {}
 for _, record_key in ipairs(due) do
   table.insert(result, {recordKey = record_key, raw = redis.call("GET", record_key)})
 end
+if #result == 0 then return "[]" end
 return cjson.encode(result)
 `;
 
 export const WORKSPACE_MONITOR_REDIS_SCRIPTS = Object.freeze({
   claim: CLAIM_SCRIPT,
+  complete: COMPLETE_SCRIPT,
   create: CREATE_SCRIPT,
   listDue: LIST_DUE_SCRIPT,
   releaseLease: RELEASE_LEASE_SCRIPT,
@@ -261,6 +288,19 @@ export interface ClaimedWorkspaceMonitor {
 }
 
 export interface WorkspaceMonitorStoreClient {
+  complete(input: {
+    completedAt: string;
+    configurationRevision: number;
+    dueKey: string;
+    expectedRaw: string;
+    inflightKey: string;
+    leaseKey: string;
+    leaseTokenDigest: string;
+    nextDueAtMs: number | null;
+    nextRaw: string;
+    occurrenceRecordKey: string;
+    recordKey: string;
+  }): Promise<"completed" | "lease_mismatch" | "missing" | "stale">;
   claim(input: {
     configurationRevision: number;
     dueAtMs: number;
@@ -340,6 +380,30 @@ function store(): WorkspaceMonitorStoreClient {
   if (!url || !token) throw new Error("Workspace monitor storage is not configured.");
   redisClient ??= new Redis({ automaticDeserialization: false, token, url });
   defaultClient = {
+    async complete(input) {
+      return redisClient!.eval<
+        [string, string, string, string, string, string, string],
+        "completed" | "lease_mismatch" | "missing" | "stale"
+      >(
+        COMPLETE_SCRIPT,
+        [
+          input.recordKey,
+          input.leaseKey,
+          input.dueKey,
+          input.inflightKey,
+          input.occurrenceRecordKey,
+        ],
+        [
+          String(input.configurationRevision),
+          input.leaseTokenDigest,
+          input.expectedRaw,
+          input.nextRaw,
+          input.completedAt,
+          String(OCCURRENCE_TTL_SECONDS),
+          input.nextDueAtMs === null ? "" : String(input.nextDueAtMs),
+        ],
+      );
+    },
     async claim(input) {
       const result = await redisClient!.eval<string[], string[]>(
         CLAIM_SCRIPT,
@@ -974,4 +1038,89 @@ export async function releaseWorkspaceMonitorLease(
     leaseToken: input.leaseToken,
     recordKey: recordKey(input.scope, input.monitorId),
   });
+}
+
+export async function completeWorkspaceMonitorCheckpoint(
+  input: {
+    completedAt?: Date;
+    configurationRevision: number;
+    contentDigest: string;
+    leaseTokenDigest: string;
+    monitorId: string;
+    occurrenceKey: string;
+    scheduledFor: string;
+    scope: AuthorizedWorkspaceStoreScope;
+    watermark: string;
+  },
+  client: WorkspaceMonitorStoreClient = store(),
+): Promise<WorkspaceMonitor> {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  const monitor = await getWorkspaceMonitor(input.scope, input.monitorId, client);
+  if (
+    !monitor ||
+    monitor.configurationRevision !== input.configurationRevision ||
+    !/^[a-f0-9]{64}$/u.test(input.contentDigest) ||
+    !/^[a-f0-9]{64}$/u.test(input.leaseTokenDigest) ||
+    !/^[a-f0-9]{64}$/u.test(input.occurrenceKey)
+  ) {
+    throw new WorkspaceMonitorError("monitor_occurrence_stale");
+  }
+  if (
+    monitor.sourceCheckpoint.watermark === input.watermark &&
+    monitor.sourceCheckpoint.contentDigest === input.contentDigest
+  ) {
+    return monitor;
+  }
+  if (
+    monitor.sourceCheckpoint.watermark &&
+    monitor.sourceCheckpoint.watermark > input.watermark
+  ) {
+    throw new WorkspaceMonitorError("monitor_occurrence_stale");
+  }
+  const afterOccurrence = new Date(Date.parse(input.scheduledFor) + 1);
+  if (!Number.isFinite(afterOccurrence.getTime())) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  const next = nextWorkspaceMonitorOccurrence(monitor.schedule, afterOccurrence);
+  const completedAt = (input.completedAt ?? new Date()).toISOString();
+  const expectedRaw = rawValue(await client.get(recordKey(input.scope, input.monitorId)));
+  if (expectedRaw === null) throw new WorkspaceMonitorError("monitor_not_found");
+  const expectedMonitor = parseMonitor(expectedRaw, input.scope);
+  if (expectedMonitor.configurationRevision !== monitor.configurationRevision) {
+    throw new WorkspaceMonitorError("monitor_occurrence_stale");
+  }
+  const nextMonitor = monitorSchema.parse({
+    ...expectedMonitor,
+    consecutiveFailures: 0,
+    lastCompletedAt: completedAt,
+    lastErrorCode: null,
+    lastRunAt: completedAt,
+    nextOccurrenceAt: next?.scheduledAt ?? null,
+    sourceCheckpoint: {
+      contentDigest: input.contentDigest,
+      watermark: input.watermark,
+    },
+    updatedAt: completedAt,
+  });
+  const status = await client.complete({
+    completedAt,
+    configurationRevision: input.configurationRevision,
+    dueKey: DUE_KEY,
+    expectedRaw,
+    inflightKey: INFLIGHT_KEY,
+    leaseKey: leaseKey(input.scope, input.monitorId),
+    leaseTokenDigest: input.leaseTokenDigest,
+    nextDueAtMs: next ? Date.parse(next.scheduledAt) : null,
+    nextRaw: JSON.stringify(nextMonitor),
+    occurrenceRecordKey: `${OCCURRENCE_PREFIX}${input.occurrenceKey}`,
+    recordKey: recordKey(input.scope, input.monitorId),
+  });
+  if (status !== "completed") {
+    throw new WorkspaceMonitorError(
+      status === "missing" ? "monitor_not_found" : "monitor_occurrence_stale",
+    );
+  }
+  const completed = await getWorkspaceMonitor(input.scope, input.monitorId, client);
+  if (!completed) throw new WorkspaceMonitorError("monitor_not_found");
+  return completed;
 }

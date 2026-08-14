@@ -19,6 +19,7 @@ import {
 import {
   claimDueWorkspaceMonitors,
   claimWorkspaceMonitorOccurrence,
+  completeWorkspaceMonitorCheckpoint,
   createWorkspaceMonitor,
   getWorkspaceMonitor,
   pauseWorkspaceMonitorAfterUncertainAlert,
@@ -87,6 +88,18 @@ const casClient: WorkspaceBudgetLedgerClient & WorkspaceSourceCoverageClient & W
   get: (key) => client.get(key),
 };
 const monitorClient: WorkspaceMonitorStoreClient = {
+  async complete(input) {
+    const result = String(await evalScript(
+      WORKSPACE_MONITOR_REDIS_SCRIPTS.complete,
+      [input.recordKey, input.leaseKey, input.dueKey, input.inflightKey, input.occurrenceRecordKey],
+      [
+        String(input.configurationRevision), input.leaseTokenDigest,
+        input.expectedRaw, input.nextRaw, input.completedAt,
+        String(90 * 24 * 60 * 60), input.nextDueAtMs === null ? "" : String(input.nextDueAtMs),
+      ],
+    )) as "completed" | "lease_mismatch" | "missing" | "stale";
+    return result;
+  },
   async claim(input) {
     const result = await evalScript(
       WORKSPACE_MONITOR_REDIS_SCRIPTS.claim,
@@ -208,6 +221,22 @@ try {
   }, monitorClient);
   assert.equal(recovered.length, 1);
   assert.equal(recovered[0]!.occurrence.attempt, 2);
+  const completedMonitor = await completeWorkspaceMonitorCheckpoint({
+    completedAt: new Date(now.getTime() + 1_200),
+    configurationRevision: recovered[0]!.monitor.configurationRevision,
+    contentDigest: "f".repeat(64),
+    leaseTokenDigest: recovered[0]!.occurrence.leaseTokenDigest,
+    monitorId: recovered[0]!.monitor.monitorId,
+    occurrenceKey: recovered[0]!.occurrence.occurrenceKey,
+    scheduledFor: recovered[0]!.occurrence.scheduledFor,
+    scope: recovered[0]!.scope,
+    watermark: now.toISOString(),
+  }, monitorClient);
+  assert.deepEqual(completedMonitor.sourceCheckpoint, {
+    contentDigest: "f".repeat(64),
+    watermark: now.toISOString(),
+  });
+  assert.equal(completedMonitor.nextOccurrenceAt, "2026-08-14T17:30:00.000Z");
 
   let failing = await createWorkspaceMonitor({
     deliverySubscriptionId: "delivery.redis", instruction: "Fail deterministically.",

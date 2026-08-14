@@ -8,6 +8,7 @@ import {
   type WorkspaceRunOutcome,
 } from "./workspace-finding-store";
 import {
+  completeWorkspaceMonitorCheckpoint,
   getWorkspaceMonitor,
   type WorkspaceMonitor,
   type WorkspaceMonitorStoreClient,
@@ -166,10 +167,22 @@ export async function completeWorkspaceRunForWorker(input: {
     now: input.now,
     toolId: COMPLETE_WORKSPACE_RUN_TOOL_ID,
   });
-  return completeWorkspaceRunNoMatch({
+  const outcome = await completeWorkspaceRunNoMatch({
     coverage: prepared.coverage,
     envelope: prepared.envelope,
     now: input.now,
     scope: prepared.scope,
   }, input.clients?.finding);
+  await completeWorkspaceMonitorCheckpoint({
+    completedAt: input.now,
+    configurationRevision: prepared.envelope.configurationRevision,
+    contentDigest: outcome.checkpoint.contentDigest,
+    leaseTokenDigest: prepared.envelope.leaseTokenDigest,
+    monitorId: prepared.envelope.monitorId,
+    occurrenceKey: prepared.envelope.occurrenceKey,
+    scheduledFor: prepared.envelope.scheduledFor,
+    scope: prepared.scope,
+    watermark: outcome.checkpoint.watermark,
+  }, input.clients?.monitor);
+  return outcome;
 }

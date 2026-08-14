@@ -742,17 +742,17 @@ Coinbase, private history, shell, and filesystem.
 
 ### Deterministic fixtures
 
-- [ ] Add a fixture with an initial SEC Atom page containing known S-1 entries.
-- [ ] First run establishes the checkpoint without alerting on the entire
+- [x] Add a fixture with an initial SEC Atom page containing known S-1 entries.
+- [x] First run establishes the checkpoint without alerting on the entire
   historical page.
-- [ ] Add one later S-1 entry and verify exactly one structured finding and one
+- [x] Add one later S-1 entry and verify exactly one structured finding and one
   alert.
-- [ ] Replay the same feed and run occurrence; verify no duplicate finding,
+- [x] Replay the same feed and run occurrence; verify no duplicate finding,
   alert, or delivery.
-- [ ] Add an S-1/A associated by filer CIK and registration file number and
+- [x] Add an S-1/A associated by filer CIK and registration file number and
   verify it is classified as an update rather than a new IPO candidate.
-- [ ] Add malformed, oversized, stale, redirected, and incomplete source cases.
-- [ ] Add a second fixture workspace due at the same time and prove both workers
+- [x] Add malformed, oversized, stale, redirected, and incomplete source cases.
+- [x] Add a second fixture workspace due at the same time and prove both workers
   run independently with no shared context or state.
 
 ### Live smoke
@@ -923,7 +923,7 @@ Exit gate:
 - [x] Dynamically expose only the workspace's permitted skills and tools.
 - [x] Add scoped finding and completion tools.
 - [x] Implement the `IPO Filings` reference manifest and SEC Atom normalizer.
-- [ ] Complete all reference fixture tests, including concurrent workspaces.
+- [x] Complete all reference fixture tests, including concurrent workspaces.
 - [ ] Prove the worker has no interactive history or cross-workspace state.
 
 Exit gate:
@@ -1149,3 +1149,4 @@ own bounded implementation spec:
 | 2026-08-14 | Re-resolve the isolated worker's exact source scope and default-deny skill/tool registry from the authoritative capability revision | `jiti scripts/verify-workspace-runtime-capabilities.ts`, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Add capability-gated worker completion and structured-finding tools backed by one CAS-atomic, source-complete run outcome | `jiti scripts/verify-workspace-finding-store.ts`, source-coverage/worker-auth/capability/monitor regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Add the public-only IPO Filings capability manifest, exact filtered SEC source, and bounded versioned S-1/S-1/A Atom normalizer | `jiti scripts/verify-sec-ipo-reference.ts`, finding regression, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
+| 2026-08-14 | Complete the SEC IPO baseline/new/replay/amendment/failure/concurrent-workspace corpus and occurrence-key retry-safe checkpoint semantics | `jiti scripts/verify-sec-ipo-fixtures.ts`, finding/monitor regressions, ephemeral-Redis checkpoint matrix, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |

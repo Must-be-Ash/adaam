@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import {
   claimDueWorkspaceMonitors,
   claimWorkspaceMonitorOccurrence,
+  completeWorkspaceMonitorCheckpoint,
   createWorkspaceMonitor,
   getWorkspaceMonitor,
   listWorkspaceMonitors,
@@ -24,8 +25,30 @@ class MemoryStore implements WorkspaceMonitorStoreClient {
   >();
   readonly indexes = new Map<string, Set<string>>();
   readonly leases = new Map<string, string>();
-  readonly occurrences = new Map<string, { attempt: number; status: string }>();
+  readonly occurrences = new Map<string, { attempt: number; leaseTokenDigest: string; status: string }>();
   readonly values = new Map<string, string>();
+
+  async complete(input: Parameters<WorkspaceMonitorStoreClient["complete"]>[0]) {
+    this.calls += 1;
+    const raw = this.values.get(input.recordKey);
+    const occurrence = this.occurrences.get(input.occurrenceRecordKey);
+    if (!raw) return "missing" as const;
+    if (!this.leases.has(input.leaseKey)) return "lease_mismatch" as const;
+    if (raw !== input.expectedRaw) return "stale" as const;
+    const record = JSON.parse(input.nextRaw);
+    if (
+      record.configurationRevision !== input.configurationRevision ||
+      occurrence?.status !== "leased" ||
+      occurrence.leaseTokenDigest !== input.leaseTokenDigest
+    ) return "stale" as const;
+    this.values.set(input.recordKey, input.nextRaw);
+    this.occurrences.set(input.occurrenceRecordKey, { ...occurrence, status: "completed" });
+    this.leases.delete(input.leaseKey);
+    this.inflight.delete(input.recordKey);
+    if (input.nextDueAtMs === null) this.due.delete(input.recordKey);
+    else this.due.set(input.recordKey, input.nextDueAtMs);
+    return "completed" as const;
+  }
 
   async claim(input: Parameters<WorkspaceMonitorStoreClient["claim"]>[0]) {
     this.calls += 1;
@@ -55,6 +78,7 @@ class MemoryStore implements WorkspaceMonitorStoreClient {
     });
     this.occurrences.set(input.occurrenceRecordKey, {
       attempt,
+      leaseTokenDigest: input.leaseTokenDigest,
       status: "leased",
     });
     this.due.delete(input.recordKey);
@@ -322,9 +346,38 @@ const recovered = await claimWorkspaceMonitorOccurrence(
 );
 assert.equal(recovered.occurrence.occurrenceKey, occurrenceKey);
 assert.equal(recovered.occurrence.attempt, 2);
-await releaseWorkspaceMonitorLease(
-  { leaseToken: recovered.leaseToken, monitorId: monitor.monitorId, scope },
+const completed = await completeWorkspaceMonitorCheckpoint(
+  {
+    completedAt: new Date("2026-08-14T12:06:00.000Z"),
+    configurationRevision: monitor.configurationRevision,
+    contentDigest: "a".repeat(64),
+    leaseTokenDigest: recovered.occurrence.leaseTokenDigest,
+    monitorId: monitor.monitorId,
+    occurrenceKey: recovered.occurrence.occurrenceKey,
+    scheduledFor,
+    scope,
+    watermark: scheduledFor,
+  },
   client,
+);
+assert.deepEqual(completed.sourceCheckpoint, {
+  contentDigest: "a".repeat(64),
+  watermark: scheduledFor,
+});
+assert.equal(completed.nextOccurrenceAt, "2026-08-14T12:35:00.000Z");
+assert.deepEqual(
+  await completeWorkspaceMonitorCheckpoint({
+    completedAt: new Date("2026-08-14T12:07:00.000Z"),
+    configurationRevision: monitor.configurationRevision,
+    contentDigest: "a".repeat(64),
+    leaseTokenDigest: recovered.occurrence.leaseTokenDigest,
+    monitorId: monitor.monitorId,
+    occurrenceKey: recovered.occurrence.occurrenceKey,
+    scheduledFor,
+    scope,
+    watermark: scheduledFor,
+  }, client),
+  completed,
 );
 
 const paused = await updateWorkspaceMonitor(

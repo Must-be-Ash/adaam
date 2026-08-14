@@ -30,6 +30,7 @@ const envelopeSchema = z.object({
     runId: z.string().min(1).max(160),
   }).strict(),
   runId: z.string().min(1).max(160),
+  scheduledFor: timestampSchema,
   schemaVersion: z.literal(1),
   sources: workspaceMonitorSourcesSchema,
   stateRevision: z.object({
@@ -111,6 +112,7 @@ export function createWorkspaceWorkerEnvelope(input: {
       runId: input.dispatchBudget.runId,
     },
     runId: input.dispatchBudget.runId,
+    scheduledFor: input.claimed.occurrence.scheduledFor,
     schemaVersion: 1,
     sources: input.claimed.monitor.sources,
     stateRevision: input.stateRevision,

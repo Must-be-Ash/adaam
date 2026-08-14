@@ -57,6 +57,15 @@ class MemoryFindingStore implements WorkspaceFindingStoreClient {
 
 class MemoryMonitorStore implements WorkspaceMonitorStoreClient {
   readonly values = new Map<string, string>();
+  async complete(input: Parameters<WorkspaceMonitorStoreClient["complete"]>[0]) {
+    const raw = this.values.get(input.recordKey);
+    if (!raw) return "missing" as const;
+    if (raw !== input.expectedRaw) return "stale" as const;
+    const monitor = JSON.parse(input.nextRaw);
+    if (monitor.configurationRevision !== input.configurationRevision) return "stale" as const;
+    this.values.set(input.recordKey, input.nextRaw);
+    return "completed" as const;
+  }
   async create(input: Parameters<WorkspaceMonitorStoreClient["create"]>[0]) {
     if (this.values.has(input.recordKey)) return false;
     this.values.set(input.recordKey, input.raw);
@@ -278,8 +287,63 @@ await assert.rejects(
     error instanceof WorkspaceFindingError &&
     error.code === "finding_source_outside_fence",
 );
-assert.deepEqual(await readWorkspaceRunOutcome(scope, runId, findingClient), outcome);
-assert.equal(await readWorkspaceRunOutcome(otherScope, runId, findingClient), null);
+assert.deepEqual(await readWorkspaceRunOutcome(scope, envelope.occurrenceKey, findingClient), outcome);
+assert.equal(await readWorkspaceRunOutcome(otherScope, envelope.occurrenceKey, findingClient), null);
+
+const retryRunId = `${"c".repeat(64)}:attempt:2`;
+const retryClaimed = {
+  ...claimed,
+  occurrence: {
+    ...claimed.occurrence,
+    attempt: 2,
+    leaseTokenDigest: "9".repeat(64),
+  },
+} satisfies ClaimedWorkspaceMonitor;
+const retryEnvelope = createWorkspaceWorkerEnvelope({
+  budgetRevision: 1,
+  capabilityRevision: 1,
+  claimed: retryClaimed,
+  dispatchBudget: {
+    ...dispatchBudget,
+    global: { ...dispatchBudget.global, runId: retryRunId },
+    runId: retryRunId,
+    workspace: { ...dispatchBudget.workspace, runId: retryRunId },
+  },
+  expiresAt: new Date(now.getTime() + 10 * 60_000),
+  issuedAt: now,
+  stateRevision: { brief: 1, strategy: 1 },
+  window,
+});
+const retryToken = signWorkspaceWorkerEnvelope(retryEnvelope, environment);
+const retryCtx = {
+  session: { auth: { current: workspaceWorkerExecutionAuth(retryEnvelope, retryToken) } },
+};
+await createWorkspaceSourceCoverage({
+  configurationRevision: monitor.configurationRevision,
+  monitorId: monitor.monitorId,
+  now,
+  runId: retryRunId,
+  scope,
+  sources: [{ canonicalUrl: source.canonicalUrl, origin: source.origin, sourceId: source.sourceId }],
+  window,
+}, coverageClient);
+await reserveWorkspaceSourceAttempt({
+  now,
+  runId: retryRunId,
+  scope,
+  sourceId: source.sourceId,
+}, coverageClient);
+await markWorkspaceSourceSuccess({
+  contentDigest: "e".repeat(64),
+  now,
+  runId: retryRunId,
+  scope,
+  sourceId: source.sourceId,
+}, coverageClient);
+assert.deepEqual(
+  await writeWorkspaceFindingForWorker({ clients, ctx: retryCtx, environment, finding, now }),
+  outcome,
+);
 
 const noMatchRunId = `${"f".repeat(64)}:attempt:1`;
 const noMatchClaimed = {

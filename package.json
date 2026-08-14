@@ -46,6 +46,7 @@
     "verify:workspace-runtime:source-coverage": "jiti scripts/verify-workspace-source-coverage.ts",
     "verify:workspace-runtime:findings": "jiti scripts/verify-workspace-finding-store.ts",
     "verify:workspace-runtime:sec-ipo": "jiti scripts/verify-sec-ipo-reference.ts",
+    "verify:workspace-runtime:sec-ipo-fixtures": "jiti scripts/verify-sec-ipo-fixtures.ts",
     "verify:workspace-runtime:capabilities": "jiti scripts/verify-workspace-runtime-capabilities.ts",
     "verify:workspace-runtime:drift": "jiti scripts/verify-workspace-capability-drift.ts",
     "verify:workspace-runtime:start-fresh": "jiti scripts/verify-workspace-start-fresh.ts",
