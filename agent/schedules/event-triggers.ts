@@ -8,7 +8,11 @@ import {
   eventTriggerExecutionAuth,
   eventTriggerStore,
 } from "../lib/event-trigger-store";
-import { claimDueWorkspaceMonitors } from "../lib/workspace-monitor-store";
+import { reserveWorkspaceMonitorDispatchBudget } from "../lib/workspace-dispatch-budget";
+import {
+  claimDueWorkspaceMonitors,
+  releaseWorkspaceMonitorLease,
+} from "../lib/workspace-monitor-store";
 import { resolveWorkspaceRuntimeFlags } from "../lib/workspace-runtime-flags";
 
 async function deliver(
@@ -50,6 +54,31 @@ export default defineSchedule({
         if (workspaceJobs.length > 0) {
           console.info("[workspace.monitor] Minute claim pass completed", {
             claim_count: workspaceJobs.length,
+          });
+        }
+        const admittedWorkspaceJobs = [];
+        for (const job of workspaceJobs) {
+          try {
+            const budget = await reserveWorkspaceMonitorDispatchBudget(job, {
+              now,
+            });
+            admittedWorkspaceJobs.push({ budget, job });
+          } catch (error) {
+            await releaseWorkspaceMonitorLease({
+              leaseToken: job.leaseToken,
+              monitorId: job.monitor.monitorId,
+              scope: job.scope,
+            });
+            console.warn("[workspace.monitor] Dispatch admission denied", {
+              code: error instanceof Error ? error.message : "budget_admission_failed",
+              monitor_id: job.monitor.monitorId,
+              workspace_id: job.monitor.workspaceId,
+            });
+          }
+        }
+        if (admittedWorkspaceJobs.length > 0) {
+          console.info("[workspace.monitor] Dispatch budgets reserved", {
+            admitted_count: admittedWorkspaceJobs.length,
           });
         }
 

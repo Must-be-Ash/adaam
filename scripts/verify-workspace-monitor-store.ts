@@ -401,6 +401,7 @@ const dispatcherMonitor = await createWorkspaceMonitor(
 );
 const dispatchClaims = await claimDueWorkspaceMonitors(
   {
+    environment,
     leaseForMs: 60_000,
     limit: 10,
     now: new Date(scheduledFor),
@@ -415,6 +416,7 @@ assert.equal(
   (
     await claimDueWorkspaceMonitors(
       {
+        environment,
         leaseForMs: 60_000,
         limit: 10,
         now: new Date(scheduledFor),
@@ -427,6 +429,7 @@ assert.equal(
 );
 const recoveredDispatchClaims = await claimDueWorkspaceMonitors(
   {
+    environment,
     leaseForMs: 60_000,
     limit: 10,
     now: new Date(new Date(scheduledFor).getTime() + 60_001),
@@ -459,6 +462,7 @@ assert.equal(
   (
     await claimDueWorkspaceMonitors(
       {
+        environment,
         leaseForMs: 60_000,
         limit: 10,
         now: new Date(new Date(scheduledFor).getTime() + 2 * 60 * 60_000),

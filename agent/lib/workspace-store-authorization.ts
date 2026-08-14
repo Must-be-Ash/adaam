@@ -70,6 +70,15 @@ export function authorizePhotonWorkspaceControlPlaneStore(
   return mint({ ownerId: owner.ownerId, workspaceId: input.workspaceId });
 }
 
+export function authorizeDeploymentWorkspaceStore(
+  input: { ownerId: string; workspaceId: string },
+  environment: NodeJS.ProcessEnv = process.env,
+): AuthorizedWorkspaceStoreScope {
+  const configuredOwnerId = environment.EVE_DEPLOYMENT_OWNER_ID;
+  if (!configuredOwnerId || input.ownerId !== configuredOwnerId) forbidden();
+  return mint(input);
+}
+
 export function assertAuthorizedWorkspaceStoreScope(
   scope: AuthorizedWorkspaceStoreScope,
 ): void {

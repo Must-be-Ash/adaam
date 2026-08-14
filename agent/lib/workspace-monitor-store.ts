@@ -4,6 +4,7 @@ import { Redis } from "@upstash/redis";
 import { z } from "zod";
 
 import {
+  authorizeDeploymentWorkspaceStore,
   assertAuthorizedWorkspaceStoreScope,
   type AuthorizedWorkspaceStoreScope,
 } from "./workspace-store-authorization";
@@ -265,6 +266,7 @@ export interface ClaimedWorkspaceMonitor {
   readonly leaseToken: string;
   readonly monitor: WorkspaceMonitor;
   readonly occurrence: WorkspaceMonitorOccurrence;
+  readonly scope: AuthorizedWorkspaceStoreScope;
   readonly skippedOccurrenceIdentities: readonly string[];
 }
 
@@ -517,6 +519,7 @@ function occurrenceDigest(input: {
 
 export async function claimDueWorkspaceMonitors(
   input: {
+    environment?: NodeJS.ProcessEnv;
     leaseForMs: number;
     limit: number;
     now: Date;
@@ -628,6 +631,7 @@ export async function claimDueWorkspaceMonitors(
           status: "leased",
           updatedAt: input.now.toISOString(),
         }),
+        scope: authorizeDeploymentWorkspaceStore(scope, input.environment),
         skippedOccurrenceIdentities: Object.freeze(
           selection.skipped.map((occurrence) => occurrence.occurrenceIdentity),
         ),

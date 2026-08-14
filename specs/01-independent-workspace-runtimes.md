@@ -901,7 +901,7 @@ Exit gate:
   occurrence keys.
 - [x] Add local-time daily schedules with DST and missed-run behavior.
 - [x] Adapt the existing minute dispatcher to claim workspace monitor runs.
-- [ ] Enforce workspace and global concurrency/run budgets before dispatch.
+- [x] Enforce workspace and global concurrency/run budgets before dispatch.
 - [ ] Preserve exact source fencing and complete-coverage checkpoints.
 - [ ] Align monitor create/update tools, manager validation, and storage on the
   maximum of eight combined sources.
@@ -1139,3 +1139,4 @@ own bounded implementation spec:
 | 2026-08-14 | Add the scoped workspace-monitor schema, durable indexes, CAS CRUD, lifecycle revisions, leases, and occurrence keys | `jiti scripts/verify-workspace-monitor-store.ts` and `tsc --noEmit` — passed |
 | 2026-08-14 | Add anchored and local-time schedule resolution with DST gap/fold and bounded newest-missed recovery semantics | `jiti scripts/verify-workspace-monitor-schedule.ts`, `jiti scripts/verify-workspace-monitor-store.ts`, and `tsc --noEmit` — passed |
 | 2026-08-14 | Adapt the single legacy minute schedule to claim bounded workspace-monitor occurrences with inflight lease recovery | `jiti scripts/verify-workspace-monitor-store.ts`, `jiti scripts/verify-workspace-monitor-schedule.ts`, and `tsc --noEmit` — passed |
+| 2026-08-14 | Enforce CAS-atomic workspace and deployment concurrency/run admission before workspace worker handoff | `jiti scripts/verify-workspace-dispatch-budget.ts`, `jiti scripts/verify-workspace-monitor-store.ts`, `jiti scripts/verify-workspace-budget-ledger.ts`, and `tsc --noEmit` — passed |
