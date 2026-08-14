@@ -938,7 +938,7 @@ Exit gate:
 - [x] Deduplicate concurrent Photon webhooks before dispatch and quarantine
   uncertain model dispatch or response delivery for reconciliation.
 - [x] Add channel-independent alert/outbox records and Photon delivery receipts.
-- [ ] Render workspace-headed alert cards with **Discuss** and **Manage**.
+- [x] Render workspace-headed alert cards with **Discuss** and **Manage**.
 - [ ] Implement atomic workspace selection and one-time pending alert context.
 - [ ] Route held alert replies through the same ingress assignment and dispatch
   state machine as ordinary messages.
@@ -1155,3 +1155,4 @@ own bounded implementation spec:
 | 2026-08-14 | Add content-free immutable Photon ingress/assignment/dispatch/completion and response-delivery receipts before model dispatch or outbound delivery | `jiti scripts/verify-photon-ingress-store.ts`, Photon harness/workspace/approval/scope regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Atomically gate duplicate Photon events before any action and quarantine ambiguous model dispatch or response delivery without replay | `jiti scripts/verify-photon-ingress-store.ts`, concurrent Photon harness regression, workspace/approval regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Stage one channel-independent workspace alert per durable finding and one content-free Photon delivery receipt per subscription | `jiti scripts/verify-workspace-alert-store.ts`, `jiti scripts/verify-workspace-finding-store.ts`, Photon receipt regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
+| 2026-08-14 | Render a bounded workspace-headed alert presentation with explicit **Discuss in workspace** and **Manage sessions** card actions plus a plain-text fallback | `jiti scripts/verify-workspace-alert-presentation.ts`, alert-store and Photon presentation regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
