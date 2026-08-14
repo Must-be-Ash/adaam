@@ -16,6 +16,7 @@ export interface WorkspaceWorkerToolRegistration<T> {
 }
 
 export interface WorkspaceWorkerCapabilitySet<T> {
+  readonly maximumDataAccessClassification: "owner_private" | "public";
   readonly resolved: WorkspaceRuntimeCapabilities;
   readonly skillIds: readonly string[];
   readonly tools: Readonly<Record<string, T>>;
@@ -59,6 +60,7 @@ export async function resolveWorkspaceWorkerCapabilitySnapshot<T>(input: {
       .map((registration) => [registration.metadata.id, registration.definition]),
   ));
   return Object.freeze({
+    maximumDataAccessClassification: manifest.value.maximumDataAccessClassification,
     resolved,
     skillIds: resolved.skillIds,
     tools,

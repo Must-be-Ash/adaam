@@ -921,7 +921,7 @@ Exit gate:
 
 - [x] Build the typed worker envelope and signed runtime auth.
 - [x] Dynamically expose only the workspace's permitted skills and tools.
-- [ ] Add scoped finding and completion tools.
+- [x] Add scoped finding and completion tools.
 - [ ] Implement the `IPO Filings` reference manifest and SEC Atom normalizer.
 - [ ] Complete all reference fixture tests, including concurrent workspaces.
 - [ ] Prove the worker has no interactive history or cross-workspace state.
@@ -1147,3 +1147,4 @@ own bounded implementation spec:
 | 2026-08-14 | Sprint 2 exit gate: prove deterministic polling, per-monitor single flight, concurrent cross-workspace claims, recovery, and duplicate-work prevention | All Sprint 0–2 workspace-runtime fixtures, ephemeral-Redis runtime matrix, Photon workspace/approval regressions, and `tsc --noEmit` — passed |
 | 2026-08-14 | Build a bounded typed worker envelope, dedicated HMAC runtime token, runtime-auth projection, and verified worker store scope | `jiti scripts/verify-workspace-worker-auth.ts`, monitor/dispatch/scope/state regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
 | 2026-08-14 | Re-resolve the isolated worker's exact source scope and default-deny skill/tool registry from the authoritative capability revision | `jiti scripts/verify-workspace-runtime-capabilities.ts`, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
+| 2026-08-14 | Add capability-gated worker completion and structured-finding tools backed by one CAS-atomic, source-complete run outcome | `jiti scripts/verify-workspace-finding-store.ts`, source-coverage/worker-auth/capability/monitor regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |

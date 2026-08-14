@@ -1,0 +1,175 @@
+import type { SessionContext } from "eve/context";
+
+import {
+  completeWorkspaceRunNoMatch,
+  stageWorkspaceFinding,
+  type WorkspaceFindingInput,
+  type WorkspaceFindingStoreClient,
+  type WorkspaceRunOutcome,
+} from "./workspace-finding-store";
+import {
+  getWorkspaceMonitor,
+  type WorkspaceMonitor,
+  type WorkspaceMonitorStoreClient,
+} from "./workspace-monitor-store";
+import {
+  completeWorkspaceSourceCoverage,
+  readWorkspaceSourceCoverage,
+  type WorkspaceSourceCoverageClient,
+} from "./workspace-source-coverage";
+import type { WorkspaceStateStoreClient } from "./workspace-state-store";
+import { authorizeWorkspaceWorkerStore } from "./workspace-store-authorization";
+import { requireWorkspaceWorkerAuth, type WorkspaceWorkerEnvelope } from "./workspace-worker-auth";
+import { resolveWorkspaceWorkerCapabilitySnapshot } from "./workspace-worker-capabilities";
+
+export const COMPLETE_WORKSPACE_RUN_TOOL_ID = "complete_workspace_run";
+export const WRITE_WORKSPACE_FINDING_TOOL_ID = "write_workspace_finding";
+
+type WorkerContext = {
+  readonly session: { readonly auth: SessionContext["session"]["auth"] };
+};
+
+export interface WorkspaceWorkerControlPlaneClients {
+  readonly finding?: WorkspaceFindingStoreClient;
+  readonly monitor?: WorkspaceMonitorStoreClient;
+  readonly sourceCoverage?: WorkspaceSourceCoverageClient;
+  readonly state?: WorkspaceStateStoreClient;
+}
+
+export class WorkspaceWorkerCommitError extends Error {
+  readonly code:
+    | "workspace_worker_capability_denied"
+    | "workspace_worker_classification_denied"
+    | "workspace_worker_run_stale";
+
+  constructor(code: WorkspaceWorkerCommitError["code"]) {
+    super(code);
+    this.code = code;
+    this.name = "WorkspaceWorkerCommitError";
+  }
+}
+
+function sameSources(
+  monitor: WorkspaceMonitor,
+  envelope: WorkspaceWorkerEnvelope,
+): boolean {
+  return JSON.stringify(monitor.sources) === JSON.stringify(envelope.sources);
+}
+
+async function assertCurrentMonitor(
+  envelope: WorkspaceWorkerEnvelope,
+  scope: ReturnType<typeof authorizeWorkspaceWorkerStore>,
+  client?: WorkspaceMonitorStoreClient,
+): Promise<void> {
+  const monitor = await getWorkspaceMonitor(scope, envelope.monitorId, client);
+  if (
+    !monitor ||
+    monitor.lifecycleState !== "enabled" ||
+    monitor.configurationRevision !== envelope.configurationRevision ||
+    !sameSources(monitor, envelope)
+  ) {
+    throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
+  }
+}
+
+async function prepareCommit(input: {
+  clients?: WorkspaceWorkerControlPlaneClients;
+  ctx: WorkerContext;
+  environment?: NodeJS.ProcessEnv;
+  now?: Date;
+  toolId: string;
+}): Promise<{
+  coverage: Awaited<ReturnType<typeof completeWorkspaceSourceCoverage>>;
+  envelope: WorkspaceWorkerEnvelope;
+  maximumDataAccessClassification: "owner_private" | "public";
+  scope: ReturnType<typeof authorizeWorkspaceWorkerStore>;
+}> {
+  const envelope = requireWorkspaceWorkerAuth(input.ctx, {}, input.environment);
+  const scope = authorizeWorkspaceWorkerStore(input.ctx, input.environment);
+  const capabilities = await resolveWorkspaceWorkerCapabilitySnapshot({
+    envelope,
+    registry: [{
+      definition: true,
+      metadata: { category: "control_plane", id: input.toolId },
+    }],
+    scope,
+    stateClient: input.clients?.state,
+  });
+  if (!(input.toolId in capabilities.tools)) {
+    throw new WorkspaceWorkerCommitError("workspace_worker_capability_denied");
+  }
+  await assertCurrentMonitor(envelope, scope, input.clients?.monitor);
+  const currentCoverage = await readWorkspaceSourceCoverage(
+    scope,
+    envelope.runId,
+    input.clients?.sourceCoverage,
+  );
+  if (
+    !currentCoverage ||
+    currentCoverage.monitorId !== envelope.monitorId ||
+    currentCoverage.configurationRevision !== envelope.configurationRevision
+  ) {
+    throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
+  }
+  const coverage = await completeWorkspaceSourceCoverage(
+    { now: input.now, runId: envelope.runId, scope },
+    input.clients?.sourceCoverage,
+  );
+  await assertCurrentMonitor(envelope, scope, input.clients?.monitor);
+  return {
+    coverage,
+    envelope,
+    maximumDataAccessClassification: capabilities.maximumDataAccessClassification,
+    scope,
+  };
+}
+
+export async function writeWorkspaceFindingForWorker(input: {
+  clients?: WorkspaceWorkerControlPlaneClients;
+  ctx: WorkerContext;
+  environment?: NodeJS.ProcessEnv;
+  finding: WorkspaceFindingInput;
+  now?: Date;
+}): Promise<WorkspaceRunOutcome> {
+  const prepared = await prepareCommit({
+    clients: input.clients,
+    ctx: input.ctx,
+    environment: input.environment,
+    now: input.now,
+    toolId: WRITE_WORKSPACE_FINDING_TOOL_ID,
+  });
+  if (
+    input.finding.accessClassification === "owner_private" &&
+    prepared.maximumDataAccessClassification === "public"
+  ) {
+    throw new WorkspaceWorkerCommitError("workspace_worker_classification_denied");
+  }
+  return stageWorkspaceFinding({
+    coverage: prepared.coverage,
+    envelope: prepared.envelope,
+    finding: input.finding,
+    now: input.now,
+    scope: prepared.scope,
+  }, input.clients?.finding);
+}
+
+export async function completeWorkspaceRunForWorker(input: {
+  clients?: WorkspaceWorkerControlPlaneClients;
+  ctx: WorkerContext;
+  environment?: NodeJS.ProcessEnv;
+  now?: Date;
+}): Promise<WorkspaceRunOutcome> {
+  const prepared = await prepareCommit({
+    clients: input.clients,
+    ctx: input.ctx,
+    environment: input.environment,
+    now: input.now,
+    toolId: COMPLETE_WORKSPACE_RUN_TOOL_ID,
+  });
+  return completeWorkspaceRunNoMatch({
+    coverage: prepared.coverage,
+    envelope: prepared.envelope,
+    now: input.now,
+    scope: prepared.scope,
+  }, input.clients?.finding);
+}
