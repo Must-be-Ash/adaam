@@ -17,6 +17,11 @@ if current then return current end
 redis.call("SET", KEYS[1], ARGV[1])
 return ARGV[1]
 `;
+const CAS_SCRIPT = `
+if redis.call("GET", KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call("SET", KEYS[1], ARGV[2])
+return 1
+`;
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const idSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_./:@-]{1,159}$/u);
 const timestampSchema = z.string().datetime({ offset: true });
@@ -44,7 +49,9 @@ const deliverySchema = z.object({
   ownerId: idSchema,
   recordType: z.literal("workspace_alert_delivery"),
   schemaVersion: z.literal(1),
-  state: z.enum(["delivered", "delivering", "delivery_uncertain", "staged"]),
+  resolutionCode: z.enum(["abandoned", "confirmed_delivered", "confirmed_not_delivered"]).nullable(),
+  resolvedAt: timestampSchema.nullable(),
+  state: z.enum(["delivered", "delivering", "delivery_uncertain", "resolved", "retryable_failure", "staged"]),
   subscriptionId: idSchema,
   updatedAt: timestampSchema,
   workspaceId: z.string().uuid(),
@@ -54,6 +61,7 @@ export type WorkspaceAlert = z.infer<typeof alertSchema>;
 export type WorkspaceAlertDelivery = z.infer<typeof deliverySchema>;
 
 export interface WorkspaceAlertStoreClient {
+  compareAndSet(key: string, expected: string, next: string): Promise<boolean>;
   createOrRead(key: string, value: string): Promise<unknown>;
   get(key: string): Promise<unknown>;
 }
@@ -76,7 +84,17 @@ function store(): WorkspaceAlertStoreClient {
   if (!url || !token) throw new Error("Workspace alert storage is not configured.");
   redisClient ??= new Redis({ automaticDeserialization: false, token, url });
   let sha = redisClient.scriptLoad(CREATE_SCRIPT);
+  let casSha = redisClient.scriptLoad(CAS_SCRIPT);
   defaultClient = {
+    async compareAndSet(key, expected, next) {
+      try {
+        return (await redisClient!.evalsha<[string, string], number>(await casSha, [key], [expected, next])) === 1;
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes("NOSCRIPT")) throw error;
+        casSha = redisClient!.scriptLoad(CAS_SCRIPT);
+        return (await redisClient!.evalsha<[string, string], number>(await casSha, [key], [expected, next])) === 1;
+      }
+    },
     async createOrRead(key, value) {
       try {
         return await redisClient!.evalsha<[string], string>(await sha, [key], [value]);
@@ -174,6 +192,8 @@ export async function stageWorkspaceAlertDelivery(input: {
     failureCode: null,
     ownerId: input.scope.ownerId,
     recordType: "workspace_alert_delivery",
+    resolutionCode: null,
+    resolvedAt: null,
     schemaVersion: 1,
     state: "staged",
     subscriptionId: input.subscriptionId,
@@ -191,6 +211,139 @@ export async function stageWorkspaceAlertDelivery(input: {
     result.destinationDigest !== candidate.destinationDigest
   ) throw new WorkspaceAlertStoreError("alert_conflict");
   return result;
+}
+
+async function transitionWorkspaceAlertDelivery(
+  input: {
+    deliveryId: string;
+    mutate: (current: WorkspaceAlertDelivery) => WorkspaceAlertDelivery;
+    scope: AuthorizedWorkspaceStoreScope;
+  },
+  client: WorkspaceAlertStoreClient,
+): Promise<WorkspaceAlertDelivery> {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  const recordKey = key(input.scope, "delivery", input.deliveryId);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const currentRaw = serialized(await client.get(recordKey));
+    if (!currentRaw) throw new WorkspaceAlertStoreError("alert_corrupt");
+    const current = parse(deliverySchema, currentRaw, input.scope);
+    const next = deliverySchema.parse(input.mutate(current));
+    if (next.deliveryId !== current.deliveryId || next.alertId !== current.alertId) {
+      throw new WorkspaceAlertStoreError("alert_conflict");
+    }
+    const nextRaw = JSON.stringify(next);
+    if (nextRaw === currentRaw) return next;
+    try {
+      if (await client.compareAndSet(recordKey, currentRaw, nextRaw)) return next;
+    } catch (error) {
+      if (serialized(await client.get(recordKey)) === nextRaw) return next;
+      throw error;
+    }
+  }
+  throw new WorkspaceAlertStoreError("alert_conflict");
+}
+
+export async function beginWorkspaceAlertDelivery(
+  input: { deliveryId: string; now?: Date; scope: AuthorizedWorkspaceStoreScope },
+  client: WorkspaceAlertStoreClient = store(),
+): Promise<WorkspaceAlertDelivery> {
+  return (await claimWorkspaceAlertDelivery(input, client)).delivery;
+}
+
+export async function claimWorkspaceAlertDelivery(
+  input: { deliveryId: string; now?: Date; scope: AuthorizedWorkspaceStoreScope },
+  client: WorkspaceAlertStoreClient = store(),
+): Promise<{ claimed: boolean; delivery: WorkspaceAlertDelivery }> {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  const recordKey = key(input.scope, "delivery", input.deliveryId);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const currentRaw = serialized(await client.get(recordKey));
+    if (!currentRaw) throw new WorkspaceAlertStoreError("alert_corrupt");
+    const current = parse(deliverySchema, currentRaw, input.scope);
+    if (current.state !== "staged" && current.state !== "retryable_failure") {
+      return { claimed: false, delivery: current };
+    }
+    const next = deliverySchema.parse({
+      ...current,
+      attempt: current.attempt + 1,
+      failureCode: null,
+      state: "delivering",
+      updatedAt: (input.now ?? new Date()).toISOString(),
+    });
+    const nextRaw = JSON.stringify(next);
+    try {
+      if (await client.compareAndSet(recordKey, currentRaw, nextRaw)) {
+        return { claimed: true, delivery: next };
+      }
+    } catch (error) {
+      if (serialized(await client.get(recordKey)) === nextRaw) {
+        return { claimed: true, delivery: next };
+      }
+      throw error;
+    }
+  }
+  throw new WorkspaceAlertStoreError("alert_conflict");
+}
+
+export async function finishWorkspaceAlertDelivery(
+  input: {
+    deliveryId: string;
+    failureCode?: string;
+    now?: Date;
+    outcome: "delivered" | "delivery_uncertain" | "retryable_failure";
+    scope: AuthorizedWorkspaceStoreScope;
+  },
+  client: WorkspaceAlertStoreClient = store(),
+): Promise<WorkspaceAlertDelivery> {
+  return transitionWorkspaceAlertDelivery({
+    deliveryId: input.deliveryId,
+    scope: input.scope,
+    mutate(current) {
+      if (current.state !== "delivering") return current;
+      return {
+        ...current,
+        failureCode: input.outcome === "delivered" ? null : (input.failureCode ?? "alert_delivery_failed"),
+        state: input.outcome,
+        updatedAt: (input.now ?? new Date()).toISOString(),
+      };
+    },
+  }, client);
+}
+
+export async function resolveWorkspaceAlertDelivery(
+  input: {
+    deliveryId: string;
+    now?: Date;
+    resolutionCode: "abandoned" | "confirmed_delivered" | "confirmed_not_delivered";
+    scope: AuthorizedWorkspaceStoreScope;
+  },
+  client: WorkspaceAlertStoreClient = store(),
+): Promise<WorkspaceAlertDelivery> {
+  return transitionWorkspaceAlertDelivery({
+    deliveryId: input.deliveryId,
+    scope: input.scope,
+    mutate(current) {
+      if (current.state !== "delivery_uncertain") return current;
+      const now = (input.now ?? new Date()).toISOString();
+      return {
+        ...current,
+        resolutionCode: input.resolutionCode,
+        resolvedAt: now,
+        state: "resolved",
+        updatedAt: now,
+      };
+    },
+  }, client);
+}
+
+export async function readWorkspaceAlertDelivery(
+  scope: AuthorizedWorkspaceStoreScope,
+  deliveryId: string,
+  client: WorkspaceAlertStoreClient = store(),
+): Promise<WorkspaceAlertDelivery | null> {
+  assertAuthorizedWorkspaceStoreScope(scope);
+  const value = await client.get(key(scope, "delivery", deliveryId));
+  return value === null || value === undefined ? null : parse(deliverySchema, value, scope);
 }
 
 export async function readWorkspaceAlert(

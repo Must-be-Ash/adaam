@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 
 import {
+  beginWorkspaceAlertDelivery,
+  claimWorkspaceAlertDelivery,
+  finishWorkspaceAlertDelivery,
   readWorkspaceAlert,
   readWorkspaceAlertById,
+  resolveWorkspaceAlertDelivery,
   stageWorkspaceAlert,
   stageWorkspaceAlertDelivery,
   type WorkspaceAlertStoreClient,
@@ -13,6 +17,11 @@ import type { WorkspaceMonitor } from "../agent/lib/workspace-monitor-store";
 
 class MemoryStore implements WorkspaceAlertStoreClient {
   readonly values = new Map<string, string>();
+  async compareAndSet(key: string, expected: string, next: string) {
+    if (this.values.get(key) !== expected) return false;
+    this.values.set(key, next);
+    return true;
+  }
   async createOrRead(key: string, value: string) {
     const existing = this.values.get(key);
     if (existing) return existing;
@@ -111,5 +120,31 @@ assert.deepEqual(await stageWorkspaceAlertDelivery({
   scope,
   subscriptionId: monitor.deliverySubscriptionId,
 }, client), delivery);
+
+const delivering = await beginWorkspaceAlertDelivery({
+  deliveryId: delivery.deliveryId,
+  now: new Date(now.getTime() + 2_000),
+  scope,
+}, client);
+assert.equal(delivering.state, "delivering");
+assert.equal(delivering.attempt, 1);
+assert.equal((await claimWorkspaceAlertDelivery({ deliveryId: delivery.deliveryId, scope }, client)).claimed, false);
+const uncertain = await finishWorkspaceAlertDelivery({
+  deliveryId: delivery.deliveryId,
+  failureCode: "photon_acceptance_unknown",
+  now: new Date(now.getTime() + 3_000),
+  outcome: "delivery_uncertain",
+  scope,
+}, client);
+assert.equal(uncertain.state, "delivery_uncertain");
+assert.equal((await beginWorkspaceAlertDelivery({ deliveryId: delivery.deliveryId, scope }, client)).state, "delivery_uncertain");
+const resolved = await resolveWorkspaceAlertDelivery({
+  deliveryId: delivery.deliveryId,
+  now: new Date(now.getTime() + 4_000),
+  resolutionCode: "confirmed_delivered",
+  scope,
+}, client);
+assert.equal(resolved.state, "resolved");
+assert.equal(resolved.resolutionCode, "confirmed_delivered");
 
 console.info("Workspace alert outbox verification passed.");
