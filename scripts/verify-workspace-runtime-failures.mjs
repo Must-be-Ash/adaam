@@ -3,9 +3,13 @@ import { readFile } from "node:fs/promises";
 
 import { z } from "zod";
 
-const fixtureUrl = new URL(
-  "../specs/fixtures/01-independent-workspace-runtimes/failure-cases.json",
+const fixtureRoot = new URL(
+  "../specs/fixtures/01-independent-workspace-runtimes/",
   import.meta.url,
+);
+const fixtureUrl = new URL(
+  "failure-cases.json",
+  fixtureRoot,
 );
 
 const guardNames = [
@@ -145,6 +149,44 @@ for (const [guard, input] of [
   ["alert_reply", { selectedWorkspaceId: "workspace_a", candidateWorkspaceId: "workspace_b", explicitChoiceWorkspaceId: "workspace_b", confidence: "high" }],
 ]) {
   assert.doesNotThrow(() => guards[guard](input), `${guard} rejected its safe control.`);
+}
+
+const transitionManifest = z.object({
+  schemaVersion: z.literal(1),
+  machines: z.array(
+    z.object({
+      recordType: z.string().min(1),
+      transitions: z.array(z.tuple([z.string().min(1), z.string().min(1)])),
+      forbidden: z.array(z.tuple([z.string().min(1), z.string().min(1)])),
+    }).passthrough(),
+  ),
+}).parse(
+  JSON.parse(
+    await readFile(new URL("state-machines.json", fixtureRoot), "utf8"),
+  ),
+);
+
+for (const machine of transitionManifest.machines) {
+  const allowed = new Set(
+    machine.transitions.map(([from, to]) => `${from}->${to}`),
+  );
+  const transition = (from, to) => {
+    if (!allowed.has(`${from}->${to}`)) deny("transition");
+  };
+  for (const [from, to] of machine.transitions) {
+    assert.doesNotThrow(
+      () => transition(from, to),
+      `${machine.recordType} must allow ${from}->${to}.`,
+    );
+  }
+  for (const [from, to] of machine.forbidden) {
+    assert.throws(
+      () => transition(from, to),
+      (error) =>
+        error instanceof ContractFailure && error.boundary === "transition",
+      `${machine.recordType} must deny ${from}->${to}.`,
+    );
+  }
 }
 
 console.log("Workspace runtime pre-implementation failure fixtures passed.");

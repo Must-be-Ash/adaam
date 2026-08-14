@@ -870,7 +870,7 @@ real Coinbase mutation endpoints.
 
 Exit gate:
 
-- [ ] Every state transition and forbidden transition is represented by a
+- [x] Every state transition and forbidden transition is represented by a
   deterministic failing test before production implementation begins.
 
 ### Sprint 1 — owner, workspace state, capabilities, and budgets
@@ -1125,3 +1125,4 @@ own bounded implementation spec:
 | 2026-08-14 | Define a fixture-backed Photon integration harness with no live broker or network surface | `node scripts/verify-workspace-photon-harness.mjs` — passed |
 | 2026-08-14 | Define fixed runtime error codes, counters, and routing-confirmation outcomes | `node scripts/verify-workspace-runtime-observability.mjs` and `tsc --noEmit` — passed |
 | 2026-08-14 | Document and enforce fail-closed rollout flags and non-destructive rollback behavior | `node scripts/verify-workspace-runtime-flags.mjs` and `tsc --noEmit` — passed |
+| 2026-08-14 | Sprint 0 exit gate: exercise every declared allowed and forbidden transition | All `verify:workspace-runtime:*`, `verify:workspaces`, `verify:approvals`, and `tsc --noEmit` — passed |
