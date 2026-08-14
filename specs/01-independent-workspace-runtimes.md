@@ -863,7 +863,7 @@ real Coinbase mutation endpoints.
   duplicate webhooks, immutable assignment, dispatch/delivery uncertainty,
   duplicate alert delivery, stale configuration, capability drift, budget
   exhaustion, archive, restore, start-fresh, and ambiguous alert replies.
-- [ ] Define the fixture-backed Photon integration harness and prove it cannot
+- [x] Define the fixture-backed Photon integration harness and prove it cannot
   reach real Coinbase mutation endpoints.
 - [ ] Define low-cardinality error codes and operational counters.
 - [ ] Document feature flags and rollback behavior.
@@ -1122,3 +1122,4 @@ own bounded implementation spec:
 | --- | --- | --- |
 | 2026-08-14 | Add state diagrams and schema fixtures for durable workspace-runtime records | `node scripts/verify-workspace-runtime-contracts.mjs` and `jq empty specs/fixtures/01-independent-workspace-runtimes/*.json` — passed |
 | 2026-08-14 | Write deterministic pre-implementation failure fixtures for isolation, idempotency, uncertainty, drift, budgets, lifecycle, and alert routing | `node scripts/verify-workspace-runtime-failures.mjs` — passed |
+| 2026-08-14 | Define a fixture-backed Photon integration harness with no live broker or network surface | `node scripts/verify-workspace-photon-harness.mjs` — passed |
