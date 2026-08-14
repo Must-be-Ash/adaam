@@ -7,9 +7,14 @@ import {
   assertAuthorizedWorkspaceStoreScope,
   type AuthorizedWorkspaceStoreScope,
 } from "./workspace-store-authorization";
+import {
+  nextWorkspaceMonitorOccurrence,
+  selectWorkspaceMonitorDueOccurrence,
+} from "./workspace-monitor-schedule";
 
 const KEY_PREFIX = "eve:workspace-runtime:v1:monitor:";
 const DUE_KEY = `${KEY_PREFIX}due`;
+const INFLIGHT_KEY = `${KEY_PREFIX}inflight`;
 const RECORD_PREFIX = `${KEY_PREFIX}record:`;
 const WORKSPACE_INDEX_PREFIX = `${KEY_PREFIX}workspace:`;
 const LEASE_PREFIX = `${KEY_PREFIX}lease:`;
@@ -39,7 +44,10 @@ local raw = redis.call("GET", KEYS[1])
 if not raw then return {"missing"} end
 local ok, record = pcall(cjson.decode, raw)
 if not ok or tonumber(record.configurationRevision) ~= tonumber(ARGV[1]) then return {"stale"} end
-if record.lifecycleState ~= "enabled" or not record.nextOccurrenceAt then return {"not_due"} end
+if record.lifecycleState ~= "enabled" or not record.nextOccurrenceAt then
+  redis.call("ZREM", KEYS[4], KEYS[1])
+  return {"not_due"}
+end
 local due = tonumber(ARGV[2])
 local next_due = tonumber(ARGV[3])
 if next_due > due then return {"not_due"} end
@@ -68,11 +76,13 @@ local occurrence = {
 }
 redis.call("SET", KEYS[3], cjson.encode(occurrence), "EX", ARGV[12])
 redis.call("ZREM", KEYS[4], KEYS[1])
+redis.call("ZADD", KEYS[5], ARGV[13], KEYS[1])
 return {"claimed", tostring(attempt)}
 `;
 const RELEASE_LEASE_SCRIPT = `
 if redis.call("GET", KEYS[1]) ~= ARGV[1] then return 0 end
 redis.call("DEL", KEYS[1])
+redis.call("ZREM", KEYS[4], KEYS[2])
 local raw = redis.call("GET", KEYS[2])
 if raw then
   local ok, record = pcall(cjson.decode, raw)
@@ -81,6 +91,19 @@ if raw then
   end
 end
 return 1
+`;
+const LIST_DUE_SCRIPT = `
+local expired = redis.call("ZRANGEBYSCORE", KEYS[2], "-inf", ARGV[1], "LIMIT", 0, ARGV[2])
+for _, record_key in ipairs(expired) do
+  redis.call("ZREM", KEYS[2], record_key)
+  redis.call("ZADD", KEYS[1], ARGV[1], record_key)
+end
+local due = redis.call("ZRANGEBYSCORE", KEYS[1], "-inf", ARGV[1], "LIMIT", 0, ARGV[2])
+local result = {}
+for _, record_key in ipairs(due) do
+  table.insert(result, {recordKey = record_key, raw = redis.call("GET", record_key)})
+end
+return cjson.encode(result)
 `;
 
 const idSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_./:@-]{1,159}$/u);
@@ -238,12 +261,20 @@ export type WorkspaceMonitor = z.infer<typeof monitorSchema>;
 export type WorkspaceMonitorSchedule = z.infer<typeof scheduleSchema>;
 export type WorkspaceMonitorOccurrence = z.infer<typeof occurrenceSchema>;
 
+export interface ClaimedWorkspaceMonitor {
+  readonly leaseToken: string;
+  readonly monitor: WorkspaceMonitor;
+  readonly occurrence: WorkspaceMonitorOccurrence;
+  readonly skippedOccurrenceIdentities: readonly string[];
+}
+
 export interface WorkspaceMonitorStoreClient {
   claim(input: {
     configurationRevision: number;
     dueAtMs: number;
     dueKey: string;
     leaseForMs: number;
+    leaseExpiresAtMs: number;
     leaseKey: string;
     leaseToken: string;
     leaseTokenDigest: string;
@@ -252,6 +283,7 @@ export interface WorkspaceMonitorStoreClient {
     occurrenceIdentity: string;
     occurrenceKey: string;
     occurrenceRecordKey: string;
+    inflightKey: string;
     recordKey: string;
     scheduledFor: string;
     updatedAt: string;
@@ -265,9 +297,16 @@ export interface WorkspaceMonitorStoreClient {
   }): Promise<boolean>;
   get(key: string): Promise<unknown>;
   list(indexKey: string): Promise<unknown[]>;
+  listDue(input: {
+    dueKey: string;
+    inflightKey: string;
+    limit: number;
+    nowMs: number;
+  }): Promise<{ raw: unknown; recordKey: string }[]>;
   releaseLease(input: {
     dueAtMs: number | null;
     dueKey: string;
+    inflightKey: string;
     leaseKey: string;
     leaseToken: string;
     recordKey: string;
@@ -311,7 +350,13 @@ function store(): WorkspaceMonitorStoreClient {
     async claim(input) {
       const result = await redisClient!.eval<string[], string[]>(
         CLAIM_SCRIPT,
-        [input.recordKey, input.leaseKey, input.occurrenceRecordKey, input.dueKey],
+        [
+          input.recordKey,
+          input.leaseKey,
+          input.occurrenceRecordKey,
+          input.dueKey,
+          input.inflightKey,
+        ],
         [
           String(input.configurationRevision),
           String(input.nowMs),
@@ -325,6 +370,7 @@ function store(): WorkspaceMonitorStoreClient {
           input.scheduledFor,
           input.updatedAt,
           String(OCCURRENCE_TTL_SECONDS),
+          String(input.leaseExpiresAtMs),
         ],
       );
       return result[0] === "claimed"
@@ -348,11 +394,23 @@ function store(): WorkspaceMonitorStoreClient {
       const keys = await redisClient!.smembers<string[]>(indexKey);
       return keys.length === 0 ? [] : redisClient!.mget(...keys);
     },
+    async listDue(input) {
+      const raw = await redisClient!.eval<[string, string], string>(
+        LIST_DUE_SCRIPT,
+        [input.dueKey, input.inflightKey],
+        [String(input.nowMs), String(input.limit)],
+      );
+      const parsed = z
+        .array(z.object({ raw: z.unknown(), recordKey: z.string() }).strict())
+        .safeParse(JSON.parse(raw));
+      if (!parsed.success) throw new WorkspaceMonitorError("monitor_invalid");
+      return parsed.data;
+    },
     async releaseLease(input) {
       return (
         (await redisClient!.eval<[string, string], number>(
           RELEASE_LEASE_SCRIPT,
-          [input.leaseKey, input.recordKey, input.dueKey],
+          [input.leaseKey, input.recordKey, input.dueKey, input.inflightKey],
           [
             input.leaseToken,
             input.dueAtMs === null ? "" : String(input.dueAtMs),
@@ -401,6 +459,14 @@ function rawValue(value: unknown): string | null {
 }
 
 function parseMonitor(raw: string, scope: AuthorizedWorkspaceStoreScope): WorkspaceMonitor {
+  const parsed = parseUnscopedMonitor(raw);
+  if (parsed.ownerId !== scope.ownerId || parsed.workspaceId !== scope.workspaceId) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  return parsed;
+}
+
+function parseUnscopedMonitor(raw: string): WorkspaceMonitor {
   if (Buffer.byteLength(raw, "utf8") > MAX_RECORD_BYTES) {
     throw new WorkspaceMonitorError("monitor_invalid");
   }
@@ -411,7 +477,7 @@ function parseMonitor(raw: string, scope: AuthorizedWorkspaceStoreScope): Worksp
     throw new WorkspaceMonitorError("monitor_invalid");
   }
   const parsed = monitorSchema.safeParse(value);
-  if (!parsed.success || parsed.data.ownerId !== scope.ownerId || parsed.data.workspaceId !== scope.workspaceId) {
+  if (!parsed.success) {
     throw new WorkspaceMonitorError("monitor_invalid");
   }
   return parsed.data;
@@ -433,11 +499,142 @@ export function workspaceMonitorOccurrenceKey(input: {
   if (!z.string().uuid().safeParse(input.monitorId).success || !Number.isSafeInteger(input.configurationRevision) || input.configurationRevision < 1 || input.occurrenceIdentity.length < 1 || input.occurrenceIdentity.length > 160) {
     throw new WorkspaceMonitorError("monitor_invalid");
   }
+  return occurrenceDigest(input);
+}
+
+function occurrenceDigest(input: {
+  configurationRevision: number;
+  monitorId: string;
+  occurrenceIdentity: string;
+  scope: { ownerId: string; workspaceId: string };
+}): string {
   return createHash("sha256")
     .update(
       `monitor-occurrence\0${input.scope.ownerId}\0${input.scope.workspaceId}\0${input.monitorId}\0${input.configurationRevision}\0${input.occurrenceIdentity}`,
     )
     .digest("hex");
+}
+
+export async function claimDueWorkspaceMonitors(
+  input: {
+    leaseForMs: number;
+    limit: number;
+    now: Date;
+    recoveryWindowMs: number;
+  },
+  client: WorkspaceMonitorStoreClient = store(),
+): Promise<ClaimedWorkspaceMonitor[]> {
+  if (
+    !Number.isSafeInteger(input.limit) ||
+    input.limit < 1 ||
+    input.limit > 32 ||
+    !Number.isSafeInteger(input.leaseForMs) ||
+    input.leaseForMs < 1_000 ||
+    input.leaseForMs > 60 * 60_000
+  ) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  const entries = await client.listDue({
+    dueKey: DUE_KEY,
+    inflightKey: INFLIGHT_KEY,
+    limit: input.limit,
+    nowMs: input.now.getTime(),
+  });
+  const claims: ClaimedWorkspaceMonitor[] = [];
+  for (const entry of entries) {
+    const raw = rawValue(entry.raw);
+    if (raw === null) continue;
+    const monitor = parseUnscopedMonitor(raw);
+    const scope = { ownerId: monitor.ownerId, workspaceId: monitor.workspaceId };
+    if (recordKey(scope, monitor.monitorId) !== entry.recordKey || !monitor.nextOccurrenceAt) {
+      continue;
+    }
+    const selection = selectWorkspaceMonitorDueOccurrence({
+      nextOccurrenceAt: monitor.nextOccurrenceAt,
+      now: input.now,
+      recoveryWindowMs: input.recoveryWindowMs,
+      schedule: monitor.schedule,
+    });
+    if (!selection.due) {
+      const nextOccurrence = nextWorkspaceMonitorOccurrence(
+        monitor.schedule,
+        input.now,
+      );
+      const exhaustedOneTime =
+        monitor.schedule.kind === "one_time" && nextOccurrence === null;
+      const advanced = monitorSchema.parse({
+        ...monitor,
+        ...(exhaustedOneTime
+          ? {
+              configurationRevision: monitor.configurationRevision + 1,
+              lifecycleState: "paused",
+              pauseReason: "missed_recovery_window",
+              pausedAt: input.now.toISOString(),
+            }
+          : {}),
+        lastErrorCode: "missed_occurrences_skipped",
+        nextOccurrenceAt: nextOccurrence?.scheduledAt ?? null,
+        updatedAt: input.now.toISOString(),
+      });
+      await client.update({
+        dueAtMs: dueAt(advanced),
+        dueKey: DUE_KEY,
+        expected: raw,
+        next: JSON.stringify(advanced),
+        recordKey: entry.recordKey,
+      });
+      continue;
+    }
+    const occurrenceKey = occurrenceDigest({
+      configurationRevision: monitor.configurationRevision,
+      monitorId: monitor.monitorId,
+      occurrenceIdentity: selection.due.occurrenceIdentity,
+      scope,
+    });
+    const leaseToken = randomBytes(32).toString("base64url");
+    const result = await client.claim({
+      configurationRevision: monitor.configurationRevision,
+      dueAtMs: new Date(selection.due.scheduledAt).getTime(),
+      dueKey: DUE_KEY,
+      inflightKey: INFLIGHT_KEY,
+      leaseExpiresAtMs: input.now.getTime() + input.leaseForMs,
+      leaseForMs: input.leaseForMs,
+      leaseKey: leaseKey(scope, monitor.monitorId),
+      leaseToken,
+      leaseTokenDigest: createHash("sha256").update(leaseToken).digest("hex"),
+      monitorId: monitor.monitorId,
+      nowMs: input.now.getTime(),
+      occurrenceIdentity: selection.due.occurrenceIdentity,
+      occurrenceKey,
+      occurrenceRecordKey: `${OCCURRENCE_PREFIX}${occurrenceKey}`,
+      recordKey: entry.recordKey,
+      scheduledFor: selection.due.scheduledAt,
+      updatedAt: input.now.toISOString(),
+    });
+    if (result.status !== "claimed" || !result.attempt) continue;
+    claims.push(
+      Object.freeze({
+        leaseToken,
+        monitor,
+        occurrence: occurrenceSchema.parse({
+          attempt: result.attempt,
+          configurationRevision: monitor.configurationRevision,
+          leaseTokenDigest: createHash("sha256").update(leaseToken).digest("hex"),
+          monitorId: monitor.monitorId,
+          occurrenceIdentity: selection.due.occurrenceIdentity,
+          occurrenceKey,
+          scheduledFor: selection.due.scheduledAt,
+          schemaVersion: 1,
+          status: "leased",
+          updatedAt: input.now.toISOString(),
+        }),
+        skippedOccurrenceIdentities: Object.freeze(
+          selection.skipped.map((occurrence) => occurrence.occurrenceIdentity),
+        ),
+      }),
+    );
+  }
+  return claims;
 }
 
 export async function createWorkspaceMonitor(
@@ -597,6 +794,7 @@ export async function claimWorkspaceMonitorOccurrence(
     dueAtMs: scheduledForMs,
     dueKey: DUE_KEY,
     leaseForMs: input.leaseForMs,
+    leaseExpiresAtMs: now.getTime() + input.leaseForMs,
     leaseKey: leaseKey(input.scope, input.monitorId),
     leaseToken,
     leaseTokenDigest: createHash("sha256").update(leaseToken).digest("hex"),
@@ -605,6 +803,7 @@ export async function claimWorkspaceMonitorOccurrence(
     occurrenceIdentity: input.occurrenceIdentity,
     occurrenceKey,
     occurrenceRecordKey: `${OCCURRENCE_PREFIX}${occurrenceKey}`,
+    inflightKey: INFLIGHT_KEY,
     recordKey: recordKey(input.scope, input.monitorId),
     scheduledFor: input.scheduledFor,
     updatedAt,
@@ -647,6 +846,7 @@ export async function releaseWorkspaceMonitorLease(
   return client.releaseLease({
     dueAtMs: dueAt(monitor),
     dueKey: DUE_KEY,
+    inflightKey: INFLIGHT_KEY,
     leaseKey: leaseKey(input.scope, input.monitorId),
     leaseToken: input.leaseToken,
     recordKey: recordKey(input.scope, input.monitorId),

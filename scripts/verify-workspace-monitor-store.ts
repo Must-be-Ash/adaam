@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import {
+  claimDueWorkspaceMonitors,
   claimWorkspaceMonitorOccurrence,
   createWorkspaceMonitor,
   getWorkspaceMonitor,
@@ -16,6 +18,10 @@ import { authorizePhotonWorkspaceControlPlaneStore } from "../agent/lib/workspac
 class MemoryStore implements WorkspaceMonitorStoreClient {
   calls = 0;
   readonly due = new Map<string, number>();
+  readonly inflight = new Map<
+    string,
+    { expiresAt: number; leaseKey: string }
+  >();
   readonly indexes = new Map<string, Set<string>>();
   readonly leases = new Map<string, string>();
   readonly occurrences = new Map<string, { attempt: number; status: string }>();
@@ -43,6 +49,10 @@ class MemoryStore implements WorkspaceMonitorStoreClient {
     }
     const attempt = (existing?.attempt ?? 0) + 1;
     this.leases.set(input.leaseKey, input.leaseToken);
+    this.inflight.set(input.recordKey, {
+      expiresAt: input.leaseExpiresAtMs,
+      leaseKey: input.leaseKey,
+    });
     this.occurrences.set(input.occurrenceRecordKey, {
       attempt,
       status: "leased",
@@ -74,12 +84,33 @@ class MemoryStore implements WorkspaceMonitorStoreClient {
     );
   }
 
+  async listDue(
+    input: Parameters<WorkspaceMonitorStoreClient["listDue"]>[0],
+  ) {
+    this.calls += 1;
+    for (const [recordKey, lease] of this.inflight) {
+      if (lease.expiresAt <= input.nowMs) {
+        this.inflight.delete(recordKey);
+        this.leases.delete(lease.leaseKey);
+        this.due.set(recordKey, input.nowMs);
+      }
+    }
+    return [...this.due]
+      .filter(([, dueAt]) => dueAt <= input.nowMs)
+      .slice(0, input.limit)
+      .map(([recordKey]) => ({
+        raw: this.values.get(recordKey) ?? null,
+        recordKey,
+      }));
+  }
+
   async releaseLease(
     input: Parameters<WorkspaceMonitorStoreClient["releaseLease"]>[0],
   ) {
     this.calls += 1;
     if (this.leases.get(input.leaseKey) !== input.leaseToken) return false;
     this.leases.delete(input.leaseKey);
+    this.inflight.delete(input.recordKey);
     if (input.dueAtMs === null) this.due.delete(input.recordKey);
     else this.due.set(input.recordKey, input.dueAtMs);
     return true;
@@ -353,5 +384,108 @@ await assert.rejects(
   /authoritative owner and workspace scope/u,
 );
 assert.equal(client.calls, callsBeforeForgery);
+
+const dispatcherClient = new MemoryStore();
+const dispatcherMonitor = await createWorkspaceMonitor(
+  {
+    deliverySubscriptionId: "delivery.dispatcher",
+    instruction: "Claim this occurrence through the minute dispatcher.",
+    name: "Dispatcher fixture",
+    nextOccurrenceAt: scheduledFor,
+    now,
+    schedule: { at: scheduledFor, kind: "one_time" },
+    scope,
+    sources: [source(0)],
+  },
+  dispatcherClient,
+);
+const dispatchClaims = await claimDueWorkspaceMonitors(
+  {
+    leaseForMs: 60_000,
+    limit: 10,
+    now: new Date(scheduledFor),
+    recoveryWindowMs: 60 * 60_000,
+  },
+  dispatcherClient,
+);
+assert.equal(dispatchClaims.length, 1);
+assert.equal(dispatchClaims[0]?.monitor.monitorId, dispatcherMonitor.monitorId);
+assert.equal(dispatchClaims[0]?.occurrence.attempt, 1);
+assert.equal(
+  (
+    await claimDueWorkspaceMonitors(
+      {
+        leaseForMs: 60_000,
+        limit: 10,
+        now: new Date(scheduledFor),
+        recoveryWindowMs: 60 * 60_000,
+      },
+      dispatcherClient,
+    )
+  ).length,
+  0,
+);
+const recoveredDispatchClaims = await claimDueWorkspaceMonitors(
+  {
+    leaseForMs: 60_000,
+    limit: 10,
+    now: new Date(new Date(scheduledFor).getTime() + 60_001),
+    recoveryWindowMs: 60 * 60_000,
+  },
+  dispatcherClient,
+);
+assert.equal(recoveredDispatchClaims.length, 1);
+assert.equal(recoveredDispatchClaims[0]?.occurrence.attempt, 2);
+assert.equal(
+  recoveredDispatchClaims[0]?.occurrence.occurrenceKey,
+  dispatchClaims[0]?.occurrence.occurrenceKey,
+);
+
+const missedClient = new MemoryStore();
+const missedMonitor = await createWorkspaceMonitor(
+  {
+    deliverySubscriptionId: "delivery.missed",
+    instruction: "Do not replay outside the recovery window.",
+    name: "Missed fixture",
+    nextOccurrenceAt: scheduledFor,
+    now,
+    schedule: { at: scheduledFor, kind: "one_time" },
+    scope,
+    sources: [source(0)],
+  },
+  missedClient,
+);
+assert.equal(
+  (
+    await claimDueWorkspaceMonitors(
+      {
+        leaseForMs: 60_000,
+        limit: 10,
+        now: new Date(new Date(scheduledFor).getTime() + 2 * 60 * 60_000),
+        recoveryWindowMs: 30 * 60_000,
+      },
+      missedClient,
+    )
+  ).length,
+  0,
+);
+const skippedMonitor = await getWorkspaceMonitor(
+  scope,
+  missedMonitor.monitorId,
+  missedClient,
+);
+assert.equal(skippedMonitor?.lifecycleState, "paused");
+assert.equal(skippedMonitor?.pauseReason, "missed_recovery_window");
+assert.equal(skippedMonitor?.lastErrorCode, "missed_occurrences_skipped");
+
+const minuteSchedule = await readFile(
+  new URL("../agent/schedules/event-triggers.ts", import.meta.url),
+  "utf8",
+);
+assert.equal((minuteSchedule.match(/defineSchedule\(/gu) ?? []).length, 1);
+assert.match(minuteSchedule, /cron: "\* \* \* \* \*"/u);
+const flagCheck = minuteSchedule.indexOf("flags.dispatch");
+const workspaceClaim = minuteSchedule.indexOf("claimDueWorkspaceMonitors({");
+assert.ok(flagCheck >= 0 && flagCheck < workspaceClaim);
 
 console.log("Workspace monitor store verification passed.");

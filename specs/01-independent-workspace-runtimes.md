@@ -900,7 +900,7 @@ Exit gate:
 - [x] Add the workspace-monitor schema, indexes, CRUD, revisions, leases, and
   occurrence keys.
 - [x] Add local-time daily schedules with DST and missed-run behavior.
-- [ ] Adapt the existing minute dispatcher to claim workspace monitor runs.
+- [x] Adapt the existing minute dispatcher to claim workspace monitor runs.
 - [ ] Enforce workspace and global concurrency/run budgets before dispatch.
 - [ ] Preserve exact source fencing and complete-coverage checkpoints.
 - [ ] Align monitor create/update tools, manager validation, and storage on the
@@ -1138,3 +1138,4 @@ own bounded implementation spec:
 | 2026-08-14 | Sprint 1 exit gate: prove distinct workspace state/capabilities/budgets and adversarial owner/workspace isolation | `jiti scripts/verify-workspace-isolation.ts` and `tsc --noEmit` — passed |
 | 2026-08-14 | Add the scoped workspace-monitor schema, durable indexes, CAS CRUD, lifecycle revisions, leases, and occurrence keys | `jiti scripts/verify-workspace-monitor-store.ts` and `tsc --noEmit` — passed |
 | 2026-08-14 | Add anchored and local-time schedule resolution with DST gap/fold and bounded newest-missed recovery semantics | `jiti scripts/verify-workspace-monitor-schedule.ts`, `jiti scripts/verify-workspace-monitor-store.ts`, and `tsc --noEmit` — passed |
+| 2026-08-14 | Adapt the single legacy minute schedule to claim bounded workspace-monitor occurrences with inflight lease recovery | `jiti scripts/verify-workspace-monitor-store.ts`, `jiti scripts/verify-workspace-monitor-schedule.ts`, and `tsc --noEmit` — passed |

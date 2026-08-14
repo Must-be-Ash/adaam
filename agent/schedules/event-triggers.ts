@@ -8,6 +8,8 @@ import {
   eventTriggerExecutionAuth,
   eventTriggerStore,
 } from "../lib/event-trigger-store";
+import { claimDueWorkspaceMonitors } from "../lib/workspace-monitor-store";
+import { resolveWorkspaceRuntimeFlags } from "../lib/workspace-runtime-flags";
 
 async function deliver(
   to: ScheduleToFn,
@@ -28,11 +30,28 @@ export default defineSchedule({
   run({ to, waitUntil, appAuth }) {
     waitUntil(
       (async () => {
-        const jobs = await eventTriggerStore.claimDue({
-          now: new Date(),
-          limit: 10,
-          leaseForMs: 2 * 60 * 60_000,
-        });
+        const now = new Date();
+        const flags = resolveWorkspaceRuntimeFlags();
+        const [jobs, workspaceJobs] = await Promise.all([
+          eventTriggerStore.claimDue({
+            now,
+            limit: 10,
+            leaseForMs: 2 * 60 * 60_000,
+          }),
+          flags.dispatch
+            ? claimDueWorkspaceMonitors({
+                leaseForMs: 30 * 60_000,
+                limit: 10,
+                now,
+                recoveryWindowMs: 6 * 60 * 60_000,
+              })
+            : Promise.resolve([]),
+        ]);
+        if (workspaceJobs.length > 0) {
+          console.info("[workspace.monitor] Minute claim pass completed", {
+            claim_count: workspaceJobs.length,
+          });
+        }
 
         await Promise.all(
           jobs.map(async (job) => {
