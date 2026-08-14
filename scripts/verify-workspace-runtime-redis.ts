@@ -320,6 +320,40 @@ try {
   const migrationValues = migrations.flatMap((result) => result.status === "fulfilled" ? [result.value.assignment.monitorId] : []);
   assert.equal(new Set(migrationValues).size, 1);
 
+  const simultaneousAt = new Date(now.getTime() + 3 * 86_400_000);
+  const simultaneous = await Promise.all([
+    createWorkspaceMonitor({
+      deliverySubscriptionId: "delivery.redis", instruction: "Run concurrently in A.",
+      name: "Concurrent A", nextOccurrenceAt: simultaneousAt.toISOString(), now,
+      schedule: { at: simultaneousAt.toISOString(), kind: "one_time" }, scope: scopeA,
+      sources: [{ accessClassification: "public", canonicalUrl: "https://example.gov/a", origin: "https://example.gov", sourceId: "source.a" }],
+    }, monitorClient),
+    createWorkspaceMonitor({
+      deliverySubscriptionId: "delivery.redis", instruction: "Run concurrently in B.",
+      name: "Concurrent B", nextOccurrenceAt: simultaneousAt.toISOString(), now,
+      schedule: { at: simultaneousAt.toISOString(), kind: "one_time" }, scope: scopeB,
+      sources: [{ accessClassification: "public", canonicalUrl: "https://example.gov/b", origin: "https://example.gov", sourceId: "source.b" }],
+    }, monitorClient),
+  ]);
+  const concurrentClaims = await claimDueWorkspaceMonitors({
+    environment, leaseForMs: 60_000, limit: 10, now: simultaneousAt,
+    recoveryWindowMs: 60_000,
+  }, monitorClient);
+  assert.deepEqual(
+    new Set(concurrentClaims
+      .filter((job) => simultaneous.some((monitor) => monitor.monitorId === job.monitor.monitorId))
+      .map((job) => job.monitor.workspaceId)),
+    new Set([scopeA.workspaceId, scopeB.workspaceId]),
+  );
+  const duplicateClaims = await claimDueWorkspaceMonitors({
+    environment, leaseForMs: 60_000, limit: 10, now: simultaneousAt,
+    recoveryWindowMs: 60_000,
+  }, monitorClient);
+  assert.equal(
+    duplicateClaims.some((job) => simultaneous.some((monitor) => monitor.monitorId === job.monitor.monitorId)),
+    false,
+  );
+
   console.info("Workspace Redis runtime verification passed.");
 } finally {
   if (client.isOpen) await client.quit().catch(() => client.destroy());

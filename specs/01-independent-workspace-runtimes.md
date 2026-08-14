@@ -913,7 +913,7 @@ Exit gate:
 
 Exit gate:
 
-- [ ] Polling occurrences are deterministic, single-flight per monitor,
+- [x] Polling occurrences are deterministic, single-flight per monitor,
   concurrent across workspaces, recoverable after lease expiry, and unable to
   exceed configured budgets.
 
@@ -1144,3 +1144,4 @@ own bounded implementation spec:
 | 2026-08-14 | Align workspace and compatibility monitor create/update schemas, manager validation, and storage on the same eight-source ceiling and bounded ninth-source code | `jiti scripts/verify-workspace-monitor-input.ts`, `jiti scripts/verify-workspace-monitor-store.ts`, `node scripts/verify-photon-workspaces.mjs`, `tsc --noEmit`, and `eve build` with fixture-only storage configuration — passed |
 | 2026-08-14 | Add labeled legacy compatibility and explicit current-workspace assignment with one atomic monitor-create/legacy-disable transaction | `jiti scripts/verify-workspace-legacy-assignment.ts`, `node scripts/verify-workspace-runtime-flags.mjs`, `jiti scripts/verify-workspace-monitor-store.ts`, `jiti scripts/verify-workspace-monitor-input.ts`, and `tsc --noEmit` — passed |
 | 2026-08-14 | Exercise workspace leases, competing claims, retry recovery, budgets, checkpoints, failure pause, lifecycle races, expiration, uncertain-alert pause, and assignment against ephemeral Redis | `REDIS_SERVER_BIN=<ephemeral redis-server> jiti scripts/verify-workspace-runtime-redis.ts`, focused deterministic suites, and `tsc --noEmit` — passed |
+| 2026-08-14 | Sprint 2 exit gate: prove deterministic polling, per-monitor single flight, concurrent cross-workspace claims, recovery, and duplicate-work prevention | All Sprint 0–2 workspace-runtime fixtures, ephemeral-Redis runtime matrix, Photon workspace/approval regressions, and `tsc --noEmit` — passed |
