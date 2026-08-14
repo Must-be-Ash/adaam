@@ -193,7 +193,7 @@ export function workspaceWorkerExecutionAuth(
 }
 
 export function requireWorkspaceWorkerAuth(
-  ctx: Pick<SessionContext, "session">,
+  ctx: { readonly session: { readonly auth: SessionContext["session"]["auth"] } },
   expected: Partial<Pick<WorkspaceWorkerEnvelope, "monitorId" | "ownerId" | "runId" | "workspaceId">> = {},
   environment: NodeJS.ProcessEnv = process.env,
 ): WorkspaceWorkerEnvelope {

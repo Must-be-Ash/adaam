@@ -81,7 +81,7 @@ export function authorizeDeploymentWorkspaceStore(
 }
 
 export function authorizeWorkspaceWorkerStore(
-  ctx: Pick<SessionContext, "session">,
+  ctx: { readonly session: { readonly auth: SessionContext["session"]["auth"] } },
   environment: NodeJS.ProcessEnv = process.env,
 ): AuthorizedWorkspaceStoreScope {
   const envelope = requireWorkspaceWorkerAuth(ctx, {}, environment);

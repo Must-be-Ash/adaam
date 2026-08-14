@@ -6,6 +6,26 @@ import {
   WORKSPACE_RUNTIME_CAPABILITY_EVENT,
   WorkspaceRuntimeCapabilityError,
 } from "../agent/lib/workspace-runtime-capabilities";
+import {
+  resolveWorkspaceWorkerCapabilitySnapshot,
+} from "../agent/lib/workspace-worker-capabilities";
+import {
+  writeWorkspaceDocument,
+  type WorkspaceStateStoreClient,
+} from "../agent/lib/workspace-state-store";
+import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization";
+
+class MemoryStateStore implements WorkspaceStateStoreClient {
+  readonly values = new Map<string, string>();
+  async compareAndSet(key: string, expected: string | null, next: string) {
+    if ((this.values.get(key) ?? null) !== expected) return false;
+    this.values.set(key, next);
+    return true;
+  }
+  async get(key: string) {
+    return this.values.get(key) ?? null;
+  }
+}
 
 const ownerId = "owner_fixture";
 const workspaceId = "123e4567-e89b-42d3-a456-426614174000";
@@ -38,11 +58,12 @@ const manifest = {
       },
     ],
     researchToolIds: [
+      "fetch_public_source",
       "sec.get_filing",
       "sec.write_note",
       "workspace.read_findings",
     ],
-    skills: [{ id: "filing-review", version: "1.0.0" }],
+    skills: [{ id: "public-event-monitoring", version: "1.0.0" }],
     sources: [{ origin: "https://www.sec.gov", sourceId: "source.sec" }],
     workerModelPolicy: {
       allowedModelIds: ["openai/gpt-5.5"],
@@ -53,6 +74,7 @@ const manifest = {
 };
 const catalog = [
   { category: "control_plane" as const, id: "workspace.complete_run" },
+  { category: "research" as const, id: "fetch_public_source" },
   { category: "research" as const, id: "workspace.read_findings" },
   {
     category: "research" as const,
@@ -99,6 +121,7 @@ const resolved = resolveWorkspaceRuntimeCapabilities({
   workspaceId,
 });
 assert.deepEqual(resolved.toolIds, [
+  "fetch_public_source",
   "sec.get_filing",
   "workspace.complete_run",
   "workspace.read_findings",
@@ -106,7 +129,7 @@ assert.deepEqual(resolved.toolIds, [
 assert.equal(resolved.toolIds.includes("web.search"), false);
 assert.equal(resolved.toolIds.includes("sec.write_note"), false);
 assert.equal(resolved.toolIds.includes("coinbase_create_order"), false);
-assert.deepEqual(resolved.skillIds, ["filing-review"]);
+assert.deepEqual(resolved.skillIds, ["public-event-monitoring"]);
 assert.deepEqual(resolved.sourceIds, ["source.sec"]);
 assert.equal(resolved.paidResearchAllowed, true);
 assert.equal(Object.isFrozen(resolved), true);
@@ -183,6 +206,129 @@ assert.throws(
     error instanceof WorkspaceRuntimeCapabilityError &&
     error.code === "capability_manifest_stale",
 );
+
+const stateClient = new MemoryStateStore();
+const authorizedScope = authorizeDeploymentWorkspaceStore(
+  { ownerId, workspaceId },
+  { EVE_DEPLOYMENT_OWNER_ID: ownerId },
+);
+await writeWorkspaceDocument(
+  "capabilities",
+  {
+    expectedRevision: 0,
+    now: new Date("2026-08-14T12:00:00.000Z"),
+    scope: authorizedScope,
+    value: manifest.value,
+  },
+  stateClient,
+);
+const registrations = catalog.map((metadata) => ({
+  definition: Object.freeze({ implementation: metadata.id }),
+  metadata,
+}));
+registrations.push({
+  definition: Object.freeze({ implementation: "sec.new_read" }),
+  metadata: { category: "research" as const, id: "sec.new_read" },
+});
+const stepCapabilities = await resolveWorkspaceWorkerCapabilitySnapshot({
+  envelope: {
+    capabilityRevision: 1,
+    ownerId,
+    sources: [{
+      accessClassification: "public" as const,
+      canonicalUrl: "https://www.sec.gov/Archives/edgar/data/",
+      origin: "https://www.sec.gov",
+      sourceId: "source.sec",
+    }],
+    workspaceId,
+  },
+  registry: registrations,
+  scope: authorizedScope,
+  stateClient,
+});
+assert.deepEqual(Object.keys(stepCapabilities.tools), [
+  "workspace.complete_run",
+  "fetch_public_source",
+  "workspace.read_findings",
+  "sec.get_filing",
+]);
+assert.equal(Object.isFrozen(stepCapabilities.tools), true);
+assert.deepEqual(stepCapabilities.skillIds, ["public-event-monitoring"]);
+assert.equal("sec.new_read" in stepCapabilities.tools, false);
+
+await assert.rejects(
+  resolveWorkspaceWorkerCapabilitySnapshot({
+    envelope: {
+      capabilityRevision: 1,
+      ownerId,
+      sources: [{
+        accessClassification: "public",
+        canonicalUrl: "https://www.sec.gov/Archives/edgar/data/",
+        origin: "https://www.sec.gov.evil.example",
+        sourceId: "source.sec",
+      }],
+      workspaceId,
+    },
+    registry: registrations,
+    scope: authorizedScope,
+    stateClient,
+  }),
+  (error) =>
+    error instanceof WorkspaceRuntimeCapabilityError &&
+    error.code === "capability_scope_mismatch",
+);
+
+await writeWorkspaceDocument(
+  "capabilities",
+  {
+    expectedRevision: 1,
+    now: new Date("2026-08-14T12:01:00.000Z"),
+    scope: authorizedScope,
+    value: { ...manifest.value, researchToolIds: [] },
+  },
+  stateClient,
+);
+await assert.rejects(
+  resolveWorkspaceWorkerCapabilitySnapshot({
+    envelope: {
+      capabilityRevision: 1,
+      ownerId,
+      sources: [{
+        accessClassification: "public",
+        canonicalUrl: "https://www.sec.gov/Archives/edgar/data/",
+        origin: "https://www.sec.gov",
+        sourceId: "source.sec",
+      }],
+      workspaceId,
+    },
+    registry: registrations,
+    scope: authorizedScope,
+    stateClient,
+  }),
+  (error) =>
+    error instanceof WorkspaceRuntimeCapabilityError &&
+    error.code === "capability_manifest_stale",
+);
+
+const refreshedCapabilities = await resolveWorkspaceWorkerCapabilitySnapshot({
+  envelope: {
+    capabilityRevision: 2,
+    ownerId,
+    sources: [{
+      accessClassification: "public",
+      canonicalUrl: "https://www.sec.gov/Archives/edgar/data/",
+      origin: "https://www.sec.gov",
+      sourceId: "source.sec",
+    }],
+    workspaceId,
+  },
+  registry: registrations,
+  scope: authorizedScope,
+  stateClient,
+});
+assert.deepEqual(Object.keys(refreshedCapabilities.tools), [
+  "workspace.complete_run",
+]);
 assert.throws(
   () =>
     resolveWorkspaceRuntimeCapabilities({
