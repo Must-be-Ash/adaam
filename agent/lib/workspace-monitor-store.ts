@@ -866,6 +866,62 @@ export async function updateWorkspaceMonitor(
   return next.data;
 }
 
+export async function suspendWorkspaceMonitorsForArchive(
+  input: { now?: Date; scope: AuthorizedWorkspaceStoreScope },
+  client: WorkspaceMonitorStoreClient = store(),
+): Promise<WorkspaceMonitor[]> {
+  const now = input.now ?? new Date();
+  const monitors = await listWorkspaceMonitors(input.scope, client);
+  const updated: WorkspaceMonitor[] = [];
+  for (const monitor of monitors) {
+    if (monitor.lifecycleState === "retired" || monitor.lifecycleState === "suspended_archived") {
+      updated.push(monitor);
+      continue;
+    }
+    updated.push(await updateWorkspaceMonitor({
+      expectedRevision: monitor.configurationRevision,
+      monitorId: monitor.monitorId,
+      now,
+      patch: {
+        lifecycleState: "suspended_archived",
+        nextOccurrenceAt: null,
+        pauseReason: "workspace_archived",
+        pausedAt: now.toISOString(),
+      },
+      scope: input.scope,
+    }, client));
+  }
+  return updated;
+}
+
+export async function pauseWorkspaceMonitorsAfterRestore(
+  input: { now?: Date; scope: AuthorizedWorkspaceStoreScope },
+  client: WorkspaceMonitorStoreClient = store(),
+): Promise<WorkspaceMonitor[]> {
+  const now = input.now ?? new Date();
+  const monitors = await listWorkspaceMonitors(input.scope, client);
+  const updated: WorkspaceMonitor[] = [];
+  for (const monitor of monitors) {
+    if (monitor.lifecycleState !== "suspended_archived") {
+      updated.push(monitor);
+      continue;
+    }
+    updated.push(await updateWorkspaceMonitor({
+      expectedRevision: monitor.configurationRevision,
+      monitorId: monitor.monitorId,
+      now,
+      patch: {
+        lifecycleState: "paused",
+        nextOccurrenceAt: null,
+        pauseReason: "workspace_restored_manual_resume_required",
+        pausedAt: now.toISOString(),
+      },
+      scope: input.scope,
+    }, client));
+  }
+  return updated;
+}
+
 export async function claimWorkspaceMonitorOccurrence(
   input: {
     configurationRevision: number;

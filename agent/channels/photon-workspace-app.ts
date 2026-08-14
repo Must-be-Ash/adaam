@@ -19,6 +19,8 @@ import { nextWorkspaceMonitorOccurrence } from "../lib/workspace-monitor-schedul
 import {
   getWorkspaceMonitor,
   listWorkspaceMonitors,
+  pauseWorkspaceMonitorsAfterRestore,
+  suspendWorkspaceMonitorsForArchive,
   updateWorkspaceMonitor,
   workspaceMonitorScheduleSchema,
 } from "../lib/workspace-monitor-store";
@@ -832,10 +834,23 @@ export default defineChannel({
         }
         const { managerToken: _managerToken, ...action } = body;
         try {
+          const lifecycleScope = "workspaceId" in action
+            ? authorizePhotonWorkspaceControlPlaneStore({
+                principalId: scope.principalId,
+                resource: "manager",
+                workspaceId: action.workspaceId,
+              })
+            : null;
+          if (action.action === "archive" && lifecycleScope) {
+            await suspendWorkspaceMonitorsForArchive({ scope: lifecycleScope });
+          }
           const result = await applyPhotonWorkspaceManagerAction(
             body.managerToken,
             action as PhotonWorkspaceAction,
           );
+          if (action.action === "restore" && lifecycleScope) {
+            await pauseWorkspaceMonitorsAfterRestore({ scope: lifecycleScope });
+          }
           if (!result) {
             return json({ error: "This session manager link expired." }, 410);
           }

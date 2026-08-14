@@ -17,7 +17,10 @@ for (const required of [
   "monitor.sources.length",
   "Edit schedule",
   "Edit budget",
+  "suspendWorkspaceMonitorsForArchive",
+  "pauseWorkspaceMonitorsAfterRestore",
 ]) assert.ok(source.includes(required), `Missing manager runtime contract: ${required}`);
+assert.equal(/action\.action === "start-fresh"[\s\S]{0,160}suspendWorkspaceMonitorsForArchive/u.test(source), false);
 assert.match(source, /authorizePhotonWorkspaceControlPlaneStore/u);
 assert.match(source, /nextWorkspaceMonitorOccurrence/u);
 assert.equal(source.includes("innerHTML"), false);

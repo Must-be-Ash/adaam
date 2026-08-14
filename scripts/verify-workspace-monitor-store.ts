@@ -8,7 +8,9 @@ import {
   createWorkspaceMonitor,
   getWorkspaceMonitor,
   listWorkspaceMonitors,
+  pauseWorkspaceMonitorsAfterRestore,
   releaseWorkspaceMonitorLease,
+  suspendWorkspaceMonitorsForArchive,
   updateWorkspaceMonitor,
   workspaceMonitorOccurrenceKey,
   WorkspaceMonitorError,
@@ -573,6 +575,19 @@ const skippedMonitor = await getWorkspaceMonitor(
 assert.equal(skippedMonitor?.lifecycleState, "paused");
 assert.equal(skippedMonitor?.pauseReason, "missed_recovery_window");
 assert.equal(skippedMonitor?.lastErrorCode, "missed_occurrences_skipped");
+const suspended = await suspendWorkspaceMonitorsForArchive({
+  now: new Date("2026-08-14T15:00:00.000Z"),
+  scope,
+}, missedClient);
+assert.equal(suspended[0]?.lifecycleState, "suspended_archived");
+assert.equal(suspended[0]?.nextOccurrenceAt, null);
+const restored = await pauseWorkspaceMonitorsAfterRestore({
+  now: new Date("2026-08-14T16:00:00.000Z"),
+  scope,
+}, missedClient);
+assert.equal(restored[0]?.lifecycleState, "paused");
+assert.equal(restored[0]?.pauseReason, "workspace_restored_manual_resume_required");
+assert.equal(restored[0]?.nextOccurrenceAt, null);
 
 const minuteSchedule = await readFile(
   new URL("../agent/schedules/event-triggers.ts", import.meta.url),
