@@ -67,6 +67,7 @@
     "verify:workspace-runtime:legacy-assignment": "jiti scripts/verify-workspace-legacy-assignment.ts",
     "verify:workspace-runtime:redis": "jiti scripts/verify-workspace-runtime-redis.ts",
     "verify:workspace-runtime:schedules": "jiti scripts/verify-workspace-monitor-schedule.ts",
+    "verify:workspace-runtime:schedule-runbook": "node scripts/verify-workspace-schedule-runbook.mjs",
     "verify:workspaces": "node scripts/verify-photon-workspaces.mjs",
     "verify:workspaces:redis": "node scripts/verify-photon-workspaces-redis.mjs"
   },
