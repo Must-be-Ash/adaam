@@ -43,6 +43,7 @@
     "verify:workspace-runtime:budget": "jiti scripts/verify-workspace-budget-ledger.ts",
     "verify:workspace-runtime:capabilities": "jiti scripts/verify-workspace-runtime-capabilities.ts",
     "verify:workspace-runtime:drift": "jiti scripts/verify-workspace-capability-drift.ts",
+    "verify:workspace-runtime:start-fresh": "jiti scripts/verify-workspace-start-fresh.ts",
     "verify:workspaces": "node scripts/verify-photon-workspaces.mjs",
     "verify:workspaces:redis": "node scripts/verify-photon-workspaces-redis.mjs"
   },

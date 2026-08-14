@@ -26,6 +26,7 @@ import {
   type PhotonWorkspace,
 } from "../lib/photon-workspace-store";
 import { projectPhotonWorkspaceRuntimeScope } from "../lib/workspace-runtime-scope";
+import { photonApprovalWorkspace } from "../lib/photon-workspace";
 
 const PHOTON_APPROVAL_ICON_PATH = `${PHOTON_APPROVAL_APP_PATH}/${PHOTON_APP_ICON_SVG_PATH}`;
 const PHOTON_APPROVAL_ICON_PNG_PATH = `${PHOTON_APPROVAL_APP_PATH}/${PHOTON_APP_ICON_PNG_PATH}`;
@@ -199,30 +200,7 @@ async function approvalWorkspaceIsActive(
       principalId: delivery.principalId,
       threadId: delivery.threadId,
     });
-    const workspace =
-      delivery.workspaceId && delivery.workspaceGeneration
-        ? state.workspaces.find(
-            (candidate) =>
-              candidate.id === delivery.workspaceId &&
-              candidate.generation === delivery.workspaceGeneration,
-          )
-        : state.workspaces.find(
-            (candidate) => candidate.sessionId === delivery.sessionId,
-          );
-    if (workspace) {
-      return (
-        workspace.status === "active" &&
-        workspace.id === state.activeWorkspace.id
-      )
-        ? workspace
-        : null;
-    }
-    return (
-      !delivery.workspaceId &&
-      state.activeWorkspace.continuation === "physical"
-    )
-      ? state.activeWorkspace
-      : null;
+    return photonApprovalWorkspace(state, delivery);
   } catch {
     return null;
   }

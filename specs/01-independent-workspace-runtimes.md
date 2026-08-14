@@ -887,7 +887,7 @@ Exit gate:
 - [x] Add default-deny dynamic capability resolution for runtime sessions.
 - [x] Add provider tool-inventory/schema drift reporting and typed unavailable-
   capability reasons; newly discovered tools remain disabled.
-- [ ] Verify `Start fresh` retains the new workspace state and revokes stale
+- [x] Verify `Start fresh` retains the new workspace state and revokes stale
   generation-bound approvals.
 
 Exit gate:
@@ -1134,3 +1134,4 @@ own bounded implementation spec:
 | 2026-08-14 | Add CAS-atomic run/token/paid-budget reservations with exact decimal reconciliation and retained uncertainty | `jiti scripts/verify-workspace-budget-ledger.ts`, `jiti scripts/verify-workspace-state-store.ts`, and `tsc --noEmit` — passed |
 | 2026-08-14 | Add step-level default-deny runtime capability resolution with shared hard denials and reviewed provider schemas | `jiti scripts/verify-workspace-runtime-capabilities.ts` and `tsc --noEmit` — passed |
 | 2026-08-14 | Report bounded provider inventory drift and return typed unavailable-capability reasons without auto-enabling discoveries | `jiti scripts/verify-workspace-capability-drift.ts`, `jiti scripts/verify-workspace-runtime-capabilities.ts`, and `tsc --noEmit` — passed |
+| 2026-08-14 | Verify `Start fresh` preserves workspace-owned documents while rejecting stale approval and tool generations | `jiti scripts/verify-workspace-start-fresh.ts`, `node scripts/verify-photon-workspaces.mjs`, `node scripts/verify-photon-approval.mjs`, and `tsc --noEmit` — passed |

@@ -49,6 +49,7 @@ import {
 } from "../lib/photon-workspace-store";
 import {
   isPhotonSessionManagerRequest,
+  photonApprovalWorkspace,
   photonWorkspaceContext,
   photonWorkspaceThread,
   parsePhotonWorkspaceThreadId,
@@ -770,29 +771,8 @@ async function submitApprovalDecision(
       principalId,
       threadId: thread.id,
     });
-    const matchedWorkspace =
-      claim.delivery.workspaceId && claim.delivery.workspaceGeneration
-        ? state.workspaces.find(
-            (candidate) =>
-              candidate.id === claim.delivery.workspaceId &&
-              candidate.generation === claim.delivery.workspaceGeneration,
-          )
-        : state.workspaces.find(
-            (candidate) => candidate.sessionId === claim.delivery.sessionId,
-          );
     workspace =
-      matchedWorkspace?.status === "active" &&
-      matchedWorkspace.id === state.activeWorkspace.id
-        ? matchedWorkspace
-        : undefined;
-    if (
-      !workspace &&
-      !claim.delivery.workspaceId &&
-      state.activeWorkspace.continuation === "physical" &&
-      state.activeWorkspace.status === "active"
-    ) {
-      workspace = state.activeWorkspace;
-    }
+      photonApprovalWorkspace(state, claim.delivery) ?? undefined;
   } catch {
     // The approval is failed below before any response reaches Eve.
   }
