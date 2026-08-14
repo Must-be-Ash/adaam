@@ -67,6 +67,21 @@ export const PUBLIC_FEEDS: readonly PublicFeedSource[] = [
       "Use the 10-digit CIK. Keep SEC requests below 10 per second and use the configured SEC user agent.",
   },
   {
+    id: "sec-latest-s1-filings",
+    name: "SEC EDGAR latest S-1 filings",
+    agency: "SEC",
+    category: "sec",
+    kind: "feed",
+    format: "atom",
+    url: "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=S-1&owner=include&count=40&output=atom",
+    description:
+      "Latest EDGAR Form S-1 registration statements and S-1/A amendments for IPO-candidate monitoring.",
+    recommendedPollingMinutes: 15,
+    authentication: "none",
+    notes:
+      "Treat S-1 as a potential registration, not a completed IPO. S-1/A is an update. Keep aggregate SEC traffic below 10 requests per second and send the configured identifying user agent.",
+  },
+  {
     id: "sec-latest-filings",
     name: "SEC EDGAR latest filings",
     agency: "SEC",
