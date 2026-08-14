@@ -880,7 +880,7 @@ Exit gate:
   alert access; add negative tests for an authenticated unmapped principal.
 - [x] Project typed owner/conversation/workspace/generation metadata from the
   Photon router and reject missing or mismatched tool scope.
-- [ ] Add versioned, bounded workspace brief, durable strategy configuration,
+- [x] Add versioned, bounded workspace brief, durable strategy configuration,
   capability manifest, and budget stores.
 - [ ] Add owner/workspace-scoped authorization helpers used by every store.
 - [ ] Add atomic run and paid-budget reservation/reconciliation primitives.
@@ -1129,3 +1129,4 @@ own bounded implementation spec:
 | 2026-08-14 | Add fail-closed deployment-owner mapping with HMAC-derived Photon aliases | `node scripts/verify-owner-identity.mjs` and `tsc --noEmit` — passed |
 | 2026-08-14 | Enforce deployment-owner authorization before Photon session, monitor, manager, worker, and alert access | `node scripts/verify-owner-identity.mjs`, `node scripts/verify-photon-workspaces.mjs`, `node scripts/verify-photon-approval.mjs`, and `tsc --noEmit` — passed |
 | 2026-08-14 | Project typed Photon runtime scope through signed auth and reject missing or mismatched tool scope | `jiti scripts/verify-workspace-runtime-scope.ts`, `node scripts/verify-photon-workspaces.mjs`, `node scripts/verify-photon-approval.mjs`, and `tsc --noEmit` — passed |
+| 2026-08-14 | Add versioned, byte-bounded CAS stores for workspace briefs, strategy configuration, capability manifests, and budget policies | `jiti scripts/verify-workspace-state-store.ts` and `tsc --noEmit` — passed |
