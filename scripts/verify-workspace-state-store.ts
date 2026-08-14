@@ -8,11 +8,21 @@ import {
   writeWorkspaceDocument,
   type WorkspaceStateStoreClient,
 } from "../agent/lib/workspace-state-store";
+import {
+  authorizePhotonWorkspaceControlPlaneStore,
+  authorizePhotonWorkspaceToolStore,
+  WorkspaceStoreAuthorizationError,
+} from "../agent/lib/workspace-store-authorization";
+import { photonAuth } from "../agent/lib/photon-auth";
+import { projectPhotonWorkspaceRuntimeScope } from "../agent/lib/workspace-runtime-scope";
 
 class MemoryStore implements WorkspaceStateStoreClient {
+  compareAndSetCalls = 0;
+  getCalls = 0;
   readonly values = new Map<string, string>();
 
   async compareAndSet(key: string, expected: string | null, next: string) {
+    this.compareAndSetCalls += 1;
     const current = this.values.get(key) ?? null;
     if (current !== expected) return false;
     this.values.set(key, next);
@@ -20,19 +30,83 @@ class MemoryStore implements WorkspaceStateStoreClient {
   }
 
   async get(key: string) {
+    this.getCalls += 1;
     return this.values.get(key) ?? null;
   }
 }
 
 const client = new MemoryStore();
-const scope = {
-  ownerId: "owner_fixture",
-  workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+const environment = {
+  EVE_DEPLOYMENT_OWNER_ID: "owner_fixture",
+  EVE_PHOTON_OWNER_PRINCIPALS: "imessage:fixture-owner",
+  EVE_OWNER_ALIAS_HMAC_SECRET: "A".repeat(43),
 };
-const otherScope = {
-  ownerId: "owner_fixture",
-  workspaceId: "223e4567-e89b-42d3-a456-426614174000",
-};
+const scope = authorizePhotonWorkspaceControlPlaneStore(
+  {
+    principalId: "imessage:fixture-owner",
+    resource: "manager",
+    workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+  },
+  environment,
+);
+const otherScope = authorizePhotonWorkspaceControlPlaneStore(
+  {
+    principalId: "imessage:fixture-owner",
+    resource: "manager",
+    workspaceId: "223e4567-e89b-42d3-a456-426614174000",
+  },
+  environment,
+);
+const runtimeScope = projectPhotonWorkspaceRuntimeScope(
+  {
+    generation: 1,
+    principalId: "imessage:fixture-owner",
+    threadId: "imessage:fixture-thread",
+    workspaceId: scope.workspaceId,
+  },
+  environment,
+);
+const toolScope = authorizePhotonWorkspaceToolStore(
+  {
+    session: {
+      auth: {
+        current: photonAuth(
+          "fixture-owner",
+          "imessage:fixture-thread",
+          runtimeScope,
+        ),
+      },
+    },
+  },
+  { generation: 1, workspaceId: scope.workspaceId },
+  environment,
+);
+assert.deepEqual(toolScope, scope);
+
+const deniedClient = new MemoryStore();
+for (const kind of ["brief", "strategy", "capabilities", "budget"] as const) {
+  await assert.rejects(
+    readWorkspaceDocument(
+      kind,
+      { ownerId: scope.ownerId, workspaceId: scope.workspaceId },
+      deniedClient,
+    ),
+    WorkspaceStoreAuthorizationError,
+  );
+}
+assert.equal(deniedClient.getCalls, 0);
+assert.throws(
+  () =>
+    authorizePhotonWorkspaceControlPlaneStore(
+      {
+        principalId: "imessage:authenticated-but-unmapped",
+        resource: "worker",
+        workspaceId: scope.workspaceId,
+      },
+      environment,
+    ),
+  /not mapped/u,
+);
 const now = new Date("2026-08-14T12:00:00.000Z");
 
 const briefValue = {
@@ -54,9 +128,43 @@ const briefValue = {
   thesis: "Evidence must remain attributable to reviewed public sources.",
   watchlist: ["Example Corp"],
 };
+await assert.rejects(
+  writeWorkspaceDocument(
+    "brief",
+    {
+      expectedRevision: 0,
+      now,
+      scope: { ownerId: scope.ownerId, workspaceId: scope.workspaceId },
+      value: briefValue,
+    },
+    deniedClient,
+  ),
+  WorkspaceStoreAuthorizationError,
+);
+assert.equal(deniedClient.getCalls, 0);
+assert.equal(deniedClient.compareAndSetCalls, 0);
+assert.throws(
+  () =>
+    authorizePhotonWorkspaceToolStore(
+      {
+        session: {
+          auth: {
+            current: photonAuth(
+              "fixture-owner",
+              "imessage:fixture-thread",
+              runtimeScope,
+            ),
+          },
+        },
+      },
+      { workspaceId: otherScope.workspaceId },
+      environment,
+    ),
+  /scope is missing or does not match/u,
+);
 const brief = await writeWorkspaceDocument(
   "brief",
-  { ...scope, expectedRevision: 0, now, value: briefValue },
+  { scope, expectedRevision: 0, now, value: briefValue },
   client,
 );
 assert.equal(brief.recordType, "workspace_brief");
@@ -68,7 +176,7 @@ assert.equal(await readWorkspaceDocument("brief", otherScope, client), null);
 const strategy = await writeWorkspaceDocument(
   "strategy",
   {
-    ...scope,
+    scope,
     expectedRevision: 0,
     now,
     value: {
@@ -87,7 +195,7 @@ assert.equal(strategy.revision, 1);
 const capabilities = await writeWorkspaceDocument(
   "capabilities",
   {
-    ...scope,
+    scope,
     expectedRevision: 0,
     now,
     value: {
@@ -124,7 +232,7 @@ assert.equal(capabilities.value.researchToolIds.includes("web.search"), false);
 const budget = await writeWorkspaceDocument(
   "budget",
   {
-    ...scope,
+    scope,
     expectedRevision: 0,
     now,
     value: {
@@ -150,7 +258,7 @@ assert.equal(typeof budget.value.maximumPaidPerDay, "string");
 const updatedBrief = await writeWorkspaceDocument(
   "brief",
   {
-    ...scope,
+    scope,
     expectedRevision: brief.revision,
     now: new Date("2026-08-14T12:01:00.000Z"),
     value: { ...briefValue, lastMaterialChange: "Owner updated the goal." },
@@ -163,7 +271,7 @@ assert.notEqual(updatedBrief.updatedAt, brief.updatedAt);
 await assert.rejects(
   writeWorkspaceDocument(
     "brief",
-    { ...scope, expectedRevision: 1, now, value: briefValue },
+    { scope, expectedRevision: 1, now, value: briefValue },
     client,
   ),
   WorkspaceStateConflictError,
@@ -173,12 +281,12 @@ const raceClient = new MemoryStore();
 const raceResults = await Promise.allSettled([
   writeWorkspaceDocument(
     "brief",
-    { ...scope, expectedRevision: 0, now, value: briefValue },
+    { scope, expectedRevision: 0, now, value: briefValue },
     raceClient,
   ),
   writeWorkspaceDocument(
     "brief",
-    { ...scope, expectedRevision: 0, now, value: briefValue },
+    { scope, expectedRevision: 0, now, value: briefValue },
     raceClient,
   ),
 ]);
@@ -189,7 +297,7 @@ await assert.rejects(
   writeWorkspaceDocument(
     "brief",
     {
-      ...otherScope,
+      scope: otherScope,
       expectedRevision: 0,
       now,
       value: { ...briefValue, goal: "x".repeat(2_001) },
@@ -204,7 +312,7 @@ await assert.rejects(
   writeWorkspaceDocument(
     "strategy",
     {
-      ...otherScope,
+      scope: otherScope,
       expectedRevision: 0,
       now,
       value: { configuration: { unsafe: true }, strategyPack: null },
@@ -217,7 +325,7 @@ await assert.rejects(
   writeWorkspaceDocument(
     "brief",
     {
-      ...otherScope,
+      scope: otherScope,
       expectedRevision: 0,
       now,
       value: { ...briefValue, budget: budget.value },
@@ -230,7 +338,7 @@ await assert.rejects(
   writeWorkspaceDocument(
     "budget",
     {
-      ...otherScope,
+      scope: otherScope,
       expectedRevision: 0,
       now,
       value: {
@@ -249,7 +357,7 @@ await assert.rejects(
   writeWorkspaceDocument(
     "brief",
     {
-      ...scope,
+      scope,
       expectedRevision: 0,
       now,
       value: {
@@ -269,7 +377,7 @@ assert.equal(oversizeClient.values.size, 0);
 const corruptClient = new MemoryStore();
 await writeWorkspaceDocument(
   "brief",
-  { ...scope, expectedRevision: 0, now, value: briefValue },
+  { scope, expectedRevision: 0, now, value: briefValue },
   corruptClient,
 );
 const [briefKey] = corruptClient.values.keys();

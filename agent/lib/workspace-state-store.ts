@@ -3,6 +3,11 @@ import { createHash } from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { z } from "zod";
 
+import {
+  assertAuthorizedWorkspaceStoreScope,
+  type AuthorizedWorkspaceStoreScope,
+} from "./workspace-store-authorization";
+
 export const WORKSPACE_DOCUMENT_BYTE_LIMITS = Object.freeze({
   brief: 32_768,
   budget: 8_192,
@@ -270,7 +275,7 @@ function store(): WorkspaceStateStoreClient {
 
 function documentKey(
   kind: WorkspaceDocumentKind,
-  scope: { ownerId: string; workspaceId: string },
+  scope: AuthorizedWorkspaceStoreScope,
 ): string {
   const digest = createHash("sha256")
     .update(`workspace-state\0${scope.ownerId}\0${scope.workspaceId}`)
@@ -287,7 +292,7 @@ function serializedValue(raw: unknown): string | null {
 function parseDocument<K extends WorkspaceDocumentKind>(
   kind: K,
   raw: string,
-  scope: { ownerId: string; workspaceId: string },
+  scope: AuthorizedWorkspaceStoreScope,
 ): WorkspaceDocument<K> {
   if (Buffer.byteLength(raw, "utf8") > WORKSPACE_DOCUMENT_BYTE_LIMITS[kind]) {
     throw new WorkspaceStateValidationError("workspace_state_corrupt");
@@ -306,9 +311,10 @@ function parseDocument<K extends WorkspaceDocumentKind>(
 
 export async function readWorkspaceDocument<K extends WorkspaceDocumentKind>(
   kind: K,
-  scope: { ownerId: string; workspaceId: string },
+  scope: AuthorizedWorkspaceStoreScope,
   client: WorkspaceStateStoreClient = store(),
 ): Promise<WorkspaceDocument<K> | null> {
+  assertAuthorizedWorkspaceStoreScope(scope);
   const raw = serializedValue(await client.get(documentKey(kind, scope)));
   return raw === null ? null : parseDocument(kind, raw, scope);
 }
@@ -318,16 +324,16 @@ export async function writeWorkspaceDocument<K extends WorkspaceDocumentKind>(
   input: {
     expectedRevision: number;
     now?: Date;
-    ownerId: string;
+    scope: AuthorizedWorkspaceStoreScope;
     value: z.input<(typeof schemas)[K]> extends { value: infer V } ? V : never;
-    workspaceId: string;
   },
   client: WorkspaceStateStoreClient = store(),
 ): Promise<WorkspaceDocument<K>> {
   if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) {
     throw new WorkspaceStateValidationError("workspace_state_invalid");
   }
-  const scope = { ownerId: input.ownerId, workspaceId: input.workspaceId };
+  const scope = input.scope;
+  assertAuthorizedWorkspaceStoreScope(scope);
   const key = documentKey(kind, scope);
   const currentRaw = serializedValue(await client.get(key));
   const current = currentRaw === null ? null : parseDocument(kind, currentRaw, scope);
@@ -337,13 +343,13 @@ export async function writeWorkspaceDocument<K extends WorkspaceDocumentKind>(
   const now = (input.now ?? new Date()).toISOString();
   const candidate = {
     createdAt: current?.createdAt ?? now,
-    ownerId: input.ownerId,
+    ownerId: scope.ownerId,
     recordType: schemas[kind].shape.recordType.value,
     revision: input.expectedRevision + 1,
     schemaVersion: 1,
     updatedAt: now,
     value: input.value,
-    workspaceId: input.workspaceId,
+    workspaceId: scope.workspaceId,
   };
   const parsed = schemas[kind].safeParse(candidate);
   if (!parsed.success) {
