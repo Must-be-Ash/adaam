@@ -331,7 +331,12 @@ function scheduleFailureCode(error: unknown): string {
 
 function collectScheduleFailures(
   failures: unknown[],
-  jobKind: "event_trigger" | "workspace_first_attempt" | "workspace_recovery",
+  jobKind:
+    | "event_trigger"
+    | "event_trigger_claim"
+    | "workspace_claim"
+    | "workspace_first_attempt"
+    | "workspace_recovery",
   results: readonly PromiseSettledResult<unknown>[],
 ): void {
   for (const result of results) {
@@ -358,7 +363,8 @@ export function createEventTriggerSchedule(
         (async () => {
         const now = dependencies.now();
         const flags = dependencies.resolveRuntimeFlags();
-        const [jobs, workspaceJobs] = await Promise.all([
+        const scheduleFailures: unknown[] = [];
+        const [eventTriggerClaim, workspaceClaim] = await Promise.allSettled([
           dependencies.claimEventTriggers({
             now,
             limit: 10,
@@ -373,6 +379,22 @@ export function createEventTriggerSchedule(
               })
             : Promise.resolve([]),
         ]);
+        collectScheduleFailures(
+          scheduleFailures,
+          "event_trigger_claim",
+          [eventTriggerClaim],
+        );
+        collectScheduleFailures(
+          scheduleFailures,
+          "workspace_claim",
+          [workspaceClaim],
+        );
+        const jobs = eventTriggerClaim.status === "fulfilled"
+          ? eventTriggerClaim.value
+          : [];
+        const workspaceJobs = workspaceClaim.status === "fulfilled"
+          ? workspaceClaim.value
+          : [];
         if (workspaceJobs.length > 0) {
           console.info("[workspace.monitor] Minute claim pass completed", {
             claim_count: workspaceJobs.length,
@@ -384,7 +406,6 @@ export function createEventTriggerSchedule(
         const firstAttemptJobs = workspaceJobs.filter(
           (job) => job.occurrence.attempt === 1,
         );
-        const scheduleFailures: unknown[] = [];
         collectScheduleFailures(
           scheduleFailures,
           "workspace_recovery",

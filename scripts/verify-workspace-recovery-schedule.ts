@@ -489,6 +489,94 @@ try {
 }
 assert.equal(mixedRejected, true);
 
+async function verifyClaimIsolation(
+  failingClaim: "event_trigger" | "workspace",
+): Promise<void> {
+  const claimError = `${failingClaim}_claim_failed`;
+  let workspaceRuns = 0;
+  let workspaceFinishes = 0;
+  let eventTriggerRuns = 0;
+  const claimSchedule = createEventTriggerSchedule({
+    claimEventTriggers: async () => {
+      if (failingClaim === "event_trigger") throw new Error(claimError);
+      return [legacyJob];
+    },
+    claimWorkspaceMonitors: async () => {
+      if (failingClaim === "workspace") throw new Error(claimError);
+      return [firstAttemptJob];
+    },
+    executeEventTrigger: async () => {
+      eventTriggerRuns += 1;
+    },
+    finishWorkspaceBudget: async () => {
+      workspaceFinishes += 1;
+    },
+    now: () => now,
+    prepareWorkspaceWorker: async () => ({
+      envelope: {} as PreparedWorkspaceWorkerRun["envelope"],
+      prompt: "fixture",
+      request: {} as PreparedWorkspaceWorkerRun["request"],
+      scope,
+    }),
+    requireWorkspaceOutcome: async () => firstAttemptOutcome,
+    reserveWorkspaceBudget: async () => firstAttemptReservation,
+    resolveRuntimeFlags: () => ({
+      dispatch: true,
+      legacyTriggerCreation: false,
+      monitorWrites: true,
+      paidResearch: false,
+      photonAlerts: false,
+      sourceEvents: false,
+      state: true,
+    }),
+    startWorkspaceWorker: async () => {
+      workspaceRuns += 1;
+      return {
+        events: (async function* () {
+          return;
+        })(),
+      } as Awaited<ReturnType<EventTriggerScheduleDependencies["startWorkspaceWorker"]>>;
+    },
+  });
+  assert.ok("run" in claimSchedule && claimSchedule.run);
+  const waiters: Promise<unknown>[] = [];
+  claimSchedule.run({
+    appAuth: {
+      attributes: {},
+      authenticator: "app",
+      principalId: "eve:app",
+      principalType: "runtime",
+    },
+    to: (() => {
+      throw new Error("legacy_to_not_expected");
+    }) as ScheduleToFn,
+    waitUntil(task) {
+      waiters.push(task);
+    },
+  });
+  assert.equal(waiters.length, 1);
+  let rejected = false;
+  try {
+    await Promise.all(waiters);
+  } catch (error) {
+    rejected = true;
+    assert.ok(aggregateContains(error, claimError));
+    if (failingClaim === "event_trigger") {
+      assert.equal(workspaceRuns, 1);
+      assert.equal(workspaceFinishes, 1);
+      assert.equal(eventTriggerRuns, 0);
+    } else {
+      assert.equal(workspaceRuns, 0);
+      assert.equal(workspaceFinishes, 0);
+      assert.equal(eventTriggerRuns, 1);
+    }
+  }
+  assert.equal(rejected, true);
+}
+
+await verifyClaimIsolation("event_trigger");
+await verifyClaimIsolation("workspace");
+
 const mismatchedClaims: ClaimedWorkspaceMonitor[] = [
   { ...job, monitor: { ...monitor, ownerId: "other_owner" } },
   {
