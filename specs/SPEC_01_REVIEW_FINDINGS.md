@@ -110,6 +110,22 @@ is implemented on the R2 phase branch and is still pending that review.
   path compiled workers overlap in execution, reach clean terminal outcomes,
   retain isolated state/capabilities, and leave no worker/runtime teardown leak.
 
+Pass A re-review did not accept the occurrence-recovery or Redis-atomicity
+claims. The remaining acceptance work is:
+
+- [ ] **A3 — reclaimed-attempt occurrence recovery.** Production lease expiry
+  assigns a new run ID for the same occurrence. Before any model, source fetch,
+  provider charge, or other side effect, the new attempt must recover and apply
+  the prior durable occurrence outcome using occurrence identity.
+- [ ] **A4 — invalid recovery fails durably.** Missing, corrupt, incompatible, or
+  stale recovery data must create an explicit durable failure state with a
+  bounded reason. It must never be swallowed or fall through to a fresh model
+  execution.
+- [ ] **Redis identity/outcome race proof — unverified in this environment.** Run
+  the new Lua identity/outcome transaction against real ephemeral Redis with
+  competing claims and recovery attempts, proving one canonical outcome and no
+  duplicate model, fetch, finding, alert, or charge.
+
 ### R3 — production alert outbox and delivery recovery
 
 - [ ] Add a production caller that drains staged workspace alerts to Photon.

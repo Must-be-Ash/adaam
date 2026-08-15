@@ -113,6 +113,14 @@ sprint into one change.
   including forged identity input where applicable.
 - An idempotency task needs replay and concurrent/race coverage, not only a
   single successful call.
+- When lease recovery or retry gives the same durable occurrence a new attempt
+  or run ID, verification must resolve any prior outcome by occurrence identity
+  before another model, provider, paid call, or side effect. Missing, corrupt,
+  incompatible, or stale recovery data must become an explicit durable failure,
+  not fall through to fresh execution.
+- Atomicity implemented by a database script or transaction requires a
+  concurrency/race test against the real database engine. An in-memory fake or
+  unit test is supporting evidence only.
 - A UI task needs state/route tests and, when practical, a real rendered or
   browser smoke for the changed interaction.
 - A migration needs forward, retry, partial-failure, and rollback proof.
