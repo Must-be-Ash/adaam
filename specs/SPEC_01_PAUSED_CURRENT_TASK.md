@@ -23,14 +23,14 @@ production mutation.
   - Contains the original implementation plus accepted R1.
 - **Active R2 code branch:** `codex/spec-01-remediation-r2`
   - Worktree: `/Users/ashnouruzi/dev/adaam-spec-01-remediation-r2`
-  - Head: `9d979f6` (`spec-01: isolate schedule claim failures`)
+  - Head: `3afe526` (`docs: record R2 Pass A verification`)
   - Clean and not merged into the Spec 1 integration branch.
 - **Latest remediation documentation branch:**
   `codex/spec-roadmap-r2-learnings`
   - Worktree: `/Users/ashnouruzi/dev/adaam-spec-roadmap-r2-learnings`
   - Head: `b012b7c` (`docs: preserve fulfilled scheduler claims`)
-  - Clean and not merged into the R2 code branch.
-- These branches and commits are local and have not been pushed.
+  - Clean and merged into the R2 code branch at `5ab1858`.
+- Main and all three Spec 1 branches are pushed to `origin`.
 - Redis is installed at `/opt/homebrew/bin/redis-server`.
 - No Spec 1 production deployment or real Photon acceptance has been performed.
 
@@ -86,8 +86,8 @@ the path, but do not restart or replace it wholesale.
   to the parent outcome.
 - Recovery, first-attempt workspace, and legacy jobs are isolated so one job's
   failure is surfaced only after unrelated claimed work receives an opportunity.
-- A real-Redis identity/outcome race fixture exists and uses distinct competing
-  outcomes with overlapping filing identities.
+- The real-Redis identity/outcome race passed using distinct competing outcomes
+  with overlapping filing identities.
 
 Do not redo those R2 changes. The immediate task is to accept or minimally fix
 their final unreviewed boundary.
@@ -100,14 +100,12 @@ their final unreviewed boundary.
 - Accept or minimally fix the two asymmetric claim-isolation cases: a failed
   legacy claim must not discard fulfilled workspace work, and a failed workspace
   claim must not discard fulfilled legacy work.
-- Complete the full Pass A regression matrix.
-- Execute the existing Lua identity/outcome race against the installed real
-  Redis engine.
+- Independently confirm the completed Pass A regression matrix and real-Redis
+  evidence.
 - Fix only verified failures and commit each correction atomically.
-- Merge `codex/spec-roadmap-r2-learnings` into
-  `codex/spec-01-remediation-r2`.
-- Mark A3, A4, and the Redis race proof accepted only after their review and
-  runtime evidence pass.
+- Mark A3, A4, and the Redis race proof finally accepted after independent
+  review; they are already implemented, locally verified, documented, and
+  pushed.
 
 ### 2. Finish the rest of R2
 

@@ -1,9 +1,8 @@
 # Spec 1 independent-review findings
 
-> **Detailed ledger, not the current handoff.** The latest expanded ledger is on
-> `codex/spec-roadmap-r2-learnings` and still needs to be merged. Use
-> `SPEC_01_PAUSED_CURRENT_TASK.md` as the canonical record of what is complete,
-> what remains, and which branch owns the work.
+> **Detailed acceptance ledger, not the current handoff.** Use
+> `SPEC_01_PAUSED_CURRENT_TASK.md` as the canonical record of branch ownership
+> and remaining delivery; use this file for item-level remediation status.
 
 Review target: `codex/spec-01-independent-workspaces` at `32370db`
 
@@ -25,18 +24,22 @@ review environment did not have a `redis-server` executable.
 
 ### R1 — worker provider-tool isolation
 
-- [ ] Explicitly disable Eve's provider-managed `web_search` tool in the
+- [x] Explicitly disable Eve's provider-managed `web_search` tool in the
   workspace worker. The installed Eve harness enables Exa-backed `web_search`
   for Gateway models when no matching disable file exists.
-- [ ] Verify the fully compiled worker tool surface, not only the application
+- [x] Verify the fully compiled worker tool surface, not only the application
   dynamic registry or source files. Fail if any undeclared built-in/provider
   tool is exposed.
 
 Evidence:
 
 - `agent/lib/sec-ipo-reference.ts` hard-denies `web_search`.
-- `agent/subagents/workspace-worker/tools/` disables other built-ins but has no
-  `web_search.ts`.
+- `agent/subagents/workspace-worker/tools/web_search.ts` disables the matching
+  provider-managed built-in through Eve's filename-based `disableTool()` slot.
+- `scripts/verify-workspace-worker-compiled-tools.ts` compiles and resolves the
+  Gateway worker, then requires its provider-resolved model tool surface to be
+  exactly the approved `load_skill` bridge with no undeclared built-in or
+  provider tool.
 - `node_modules/eve/docs/concepts/default-harness.md` documents default Gateway
   web search and the filename-based `disableTool()` mechanism.
 
