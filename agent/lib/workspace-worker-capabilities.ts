@@ -80,11 +80,15 @@ export async function resolveWorkspaceWorkerStepCapabilities<T>(input: {
     input.environment,
   );
   const scope = authorizeWorkspaceWorkerStore(input.ctx, input.environment);
+  const fixtureClients = input.stateClient
+    ? undefined
+    : (await import("./workspace-worker-test-fixtures"))
+        .resolveSecIpoWorkspaceWorkerFixtureClients();
   return resolveWorkspaceWorkerCapabilitySnapshot({
     deploymentHardDeniedIds: input.deploymentHardDeniedIds,
     envelope,
     registry: input.registry,
     scope,
-    stateClient: input.stateClient,
+    stateClient: input.stateClient ?? fixtureClients?.state,
   });
 }

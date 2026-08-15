@@ -59,6 +59,7 @@
     "verify:workspace-runtime:sec-ipo-fixtures": "jiti scripts/verify-sec-ipo-fixtures.ts",
     "verify:workspace-runtime:sec-ipo-facts": "jiti scripts/verify-sec-ipo-facts.ts",
     "verify:workspace-runtime:sec-ipo-worker": "jiti scripts/verify-sec-ipo-workspace-worker.ts",
+    "verify:workspace-runtime:sec-ipo-scheduled-compiled": "jiti scripts/verify-sec-ipo-scheduled-compiled-worker.ts",
     "verify:workspace-runtime:sec-ipo-live-smoke": "jiti scripts/verify-sec-ipo-live-smoke.ts",
     "verify:workspace-runtime:capabilities": "jiti scripts/verify-workspace-runtime-capabilities.ts",
     "verify:workspace-runtime:drift": "jiti scripts/verify-workspace-capability-drift.ts",

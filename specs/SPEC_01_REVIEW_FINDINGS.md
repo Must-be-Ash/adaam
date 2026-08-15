@@ -41,16 +41,42 @@ Evidence:
 
 ### R2 — deterministic IPO production path
 
-- [ ] Wire the versioned SEC parser/evaluator into the real scheduled worker
+- [x] Wire the versioned SEC parser/evaluator into the real scheduled worker
   path. `evaluateSecIpoPage()` is currently called only by fixtures and the
   standalone live smoke.
-- [ ] Persist the required SEC facts as typed fields, including CIK, accession,
+- [x] Persist the required SEC facts as typed fields, including CIK, accession,
   form type, filing/file number, registration/amendment identity, classification,
   and canonical filing URL. The generic finding schema currently stores only a
   summary, provenance, time, and artifact references.
-- [ ] Prove scheduler → compiled worker → exact fenced fixture fetch → typed
+- [x] Prove scheduler → compiled worker → exact fenced fixture fetch → typed
   finding/no-match → checkpoint → alert behavior and replay through the real
   caller chain.
+
+Evidence:
+
+- `agent/lib/workspace-finding-facts.ts` defines the strict versioned SEC IPO
+  fact union, and `agent/lib/workspace-finding-store.ts` accepts those facts
+  only on the internal deterministic candidate contract.
+- `agent/lib/sec-ipo-workspace-worker.ts` exposes one composite capability that
+  performs the exact fenced fetch, deterministic normalization/evaluation,
+  typed finding/no-match commit, checkpoint transition, and alert staging.
+- `agent/schedules/event-triggers.ts` dispatches the production bounded worker
+  and treats an already terminal occurrence reservation as authoritative, while
+  `agent/lib/eve-workspace-worker-runtime.ts` uses Eve's rehydratable framework
+  schedule adapter for the durable task session.
+- `scripts/verify-sec-ipo-scheduled-compiled-worker.ts` drives the authored
+  schedule through the production control plane and actual compiled Eve worker
+  to terminal events. The official Eve test model only requests the resolved
+  composite tool; SEC facts, classification, dedupe, and checkpoints remain
+  deterministic application output. Coverage includes baseline, later S-1,
+  related S-1/A, malformed/truncated/redirected/stale/ambiguous rejection,
+  occurrence and filing replay, and isolated state in two workspaces.
+- The compiled fixture bridge is available only under `NODE_ENV=test` outside
+  Vercel. It substitutes deterministic storage/source clients, not Eve's
+  runtime, model orchestration, worker graph, capability resolution, or SEC
+  evaluator. The local workflow world and transformed step-registration
+  harness use Eve private internals and remain part of R6's framework-boundary
+  replacement/version-guard work.
 
 ### R3 — production alert outbox and delivery recovery
 

@@ -110,6 +110,7 @@ function typedPrompt(input: {
   capabilityRevision: number;
   instruction: string;
   monitorId: string;
+  requiredCapabilityIds: readonly string[];
   sourceFence: string;
   strategy: unknown;
   window: { endAt: string; startAt: string };
@@ -125,6 +126,7 @@ function typedPrompt(input: {
       capabilityRevision: input.capabilityRevision,
       instruction: input.instruction,
       monitorId: input.monitorId,
+      requiredCapabilityIds: input.requiredCapabilityIds,
       window: input.window,
     }),
     "</workspace-monitor-record-v1>",
@@ -203,6 +205,7 @@ export async function prepareWorkspaceWorkerRun(input: {
     capabilityRevision: capabilities.revision,
     instruction: input.claimed.monitor.instruction,
     monitorId: input.claimed.monitor.monitorId,
+    requiredCapabilityIds: input.claimed.monitor.requiredCapabilityIds,
     sourceFence: buildWorkspaceSourcePrompt(coverage),
     strategy: strategy.value,
     window,

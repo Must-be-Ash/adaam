@@ -616,7 +616,9 @@ const minuteSchedule = await readFile(
 assert.equal((minuteSchedule.match(/defineSchedule\(/gu) ?? []).length, 1);
 assert.match(minuteSchedule, /cron: "\* \* \* \* \*"/u);
 const flagCheck = minuteSchedule.indexOf("flags.dispatch");
-const workspaceClaim = minuteSchedule.indexOf("claimDueWorkspaceMonitors({");
+const workspaceClaim = minuteSchedule.indexOf(
+  "dependencies.claimWorkspaceMonitors({",
+);
 assert.ok(flagCheck >= 0 && flagCheck < workspaceClaim);
 
 console.log("Workspace monitor store verification passed.");

@@ -26,19 +26,62 @@ import {
   requireWorkspaceWorkerOutcome,
 } from "../lib/workspace-worker-runner";
 
+export interface EventTriggerScheduleDependencies {
+  readonly claimEventTriggers: typeof eventTriggerStore.claimDue;
+  readonly claimWorkspaceMonitors: typeof claimDueWorkspaceMonitors;
+  readonly finishWorkspaceBudget: typeof finishWorkspaceMonitorDispatchBudget;
+  readonly now: () => Date;
+  readonly prepareWorkspaceWorker: typeof prepareWorkspaceWorkerRun;
+  readonly recordWorkspaceFailure: typeof recordWorkspaceMonitorFailure;
+  readonly releaseWorkspaceLease: typeof releaseWorkspaceMonitorLease;
+  readonly requireWorkspaceOutcome: typeof requireWorkspaceWorkerOutcome;
+  readonly reserveWorkspaceBudget: typeof reserveWorkspaceMonitorDispatchBudget;
+  readonly resolveRuntimeFlags: typeof resolveWorkspaceRuntimeFlags;
+  readonly startWorkspaceWorker: typeof startWorkspaceWorkerTask;
+}
+
+const productionDependencies: EventTriggerScheduleDependencies = Object.freeze({
+  claimEventTriggers: (...args: Parameters<typeof eventTriggerStore.claimDue>) =>
+    eventTriggerStore.claimDue(...args),
+  claimWorkspaceMonitors: claimDueWorkspaceMonitors,
+  finishWorkspaceBudget: finishWorkspaceMonitorDispatchBudget,
+  now: () => new Date(),
+  prepareWorkspaceWorker: prepareWorkspaceWorkerRun,
+  recordWorkspaceFailure: recordWorkspaceMonitorFailure,
+  releaseWorkspaceLease: releaseWorkspaceMonitorLease,
+  requireWorkspaceOutcome: requireWorkspaceWorkerOutcome,
+  reserveWorkspaceBudget: reserveWorkspaceMonitorDispatchBudget,
+  resolveRuntimeFlags: resolveWorkspaceRuntimeFlags,
+  startWorkspaceWorker: startWorkspaceWorkerTask,
+});
+
 async function executeWorkspaceJob(
   job: ClaimedWorkspaceMonitor,
   budget: WorkspaceDispatchReservation,
+  dependencies: EventTriggerScheduleDependencies,
 ): Promise<void> {
+  if (
+    (budget.global.state === "settled" &&
+      (budget.workspace.state === "reconciled" ||
+        budget.workspace.state === "uncertain")) ||
+    (budget.global.state === "released" &&
+      budget.workspace.state === "released")
+  ) {
+    // A redelivered schedule occurrence may observe the exact reservation
+    // after it was already settled/released. Its durable outcome is
+    // authoritative; starting another model turn would duplicate work and
+    // produce different token usage for the same reservation identity.
+    return;
+  }
   let started = false;
   let inputTokens = 0;
   let outputTokens = 0;
   try {
-    const prepared = await prepareWorkspaceWorkerRun({
+    const prepared = await dependencies.prepareWorkspaceWorker({
       claimed: job,
       dispatchBudget: budget,
     });
-    const session = await startWorkspaceWorkerTask(prepared.request);
+    const session = await dependencies.startWorkspaceWorker(prepared.request);
     started = true;
     let terminalFailure = false;
     for await (const event of session.events) {
@@ -54,8 +97,8 @@ async function executeWorkspaceJob(
       }
     }
     if (terminalFailure) throw new Error("workspace_worker_session_failed");
-    await requireWorkspaceWorkerOutcome(prepared);
-    await finishWorkspaceMonitorDispatchBudget(job, budget, {
+    await dependencies.requireWorkspaceOutcome(prepared);
+    await dependencies.finishWorkspaceBudget(job, budget, {
       actualInputTokens: inputTokens,
       actualOutputTokens: outputTokens,
       outcome: "reconciled",
@@ -63,7 +106,7 @@ async function executeWorkspaceJob(
   } catch (error) {
     if (started) {
       try {
-        await recordWorkspaceMonitorFailure({
+        await dependencies.recordWorkspaceFailure({
           errorCode:
             error instanceof Error &&
             error.message === "workspace_worker_required_outcome_missing"
@@ -77,7 +120,7 @@ async function executeWorkspaceJob(
         // A concurrent lifecycle/configuration edit is authoritative.
       }
       try {
-        await releaseWorkspaceMonitorLease({
+        await dependencies.releaseWorkspaceLease({
           leaseToken: job.leaseToken,
           monitorId: job.monitor.monitorId,
           scope: job.scope,
@@ -86,7 +129,7 @@ async function executeWorkspaceJob(
         // Lease expiry recovery remains authoritative.
       }
     }
-    await finishWorkspaceMonitorDispatchBudget(job, budget, {
+    await dependencies.finishWorkspaceBudget(job, budget, {
       actualInputTokens: started ? inputTokens : undefined,
       actualOutputTokens: started ? outputTokens : undefined,
       outcome: started ? "reconciled" : "released",
@@ -108,21 +151,28 @@ async function deliver(
   }).send(prompt, { auth });
 }
 
-export default defineSchedule({
-  cron: "* * * * *",
-  run({ to, waitUntil, appAuth }) {
-    waitUntil(
-      (async () => {
-        const now = new Date();
-        const flags = resolveWorkspaceRuntimeFlags();
+export function createEventTriggerSchedule(
+  overrides: Partial<EventTriggerScheduleDependencies> = {},
+) {
+  const dependencies = Object.freeze({
+    ...productionDependencies,
+    ...overrides,
+  });
+  return defineSchedule({
+    cron: "* * * * *",
+    run({ to, waitUntil, appAuth }) {
+      waitUntil(
+        (async () => {
+        const now = dependencies.now();
+        const flags = dependencies.resolveRuntimeFlags();
         const [jobs, workspaceJobs] = await Promise.all([
-          eventTriggerStore.claimDue({
+          dependencies.claimEventTriggers({
             now,
             limit: 10,
             leaseForMs: 2 * 60 * 60_000,
           }),
           flags.dispatch
-            ? claimDueWorkspaceMonitors({
+            ? dependencies.claimWorkspaceMonitors({
                 leaseForMs: 30 * 60_000,
                 limit: 10,
                 now,
@@ -138,12 +188,12 @@ export default defineSchedule({
         const admittedWorkspaceJobs = [];
         for (const job of workspaceJobs) {
           try {
-            const budget = await reserveWorkspaceMonitorDispatchBudget(job, {
+            const budget = await dependencies.reserveWorkspaceBudget(job, {
               now,
             });
             admittedWorkspaceJobs.push({ budget, job });
           } catch (error) {
-            await releaseWorkspaceMonitorLease({
+            await dependencies.releaseWorkspaceLease({
               leaseToken: job.leaseToken,
               monitorId: job.monitor.monitorId,
               scope: job.scope,
@@ -163,7 +213,7 @@ export default defineSchedule({
 
         await Promise.all(
           admittedWorkspaceJobs.map(({ budget, job }) =>
-            executeWorkspaceJob(job, budget),
+            executeWorkspaceJob(job, budget, dependencies),
           ),
         );
 
@@ -196,7 +246,10 @@ export default defineSchedule({
             }
           }),
         );
-      })(),
-    );
-  },
-});
+        })(),
+      );
+    },
+  });
+}
+
+export default createEventTriggerSchedule();

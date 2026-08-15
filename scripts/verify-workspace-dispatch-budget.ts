@@ -349,8 +349,8 @@ const scheduleSource = await readFile(
   "utf8",
 );
 assert.ok(
-  scheduleSource.indexOf("claimDueWorkspaceMonitors({") <
-    scheduleSource.indexOf("reserveWorkspaceMonitorDispatchBudget(job"),
+  scheduleSource.indexOf("dependencies.claimWorkspaceMonitors({") <
+    scheduleSource.indexOf("dependencies.reserveWorkspaceBudget(job"),
 );
 assert.match(scheduleSource, /releaseWorkspaceMonitorLease/u);
 

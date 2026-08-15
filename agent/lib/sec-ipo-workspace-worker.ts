@@ -261,7 +261,13 @@ export const evaluateSecIpoSourceTool = defineTool({
   inputSchema: z.object({}).strict(),
   outputSchema: secIpoWorkspaceWorkerOutputSchema,
   async execute(_input, ctx) {
-    const result = await evaluateSecIpoSourceForWorker({ ctx });
+    const { resolveSecIpoWorkspaceWorkerFixtureClients } = await import(
+      "./workspace-worker-test-fixtures"
+    );
+    const result = await evaluateSecIpoSourceForWorker({
+      clients: resolveSecIpoWorkspaceWorkerFixtureClients(),
+      ctx,
+    });
     return {
       baselineEstablished: result.baselineEstablished,
       checkpoint: result.checkpoint,

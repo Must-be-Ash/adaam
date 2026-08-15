@@ -9,7 +9,10 @@ import type { RunHandle } from "../../node_modules/eve/dist/src/channel/types.js
 import type { WorkspaceWorkerTaskRequest } from "./workspace-worker-runner";
 
 const adapter: ChannelAdapter = Object.freeze({
-  kind: "channel:workspace-monitor-runner",
+  // This session originates in an authored schedule and needs no channel
+  // behavior. Use Eve's framework-owned durable adapter kind so workflow
+  // steps can rehydrate it without an otherwise nonexistent channel route.
+  kind: "schedule",
 });
 
 export async function startWorkspaceWorkerTask(
