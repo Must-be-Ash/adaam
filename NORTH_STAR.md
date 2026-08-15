@@ -202,33 +202,35 @@ the workspace or strategy contracts.
 
 ## Current implementation gap
 
-This document describes the target architecture, not a claim that workspace
-isolation already exists.
+This document describes the target architecture. Spec 1 now implements the
+Photon polling/runtime foundation, but later strategy, source, cross-channel,
+private-artifact, and financial layers remain incomplete.
 
-- Photon now has a durable conversation workspace registry, one active-workspace
-  pointer, isolated workspace continuation addresses, session-generation
-  rollover, serialized webhook handling, revision-checked lifecycle controls,
-  and Redis-backed Chat SDK state. The initial `Main` workspace adopts the
-  conversation's prior continuation so enabling workspaces does not discard the
-  confirmed working session. Durable ingress assignment/dispatch receipts,
-  quarantined uncertain delivery, bounded workspace briefs, and automatic topic
-  mismatch detection are still not implemented.
+- Photon has a durable conversation workspace registry, one active-workspace
+  pointer, isolated continuation addresses, session-generation rollover,
+  fail-closed deployment-owner mapping, immutable durable-mode ingress and
+  assignment receipts, bounded workspace briefs, strategy configuration,
+  capability manifests, budgets, monitors, findings, alerts, and uncertain-send
+  quarantine. The initial `Main` workspace adopts the prior continuation so
+  enabling durable mode does not discard the confirmed session. General topic
+  mismatch detection and some crash-only receipt/outbox recovery remain parked.
 - The tap-to-open Spectrum **Manage Eve Sessions** mini app now supports
   create, select, rename, archive, restore, and start-fresh actions through an
   owner-bound short-lived capability. Explicit session-management requests open
   only this mini app; `workspace` remains an accepted input alias, while all
-  user-facing labels say `session`. Compact topic-change cards, inline
-  `live: true` rendering, and hard deletion remain unimplemented.
+  user-facing labels say `session`. It also renders workspace-monitor schedule,
+  sources, health, usage, and budget controls. Compact general topic-change
+  cards, inline `live: true` rendering, and hard deletion remain unimplemented.
 - Telegram also maps a private chat directly to one continuation. It needs the
   same workspace broker before workspace routing is enabled there. Every channel
   must enforce the deployment owner allowlist; Coinbase's separate allowlist is
   not a general channel access control.
-- Existing event triggers are owner/conversation scoped and must gain immutable
-  workspace IDs before workspace alerts are enabled. The scheduler can already
-  execute multiple independent due triggers concurrently, but those triggers do
-  not yet own workspace-bound strategy state, context, budgets, permissions, or
-  alert routing. Binding monitors to strategy workspaces is required before the
-  product can claim fully isolated parallel strategy agents.
+- New workspace monitors are immutably bound to owner/workspace IDs and the
+  scheduler can execute isolated compiled workers with workspace state, budgets,
+  permissions, deterministic findings, and Photon alert routing. Legacy triggers
+  retain their restricted compatibility runner until explicitly assigned.
+  Owner-authorized production rollout and real iMessage acceptance remain
+  pending; source-event/RSS/WebSub ingestion moves to Spec 3 Sprint 4.
 - Exact previews currently protect order creation only. Edit/cancel use generic
   approval, market-order collars are not yet enforced by the approval protocol,
   and uncertain operations do not yet block subsequent mutations. All mutation
@@ -330,25 +332,28 @@ directories so a fork contains its own north-star sources.
 
 ## Near-term sequence
 
-1. Specify state machines and eval fixtures for ingress, routing isolation,
-   lifecycle, tool permissions, stale actions, session rollover, and approvals.
-2. Add deployment-wide owner mapping, durable ingress/artifact storage,
-   deduplication, serialized conversation controls, serialized workspace
-   delivery, and assignment/dispatch receipts.
-3. Add bounded workspace briefs and structured state, then build the
-   workspace-aware session broker, explicit manual routing, and generation
-   rollover.
-4. Add default-deny capability manifests and migrate monitors to immutable
-   workspace IDs.
-5. Disable out-of-scope Coinbase mutations, then make order-create/edit/cancel
+1. Build Spec 2's versioned strategy-pack contracts and the installable IPO
+   reference pack on the completed Spec 1 runtime.
+2. Build Spec 3's versioned public-source adapters and canonical facts, including
+   the deferred source-event/RSS/WebSub integration in Sprint 4.
+3. Implement Specs 4 and 5 strategy behavior, then Spec 6's typed shared-signal
+   plane without weakening workspace isolation.
+4. Extend the deployment-owner boundary and workspace broker to Telegram and
+   authenticated HTTP before enabling workspace access there.
+5. Add owner-private artifact retention and pre-normalization capture for paid
+   or temporary provider output.
+6. Disable out-of-scope Coinbase mutations, then make order-create/edit/cancel
    risk reservations, previews, collars, approvals, revalidation, uncertainty
    gates, and audit records workspace-aware before enabling multi-workspace live
    trading.
-6. Add high-confidence topic-change detection and held-message recovery.
-7. Add the authenticated Spectrum workspace-management mini app and compact
-   topic-change cards as progressive UX, retaining plain-text fallbacks.
-8. Migrate Telegram to the workspace broker.
-9. Convert the research documents into versioned strategy packs and versioned
-   data-source documentation/adapters.
-10. Introduce cheaper bounded worker models only where evals show no quality or
-    safety regression.
+7. Add high-confidence general topic-change detection and held-message crash
+   recovery.
+8. Return to the explicit Spec 1 deferred-hardening phase after Specs 2–6 unless
+   an item becomes an observed ordinary-path failure sooner.
+9. Introduce cheaper bounded worker models only where evals show no quality or
+   safety regression.
+
+Owner-authorized Spec 1 production rollout is operationally separate from this
+product sequence and can occur whenever the owner chooses to configure flags,
+deploy, inspect event receipts, run the real Photon alert/Discuss/manager smoke,
+and record rollback evidence.

@@ -34,9 +34,10 @@ workspace state.
 
 ## How to use this specification
 
-Implement only after Spec 1's polling and source-event contracts and Spec 2's
+Implement only after Spec 1's polling/runtime contracts and Spec 2's
 pack/source-reference contracts pass. Reuse their monitors, runs, budgets,
-capabilities, source fencing, worker isolation, and pack catalog.
+capabilities, source fencing, worker isolation, and pack catalog. This spec owns
+the deferred source-event envelope and ingress implementation.
 
 Every implementation task is a checklist item. Complete the sprints in order.
 Do not treat a successful HTTP response as a complete source check until the
@@ -65,8 +66,9 @@ The completed platform must support this scenario:
 
 ## Agreed product decisions
 
-- [ ] Source scheduling, leases, worker dispatch, source-event ingress, budgets,
-  and alerts remain Spec 1 responsibilities.
+- [ ] Source scheduling, leases, worker dispatch, budgets, findings, alerts, and
+  delivery remain Spec 1 responsibilities; source-event ingress and adapter
+  normalization are Spec 3 responsibilities built on those contracts.
 - [ ] Pack installation and source-adapter references remain Spec 2
   responsibilities.
 - [ ] Source adapters are reviewed application code registered by stable ID and
@@ -119,7 +121,7 @@ The completed platform must support this scenario:
 - Adapter-specific configuration schemas and exact origin/path policies.
 - Guarded HTTP fetching, conditional requests, redirects, timeouts, byte limits,
   content signatures, compression limits, and respectful rate limiting.
-- Polling and Spec 1 `SourceEventEnvelope` normalization through one contract.
+- Polling and Spec 3 `SourceEventEnvelope` normalization through one contract.
 - Durable observations, stage receipts, checkpoints, facts, corrections, and
   subscription delivery receipts.
 - Bounded RSS, Atom, JSON, XML, ZIP, and public-PDF processing contracts.
@@ -188,7 +190,7 @@ The completed platform must support this scenario:
 ```mermaid
 flowchart LR
     M["Spec 1 monitor occurrence"] --> O["Source observation coordinator"]
-    E["Spec 1 source-event envelope"] --> O
+    E["Spec 3 source-event envelope"] --> O
     O --> R["Versioned adapter registry"]
     R --> F["Guarded fetch and staged parser"]
     F --> C["Canonical public fact store"]
@@ -400,11 +402,30 @@ workspace monitor. It does not copy workspace identity into canonical facts.
 
 ## Polling and source-event integration
 
+### Durable `SourceEventEnvelope`
+
+Spec 3 owns the durable source-event record used by Sprint 4. Each envelope must
+carry:
+
+- the exact adapter and source-instance identities;
+- a stable provider event ID, or a deterministic content-derived ID when the
+  provider supplies none;
+- distinct observed, published, and updated timestamps where the source exposes
+  them;
+- the canonical public origin and URL plus a content hash;
+- the envelope schema version and access classification;
+- a bounded durable payload or artifact reference rather than an unbounded
+  inline body; and
+- authentication and provenance metadata that is available to reviewed ingress
+  code but excluded from model projections.
+
+Sprint 4 ingress, replay, normalization, and recovery tests must use this record.
+
 - [ ] Spec 1's dispatcher remains the only recurring schedule trigger. Adapters
   do not create their own cron jobs or timers.
 - [ ] A polling occurrence resolves exact source instances and calls the
   observation coordinator through the Spec 1 run/idempotency contract.
-- [ ] Spec 1's authenticated `SourceEventEnvelope` resolves an exact adapter and
+- [ ] Spec 3's authenticated `SourceEventEnvelope` resolves an exact adapter and
   source instance before adapter-specific signature/payload normalization.
 - [ ] The adapter converts polling and source events into the same fact identity,
   so observing one through both paths remains a duplicate observation.
@@ -608,12 +629,23 @@ Exit gate:
 
 - [ ] Route due source observations through Spec 1 occurrence, lease, run, and
   budget contracts.
-- [ ] Route authenticated Spec 1 source events through adapter normalization and
+- [ ] Add an authenticated source-event ingress that bounds the body before
+  parsing, verifies adapter-specific signatures before enqueueing, and
+  deduplicates before fan-out without running model or strategy logic.
+- [ ] Implement conditional RSS/Atom observations with ETag/Last-Modified and
+  optional WebSub only for sources that advertise and successfully verify a
+  hub; otherwise retain conditional polling.
+- [ ] Route authenticated Spec 3 source events through adapter normalization and
   the same canonical fact identity.
+- [ ] Resolve exact subscriptions without a model in the HTTP request, reuse one
+  shared public fact when safe, and prevent private or workspace-scoped findings
+  from entering shared source storage.
 - [ ] Add polling/event duplicate, reordering, correction, fan-out, cancellation,
-  and quarantine tests.
+  invalid-signature, replay-window, oversized-payload, update, and quarantine
+  tests across two isolated workspaces.
 - [ ] Add source health and projection status to Spec 1 monitor management.
-- [ ] Preserve polling fallback and independent kill switches.
+- [ ] Preserve polling fallback and independent source-event/adapter kill
+  switches until push delivery has production evidence.
 
 Exit gate:
 

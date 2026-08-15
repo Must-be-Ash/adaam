@@ -1,6 +1,6 @@
 # Spec 2: Versioned strategy packs and workspace installation
 
-Status: Draft for implementation after Spec 1
+Status: Ready for Sprint 0 implementation; local Spec 1 dependency complete
 
 Date: 2026-08-14
 
@@ -33,9 +33,11 @@ public-data IPO workflow. It does not build every investment strategy.
 
 ## How to use this specification
 
-Implement this specification only after every Spec 1 definition-of-done item
-passes. Reuse Spec 1's owner, workspace, capability, budget, monitor, finding,
-alert, ingress, and lifecycle contracts rather than creating parallel stores.
+Implement this specification only after the applicable local Spec 1 polling
+milestone is merged and green. Owner-authorized Spec 1 production rollout and
+its explicitly deferred post-Spec-6 hardening are not Spec 2 dependencies. Reuse
+Spec 1's owner, workspace, capability, budget, monitor, finding, alert, ingress,
+and lifecycle contracts rather than creating parallel stores.
 
 Every implementation task is a checklist item. Complete the sprints in order.
 Do not mark an item complete until its deterministic tests and exit gate pass.

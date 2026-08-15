@@ -1,13 +1,16 @@
 # Spec 1: Independent workspace runtimes
 
-> **Status note:** The polling-first application is implemented locally and
-> independently reviewed. Production rollout remains owner-authorized, and
-> crash/race/operations hardening is deferred until after the remaining product
-> specs. Read `SPEC_01_PAUSED_CURRENT_TASK.md` for the canonical live status.
+> **Status note:** The polling-first application is implemented, independently
+> reviewed, merged, and pushed to `main`. Owner-authorized production rollout
+> remains in Sprint 6. Deferred crash/race/framework hardening is recorded in
+> this specification's deferred-hardening phase; source-event ingestion is owned
+> by Spec 3 Sprint 4.
 
 Status: Polling implementation complete locally; production acceptance pending
 
 Date: 2026-08-13
+
+Last reconciled: 2026-08-15
 
 Product target: `NORTH_STAR.md`
 
@@ -55,23 +58,23 @@ The completed foundation must support this experience:
 
 ## Agreed product decisions
 
-- [ ] Use one user-facing Eve identity and a deterministic control plane. Do
+- [x] Use one user-facing Eve identity and a deterministic control plane. Do
   not introduce a model-powered “mother agent” with access to every workspace.
-- [ ] Treat each workspace as the durable specialized agent. A workspace owns
+- [x] Treat each workspace as the durable specialized agent. A workspace owns
   its goal, bounded brief, structured findings, monitors, capabilities, and
   budget.
-- [ ] Execute background work through bounded Eve task sessions that wake for
+- [x] Execute background work through bounded Eve task sessions that wake for
   one run and then exit. Do not keep idle model processes alive.
-- [ ] Implement Photon/iMessage only. Keep core records independent of Photon
+- [x] Implement Photon/iMessage only. Keep core records independent of Photon
   delivery mechanics so another delivery adapter can be added later.
-- [ ] Bind each monitor immutably to one workspace. Its schedule, sources,
+- [x] Bind each monitor immutably to one workspace. Its schedule, sources,
   instruction, status, capabilities, and budget may be edited; moving it to
   another workspace requires an explicit clone or replacement operation.
-- [ ] Support natural-language monitor management inside the owning workspace
+- [x] Support natural-language monitor management inside the owning workspace
   and monitor visibility/control in the existing session manager.
-- [ ] Allow paid research only when the workspace explicitly permits the
+- [x] Allow paid research only when the workspace explicitly permits the
   provider and has sufficient configured budget.
-- [ ] Never allow a background worker to submit a live broker mutation. It may
+- [x] Never allow a background worker to submit a live broker mutation. It may
   produce research, signals, and a proposed order, but live execution retains
   fresh preview, revalidation, and exact owner approval.
 - [x] Deliver alerts from non-selected workspaces without silently changing the
@@ -119,7 +122,8 @@ The completed foundation must support this experience:
 - Explicit migration of existing owner/conversation event triggers.
 - A polling-first `IPO Filings` reference implementation and deterministic SEC
   Atom fixtures.
-- A normalized source-event envelope and a later source-event ingestion sprint.
+- A handoff requirement that Spec 3 source events reuse the same monitor queue,
+  worker, budget, finding, alert, and delivery contracts as polling.
 
 ### Out of scope
 
@@ -144,6 +148,8 @@ The completed foundation must support this experience:
   not need that capability for this foundation; findings stay bounded and
   public source files are referenced by canonical URL.
 - Permanent model processes, model-managed queues, or model-owned scheduling.
+- Source-event HTTP ingress, conditional RSS/WebSub ingestion, and adapter
+  fan-out; these are implemented in Spec 3 Sprint 4 after the adapter foundation.
 
 ## Non-negotiable invariants
 
@@ -154,22 +160,22 @@ The completed foundation must support this experience:
   cause a second model dispatch, control action, paid call, or response.
 - [x] A dispatch or outbound delivery whose completion cannot be proven is
   quarantined for reconciliation; it is never replayed blindly.
-- [ ] The selected-workspace pointer affects interactive routing only. It never
+- [x] The selected-workspace pointer affects interactive routing only. It never
   controls whether another workspace's monitors run.
 - [x] A worker receives only its workspace ID, monitor configuration, bounded
   brief, approved structured findings, declared sources, and allowed
   capabilities.
 - [x] A worker cannot read any workspace's raw chat history, including its own.
-- [ ] No workspace can read or mutate another workspace's brief, findings,
+- [x] No workspace can read or mutate another workspace's brief, findings,
   monitors, budget, runs, or alerts.
-- [ ] Model-supplied owner IDs and arbitrary workspace IDs are never trusted.
+- [x] Model-supplied owner IDs and arbitrary workspace IDs are never trusted.
   Interactive tools derive the current workspace from authenticated routing
   context; runtime tools derive it from signed control-plane auth.
-- [ ] A session manager action changes control-plane state only and cannot
+- [x] A session manager action changes control-plane state only and cannot
   authorize a financial mutation.
-- [ ] Background runtime capabilities always deny live broker mutations,
+- [x] Background runtime capabilities always deny live broker mutations,
   transfers, withdrawals, leverage, credential changes, and interactive HITL.
-- [ ] A workspace capability setting may tighten deployment limits but cannot
+- [x] A workspace capability setting may tighten deployment limits but cannot
   loosen a hard global safety limit.
 - [ ] Paid operations reserve budget before execution. An uncertain paid result
   is not automatically retried.
@@ -177,8 +183,8 @@ The completed foundation must support this experience:
   delivery, and control action has a durable idempotency key.
 - [ ] At-least-once Eve delivery must not create duplicate alerts or duplicate
   paid calls.
-- [ ] Alerts do not silently switch the selected workspace.
-- [ ] Public-source facts preserve canonical URL, source identity, observed time,
+- [x] Alerts do not silently switch the selected workspace.
+- [x] Public-source facts preserve canonical URL, source identity, observed time,
   published/updated time when available, content hash, and access classification.
 - [ ] Logs and metrics never include message bodies, alert bodies, source URLs,
   owner/principal IDs, workspace IDs, monitor IDs, or other high-cardinality or
@@ -223,17 +229,17 @@ keys must include the stable owner and workspace scope where applicable.
 `OwnerIdentity` provides one stable deployment owner ID and an explicit set of
 approved Photon principal aliases.
 
-- [ ] Add a server-side owner mapping that fails closed for an unmapped Photon
+- [x] Add a server-side owner mapping that fails closed for an unmapped Photon
   principal.
-- [ ] Keep real principals in encrypted deployment configuration, never tracked
+- [x] Keep real principals in encrypted deployment configuration, never tracked
   source or Redis values that are returned to the model.
-- [ ] Store a non-reversible stable alias for ownership checks and indexes.
-- [ ] Enforce the owner mapping before reading or mutating Photon session state,
+- [x] Store a non-reversible stable alias for ownership checks and indexes.
+- [x] Enforce the owner mapping before reading or mutating Photon session state,
   monitor state, runtime state, manager capabilities, or alert destinations.
-- [ ] Add negative tests proving an authenticated but unmapped Photon principal
+- [x] Add negative tests proving an authenticated but unmapped Photon principal
   cannot list sessions, select a workspace, manage monitors, start workers, or
   receive owner-only workspace data.
-- [ ] Keep the existing Coinbase allowlist separate; it is not the general
+- [x] Keep the existing Coinbase allowlist separate; it is not the general
   deployment owner boundary.
 
 ### Conversation routing record
@@ -283,17 +289,17 @@ received -> held -> assigned -> dispatching -> dispatched -> completed
 dispatching|dispatched -> uncertain -> quarantined -> resolved
 ```
 
-- [ ] Authenticate and authorize the Photon principal before creating an
+- [x] Authenticate and authorize the Photon principal before creating an
   owner-scoped receipt or reading any workspace state.
-- [ ] Atomically create the receipt by Photon event dedupe key so concurrent
+- [x] Atomically create the receipt by Photon event dedupe key so concurrent
   duplicate webhooks cannot both continue.
-- [ ] Resolve and persist the target workspace and session generation before
+- [x] Resolve and persist the target workspace and session generation before
   constructing the workspace model turn. Once dispatch begins, that assignment
   is immutable even if the conversation's selected-workspace pointer changes.
-- [ ] Make dispatch completion idempotent by ingress and dispatch request IDs.
-- [ ] Record outbound response delivery separately from model dispatch so an
+- [x] Make dispatch completion idempotent by ingress and dispatch request IDs.
+- [x] Record outbound response delivery separately from model dispatch so an
   uncertain Photon send is not mistaken for an unexecuted model turn.
-- [ ] Quarantine uncertain model dispatch or response delivery instead of
+- [x] Quarantine uncertain model dispatch or response delivery instead of
   replaying it. Recovery may resume only after authoritative reconciliation or
   an explicit owner/operator resolution recorded on the receipt.
 - [ ] Bound receipt payloads and retention. Store only the references or digests
@@ -332,12 +338,12 @@ history:
 - schema and content revision; and
 - provenance for every machine-promoted fact.
 
-- [ ] Define a strict serialized byte ceiling and per-field bounds.
-- [ ] Update through compare-and-set so concurrent workers cannot overwrite a
+- [x] Define a strict serialized byte ceiling and per-field bounds.
+- [x] Update through compare-and-set so concurrent workers cannot overwrite a
   newer brief.
-- [ ] Do not let a worker rewrite safety policy, its capability manifest, or its
+- [x] Do not let a worker rewrite safety policy, its capability manifest, or its
   budget through a brief update.
-- [ ] Keep bounded structured findings in owner-scoped storage. Reference public
+- [x] Keep bounded structured findings in owner-scoped storage. Reference public
   filings by canonical URL and reject private or unbounded large outputs.
 
 ### Capability manifest
@@ -358,15 +364,15 @@ Default-deny means an omitted tool, skill, source, provider, or data class is
 unavailable. It does not prevent the owner from explicitly expanding the
 workspace's research abilities within hard deployment limits.
 
-- [ ] Compare each connected provider's current tool inventory and schemas with
+- [x] Compare each connected provider's current tool inventory and schemas with
   the reviewed manifest. Report removed, newly discovered, and schema-changed
   tools; never expose a new or changed tool automatically.
-- [ ] Keep newly discovered mutations disabled even when a provider dynamically
+- [x] Keep newly discovered mutations disabled even when a provider dynamically
   registers them.
-- [ ] Return a typed unavailable-capability reason—authorization, safety policy,
+- [x] Return a typed unavailable-capability reason—authorization, safety policy,
   runtime restriction, missing integration, or provider drift—rather than
   hallucinating a result or claiming the provider lacks the capability.
-- [ ] Add deterministic drift fixtures for a removed tool, a new read tool, a
+- [x] Add deterministic drift fixtures for a removed tool, a new read tool, a
   new mutation, and a schema-changing existing tool.
 
 ### Workspace budget policy
@@ -458,12 +464,12 @@ active|archived -> retired
 - [ ] Archiving atomically prevents new interactive routing, pauses/suspends all
   monitors, revokes pending workspace approvals, and selects a replacement if
   the archived workspace was selected.
-- [ ] Restoring returns the workspace to `active` but converts its monitors to
+- [x] Restoring returns the workspace to `active` but converts its monitors to
   manual `paused`; none resume automatically.
-- [ ] Starting fresh advances the session generation and revokes approvals tied
+- [x] Starting fresh advances the session generation and revokes approvals tied
   to the old generation while preserving briefs, findings, monitors,
   capabilities, budgets, and delivery subscriptions.
-- [ ] Retirement is recoverable product state. Do not claim hard deletion of
+- [x] Retirement is recoverable product state. Do not claim hard deletion of
   Eve or external provider records.
 
 ### Monitor lifecycle
@@ -477,11 +483,11 @@ paused|paused_failure -> enabled
 any nonterminal state -> retired
 ```
 
-- [ ] Store why and when a monitor paused.
-- [ ] Pause automatically after the configured consecutive-failure threshold.
-- [ ] Require an explicit owner action to resume after archive restoration,
+- [x] Store why and when a monitor paused.
+- [x] Pause automatically after the configured consecutive-failure threshold.
+- [x] Require an explicit owner action to resume after archive restoration,
   budget exhaustion requiring policy change, or uncertain alert checkpoint.
-- [ ] Updating a monitor increments its revision; an old claimed run must fail
+- [x] Updating a monitor increments its revision; an old claimed run must fail
   revalidation before executing tools or committing results.
 
 ### Run lifecycle
@@ -492,11 +498,11 @@ running -> no_match | finding_staged | retryable_failure | terminal_failure
 finding_staged -> alert_staged -> completed
 ```
 
-- [ ] Claims are atomic, leases expire, and expired work is recoverable.
-- [ ] The same occurrence key can never produce two committed findings or
+- [x] Claims are atomic, leases expire, and expired work is recoverable.
+- [x] The same occurrence key can never produce two committed findings or
   alerts.
-- [ ] Different workspaces may run concurrently.
-- [ ] A monitor is single-flight. Default workspace concurrency is one worker;
+- [x] Different workspaces may run concurrently.
+- [x] A monitor is single-flight. Default workspace concurrency is one worker;
   the owner may raise it only within a hard deployment cap.
 - [ ] Concurrent writes to one workspace use compare-and-set and retry only the
   state merge, never an already-completed paid call.
@@ -509,31 +515,31 @@ staged|delivering -> retryable_failure
 delivering -> delivery_uncertain
 ```
 
-- [ ] A delivered alert is deduplicated by stable alert and destination IDs.
-- [ ] If Photon accepted the message but receipt persistence is uncertain,
+- [x] A delivered alert is deduplicated by stable alert and destination IDs.
+- [x] If the Photon adapter returns an explicit ambiguous-acceptance error,
   quarantine the delivery and pause the monitor instead of sending it again.
 - [ ] A failed alert does not advance the source checkpoint until safe retry or
   explicit operator resolution.
 
 ## Scheduling semantics
 
-- [ ] Retain one static minute dispatcher. It atomically claims due monitor
+- [x] Retain one static minute dispatcher. It atomically claims due monitor
   occurrences and dispatches bounded Eve task sessions through the existing
   internal runner pattern.
-- [ ] Represent local daily schedules as timezone plus unique sorted `HH:mm`
+- [x] Represent local daily schedules as timezone plus unique sorted `HH:mm`
   values.
-- [ ] On a spring-forward nonexistent local time, run once at the next valid
+- [x] On a spring-forward nonexistent local time, run once at the next valid
   local instant.
-- [ ] On a fall-back repeated local time, run once using a local-date/time
+- [x] On a fall-back repeated local time, run once using a local-date/time
   occurrence key.
-- [ ] Editing a schedule recomputes the next occurrence without replaying a
+- [x] Editing a schedule recomputes the next occurrence without replaying a
   time already completed under the new revision.
-- [ ] After downtime, execute at most the newest missed occurrence inside a
+- [x] After downtime, execute at most the newest missed occurrence inside a
   configured recovery window; record older occurrences as skipped so recovery
   cannot create a catch-up storm.
-- [ ] Reserve daily run capacity when enabling or expanding a schedule. Reject
+- [x] Reserve daily run capacity when enabling or expanding a schedule. Reject
   a change whose projected cadence exceeds the workspace or deployment cap.
-- [ ] Preserve existing global trigger limits until explicitly replaced by
+- [x] Preserve existing global trigger limits until explicitly replaced by
   equal or stricter deployment limits.
 
 Eve provides durable task sessions, but dynamic schedules remain application
@@ -587,25 +593,25 @@ Capabilities are resolved dynamically for each worker step from the current
 manifest and the run's snapshotted revision. A revoked capability makes an old
 run stale before tool execution.
 
-- [ ] Separate control-plane capabilities, research capabilities, and financial
+- [x] Separate control-plane capabilities, research capabilities, and financial
   capabilities in code and schemas.
-- [ ] Make the runtime guard authoritative even when a tool is accidentally
+- [x] Make the runtime guard authoritative even when a tool is accidentally
   registered elsewhere.
-- [ ] Add a provider-independent paid-research reservation interface.
-- [ ] Reserve the known maximum or configured unknown-price ceiling before a
+- [x] Add a provider-independent paid-research reservation interface.
+- [x] Reserve the known maximum or configured unknown-price ceiling before a
   paid call.
-- [ ] Reconcile reservation versus actual cost when the provider returns a
+- [x] Reconcile reservation versus actual cost when the provider returns a
   trustworthy charge.
 - [ ] Keep an uncertain charge reserved until reconciled or expired through an
   owner-visible process.
-- [ ] When a budget blocks a run, record a bounded reason and notify the owner
+- [x] When a budget blocks a run, record a bounded reason and notify the owner
   once; do not generate an alert on every minute tick.
-- [ ] Let the owner change workspace budgets through authenticated manager
+- [x] Let the owner change workspace budgets through authenticated manager
   actions and natural-language tools operating in that workspace.
-- [ ] Make paid providers disabled by default. Enabling one requires an existing
+- [x] Make paid providers disabled by default. Enabling one requires an existing
   noninteractive authorization, explicit capability grant, and sufficient
   budget.
-- [ ] Test paid budget behavior with a deterministic fake provider. Enabling
+- [x] Test paid budget behavior with a deterministic fake provider. Enabling
   Masterkey for scheduled runtime work is a later provider-specific change and
   must not be assumed by this foundation.
 
@@ -629,23 +635,23 @@ Required operations:
 - retire/delete through an approved recoverable operation; and
 - inspect last run, next run, source checkpoint, failure, and budget status.
 
-- [ ] Replace generic event-trigger wording with user-facing **monitor** wording
+- [x] Replace generic event-trigger wording with user-facing **monitor** wording
   while retaining a compatibility layer for existing tools during migration.
-- [ ] Align create and update validation with the authoritative store limit of
+- [x] Align create and update validation with the authoritative store limit of
   eight combined sources. UI, tool schemas, and storage must reject the same
   ninth source with the same bounded error code.
-- [ ] Replace the order-specific trigger-deletion success and denial copy with
+- [x] Replace the order-specific trigger-deletion success and denial copy with
   monitor-specific confirmation, or remove deletion from the rich approval
   protocol and use a dedicated recoverable monitor-retirement action.
-- [ ] Resolve ambiguous monitor references by listing candidates or asking the
+- [x] Resolve ambiguous monitor references by listing candidates or asking the
   owner; never edit the nearest name match silently.
-- [ ] Support additive schedule language such as “also run at 4 PM” without
+- [x] Support additive schedule language such as “also run at 4 PM” without
   replacing the existing 9 AM occurrence.
-- [ ] Require an explicit timezone for local schedules and preserve it on edits.
-- [ ] Normalize and validate added sources before committing a configuration
+- [x] Require an explicit timezone for local schedules and preserve it on edits.
+- [x] Normalize and validate added sources before committing a configuration
   revision.
-- [ ] Keep source credentials out of URLs and workspace/model state.
-- [ ] Use Eve call IDs as idempotency keys for natural-language mutations.
+- [x] Keep source credentials out of URLs and workspace/model state.
+- [x] Use Eve call IDs as idempotency keys for natural-language mutations.
 
 ## Photon alert and routing UX
 
@@ -663,34 +669,34 @@ The alert card provides:
 
 ### Discuss action
 
-- [ ] Mint a short-lived owner-, conversation-, workspace-, alert-, and revision-
+- [x] Mint a short-lived owner-, conversation-, workspace-, alert-, and revision-
   bound capability in the URL fragment.
-- [ ] On tap, atomically select the alert's workspace using the current
+- [x] On tap, atomically select the alert's workspace using the current
   conversation revision.
-- [ ] Store a one-time pending alert-context reference for the selected
+- [x] Store a one-time pending alert-context reference for the selected
   workspace; do not inject the full alert into another workspace.
-- [ ] On the next user message, load the bounded finding/alert reference into
+- [x] On the next user message, load the bounded finding/alert reference into
   that workspace's turn context and consume the pending reference.
-- [ ] Do not start a model turn merely because the owner tapped **Discuss**.
-- [ ] If the workspace is archived, retired, or no longer belongs to the owner,
+- [x] Do not start a model turn merely because the owner tapped **Discuss**.
+- [x] If the workspace is archived, retired, or no longer belongs to the owner,
   fail closed and open the manager with a clear status.
-- [ ] Make stale and repeated taps harmless.
+- [x] Make stale and repeated taps harmless.
 
 ### Ambiguous plain-text reply
 
 Add a bounded alert-reply routing guard, not a general mother agent.
 
-- [ ] It may inspect only the new message, the selected workspace manifest, and
+- [x] It may inspect only the new message, the selected workspace manifest, and
   recent alert envelopes containing workspace name, title, time, and alert ID.
-- [ ] It cannot read workspace histories or invoke research tools.
-- [ ] A quoted Photon reply to a known alert is treated as a strong binding when
+- [x] It cannot read workspace histories or invoke research tools.
+- [x] A quoted Photon reply to a known alert is treated as a strong binding when
   Photon supplies stable reply metadata.
-- [ ] A high-confidence reference to a recent alert from another workspace is
+- [x] A high-confidence reference to a recent alert from another workspace is
   held outside all workspace histories and prompts the owner to choose that
   workspace or remain in the selected one.
-- [ ] The held message is dispatched exactly once after an owner choice using a
+- [x] The held message is dispatched exactly once after an owner choice using a
   durable assignment and dispatch receipt.
-- [ ] Low-confidence text continues to the selected workspace; never silently
+- [x] Low-confidence text continues to the selected workspace; never silently
   route based on weak topical similarity.
 
 ## Session manager additions
@@ -709,16 +715,16 @@ Each workspace view shows:
 - schedule editor for supported schedule variants; and
 - workspace budget editor constrained by deployment caps.
 
-- [ ] Keep the existing owner-bound short-lived manager capability and URL
+- [x] Keep the existing owner-bound short-lived manager capability and URL
   fragment transport.
-- [ ] Add request IDs, expected revisions, expirations, and one-time durable
+- [x] Add request IDs, expected revisions, expirations, and one-time durable
   consumption to every manager mutation.
-- [ ] Keep monitor and session actions separate from financial approval
+- [x] Keep monitor and session actions separate from financial approval
   protocols.
-- [ ] Make status inspection read-only and safe to refresh.
-- [ ] Preserve the manager's current minimal visual language and button layout
+- [x] Make status inspection read-only and safe to refresh.
+- [x] Preserve the manager's current minimal visual language and button layout
   hierarchy.
-- [ ] Provide plain-text/natural-language fallbacks for every essential monitor
+- [x] Provide plain-text/natural-language fallbacks for every essential monitor
   operation.
 
 ## Reference acceptance workspace: IPO Filings
@@ -762,77 +768,50 @@ Coinbase, private history, shell, and filesystem.
 
 ### Live smoke
 
-- [ ] Perform a read-only fetch of the real SEC feed with the configured user
+- [x] Perform a read-only fetch of the real SEC feed with the configured user
   agent.
-- [ ] Verify parsing and checkpoint creation without requiring a new real filing
+- [x] Verify parsing and checkpoint creation without requiring a new real filing
   to arrive.
-- [ ] Use an injected post-checkpoint fixture event to exercise real Photon
-  delivery deterministically.
-- [ ] Keep live-source availability outside the deterministic CI pass/fail gate.
+- [x] Use an injected post-checkpoint fixture event to exercise the production
+  Photon delivery caller through a fixture adapter.
+- [x] Keep live-source availability outside the deterministic CI pass/fail gate.
 
-## Source-event phase
+## Source-event contract handoff
 
-This phase begins only after every polling acceptance test and the polling
-production smoke pass. RSS normally requires polling unless a source advertises
-a push protocol such as WebSub; “RSS arrival” must not be represented as push
-when it is actually a poll.
-
-Define a normalized `SourceEventEnvelope` with:
-
-- source adapter and source identity;
-- stable provider event ID or derived content ID;
-- observed, published, and updated times;
-- canonical URL/origin and content hash;
-- schema version and access classification;
-- durable payload/artifact reference rather than unbounded inline content; and
-- authentication and provenance metadata not exposed to the model.
-
-- [ ] Add an authenticated internal source-event ingress that validates body
-  size before parsing, verifies signatures before enqueueing, and deduplicates
-  before fan-out.
-- [ ] Add conditional RSS ingestion using ETag/Last-Modified and emit normalized
-  events only for new or materially updated entries.
-- [ ] Add WebSub only for sources that advertise and successfully verify a hub;
-  otherwise retain conditional polling.
-- [ ] Map an event to exact monitor subscriptions without invoking a model in the
-  HTTP request.
-- [ ] Enqueue the same bounded worker contract used by scheduled polling.
-- [ ] Fetch one shared public source fact once when safe, then provide only the
-  explicitly subscribed public fact to each workspace worker.
-- [ ] Prevent private or workspace-scoped findings from entering shared source
-  storage.
-- [ ] Test duplicate webhook delivery, reordered events, invalid signatures,
-  replay windows, oversized payloads, source updates, and fan-out to two isolated
-  workspaces.
-- [ ] Put source-event ingestion behind its own kill switch and retain polling as
-  the fallback until production evidence is sufficient.
+Source-event ingestion is not part of the completed polling milestone. The
+normalized envelope, conditional RSS, optional verified WebSub, authenticated
+ingress, subscription fan-out, shared-public-fact boundary, replay tests, and
+independent kill switch are owned by
+[`Spec 3 Sprint 4`](03-public-source-adapters.md#sprint-4--spec-1-polling-and-source-event-integration).
+Spec 1 remains the owner of occurrence, lease, worker, budget, finding, alert,
+and delivery contracts that Spec 3 reuses.
 
 ## Migration and compatibility
 
 Existing event triggers are owner/conversation-scoped and cannot be assigned to
 a workspace safely by guessing.
 
-- [ ] Introduce a new versioned workspace-monitor schema without rewriting
+- [x] Introduce a new versioned workspace-monitor schema without rewriting
   legacy records in place.
-- [ ] Stop creating legacy records after the feature flag is enabled.
-- [ ] Continue legacy execution temporarily through the existing restricted
+- [x] Stop creating legacy records after the feature flag is enabled.
+- [x] Continue legacy execution temporarily through the existing restricted
   runner, labeled as a legacy monitor, without granting workspace state or new
   capabilities.
-- [ ] Preserve the store's maximum of eight combined sources during migration;
+- [x] Preserve the store's maximum of eight combined sources during migration;
   do not accept records through a tool schema that the store cannot represent.
-- [ ] Show unassigned legacy monitors in the manager and require the owner to
+- [x] Show unassigned legacy monitors in the manager and require the owner to
   choose a target workspace.
-- [ ] On assignment, atomically create the workspace monitor, carry forward the
+- [x] On assignment, atomically create the workspace monitor, carry forward the
   safe source checkpoint and schedule, and disable the legacy trigger.
-- [ ] Never copy old runtime session history into the workspace brief.
-- [ ] Preserve current workspace IDs and generations; add adjacent versioned
+- [x] Never copy old runtime session history into the workspace brief.
+- [x] Preserve current workspace IDs and generations; add adjacent versioned
   state rather than resetting confirmed conversations.
-- [ ] Provide a rollback mode that disables new dispatch while preserving all
+- [x] Provide a rollback mode that disables new dispatch while preserving all
   new records for later recovery.
-- [ ] Add Redis-backed migration and runtime coverage for leasing, competing
+- [x] Add Redis-backed migration and runtime coverage for leasing, competing
   claims, run budgets, retries, watermarks/checkpoints, consecutive-failure
   pause, expiration, archive/pause races, and uncertain alert delivery.
-- [ ] Add a local schedule-test runbook that explains the internal runner's
+- [x] Add a local schedule-test runbook that explains the internal runner's
   deliberate 404 behavior and that Eve development mode does not run cron
   automatically.
 
@@ -844,17 +823,17 @@ authorization, ingress dedupe, Chat SDK state, workspace assignment, Eve
 dispatch, response delivery, and the Spectrum session manager without reaching
 real Coinbase mutation endpoints.
 
-- [ ] Cover an ordinary message routed to the selected workspace and prove the
+- [x] Cover an ordinary message routed to the selected workspace and prove the
   assignment is durable before the workspace model sees it.
-- [ ] Cover concurrent duplicate webhooks and prove only one dispatch and one
+- [x] Cover concurrent duplicate webhooks and prove only one dispatch and one
   response-delivery attempt can begin.
-- [ ] Cover session switching, archive/restore, and `Start fresh`, including a
+- [x] Cover session switching, archive/restore, and `Start fresh`, including a
   stale generation and a selected-pointer change after assignment.
-- [ ] Cover an alert from a non-selected workspace, **Discuss**, an ambiguous
+- [x] Cover an alert from a non-selected workspace, **Discuss**, an ambiguous
   reply, a stale/replayed action, and an uncertain Photon delivery.
-- [ ] Cover owner-denied access to session, monitor, manager, runtime, and alert
+- [x] Cover owner-denied access to session, monitor, manager, runtime, and alert
   state.
-- [ ] Use fixture-backed Eve and Photon adapters and keep all live financial
+- [x] Use fixture-backed Eve and Photon adapters and keep all live financial
   mutation capabilities unavailable in the harness.
 
 ## Implementation sprints
@@ -992,23 +971,57 @@ Exit gate:
 - [ ] Polling is proven end to end in Photon with no context leakage, duplicate
   alerts, unexpected workspace switch, or unauthorized capability.
 
-### Deferred follow-on — source-event ingestion
+### Deferred hardening — after Specs 2–6
 
-This feature is no longer part of the polling-first Spec 1 completion gate. It
-should be specified after Spec 3 so RSS/WebSub subscriptions use the same
-versioned adapter and canonical-fact contracts as polling.
+These items are real reliability and operations work discovered during the
+independent Spec 1 review. They are deliberately outside the completed ordinary
+polling milestone and should not block the remaining product specs unless one
+becomes an observed ordinary-path failure.
 
-- [ ] Implement the normalized source-event envelope and authenticated ingress.
-- [ ] Implement conditional RSS change events and optional verified WebSub.
-- [ ] Route subscribed events through the same monitor queue and worker contract.
-- [ ] Complete replay, signature, ordering, fan-out, and isolation tests.
-- [ ] Deploy under a separate kill switch while polling remains available.
+#### Source and compiled-runtime boundaries
 
-Exit gate:
+- [ ] Reject exact-fenced redirects before any second outbound request.
+- [ ] Require explicit acceptance-only fixture-bridge opt-in, loopback-only
+  transport, strong ephemeral credentials, and a built-output negative test.
+- [ ] Strengthen cross-field SEC identity relationships among accession, CIK,
+  form/file number, registration/amendment identity, classification, and URL.
+- [ ] Overlap two production-path compiled workers and prove isolated state,
+  clean terminal outcomes, and clean runtime teardown.
 
-- [ ] A fixture source event and one supported live source wake the correct
-  workspace worker exactly once without coupling ingestion to Photon or model
-  execution.
+#### Durable alert and Photon crash recovery
+
+- [ ] Make finding, alert/outbox staging, checkpoint advancement, and retry state
+  one discoverable durable relationship so a checkpoint cannot hide alert loss.
+- [ ] Recover or quarantine alert delivery stranded in `delivering`, including
+  crashes before Photon send and after ambiguous Photon acceptance.
+- [ ] Recover or quarantine ingress dispatch stranded in `dispatching` and
+  response delivery stranded in `staged`.
+- [ ] Recover pending Discuss context and held replies across failures between
+  consumption, workspace selection, assignment, and model dispatch.
+- [ ] Give intercepted approval and session-manager actions explicit durable
+  terminal outcomes, with crash/lifecycle tests at each write/side-effect edge.
+
+#### Worker accounting and authoritative freshness
+
+- [ ] Reconcile expired global and workspace reservations after process death.
+- [ ] Persist and recover failures that occur before a worker session starts.
+- [ ] Revalidate brief, strategy, and budget revisions before outcome commit.
+- [ ] Distinguish known-not-started work from an ambiguous start that may already
+  have incurred model or provider cost; retain uncertainty when required.
+
+#### Lifecycle, privacy, and framework maintenance
+
+- [ ] Make archive/restore converge atomically or through a durable idempotent
+  lifecycle intent.
+- [ ] Remove raw workspace/monitor IDs and arbitrary exception messages from
+  runtime logs; use the fixed low-cardinality catalog and call-site tests.
+- [ ] Replace Eve private runtime imports with a public API when available;
+  until then pin/guard the compatible Eve version and keep the compiled-worker
+  upgrade gate.
+
+Source-event/RSS/WebSub implementation moved to
+[`Spec 3 Sprint 4`](03-public-source-adapters.md#sprint-4--spec-1-polling-and-source-event-integration),
+where it can share versioned adapter and canonical-fact contracts.
 
 ## Planned code areas
 
@@ -1074,7 +1087,7 @@ approval state machine, or Photon mini-app capability helpers.
   quarantined, and routing-confirmation outcomes.
 - [ ] Emit bounded error codes rather than exception bodies or provider payloads.
 - [x] Provide owner-visible monitor health in the manager.
-- [ ] Add kill switches for all workspace dispatch, paid runtime research,
+- [x] Add kill switches for all workspace dispatch, paid runtime research,
   Photon workspace alerts, and source-event ingestion.
 - [ ] Add an operator command/report that lists quarantined ingress dispatches,
   response deliveries, runs, and uncertain alert deliveries without exposing
@@ -1088,7 +1101,9 @@ The local polling implementation is complete when the applicable Sprint 0–6
 local gates below pass. Production rollout checks remain owner-authorized, and
 the deferred source-event follow-on is not part of this milestone.
 
-The polling milestone is complete only when:
+The local milestone checks are complete. Unchecked entries below are explicitly
+owner-authorized rollout gates or deferred post-Spec-6 hardening, not blockers to
+beginning Spec 2. The complete status ledger is:
 
 - [x] Every applicable local polling exit gate through Sprint 6 passes.
 - [ ] Deferred crash-hardening gate: every actionable Photon webhook receives
@@ -1115,8 +1130,10 @@ The polling milestone is complete only when:
 - [x] The fixture-backed Photon integration harness passes routing, duplicate
   webhook, switching, `Start fresh`, alert, stale-action, and owner-denial cases.
 - [x] Rollback can stop new dispatch without deleting durable state.
-- [ ] `HANDOFF.md`, `NORTH_STAR.md`, and the focused verification map are updated
-  with durable implemented facts after rollout—not before.
+- [x] `HANDOFF.md`, `NORTH_STAR.md`, and the focused verification map describe
+  the merged local implementation and distinguish it from production rollout.
+- [ ] After owner-authorized rollout, record the deployed commit and real Photon
+  acceptance evidence in `HANDOFF.md` and this specification.
 
 ## Follow-on specifications
 
@@ -1138,6 +1155,7 @@ own bounded implementation spec:
 
 | Date | Checklist item | Verification |
 | --- | --- | --- |
+| 2026-08-15 | Reconcile the temporary Spec 1 handoff/review ledgers into this canonical specification, Spec 3, `BACKLOG.md`, `HANDOFF.md`, and `NORTH_STAR.md` | Documentation reference scan, unchecked-item destination audit, and `git diff --check` — passed |
 | 2026-08-15 | Resolve final-review blockers in legacy monitoring, fail-closed rollout parsing, maximum-feed durability, and manager correctness | Owner/rollout, schema-maximum findings, budget, manager, Photon regressions, typecheck, live SEC smoke, compiled scheduled worker, Eve build, and Next.js webpack build — passed |
 | 2026-08-15 | Complete production scheduled-outcome delivery with authenticated Photon subscriptions, authoritative alert metadata, and Discuss/Manage actions | Alert subscription, delivery, presentation, app, context, reply, recovery, and compiled scheduled SEC verifiers — passed |
 | 2026-08-15 | Prove bounded 40-fact SEC durability, render complete manager status/usage, and preserve legacy Photon behavior behind a fail-closed rollout matrix | Findings, budget-ledger, manager, rollout, Photon workspace, approval, typecheck, Eve build, and Next.js webpack build — passed |

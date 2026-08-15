@@ -19,18 +19,20 @@ The sequence is:
 repeat only the scope and evidence rules that a task must keep in immediate
 context.
 
-## Current Spec 1 review
+## Current implementation target
 
-Spec 1 is not ready for its final merge. Its local implementation branch stopped
-at the production authorization boundary. Start with the read-only prompt in
-[`SPEC_01_INDEPENDENT_REVIEW_PROMPT.md`](SPEC_01_INDEPENDENT_REVIEW_PROMPT.md).
-Return that report to the coordinating agent for verification before asking the
-Spec 1 implementer to change anything.
+Spec 1's polling-first application is implemented, independently reviewed,
+merged, and pushed to `main`. Its remaining owner-authorized production rollout
+and explicitly deferred hardening are tracked in
+[`01-independent-workspace-runtimes.md`](01-independent-workspace-runtimes.md)
+and do not block beginning Spec 2. The next bounded implementation task is Spec 2
+Sprint 0.
 
 ## Spec 2 Sprint 0 kickoff prompt
 
-Use this only after Spec 1 has passed independent review, completed its required
-authorized acceptance work, and been merged into local `main`.
+Use this only after the reviewed local Spec 1 polling milestone is present on
+`main`. Production rollout is a separate owner-authorized operation, not a Spec 2
+dependency.
 
 ```text
 Implement only Sprint 0 — contracts and failing fixtures — from Spec 2,
@@ -47,11 +49,14 @@ integration.
 
 Verify local `main` contains the reviewed Spec 1 merge. Create the local
 integration branch `codex/spec-02-strategy-packs` from that exact `main` commit
-if it does not already exist. Then create a fresh worktree and phase branch
-`codex/spec-02-sprint-0` from the integration branch. If Codex already supplied
-a fresh isolated worktree at the correct base, use it and do not create a
-nested worktree. Preserve all unrelated changes. If the dependency or base is
-wrong, stop and report the exact missing commit instead of rebuilding Spec 1.
+if it does not already exist. If it already exists, verify that its head exactly
+matches the required reviewed `main` commit before Sprint 0 begins; if it does
+not, stop and report the exact divergence. Then create a fresh worktree and
+phase branch `codex/spec-02-sprint-0` from the integration branch. If Codex
+already supplied a fresh isolated worktree at the correct base, use it and do
+not create a nested worktree. Preserve all unrelated changes. If the dependency
+or base is wrong, stop and report the exact missing commit instead of rebuilding
+Spec 1.
 
 Follow `specs/IMPLEMENTATION_PROTOCOL.md`. Work through only Sprint 0, one
 checklist item at a time. For each item: inspect first, implement the smallest

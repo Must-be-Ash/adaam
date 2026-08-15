@@ -6,13 +6,13 @@ tracing the implementation, checking the installed Eve and Next.js semantics,
 and reviewing the regression coverage. Use it to form the initial system model;
 then verify task-specific details against current code before making a change.
 
-> **Active Spec 1 work:** Read
-> `specs/SPEC_01_PAUSED_CURRENT_TASK.md` before managing or changing Independent
-> Workspace Runtimes. It is the canonical record of completed work, current
-> branches, remaining R2-R6 remediation, production gates, and documents that
-> must not be executed again.
+> **Spec 1 status:** The polling-first Independent Workspace Runtimes milestone
+> is implemented, independently reviewed, merged, and pushed to `main`.
+> `specs/01-independent-workspace-runtimes.md` is now the single authoritative
+> record for completed behavior, owner-authorized rollout gates, and deferred
+> hardening. The next product specification is Spec 2.
 
-Snapshot date: 2026-08-13
+Snapshot date: 2026-08-15
 
 Repository branch: `main`
 
@@ -34,12 +34,12 @@ architecture. Keep them distinct:
 
 | Area | Implemented now | Not implemented yet |
 | --- | --- | --- |
-| Conversation | Durable named iMessage sessions with isolated Eve histories | Strategy-bound workspaces shared consistently across every ingress |
+| Conversation | Durable named iMessage sessions plus Photon workspace briefs, manifests, budgets, monitors, findings, alerts, and immutable durable-mode assignment | The same workspace broker across Telegram and authenticated HTTP |
 | Research | Direct sources, public feeds, FMP/SEC-oriented skills, and guarded Masterkey fallback | Durable private ingestion of every paid or temporary result |
 | Trading | Allowlisted Coinbase reads and preview-bound spot-order approval | A generally safe live-trading surface or account-wide reconciliation |
 | Deliverables | Public-data reports and media on stable Eve URLs | Owner-private artifacts for portfolio, account, or personal data |
-| Monitoring | User-created event triggers with restricted scheduled runs | Immutable trigger-to-workspace binding and full strategy state |
-| Authorization | Principal-scoped state plus a separate Coinbase allowlist | One owner-global authorization boundary across all capabilities |
+| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC findings, durable Photon alert delivery, and manager controls | Owner-authorized production acceptance, Spec 3 source events, and deferred crash/operations hardening |
+| Authorization | Fail-closed deployment-owner mapping for Photon workspace paths plus a separate Coinbase allowlist | Owner-global enforcement across Telegram, HTTP, and every remaining private capability |
 
 `NORTH_STAR.md` describes the intended strategy-workspace architecture; it is
 not a statement of current behavior. `BACKLOG.md` is the canonical inventory of
@@ -122,13 +122,21 @@ Photon secrets. Channel concurrency is `queue`.
 
 For each inbound message, Photon:
 
-1. resolves the authenticated principal and physical iMessage thread;
-2. deduplicates the channel event;
-3. handles an exact pending approval decision before any model turn;
-4. blocks unrelated messages while an approval is pending or being delivered;
-5. intercepts recognized session-manager intent; and
-6. routes ordinary text to the selected session's Eve continuation with
+1. selects the explicit legacy or durable rollout mode from fail-closed runtime
+   configuration;
+2. in durable mode, resolves the deployment owner, conversation identity, and
+   immutable ingress receipt before workspace access;
+3. deduplicates the channel event;
+4. handles an exact pending approval decision before any model turn;
+5. blocks unrelated messages while an approval is pending or being delivered;
+6. intercepts recognized session-manager intent; and
+7. durably assigns ordinary text to the selected session before routing it to
+   that session's Eve continuation with
    `turnPolicy: "steer"`.
+
+With every new runtime flag off and all new owner configuration absent, Photon
+preserves the pre-Spec legacy path. Partial or explicitly enabled configuration
+fails closed; authorization or storage failures never fall back to legacy mode.
 
 Approval continuations use `turnPolicy: "queue"`. Do not change channel
 concurrency or turn policy without a reproduced scheduling problem.
@@ -157,6 +165,34 @@ must initiate a conversation before outbound delivery is allowed. Both were in
 the Coinbase principal allowlist at this snapshot. Never copy their real phone
 numbers or principal values into source, fixtures, documentation, or logs.
 
+### Independent workspace runtimes
+
+The completed local Spec 1 path makes each Photon session a durable runtime
+container in addition to its isolated chat history. A workspace can own a
+bounded brief, strategy configuration, default-deny capability manifest, budget
+policy, monitors, structured findings, and alerts. Starting fresh changes only
+the interactive history generation and preserves those records.
+
+The single minute dispatcher claims due workspace-monitor occurrences and starts
+fresh bounded Eve task sessions. Workers receive signed runtime scope, typed
+workspace state, exact declared sources, and only allowed tools; they cannot read
+interactive history, cross workspace boundaries, use Masterkey/Coinbase, or
+perform live trading. The `IPO Filings` reference uses deterministic SEC S-1
+evaluation and a bounded 40-fact outcome path.
+
+Every new or explicitly assigned legacy monitor persists an authenticated Photon
+delivery subscription. A completed scheduled outcome stages a channel-independent
+alert and invokes the Photon delivery adapter. Delivered cards retain the
+authoritative workspace name, observation time, canonical public source, and
+**Discuss** and **Manage** actions. Discuss atomically selects the workspace and
+provides a one-time bounded alert reference to its next user turn without
+switching the selected workspace merely because the alert arrived.
+
+The Spectrum manager renders monitor schedule/timezone, sources, health,
+enabled/paused/error counts, last/next run, budget limits, token/paid usage, and
+active workers. Production flags, environment changes, and a real iMessage
+alert/Discuss/manager smoke remain owner-authorized rollout actions.
+
 ### Approval state machine
 
 Photon's financial approval is durable application state, not model prose. The
@@ -172,10 +208,10 @@ and atomic transitions prevent a delayed reply or duplicate webhook from
 authorizing a newer request.
 
 Text decisions resume Eve directly through the authenticated Photon bridge.
-They must not go through an OIDC-protected self-HTTP request. Photon currently
-has rich approval support for `coinbase_create_order` and trigger deletion; the
-latter still needs a purpose-built confirmation presentation instead of order
-language.
+They must not go through an OIDC-protected self-HTTP request. Photon's rich
+approval surface supports `coinbase_create_order`. Spec 1 removed legacy trigger
+deletion from the order-shaped approval path; workspace monitors use
+authenticated recoverable retirement instead.
 
 ### Coinbase
 
@@ -309,36 +345,26 @@ project's preparation hooks. Keep this design: reading untraced asset files at
 server-function startup previously passed builds but crashed production
 webhooks.
 
-### Dynamic event triggers
+### Monitoring
 
-There are no preset alerts. An authenticated private-channel principal can
-create, list, update, pause, resume, and delete a rule. The one-minute static
-schedule claims due triggers and launches isolated runtime tasks.
+There are no preset alerts. In durable Photon mode, authenticated monitor tools
+derive the current workspace from trusted routing scope and can create, list,
+update, pause, resume, explicitly assign a legacy trigger, and recoverably retire
+a monitor. Workspace monitors are immutably bound to their owner/workspace and
+support one-time, interval, and timezone-aware daily schedules. Create/update
+tools, manager validation, and storage share the eight-source ceiling.
 
-Current authoritative store limits are:
+The one-minute static schedule handles both workspace monitors and the restricted
+legacy trigger path. Workspace claims, leases, occurrence keys, budgets,
+checkpoints, findings, and alerts use Redis atomicity and bounded recovery. Daily
+local schedules cover DST gaps/folds and newest-missed recovery without catch-up
+storms. A scheduled workspace run receives only its exact declared sources and
+approved runtime capabilities.
 
-- minimum cadence: 15 minutes;
-- maximum 10 triggers per principal-derived owner key;
-- maximum 96 runs per owner key per day and 500 globally;
-- maximum eight combined sources;
-- lifetime: 90 days; and
-- automatic pause after five consecutive failures.
-
-Claims, leases, budgets, checkpoints, and mutations use Redis atomicity. A
-scheduled run receives only its exact declared sources, each at most once, and
-must obtain complete source coverage. Alert timestamps and origins are checked
-against the evaluation window. If delivery succeeds but checkpoint persistence
-is uncertain, the trigger pauses rather than risking duplicate notification.
-
-Scheduled tasks have no private chat history, user OAuth, Masterkey, Coinbase,
-shell, filesystem, or search tools. Public feed fetching is restricted to
-approved `.gov` sources, 2 MiB responses, a 20-second timeout, disabled XML
-entities, and exact time-window evaluation. Truncated scheduled input is
-rejected.
-
-Triggers are keyed to the current principal-derived owner, not immutably bound
-to an iMessage session or future strategy workspace. Tool schemas accept more
-sources than the store; the store's combined limit of eight is authoritative.
+Legacy event triggers remain available for compatibility when the new runtime is
+off. They retain their existing principal-derived limits and restricted runner;
+they gain workspace state only through explicit authenticated assignment. Do not
+silently migrate or guess a target workspace.
 
 ### Other channels and HTTP
 
@@ -393,14 +419,16 @@ explicit owner-bound authorization design.
 
 The most important differences between the working app and `NORTH_STAR.md` are:
 
-1. **Authorization is fragmented.** The app is intended for one owner, but
-   there is no deployment-wide owner policy. Photon state is principal-derived,
-   Coinbase has a separate allowlist, and HTTP ownership is unfinished.
-2. **Sessions are not full strategy workspaces.** They isolate conversation
-   history but do not own a durable strategy brief, capability manifest,
-   portfolio state, or immutable ingress assignment.
-3. **Triggers are not workspace-bound.** They belong to the principal-derived
-   owner key and cannot yet guarantee immutable strategy/session association.
+1. **Owner and workspace parity is Photon-only.** Durable owner mapping,
+   assignment, runtimes, monitors, alerts, and manager controls exist for
+   Photon's durable mode. Telegram and HTTP do not use that broker.
+2. **Strategy packs and source adapters are not implemented.** Spec 1 supplies
+   the runtime foundation, but reusable versioned strategies, canonical public
+   facts, Congressional Signals, Insider Clusters, and shared signals remain
+   Specs 2–6.
+3. **Production acceptance is pending.** The local polling path is compiled and
+   verified, but enabling flags, environment changes, and a real iMessage
+   alert/Discuss/manager smoke require explicit owner authorization.
 4. **Artifacts are public-only.** Private portfolio/account deliverables and
    safe recovery of paid temporary outputs require owner-private storage.
 5. **MCP ingestion is incomplete.** Normalized model context is safe and
@@ -408,8 +436,10 @@ The most important differences between the working app and `NORTH_STAR.md` are:
 6. **Financial recovery is session-scoped.** The uncertain-order guard is not
    account-wide reconciliation, and the dynamic Coinbase mutation surface is
    broader than the approved product scope.
-7. **Cross-channel parity does not exist.** Photon owns the full session,
-   approval, and artifact UX; Telegram and HTTP do not.
+7. **Deferred Spec 1 hardening remains.** Crash-only receipt/outbox recovery,
+   ambiguous worker-start accounting, revision freshness, atomic lifecycle
+   convergence, log/privacy catalog enforcement, and Eve private-runtime
+   compatibility are parked after the remaining product specs.
 
 Other known edges:
 
@@ -417,10 +447,8 @@ Other known edges:
   `cancel`) before changing compatibility logic;
 - old durable sessions can become unusable across incompatible Eve upgrades;
   create a new generation instead of attempting automatic migration;
-- delete-trigger confirmation still uses approval infrastructure whose
-  presentation was designed for orders; and
-- the event-trigger schemas and Redis store disagree on source count, with the
-  store's eight-source limit winning; and
+- legacy event triggers remain a compatibility path and must gain workspace
+  state only through explicit authenticated assignment;
 - the current sandbox template was rebuilt after an earlier deployment lacked
   its shell/glob template, but ordinary live sandbox execution still deserves a
   direct smoke before it is treated as proven; and
@@ -455,14 +483,22 @@ Focused regression scripts map to the important boundaries:
 | `verify:artifacts` | narrow input schemas, chart data, chart display math, one-shot guard, manifests, deterministic IDs, and safe URLs |
 | `verify:approvals:redis` | approval transitions against a real Redis instance |
 | `verify:workspaces:redis` | workspace atomicity against a real Redis instance |
+| `verify:workspace-runtime:owner-workflow` | local owner monitor creation/assignment and runtime initialization contract |
+| `verify:workspace-runtime:sec-ipo-scheduled-compiled` | schedule through the production control plane and compiled Eve worker to deterministic finding/no-match outcomes |
+| `verify:workspace-runtime:alerts`, `:alert-delivery`, `:alert-context`, `:alert-replies`, `:alert-app` | alert staging, subscription delivery, presentation, Discuss context, held replies, and app actions |
+| `verify:workspace-runtime:manager` | visible monitor schedule/source/health/budget/usage manager contract |
+| `verify:workspace-runtime:photon-rollout` | explicit legacy/durable configuration and fail-closed authorization matrix |
+| `verify:workspace-runtime:redis` | workspace leases, budgets, checkpoints, lifecycle, migration, and alert uncertainty against Redis |
 | `eval:coinbase` | fixture-backed model/tool behavior with no real Coinbase call |
 
 The Redis checks require exported environment variables and do not load
 `.env.local`. Model evals do not exercise the Photon webhook, Redis delivery,
 Spectrum UI, or iMessage response path.
 
-At this snapshot, the six deterministic verification scripts, TypeScript, the
-Eve build, and the Vercel build have passed. Real-channel smokes have validated
+At this snapshot, the Spec 1 deterministic matrix, Redis races, TypeScript, the
+compiled Eve build, the Next.js webpack production build, and a read-only live
+SEC smoke have passed. These prove the local polling application, not a real
+Photon alert or deployed configuration. Earlier real-channel smokes validated
 named-session operations and isolation, Coinbase balance and spot-order flows,
 Spectrum order approval, guarded Masterkey research, public report publication,
 and natural-language artifact-card delivery. These establish a baseline, not a
@@ -586,12 +622,26 @@ system is divided.
 
 ### Monitoring
 
-- `agent/lib/event-trigger-store.ts`: trigger state, leasing, budgets, and
-  checkpoints.
-- `agent/lib/event-trigger-owner.ts`: current principal-derived ownership.
-- `agent/schedules/event-triggers.ts`: one-minute dispatcher.
-- `agent/channels/event-trigger-runner.ts`: isolated runtime execution.
-- `agent/tools/scheduled_tool_guard.ts`: capability restrictions.
+- `agent/lib/workspace-monitor-store.ts`: workspace monitor configuration,
+  schedules, leases, occurrence keys, and checkpoints.
+- `agent/lib/workspace-state-store.ts`, `workspace-capabilities.ts`, and
+  `workspace-budget-ledger.ts`: bounded runtime state, default-deny manifests,
+  and run/token/paid accounting.
+- `agent/lib/workspace-finding-store.ts` and `workspace-alert-store.ts`: scoped
+  findings and channel-independent alerts/outbox receipts.
+- `agent/lib/workspace-runtime-auth.ts` and
+  `agent/lib/eve-workspace-worker-runtime.ts`: signed worker scope and compiled
+  Eve task execution.
+- `agent/schedules/event-triggers.ts`: shared one-minute dispatcher for workspace
+  monitors and restricted legacy triggers.
+- `agent/lib/photon-alert-delivery.ts`,
+  `agent/lib/photon-alert-subscription-store.ts`,
+  `agent/channels/photon-alert-app.ts`, and
+  `agent/channels/photon-workspace-app.ts`: outbound alert delivery,
+  subscriptions, Discuss/Manage actions, and manager controls.
+- `agent/lib/event-trigger-store.ts`, `agent/lib/event-trigger-owner.ts`, and
+  `agent/channels/event-trigger-runner.ts`: legacy compatibility path.
+- `agent/tools/scheduled_tool_guard.ts`: legacy capability restrictions.
 - `agent/lib/public-feeds.ts`, `agent/tools/fetch_public_source.ts`, and
   `agent/tools/list_public_sources.ts`: fenced public feed access.
 - trigger tools under `agent/tools/`: CRUD, alert emission, and completion.

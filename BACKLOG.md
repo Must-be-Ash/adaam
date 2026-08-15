@@ -1,7 +1,7 @@
 # Eve backlog and parked work
 
-Snapshot date: 2026-08-11  
-Application baseline: `8d34e19` on `main`
+Snapshot date: 2026-08-15
+Application baseline: `7d3063a` on `main`
 
 This is the inventory of work that was explicitly postponed, remains incomplete,
 or is known to be needed before Eve can satisfy the full product direction.
@@ -16,7 +16,10 @@ No user-tested core path was reported broken at handoff. These were working:
 - Spectrum and text approval/denial;
 - iMessage session creation, switching, isolation, and Start fresh;
 - session-manager launch from natural-language requests;
-- the accepted grayscale session-manager UI.
+- the accepted grayscale session-manager UI; and
+- the merged Spec 1 polling path: workspace-bound monitors, isolated compiled
+  workers, deterministic SEC findings, durable Photon alerts with Discuss and
+  Manage actions, manager status/budgets, and legacy/durable rollout gating.
 
 The items below are product, safety, testing, and operational gaps around that
 working baseline.
@@ -33,16 +36,21 @@ Priority labels:
 
 ### Deployment-wide owner authorization
 
-- [ ] Add one deployment-owner identity with approved channel-principal aliases.
-- [ ] Enforce it at Photon, Telegram, HTTP, session management, event-trigger
-  management, and other private capabilities.
-- [ ] Keep `COINBASE_ALLOWED_PRINCIPALS` as a separate Coinbase capability
+- [x] Add one deployment-owner identity with approved Photon-principal aliases.
+- [x] Enforce it across Photon sessions, workspace monitoring, workers, manager,
+  and alert delivery.
+- [ ] Extend the same owner boundary to Telegram, HTTP, and any remaining private
+  capabilities before those channels gain workspace access.
+- [x] Keep `COINBASE_ALLOWED_PRINCIPALS` as a separate Coinbase capability
   allowlist; it is not general application authorization.
-- [ ] Add negative tests proving an authenticated but unapproved channel
-  principal cannot access private capabilities.
+- [x] Add negative Photon tests proving an authenticated but unmapped principal
+  cannot access session, monitor, worker, manager, or alert state.
+- [ ] Add equivalent negative tests when Telegram or HTTP receives owner-scoped
+  workspace support.
 
-Current state: Photon and Telegram authenticate senders, but there is no general
-deployment-owner allowlist.
+Current state: Spec 1 added the fail-closed deployment-owner mapping for Photon.
+Telegram and HTTP remain outside that owner-global boundary and must not gain
+workspace access until they adopt it.
 
 ### Contain the Coinbase capability surface
 
@@ -102,14 +110,14 @@ covers the complete production channel.
 
 ### Correct unsupported or misleading approval UX
 
-- [ ] Either create generic action-specific mini-app copy for
-  `delete_event_trigger` or remove it from the rich approval protocol.
+- [x] Remove `delete_event_trigger` from the order-shaped rich approval protocol
+  and use authenticated recoverable workspace-monitor retirement.
 - [ ] Add a safe Photon approval experience for paid Masterkey `run_service`
   calls if paid Masterkey is meant to work in iMessage.
-- [ ] Keep unsupported requests fail-closed.
+- [x] Keep unsupported requests fail-closed.
 
-Current state: trigger deletion receives order-specific success/denial copy, and
-paid Masterkey approvals are denied by the Photon approval allowlist.
+Current state: workspace-monitor retirement no longer uses order copy. Paid
+Masterkey approvals remain denied by the Photon approval allowlist.
 
 ### Replace placeholder HTTP authentication
 
@@ -137,26 +145,31 @@ aborts and runs in `prebuild`.
 
 ### Durable ingress assignment and delivery
 
-- [ ] Give each inbound message an immutable ingress receipt.
-- [ ] Record one workspace/session assignment before a workspace model sees it.
-- [ ] Serialize assignment and dispatch.
-- [ ] Record dispatch completion idempotently.
-- [ ] Quarantine uncertain delivery rather than replaying blindly.
+- [x] In durable Photon mode, give each actionable message an immutable ingress
+  receipt.
+- [x] In durable Photon mode, record one workspace/session assignment before a
+  workspace model sees it.
+- [x] In durable Photon mode, serialize assignment and dispatch.
+- [x] In durable Photon mode, record dispatch completion idempotently.
+- [x] Quarantine uncertain model or Photon delivery rather than replaying
+  blindly on the ordinary path.
 - [ ] Add recovery tooling and tests for lost responses and duplicate webhooks.
 
 ### Durable session state
 
-- [ ] Add bounded per-session rehydration briefs.
+- [x] Add bounded per-session rehydration briefs.
 - [ ] Store files and large artifacts outside model history and retrieve them on
   demand.
-- [ ] Persist strategy configuration, watchlists, theses, findings, monitors,
+- [x] Persist strategy configuration, bounded briefs/findings, monitors,
   open questions, budgets, and tool permissions.
-- [ ] Ensure Start fresh rehydrates only durable state into a new model-history
+- [x] Ensure Start fresh rehydrates only durable state into a new model-history
   generation.
-- [ ] Keep compaction and temporary reasoning session-local.
+- [x] Keep compaction and temporary reasoning session-local.
 
-Current state: iMessage sessions isolate model histories, but they are not the
-full durable workspaces described in `NORTH_STAR.md`.
+Current state: Photon sessions now have the Spec 1 durable runtime documents and
+workspace-bound monitors. Owner-private artifacts, portfolio state, strategy
+packs, cross-channel workspace brokerage, and the remaining North Star layers
+are still incomplete.
 
 ### Wire tool output into the durable artifact store
 
@@ -234,16 +247,16 @@ data is still lost.
 
 ### Default-deny capability manifests
 
-- [ ] Define the tools, data classes, mutation rights, schedules, and budgets
+- [x] Define the tools, data classes, mutation rights, schedules, and budgets
   available to each session/strategy pack.
-- [ ] Make capability changes explicit and testable.
-- [ ] Ensure strategy packs can tighten shared safety limits but never loosen
+- [x] Make capability changes explicit and testable.
+- [x] Ensure workspace manifests can tighten shared safety limits but never loosen
   them.
-- [ ] Detect provider tool drift: compare the live MCP tool inventory against the
+- [x] Detect provider tool drift: compare the live MCP tool inventory against the
   manifest and report removed, newly discovered, and schema-changed tools rather
   than silently hiding a needed tool or exposing a changed one. New tools are
   reviewed before exposure, never auto-surfaced; mutations stay default-deny.
-- [ ] When a task needs an intentionally hidden or unsupported capability, report
+- [x] When a task needs an intentionally hidden or unsupported capability, report
   which capability is unavailable and why (authorization, safety policy, runtime
   restriction, or missing integration) instead of hallucinating an answer or
   claiming the provider lacks it.
@@ -261,7 +274,8 @@ data is still lost.
 - [ ] Never switch silently.
 - [ ] Add held-message recovery and duplicate-action tests.
 
-This is parked until the durable ingress/dispatch protocol exists.
+The durable ingress/dispatch foundation now exists; general topic-change routing
+remains parked until the owner selects it.
 
 ### Telegram session broker
 
@@ -279,9 +293,9 @@ Current state: Telegram maps a private chat directly to one Eve continuation.
 
 ### Session lifecycle completion
 
-- [ ] Make archive pause session-bound monitors and revoke pending
+- [x] Make archive pause session-bound monitors and revoke pending
   session-bound approvals.
-- [ ] Define recoverable retirement semantics.
+- [x] Define recoverable retirement semantics.
 - [ ] Offer hard deletion only after product-owned retained data can actually be
   deleted and external safety records are correctly excluded.
 - [ ] Broaden and evaluate natural-language session-manager intent detection
@@ -290,20 +304,45 @@ Current state: Telegram maps a private chat directly to one Eve continuation.
 Plain-text session mutation commands are not a current requirement. The owner
 explicitly chose manager-only responses for session-management requests.
 
+### Spec 1 deferred hardening and rollout
+
+The ordinary polling application is complete. The authoritative item-level
+acceptance criteria for its deliberately deferred work now live in
+[`specs/01-independent-workspace-runtimes.md`](specs/01-independent-workspace-runtimes.md#deferred-hardening--after-specs-26).
+Keep these parked until Specs 2–6 are implemented unless one becomes an observed
+ordinary-path failure:
+
+- [ ] Harden exact redirect transport, fixture-bridge activation, SEC cross-field
+  identity, and overlapping compiled-worker teardown.
+- [ ] Add crash recovery/quarantine across alert outbox delivery, Photon
+  dispatch/response receipts, Discuss context, held replies, and intercepted
+  control actions.
+- [ ] Reconcile expired reservations, ambiguous worker starts, pre-session
+  failures, and stale brief/strategy/budget revisions.
+- [ ] Add atomic archive/restore convergence, runtime log/privacy catalog
+  enforcement, and a guarded public-or-pinned Eve runtime boundary.
+- [ ] Complete owner-authorized deployment, real Photon alert/Discuss/manager
+  acceptance, event-stream inspection, and recorded rollback evidence under
+  Spec 1 Sprint 6.
+
+Source-event/RSS/WebSub work is not in this bucket; it moved to Spec 3 Sprint 4.
+
 ## 3. Event-trigger work
 
-- [ ] Bind each trigger and alert reply target to an immutable session ID.
-- [ ] Move limits from channel-principal scope to deployment-owner scope once
-  owner aliases exist.
-- [ ] Make archive/pause behavior session-aware.
-- [ ] Align `create_event_trigger` and `update_event_trigger` schemas with the
+- [x] Bind each new workspace monitor and alert reply target to an immutable
+  workspace ID; retain explicit legacy-assignment compatibility.
+- [x] Move workspace-runtime limits from channel-principal scope to the
+  deployment owner after owner aliases exist.
+- [x] Make archive/pause behavior workspace-aware.
+- [x] Align workspace monitor and compatibility tool schemas with the
   store's maximum of eight combined sources.
-- [ ] Add a deterministic event-trigger verification suite.
-- [ ] Add Redis-backed tests for leasing, budgets, retries, watermarks,
+- [x] Add deterministic monitor/runtime verification suites.
+- [x] Add Redis-backed tests for leasing, budgets, retries, watermarks,
   consecutive-failure pause, expiration, and uncertain alert delivery.
-- [ ] Add a local schedule-test runbook; the internal runner route deliberately
+- [x] Add a local schedule-test runbook; the internal runner route deliberately
   returns 404 and Eve dev does not run cron automatically.
-- [ ] Correct or replace the trigger-deletion approval UI as listed above.
+- [x] Remove legacy trigger deletion from the order-shaped rich approval path
+  and use recoverable workspace-monitor retirement for the new runtime.
 
 ## 4. Strategy packs and research corpus
 
@@ -380,10 +419,12 @@ Current state: one global model, `google/gemini-3.6-flash`, handles all work.
 ## 7. Testing, CI, and observability
 
 - [ ] Add the Photon end-to-end harness described above.
-- [ ] Add event-trigger integration coverage.
-- [ ] Add tests for general owner authorization after it is implemented.
-- [ ] Add tests for session history/file/private-result isolation.
-- [ ] Add tests for capability manifests and scheduled-tool denial.
+- [x] Add deterministic workspace-monitor and compiled scheduled-worker
+  integration coverage.
+- [x] Add tests for Photon deployment-owner authorization.
+- [x] Add workspace and scheduled-worker history isolation tests.
+- [ ] Add owner-private file/result isolation tests when that storage exists.
+- [x] Add tests for workspace capability manifests and scheduled-tool denial.
 - [ ] Add account-wide financial idempotency and reconciliation tests.
 - [ ] Add strategy-pack eval suites as packs are introduced.
 - [ ] Add objective-worker routing evals before model routing.
@@ -442,8 +483,9 @@ whether to update the eval or fix the approval emission.
   cleanup is uncertain.
 - [ ] Correct `.env.example` so `COINBASE_ALLOWED_PRINCIPALS` is described as a
   Coinbase capability allowlist, not Eve's general owner allowlist.
-- [ ] Reconcile `NORTH_STAR.md` with the implemented session broker and manager.
-- [ ] Remove completed items from its near-term sequence.
+- [x] Reconcile `NORTH_STAR.md` with the implemented Spec 1 session runtime,
+  monitor, alert, and manager foundation.
+- [x] Remove completed Spec 1 items from its near-term sequence.
 - [ ] Preserve the owner decision that current session management is mini-app
   only, despite older plain-text fallback language.
 - [ ] Add a clean-fork provisioning runbook for Vercel, Photon, Vercel Connect,
@@ -458,7 +500,8 @@ whether to update the eval or fix the approval emission.
   of relying only on an operator-observed production alias.
 - [ ] Add an auditable inventory for runtime dynamic Coinbase and Masterkey
   tools, which are not fully enumerated by `.eve/agent-summary.json`.
-- [ ] Keep `HANDOFF.md` and this backlog updated when architecture or status
+- [x] Keep `HANDOFF.md` and this backlog updated through the Spec 1 polling
+  milestone; update them again after production rollout or later specs
   changes.
 
 ## 9. Parked product expansion
