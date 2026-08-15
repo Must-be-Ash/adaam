@@ -36,6 +36,7 @@
     "verify:workspace-runtime:contracts": "node scripts/verify-workspace-runtime-contracts.mjs",
     "verify:workspace-runtime:failures": "node scripts/verify-workspace-runtime-failures.mjs",
     "verify:workspace-runtime:photon-harness": "node scripts/verify-workspace-photon-harness.mjs",
+    "verify:workspace-runtime:photon-rollout": "jiti scripts/verify-photon-ingress-rollout.ts",
     "verify:workspace-runtime:observability": "node scripts/verify-workspace-runtime-observability.mjs",
     "verify:workspace-runtime:flags": "node scripts/verify-workspace-runtime-flags.mjs",
     "verify:workspace-runtime:owner": "node scripts/verify-owner-identity.mjs",

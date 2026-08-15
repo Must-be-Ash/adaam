@@ -20,7 +20,7 @@ export function photonSenderId(principalId: string): string | null {
 export function photonAuth(
   senderId: string,
   threadId: string,
-  scope: WorkspaceRuntimeScope,
+  scope?: WorkspaceRuntimeScope,
   additionalAttributes: Readonly<Record<string, string>> = {},
 ): SessionAuthContext {
   return {
@@ -28,7 +28,7 @@ export function photonAuth(
       ...additionalAttributes,
       channel: "photon",
       thread_id: threadId,
-      ...workspaceRuntimeScopeAttributes(scope),
+      ...(scope ? workspaceRuntimeScopeAttributes(scope) : {}),
     },
     authenticator: "photon-imessage-webhook",
     issuer: "photon-imessage",

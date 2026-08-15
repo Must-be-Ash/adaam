@@ -84,6 +84,10 @@ import { projectPhotonWorkspaceRuntimeScope } from "../lib/workspace-runtime-sco
 import { workspaceAlertTurnContext } from "../lib/workspace-alert-presentation";
 import { readWorkspaceAlertById } from "../lib/workspace-alert-store";
 import { createPhotonImessageAdapter } from "../lib/photon-imessage-adapter";
+import {
+  PhotonIngressRolloutError,
+  resolvePhotonIngressRolloutMode,
+} from "../lib/photon-ingress-rollout";
 import { authorizePhotonWorkspaceControlPlaneStore } from "../lib/workspace-store-authorization";
 
 const imessageAdapter = createPhotonImessageAdapter();
@@ -859,12 +863,14 @@ async function submitApprovalDecision(
         ? "Approved. Continuing…"
         : "Denied. No action will be taken.";
   try {
-    const runtimeScope = projectPhotonWorkspaceRuntimeScope({
-      generation: workspace.generation,
-      principalId,
-      threadId: thread.id,
-      workspaceId: workspace.id,
-    });
+    const runtimeScope = resolvePhotonIngressRolloutMode() === "durable"
+      ? projectPhotonWorkspaceRuntimeScope({
+          generation: workspace.generation,
+          principalId,
+          threadId: thread.id,
+          workspaceId: workspace.id,
+        })
+      : undefined;
     await bridge.send(
       {
         inputResponses: [
@@ -1055,30 +1061,44 @@ async function dispatch(
 
   const senderId = message.author.userId;
   const principalId = photonPrincipalId(senderId);
+  const textDecision = parsePhotonTextDecision(message.text);
+  let rolloutMode;
   try {
-    requirePhotonOwnerAccess({ principalId, resource: "session" });
+    rolloutMode = resolvePhotonIngressRolloutMode();
   } catch (error) {
-    if (!(error instanceof OwnerIdentityDeniedError)) throw error;
-    await thread.post("This iMessage identity is not authorized to use Eve.");
+    if (!(error instanceof PhotonIngressRolloutError)) throw error;
+    await thread.post("Eve's iMessage rollout configuration is incomplete. No message was sent.");
     return;
   }
-  const textDecision = parsePhotonTextDecision(message.text);
-  const ingressIdentity = resolvePhotonOwnerConversationIdentity({
-    principalId,
-    threadId: thread.id,
-  });
-  const ingressCreation = await createPhotonIngressReceipt({
-    classification:
-      textDecision || isPhotonApprovalAlias(message.text)
-        ? "approval_reply"
-        : isPhotonSessionManagerRequest(message.text)
-          ? "session_management"
-          : "ordinary",
-    conversationId: ingressIdentity.conversationId,
-    eventId: message.id,
-    ownerId: ingressIdentity.ownerId,
-  });
-  if (!ingressCreation.created) return;
+  if (rolloutMode === "durable") {
+    try {
+      requirePhotonOwnerAccess({ principalId, resource: "session" });
+    } catch (error) {
+      if (!(error instanceof OwnerIdentityDeniedError)) throw error;
+      await thread.post("This iMessage identity is not authorized to use Eve.");
+      return;
+    }
+  }
+  const ingressIdentity = rolloutMode === "durable"
+    ? resolvePhotonOwnerConversationIdentity({
+        principalId,
+        threadId: thread.id,
+      })
+    : null;
+  const ingressCreation = ingressIdentity
+    ? await createPhotonIngressReceipt({
+        classification:
+          textDecision || isPhotonApprovalAlias(message.text)
+            ? "approval_reply"
+            : isPhotonSessionManagerRequest(message.text)
+              ? "session_management"
+              : "ordinary",
+        conversationId: ingressIdentity.conversationId,
+        eventId: message.id,
+        ownerId: ingressIdentity.ownerId,
+      })
+    : null;
+  if (ingressCreation && !ingressCreation.created) return;
   if (textDecision) {
     const decisionSentAtMs = message.metadata.dateSent.getTime();
     if (
@@ -1161,6 +1181,37 @@ async function dispatch(
       "I couldn't verify the active session, so this message was not sent. Please try again.",
     );
     return;
+  }
+
+  if (rolloutMode === "legacy") {
+    const activeWorkspace = workspaceState.activeWorkspace;
+    const session = await bridge.send(
+      {
+        context: [photonWorkspaceContext(activeWorkspace)],
+        message: messageToUserContent(message),
+      },
+      {
+        auth: photonAuth(senderId, thread.id),
+        thread: photonWorkspaceThread(thread, activeWorkspace),
+        turnPolicy: "steer",
+      },
+    );
+    await savePhotonWorkspaceSession({
+      generation: activeWorkspace.generation,
+      principalId,
+      sessionId: session.id,
+      threadId: thread.id,
+      workspaceId: activeWorkspace.id,
+    }).catch((error: unknown) => {
+      console.error("[photon.workspace] Session binding update failed", {
+        error_type: error instanceof Error ? error.name : typeof error,
+        session_id: session.id,
+      });
+    });
+    return;
+  }
+  if (!ingressIdentity || !ingressCreation) {
+    throw new PhotonIngressRolloutError();
   }
 
   const held = await readActivePhotonHeldReply(ingressIdentity.conversationId);

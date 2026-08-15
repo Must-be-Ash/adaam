@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   readWorkspaceRunOutcome,
   selectUnseenWorkspaceFindingIdentities,
+  stageWorkspaceFinding,
   workspaceRunAttemptForOccurrence,
   WorkspaceFindingError,
   type WorkspaceFindingStoreClient,
@@ -11,6 +12,7 @@ import {
 import { createWorkspaceMonitor, type WorkspaceMonitorStoreClient } from "../agent/lib/workspace-monitor-store";
 import {
   createWorkspaceSourceCoverage,
+  completeWorkspaceSourceCoverage,
   markWorkspaceSourceSuccess,
   reserveWorkspaceSourceAttempt,
   WorkspaceSourceCoverageError,
@@ -253,7 +255,7 @@ const clients = {
   sourceCoverage: coverageClient,
   state: stateClient,
 };
-await createWorkspaceSourceCoverage({
+const initialMaxCoverage = await createWorkspaceSourceCoverage({
   configurationRevision: monitor.configurationRevision,
   monitorId: monitor.monitorId,
   now,
@@ -262,6 +264,7 @@ await createWorkspaceSourceCoverage({
   sources: [{ canonicalUrl: source.canonicalUrl, origin: source.origin, sourceId: source.sourceId }],
   window,
 }, coverageClient);
+assert.equal(initialMaxCoverage.state, "evaluating");
 
 const finding = {
   accessClassification: "public" as const,
@@ -339,6 +342,81 @@ assert.equal(outcome.finding?.summary, finding.summary);
 assert.deepEqual(outcome.finding?.facts, finding.facts);
 assert.match(outcome.finding?.findingId ?? "", /^finding_[a-f0-9]{64}$/u);
 assert.ok(outcome.finding);
+
+const maxOccurrenceKey = "7".repeat(64);
+const maxRunId = `${maxOccurrenceKey}:attempt:1`;
+const maxClaimed = {
+  ...claimed,
+  occurrence: {
+    ...claimed.occurrence,
+    occurrenceKey: maxOccurrenceKey,
+  },
+};
+const maxEnvelope = createWorkspaceWorkerEnvelope({
+  budgetRevision: 1,
+  capabilityRevision: 1,
+  claimed: maxClaimed,
+  dispatchBudget: {
+    ...dispatchBudget,
+    global: { ...dispatchBudget.global, runId: maxRunId },
+    runId: maxRunId,
+    workspace: { ...dispatchBudget.workspace, runId: maxRunId },
+  },
+  expiresAt: new Date(now.getTime() + 10 * 60_000),
+  issuedAt: now,
+  stateRevision: { brief: 1, strategy: 1 },
+  window,
+});
+await createWorkspaceSourceCoverage({
+  configurationRevision: monitor.configurationRevision,
+  monitorId: monitor.monitorId,
+  now,
+  runId: maxRunId,
+  scope,
+  sources: [{ canonicalUrl: source.canonicalUrl, origin: source.origin, sourceId: source.sourceId }],
+  window,
+}, coverageClient);
+await reserveWorkspaceSourceAttempt({ now, runId: maxRunId, scope, sourceId: source.sourceId }, coverageClient);
+await markWorkspaceSourceSuccess({
+  contentDigest: "9".repeat(64),
+  now,
+  runId: maxRunId,
+  scope,
+  sourceId: source.sourceId,
+}, coverageClient);
+const maxCoverage = await completeWorkspaceSourceCoverage({
+  now,
+  runId: maxRunId,
+  scope,
+}, coverageClient);
+const maxFacts = Array.from({ length: 40 }, (_, index) => {
+  const ordinal = String(index + 101).padStart(6, "0");
+  const accessionNumber = `0001000001-26-${ordinal}`;
+  return {
+    ...finding.facts[0]!,
+    accessionNumber,
+    canonicalFilingUrl:
+      `https://www.sec.gov/Archives/edgar/data/1000001/${accessionNumber.replaceAll("-", "")}/fixture-s1-index.htm`,
+    companyName: `Fixture Corporation ${index + 1}`,
+    fileNumber: `333-${100_001 + index}`,
+    filingIdentity: `${accessionNumber}:S-1`,
+    registrationIdentity: `0001000001:333-${100_001 + index}`,
+  };
+});
+const maxOutcome = await stageWorkspaceFinding({
+  coverage: maxCoverage,
+  envelope: maxEnvelope,
+  finding: {
+    ...finding,
+    factIdentities: maxFacts.map((fact) => fact.filingIdentity),
+    facts: maxFacts,
+    summary: "40 new SEC S-1 filings were observed in the configured window.",
+  },
+  now,
+  scope,
+}, findingClient);
+assert.equal(maxOutcome.finding?.facts?.length, 40);
+assert.ok(Buffer.byteLength(JSON.stringify(maxOutcome), "utf8") > 32 * 1_024);
 const storedOutcomeReader = (candidate: WorkspaceRunOutcome) => ({
   get: async () => JSON.stringify(candidate),
 }) as WorkspaceFindingStoreClient;

@@ -55,6 +55,16 @@ const ledgerSchema = z.object({
 
 export type WorkspaceBudgetReservation = z.infer<typeof reservationSchema>;
 export type WorkspaceBudgetLedger = z.infer<typeof ledgerSchema>;
+export interface WorkspaceBudgetUsageSummary {
+  activeWorkers: number;
+  calendarDay: string;
+  calendarMonth: string;
+  inputTokensToday: number;
+  outputTokensToday: number;
+  paidMicrosThisMonth: string;
+  paidMicrosToday: string;
+  runsToday: number;
+}
 
 export interface WorkspaceBudgetLedgerClient {
   compareAndSet(
@@ -226,6 +236,44 @@ function usageTokens(
 function usagePaid(reservation: WorkspaceBudgetReservation): bigint {
   if (reservation.state === "released") return 0n;
   return BigInt(reservation.reconciledPaidMicros ?? reservation.paidMicros);
+}
+
+export function summarizeWorkspaceBudgetUsage(
+  ledger: WorkspaceBudgetLedger,
+  now: Date,
+  timeZone: string,
+): WorkspaceBudgetUsageSummary {
+  const calendar = calendarParts(now, timeZone);
+  const today = ledger.reservations.filter(
+    (reservation) => reservation.calendarDay === calendar.day && reservation.state !== "released",
+  );
+  const thisMonth = ledger.reservations.filter(
+    (reservation) => reservation.calendarMonth === calendar.month && reservation.state !== "released",
+  );
+  return Object.freeze({
+    activeWorkers: ledger.reservations.filter(
+      (reservation) => reservation.state === "reserved",
+    ).length,
+    calendarDay: calendar.day,
+    calendarMonth: calendar.month,
+    inputTokensToday: today.reduce(
+      (total, reservation) => total + usageTokens(reservation, "input"),
+      0,
+    ),
+    outputTokensToday: today.reduce(
+      (total, reservation) => total + usageTokens(reservation, "output"),
+      0,
+    ),
+    paidMicrosThisMonth: thisMonth.reduce(
+      (total, reservation) => total + usagePaid(reservation),
+      0n,
+    ).toString(),
+    paidMicrosToday: today.reduce(
+      (total, reservation) => total + usagePaid(reservation),
+      0n,
+    ).toString(),
+    runsToday: today.length,
+  });
 }
 
 function prune(
