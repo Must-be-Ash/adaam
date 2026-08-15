@@ -1,6 +1,6 @@
 # Spec 2: Versioned strategy packs and workspace installation
 
-Status: Ready for Sprint 0 implementation; local Spec 1 dependency complete
+Status: Product contract reviewed; implementation plan ready; local Spec 1 dependency complete
 
 Date: 2026-08-14
 
@@ -39,10 +39,12 @@ its explicitly deferred post-Spec-6 hardening are not Spec 2 dependencies. Reuse
 Spec 1's owner, workspace, capability, budget, monitor, finding, alert, ingress,
 and lifecycle contracts rather than creating parallel stores.
 
-Every implementation task is a checklist item. Complete the sprints in order.
-Do not mark an item complete until its deterministic tests and exit gate pass.
-If implementation requires weakening a Spec 1 invariant, stop and resolve the
-conflict with the owner rather than widening this specification.
+The implementation sequence, file-level work, and verification commands live in
+[`docs/plans/2026-08-15-0905-feat-spec-01-acceptance-and-strategy-packs-plan.md`](../docs/plans/2026-08-15-0905-feat-spec-01-acceptance-and-strategy-packs-plan.md).
+This file remains the product contract. Do not duplicate progress ledgers here;
+use the plan for execution and Git commits for evidence. If implementation
+requires weakening a Spec 1 invariant, stop and resolve the conflict with the
+owner rather than widening this specification.
 
 ## Goal and acceptance experience
 
@@ -125,9 +127,11 @@ The completed feature must support this experience:
 - Durable workspace pack bindings and mutation receipts.
 - Installation into a newly created pack-bound workspace.
 - Explicit configuration and non-destructive removal flows.
-- Pack-managed resource provenance and deterministic install/removal reconciliation.
-- Dynamic composition of only the installed pack's instructions, skills, and
-  allowed tools for interactive and scheduled workspace sessions.
+- Pack-managed resource provenance and atomic install/configuration/removal mutations.
+- Dynamic composition of only the installed pack's additional mission and
+  playbook for interactive sessions, plus the exact allowed source/tool subset
+  for scheduled workers. Existing shared Eve tools remain governed by Spec 1
+  authorization until a later root-tool refactor can remove them conditionally.
 - Natural-language pack selection/configuration in the owning workspace.
 - Strategy-pack visibility and controls in the existing Spectrum session manager.
 - A complete `IPO Filings@1.0.0` reference pack using the Spec 1 SEC fixtures.
@@ -197,9 +201,9 @@ must promote the smallest necessary prerequisite into its own sprint.
   to different bytes or a different digest across builds.
 - [ ] A workspace binds to exactly one version and digest at a time. There is no
   floating `latest`, version range, or silent production upgrade.
-- [ ] No pack mutation activates a new monitor, increases polling cadence, adds a
-  source, enables paid access, or broadens a capability without an explicit
-  owner request or manager action describing that change.
+- [ ] Installing a pack may declare and bind reviewed source contracts, but no
+  fetch, cadence, monitor run, paid access, or broader capability begins without
+  an explicit owner request or manager action describing that activation.
 - [ ] Pack instructions, research documents, and other packs are not loaded into
   a workspace unless required by its exact active binding.
 - [ ] Pack instructions cannot override shared safety, authorization, approval,
@@ -209,10 +213,10 @@ must promote the smallest necessary prerequisite into its own sprint.
 - [ ] Installing, configuring, or removing a pack never deletes workspace findings,
   alerts, audit records, or retained monitor history.
 - [ ] Pack-managed records retain stable pack resource IDs and workspace IDs so
-  reconciliation cannot confuse one resource with another or cross workspaces.
-- [ ] Every pack mutation and resource reconciliation is revision-checked and
-  idempotent. Partial failure can be resumed or compensated without duplicate
-  monitors or repeated paid work.
+  an atomic mutation cannot confuse one resource with another or cross
+  workspaces.
+- [ ] Every pack mutation is revision-checked, atomic, and idempotent. Failure
+  changes no durable key and creates no duplicate monitor or repeated paid work.
 - [ ] A missing, invalid, blocked, or digest-mismatched pack fails closed. Its
   pack-managed monitors pause before another worker starts.
 - [ ] Pack configuration and instruction sizes remain bounded. Raw research
@@ -260,10 +264,7 @@ strategy-packs/
       playbook.md
       monitors/
         detect-new-s1.md
-      fixtures/
-        initial-feed.xml
-        one-new-s1.xml
-        amendment.xml
+      evals.json
 ```
 
 The exact filenames may change, but these rules do not:
@@ -276,16 +277,17 @@ The exact filenames may change, but these rules do not:
   research procedure. Its description is a bounded routing hint.
 - [ ] Each monitor instruction is a separate bounded file so a worker receives
   only the instructions for its claimed monitor, not the complete pack.
-- [ ] Fixture files are test inputs and are never available to production model
-  sessions or registered as arbitrary filesystem capabilities.
+- [ ] The pack references the application-owned SEC eval-suite ID. It does not
+  copy the existing fixture corpus into the version directory or expose fixture
+  bodies to production model sessions.
 - [ ] All referenced paths stay inside the exact version directory, reject path
   traversal and symlink escape, and have per-file and aggregate byte ceilings.
 - [ ] Pack files contain no secret placeholders that encourage credentials in
   tracked configuration. Provider connections are referenced by stable IDs and
   configured outside the pack.
-- [ ] Scan every allowed pack file for high-confidence credentials and
-  credential-bearing URLs before catalog generation. Fail with a redacted,
-  bounded error and never include the matched value in build output.
+- [ ] Reject credential fields and credential-bearing URLs in the bounded v1
+  schema. Broader corpus scanning is deferred until packs accept more varied
+  content or a publication boundary makes it necessary.
 - [ ] Generate a typed catalog module during repository preparation/build. Do
   not depend on runtime filesystem discovery in Vercel functions.
 
@@ -301,33 +303,23 @@ The exact filenames may change, but these rules do not:
 - canonical content digest;
 - display name, bounded description, and maturity of `reference`,
   `experimental`, `stable`, or `deprecated`;
-- compatible core/workspace/pack-schema version ranges;
-- bounded release summary; and
+- explicit supported core/workspace/pack-schema versions; and
 - repository-relative references to the bounded instruction files.
 
 - [ ] Reject mutable aliases such as `latest`, URL-based pack IDs, build
   timestamps as versions, and duplicate ID/version pairs.
 - [ ] Canonicalize and hash the manifest plus every referenced instruction and
   schema file in a deterministic order.
-- [ ] Commit a release-digest ledger outside each version directory and fail CI
-  if an already released ID/version changes digest. A content change requires a
-  new semantic version.
-- [ ] Reject a pack whose compatibility range excludes the deployed workspace
-  or strategy-pack schema.
+- [ ] Reject a pack whose explicit supported versions exclude the deployed
+  core, workspace, or strategy-pack schema. A generalized semver-range engine
+  and release-history ledger wait for a real second version or publication.
 
 ### Configuration schema
 
 The pack declares bounded owner-editable fields using an application-owned
-discriminated schema. Initial field kinds should be limited to what the first
-packs need:
-
-- bounded string and string list;
-- enum and boolean;
-- IANA timezone;
-- unique sorted local daily times;
-- entity/watchlist reference;
-- source selection from pack-declared source IDs; and
-- numeric or monetary limits that can only tighten Spec 1 policy.
+discriminated schema. Initial field kinds are deliberately limited to what the
+reference pack needs: an IANA timezone and unique sorted local daily times. Add
+other field kinds only when a concrete pack requires them.
 
 Each field declares its key, label, description, type, required/default state,
 bounds, whether it may be changed after installation, and whether changing it
@@ -351,19 +343,14 @@ The definition lists stable references to:
   and allowed public origins;
 - optional provider/connection IDs;
 - maximum access classification;
-- required and optional capabilities; and
+- required capabilities; and
 - explicit hard denials for the pack.
 
 - [ ] Resolve the effective manifest by intersection with Spec 1 policy. A pack
   requirement that is not granted remains unavailable and is reported with the
   typed reason from Spec 1.
-- [ ] Distinguish `required` from `optional`. A missing required capability
-  blocks activation; a missing optional capability produces a bounded degraded
-  status without inventing an answer.
-- [ ] Map capability loss to binding state consistently: a missing required
-  capability during installation enters `failed_recoverable`; loss after
-  activation enters `unavailable` and pauses managed monitors; a missing
-  optional capability remains `active` with degraded health.
+- [ ] A missing required capability blocks activation. Optional-capability and
+  degraded-mode behavior waits until a real pack requires it.
 - [ ] Run provider tool-inventory/schema drift checks before declaring a pack
   healthy. Newly discovered tools remain disabled.
 - [ ] Reject credentials, signed URLs, mutable redirectors, and unrestricted web
@@ -399,7 +386,7 @@ Each template includes:
 - [ ] Let the owner edit only template fields declared overridable. Record those
   values as workspace-owned overrides rather than altering the pack definition.
 - [ ] Treat owner-created monitors as separate resources that pack
-  reconciliation can never rewrite or remove.
+  mutations can never rewrite or remove.
 
 ### Findings, outputs, and evaluations
 
@@ -449,56 +436,54 @@ It is not a mutable database and does not contain workspace installations.
 - map from pack resource IDs to workspace monitor/source IDs;
 - installation/configuration/removal request IDs and mutation receipts;
 - installed, activated, configured, and generation-rollover timestamps; and
-- bounded health/degraded reason codes.
+- bounded health/unavailable reason codes.
 
 This binding is the versioned successor to Spec 1's existing
 `WorkspaceStrategyConfiguration` record, not a second source of strategy truth.
-Migration reads the old record once, writes one revision-checked binding, and
-then exposes the old shape only as a read-only compatibility projection until
-all workspaces have migrated.
+Use dual-version readers and an explicit compare-and-set migration, never a
+write-on-read migration. A v1 null pack becomes v2 unbound; a v1 non-null pack
+becomes unavailable/legacy-unverified and is never silently activated or used
+to adopt existing monitors. Keep the dual reader and historical catalog entries
+while durable references exist.
 
 Do not copy full instruction files, research documents, fixture bodies, or pack
 schemas into the binding or workspace brief. Store stable references, versions,
 digests, and the bounded owner configuration.
 
-One durable `WorkspaceMutationIntent`, keyed by owner, workspace, expected
-revisions, and mutation ID, serializes archive, restore, start-fresh, pack
-changes, and pack-managed monitor reconciliation. A competing mutation returns
-a bounded conflict instead of interleaving writes across stores.
+Immutable mutation receipts are adjacent records, not a second binding store.
+All v1 pack state uses the same Redis transaction domain, so create/install,
+configuration, and removal each use one bounded multi-key compare-and-write.
+After prevalidation, the transaction writes the complete authoritative state
+and receipt or writes nothing. It does not serialize archive, restore, Start
+fresh, or unrelated owner-created monitor mutations.
 
 ### Binding lifecycle
 
 ```text
-unbound -> installing -> active
-active -> configuring -> active
-active -> removal_planned -> removing -> unbound
-installing|configuring|removing -> failed_recoverable
-failed_recoverable -> installing | configuring | removing | active | unbound
+unbound -> active
+active -> active
+active -> unbound
 active -> unavailable
-unavailable -> active | removal_planned
+unavailable -> active | unbound
 ```
 
-- [ ] Use compare-and-set on the workspace, binding, capability, and monitor
-  revisions for every transition.
+- [ ] Use one bounded multi-key compare-and-write on expected workspace,
+  binding, capability, monitor, and selection revisions for every transition.
 - [ ] Use one stable mutation ID for every install/configure/remove attempt and
   return the prior receipt on replay.
-- [ ] Keep at most one active or in-progress binding per workspace.
-- [ ] Bind all records to the authenticated owner and current workspace; never
-  select a target by model-supplied display name alone.
-- [ ] Prevent archive, start-fresh, pack mutations, and monitor mutations from
-  interleaving into a partially applied configuration.
-- [ ] On unreconciled partial failure, pause affected pack-managed monitors and
-  expose a recoverable status. Do not guess that application completed.
-- [ ] Reconcile `failed_recoverable` by the original mutation receipt: resume
-  the same target when revisions remain valid, otherwise compensate to the
-  prior active or unbound state. Test crashes at every durable-write boundary.
+- [ ] Keep at most one active binding per workspace.
+- [ ] Derive owner, conversation, and source assignment from authenticated
+  routing. The control plane generates and persists the target workspace ID;
+  neither the model nor Spectrum supplies authoritative ownership or grants.
+- [ ] A failed or stale mutation changes no durable key and creates no success
+  receipt. Replaying the same canonical request returns its prior receipt.
 
-## Installation, configuration, and removal reconciliation
+## Installation, configuration, and removal mutations
 
-The first milestone needs one small deterministic mutation engine, not a
-general package-upgrade system. Each install, configuration change, or removal
-records an immutable intent and receipt against expected workspace and binding
-revisions.
+The first milestone needs one small atomic mutation engine, not a general
+package-upgrade or recovery system. Each install, configuration change, or
+removal validates one canonical request and atomically records the complete
+state change plus immutable receipt against expected revisions.
 
 - [ ] Reconcile resources by stable pack resource ID, never display name or
   array position.
@@ -508,11 +493,14 @@ revisions.
   owner request supplies and enables their schedule.
 - [ ] Validate configuration before committing it, pause affected monitors when
   required, and advance the session generation with the binding revision.
+- [ ] Resolve runtime state by the exact workspace, generation, binding
+  revision, pack digest, capability revision, and reciprocal managed-resource
+  provenance. An unmatched tuple fails closed.
 - [ ] Removal pauses or retires pack-managed resources and preserves findings,
   checkpoints, alerts, and audit history.
-- [ ] Recover an interrupted mutation from its durable intent and receipt.
-  Resume the same target when revisions remain valid; otherwise compensate to
-  the last authoritative active or unbound state.
+- [ ] Derive stable request identity in application code so Photon/Eve/Spectrum
+  replay reaches the same receipt while a later intentional request receives a
+  new ID. The ID is never a bearer capability.
 
 ## Runtime capability composition
 
@@ -527,8 +515,9 @@ dynamically composing capabilities from the authenticated workspace binding.
   `workspace.md`; pack text always has lower authority than shared core rules.
 - [ ] Advertise only the installed pack's `playbook.md` as a dynamic Eve skill.
   Do not advertise skills for every catalog entry.
-- [ ] Dynamically expose only tools permitted by the effective Spec 1 capability
-  manifest. Tool executors re-read authoritative scope before acting.
+- [ ] Compose only the active pack's additional mission and playbook. Existing
+  shared root tools remain subject to Spec 1 workspace authorization; every
+  pack-management executor re-reads authoritative scope before acting.
 - [ ] Use Eve's dynamic-capability APIs at a lifecycle boundary compatible with
   durable replay. If dynamic tools are emitted, their `execute` functions follow
   Eve's inline-function requirement so replayed steps retain the executor.
@@ -554,8 +543,10 @@ dynamically composing capabilities from the authenticated workspace binding.
 
 ## Natural-language management contract
 
-Pack management operates only in the owning authenticated workspace. The model
-never mutates another workspace by supplying an arbitrary ID.
+Pack management begins in an authenticated conversation and source workspace.
+The model never mutates another workspace by supplying an arbitrary ID. A
+new-session operation targets a server-generated workspace through one atomic
+control-plane mutation.
 
 Required application-owned operations:
 
@@ -579,8 +570,18 @@ Required application-owned operations:
 - [ ] A request such as “show me the IPO pack” or “install the IPO pack” may
   inspect it or create a new bound session, but cannot infer an active schedule
   the owner did not request; templates remain paused.
+- [ ] The creation response completes in the source workspace continuation.
+  Selecting the new workspace affects only the next owner message, which starts
+  the target workspace's initial generation. Later configuration or removal
+  advances that generation.
+- [ ] Generic session-management language such as “create a new session” opens
+  the existing manager. A concrete pack-plus-configuration request reaches the
+  pack-aware path or a prefilled manager flow. Both surfaces call the same
+  owner-authorized application service.
 - [ ] Configuration and removal requests identify affected resources before
-  application and require an explicit owner confirmation when work will pause.
+  application and require an explicit owner confirmation that managed work will
+  pause and future messages will start a fresh conversation generation. Durable
+  brief and findings remain.
 - [ ] Pack-management tools cannot authorize financial actions or bypass the
   Spectrum manager's owner-bound mutation capabilities.
 
@@ -591,9 +592,10 @@ The selected session view shows:
 
 - installed pack name, exact version, maturity, and health;
 - compact purpose and configurable values;
-- required/optional capabilities with available, denied, or degraded status;
+- required capabilities with available or denied status;
 - declared sources and pack-managed monitors;
-- an active mutation and its resource/cadence/budget effects, when present; and
+- pending request state and its resource/cadence/budget effects, while an atomic
+  mutation is in flight; and
 - create, configure, and remove controls appropriate to current state.
 
 The manager uses these owner-visible states:
@@ -601,10 +603,13 @@ The manager uses these owner-visible states:
 | Binding state | Presentation | Available action |
 | --- | --- | --- |
 | `unbound` | General-purpose session; no pack installed | Browse or inspect the bounded catalog and create a new pack-bound session; distinguish an empty catalog from load failure |
-| `installing`, `configuring`, `removing` | In-progress change with the last authoritative state retained | Disable conflicting mutations; allow status refresh |
-| `failed_recoverable` | Bounded recovery reason and affected paused resources | Inspect recovery, retry the same mutation, or compensate to the prior state |
 | `unavailable` | Exact version or required-capability failure; managed monitors paused | Inspect the cause or remove non-destructively |
-| `active` with degraded health | Optional capability unavailable | Continue allowed behavior and inspect the missing optional capability |
+| `active` | Exact pack and required capabilities are healthy | Configure declared fields or remove non-destructively |
+
+Pending, conflict, and failure are request/UI states, not partially committed
+binding states. Disable conflicting controls while the request is pending;
+afterward render only authoritative `unbound`, `active`, or `unavailable` state
+plus the immutable receipt or bounded error.
 
 - [ ] Preserve the manager's accepted grayscale visual language and user-facing
   **session** terminology.
@@ -618,8 +623,8 @@ The manager uses these owner-visible states:
   to reach on mobile.
 
 Information priority is fixed: session identity and health first, monitor
-controls second, a collapsed pack summary third, and mutation details only while
-an install, configuration change, recovery, or removal needs attention.
+controls second, a collapsed pack summary third, and request details only while
+an install, configuration change, or removal is pending.
 
 ## Reference pack: IPO Filings 1.0.0
 
@@ -685,7 +690,7 @@ and source provenance.
   resource mutations.
 
 
-## Failure and recovery contracts
+## Failure contracts
 
 - [ ] Invalid pack at build: fail catalog generation with bounded file and error
   code; do not emit a partial production catalog.
@@ -694,14 +699,14 @@ and source provenance.
   or non-destructive removal.
 - [ ] Same version/different digest: treat as an integrity failure, never an
   allowed mutation.
-- [ ] Missing required capability: keep the binding inactive or degraded and
+- [ ] Missing required capability: keep the binding inactive or unavailable and
   report the precise unavailable-capability reason.
 - [ ] Duplicate install/configure/remove request: return the original mutation
   receipt and never create duplicate resources or generations.
 - [ ] Concurrent workspace mutation: reject the stale expected revision; do not
   merge blindly.
-- [ ] Partial resource reconciliation: pause affected resources, retain the
-  recoverable intent/receipt, and do not claim the mutation completed.
+- [ ] Atomic mutation failure: change no durable key and create no success
+  receipt.
 - [ ] Deployment rollback: continue using the exact compiled historical version
   when present; otherwise fail closed as unavailable rather than substituting a
   different version.
@@ -710,132 +715,16 @@ and source provenance.
 - [ ] Instruction or tool resolution failure: fail the turn/run before model or
   source execution; do not fall back to all global instructions or tools.
 
-## Implementation sprints
+## Implementation plan
 
-Normative requirements live in the sections above. These checklists record
-sequencing and integration work only.
-
-### Sprint 0 — contracts and failing fixtures
-
-- [ ] Define the pack, catalog, binding, mutation-intent/receipt, resource
-  provenance, health, and source-reference contracts.
-- [ ] Add failing integrity, credential, redirect, lifecycle, recovery,
-  capability, and cross-workspace isolation fixtures.
-- [ ] Define bounded operational errors, feature flags, and rollback behavior.
-
-Exit gate:
-
-- [ ] Every allowed lifecycle transition and catalog-integrity rule has a
-  deterministic failing test.
-
-### Sprint 1 — package schema, validator, and compiled catalog
-
-- [ ] Implement bounded package parsing, canonical digests, immutable release
-  tracking, credential scanning, compatibility checks, and catalog generation.
-- [ ] Add compact catalog projections and reviewed
-  `available | deprecated | blocked` status.
-- [ ] Add `verify:strategy-packs` to repository preparation/build and CI when
-  CI exists.
-
-Exit gate:
-
-- [ ] A clean fork produces identical catalog bytes and digests; invalid or
-  mutated definitions cannot build.
-
-### Sprint 2 — binding, installation, configuration, and removal
-
-- [ ] Migrate Spec 1's strategy configuration into the single authoritative
-  binding without leaving a second writable source of truth.
-- [ ] Implement revision-checked mutation intent/receipt recovery for install,
-  configuration, and non-destructive removal.
-- [ ] Materialize paused pack-managed resources with stable provenance; enable a
-  monitor only when the same owner request explicitly supplies its schedule.
-- [ ] Complete Redis-backed replay, race, partial-write, and lifecycle tests.
-
-Exit gate:
-
-- [ ] Replayed, raced, or interrupted mutations converge on one binding and one
-  resource set without deleting durable workspace data.
-
-### Sprint 3 — Eve runtime composition and isolation
-
-- [ ] Compose only the active pack's instructions, dynamic skill, exact tools,
-  source contracts, and binding metadata into interactive and worker contexts.
-- [ ] Revalidate pack identity, digest, binding revision, resource ID,
-  capability state, and generation before source access and commit.
-- [ ] Complete adversarial isolation, stale-generation, tool-forgery,
-  catalog-leakage, and replay tests.
-
-Exit gate:
-
-- [ ] Differently bound and general sessions run concurrently without sharing
-  pack context, capabilities, configuration, or findings.
-
-### Sprint 4 — IPO Filings packaging foundation
-
-- [ ] Package and validate `ipo-filings@1.0.0` using the existing SEC
-  normalizer, runtime, fixtures, findings, alerts, and live-source smoke.
-- [ ] Prove inspect/install-only starts no monitor, explicit scheduling enables
-  only the requested monitor, and removal is non-destructive.
-- [ ] Prove blocked, missing, or digest-mismatched pack/source references fail
-  closed without broader tools or private context.
-
-Exit gate:
-
-- [ ] A new owner-created 9 AM/4 PM IPO Filings session produces the accepted
-  isolated Spec 1 findings and alerts while install-only remains paused.
-
-### Sprint 5 — natural language, Spectrum, and rollout
-
-- [ ] Add owner-scoped catalog inspection, new-session creation, installation,
-  configuration, health explanation, and non-destructive removal operations.
-- [ ] Add the prioritized Spectrum presentation and harmless
-  stale/replayed/cross-workspace action handling, including mobile checks.
-- [ ] Run typecheck, Eve/application builds, deterministic pack tests, Spec 1
-  regressions, clean-fork verification, and privacy/redirect gates.
-- [ ] Deploy behind separate catalog, install, runtime, and manager flags only
-  after Spec 1's owner-authorized production acceptance passes. Then execute the
-  real Photon install/configure/monitor/alert/removal flow and record rollback
-  evidence.
-
-Exit gate:
-
-- [ ] Creation, installation, isolation, configuration, explicit activation,
-  non-destructive removal, and manager visibility pass end to end without
-  changing existing sessions or weakening Spec 1.
-
-## Planned code areas
-
-Final names may change, but responsibilities must remain separate:
-
-- `strategy-packs/`: declarative versioned pack packages and pack-local fixtures.
-- `agent/lib/strategy-pack-schema.ts`: authoritative definition/configuration
-  schemas and bounded parsing.
-- `agent/lib/strategy-pack-catalog.generated.ts`: build-generated immutable
-  catalog imported by production runtime.
-- `agent/lib/strategy-pack-catalog.ts`: compact lookup, compatibility, status,
-  digest, and capability/source reference checks.
-- `agent/lib/workspace-strategy-pack-store.ts`: durable binding, mutation
-  intents/receipts, and revisions.
-- `agent/lib/strategy-pack-reconciliation.ts`: pure install, configuration, and
-  removal resource planning.
-- `agent/lib/strategy-pack-runtime.ts`: authenticated interactive/worker
-  composition and revalidation.
-- `agent/instructions/` and `agent/skills/`: dynamic pack instruction and skill
-  adapters using the compiled catalog.
-- `agent/tools/`: compact catalog inspection, new pack-bound session creation,
-  and owner-scoped configuration/removal operations.
-- `agent/channels/photon-workspace-app.ts`: existing manager pack section and
-  owner-bound actions.
-- `scripts/generate-strategy-pack-catalog.mjs`: deterministic validation and
-  generated-module output.
-- `scripts/verify-strategy-packs.mjs` and `evals/strategy-packs/`: schema,
-  lifecycle, isolation, behavior, and clean-fork coverage.
-
-Do not duplicate Spec 1's workspace, monitor, budget, finding, alert, ingress,
-or capability stores. Do not use Eve per-session `defineState` as the canonical
-pack binding: that state is session-scoped, while bindings must survive
-generation changes and be independently queryable by the control plane.
+The implementation-ready sequence is maintained once in
+[`docs/plans/2026-08-15-0905-feat-spec-01-acceptance-and-strategy-packs-plan.md`](../docs/plans/2026-08-15-0905-feat-spec-01-acceptance-and-strategy-packs-plan.md).
+Its units cover the Spec 1 production prerequisites, catalog generation,
+in-place strategy-record evolution, bounded pack mutations, Eve/worker runtime
+composition, the IPO reference pack, Eve/Spectrum parity, integration, and
+owner-authorized rollout. Git commits and verification output record progress;
+this product contract does not maintain a second sprint ledger or planned-file
+inventory.
 
 ## Verification matrix
 
@@ -848,13 +737,13 @@ generation changes and be independently queryable by the control plane.
 | Configuration | Unknown or invalid values fail; owner overrides remain separate from immutable pack defaults. |
 | Capabilities | Pack requirements do not grant access; effective access remains default-deny and provider drift is visible. |
 | Activation | Pack browsing/install-only starts no monitor; an explicit schedule request enables only the requested monitor. |
-| Context isolation | Only the active pack mission/playbook/tools appear; other packs and raw research documents remain absent. |
+| Context isolation | Only the active pack's added mission/playbook appears; other packs and raw research documents remain absent; shared Eve tools retain Spec 1 authorization. |
 | Worker isolation | A run receives one monitor instruction and exact sources, not interactive history, catalog contents, or other packs. |
 | Mutation safety | Install, configuration, and removal are revision-bound, replay-safe, and explicit about affected cadence, budget, source, capability, and resources. |
 | Removal | Managed resources pause or retire safely; findings and history remain; generation rollover invalidates stale work. |
 | Source pinning | Every source uses an exact application-owned contract version/digest and allowed-origin set. |
 | Unavailable/blocked | Missing, mismatched, or blocked versions pause managed work and never fall back to a different pack. |
-| Eve durability | Dynamic executors survive replay; interrupted mutations and workers remain idempotent at application boundaries. |
+| Eve durability | Dynamic executors survive replay; atomic mutation failure changes no key; workers remain idempotent at application boundaries. |
 | Reference behavior | IPO installation, S-1 detection, amendment classification, dedupe, alerts, and no-match behavior pass deterministic fixtures. |
 | UX | Natural language and Spectrum display and mutate the same authoritative binding and mutation state. |
 | Regression | General workspaces and every accepted Spec 1 behavior continue to work without a strategy pack. |
@@ -862,7 +751,7 @@ generation changes and be independently queryable by the control plane.
 ## Observability and operations
 
 - [ ] Emit low-cardinality counters for catalog validation, install,
-  configuration, removal, mutation conflict/recovery, binding unavailable,
+  configuration, removal, mutation conflict/failure, binding unavailable,
   pack run stale, and capability unavailable.
 - [ ] Use pack ID only where its catalog cardinality is deliberately bounded;
   never tag metrics with owner/workspace IDs, versions, digests, config values,
@@ -870,12 +759,11 @@ generation changes and be independently queryable by the control plane.
 - [ ] Emit bounded error codes rather than manifest bodies, prompts, owner
   configuration, or source data.
 - [ ] Add operator reports for installed version counts, unavailable/blocked
-  bindings, failed reconciliations, and retired resources without private
+  bindings, failed mutations, and retired resources without private
   workspace content.
 - [ ] Add kill switches for pack installation/mutation, dynamic pack composition,
   and pack-managed monitor dispatch independently.
-- [ ] Define retention for mutation intents/receipts and retired-resource
-  metadata.
+- [ ] Define retention for mutation receipts and retired-resource metadata.
 - [ ] Document how to block a faulty pack version, inspect affected bindings,
   disable the feature safely, and verify that no managed worker remains active.
 
@@ -887,7 +775,7 @@ generation changes and be independently queryable by the control plane.
 - [ ] Keep general-purpose sessions and Spec 1 monitor behavior available while
   pack feature flags are disabled.
 - [ ] Feature rollback may stop new pack mutations and pack-managed dispatch
-  while preserving bindings, monitors, findings, mutation intents, and receipts.
+  while preserving bindings, monitors, findings, and receipts.
 - [ ] Do not remove a compiled pack version while a durable active binding still
   references it.
 - [ ] Record the deployed commit, catalog digest, reference-pack digest, feature
@@ -897,8 +785,8 @@ generation changes and be independently queryable by the control plane.
 
 This specification is complete only when:
 
-- [ ] Every sprint exit gate passes and a clean fork produces the same validated
-  catalog and release digests.
+- [ ] Every implementation-plan unit passes and a clean fork produces the same
+  validated catalog and reference-pack digest.
 - [ ] A general-purpose session remains valid with no pack.
 - [ ] The owner can create a new IPO Filings session, pin its exact pack and
   source-contract digests, and explicitly configure and enable its 9 AM/4 PM

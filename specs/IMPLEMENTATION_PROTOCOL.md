@@ -8,7 +8,14 @@ without asking one context window to implement and judge a whole specification.
 
 ## Repository and branch setup
 
-- Maintain one local integration branch for the assigned spec. Suggested
+For the current Spec 1 acceptance/Spec 2 plan, use the owner's simplified rule:
+local `main` plus one temporary unit worktree/branch at a time. After independent
+review, the coordinator merges that unit to local `main` and removes the
+temporary worktree/branch before the next unit starts. The longer-lived
+integration-branch pattern below remains available for later multi-sprint specs.
+
+- For later multi-sprint specs, maintain one local integration branch for the
+  assigned spec. Suggested
   integration branches:
   - `codex/spec-01-independent-workspaces`
   - `codex/spec-02-strategy-packs`
@@ -194,17 +201,12 @@ security/isolation, and fixture/live-smoke acceptance.
   and only with durable implemented facts. Do not describe planned work as
   shipped.
 
-Maintain a concise `## Implementation progress` section at the end of the
-assigned spec. Add one row per completed atomic task or inseparable group:
-
-| Date | Checklist item | Verification |
-| --- | --- | --- |
-| YYYY-MM-DD | Short exact item description | `focused command` — passed |
-
-Keep verification entries short. Do not paste logs, secrets, payloads, owner
-identifiers, or private content into the spec. The atomic commit containing the
-row is the commit record; do not create self-referential placeholder SHAs or
-rewrite history merely to put a commit hash inside the document.
+Do not append a chronological progress ledger to the assigned spec. Keep one
+concise implementation-status table only when the spec needs to distinguish
+local completion, production acceptance, and deferred work. Git commits and the
+phase handoff are the execution record; specifications should not duplicate
+them. Never paste logs, secrets, payloads, owner identifiers, or private content
+into a spec.
 
 ## Commit policy
 

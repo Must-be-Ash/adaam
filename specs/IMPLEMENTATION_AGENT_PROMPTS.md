@@ -1,17 +1,19 @@
 # Copy-ready phased implementation prompts
 
 Do not delegate an entire specification to one implementation task. Use one
-implementation task per sprint, one independent review task per sprint, and a
-bounded remediation task only when the review produces verified findings.
+implementation task per bounded plan unit or spec sprint, one independent
+review task per phase, and a bounded remediation task only when the review
+produces verified findings.
 
 The sequence is:
 
-1. implement one sprint on a fresh phase branch and stop;
-2. independently review that sprint without editing it;
+1. implement one bounded unit or sprint on a fresh phase branch and stop;
+2. independently review that phase without editing it;
 3. have the coordinating agent verify the findings;
 4. remediate only verified findings and re-review;
-5. merge the reviewed phase into the spec integration branch locally;
-6. start the next sprint in a fresh task and worktree; and
+5. merge a reviewed current-plan unit into local `main`, or a later spec sprint
+   into its spec integration branch;
+6. start the next unit or sprint in a fresh task and worktree; and
 7. after all sprints are reviewed and integrated, run a separate whole-spec
    integration/release review before merging into local `main`.
 
@@ -22,22 +24,20 @@ context.
 ## Current implementation target
 
 Spec 1's polling-first application is implemented, independently reviewed,
-merged, and pushed to `main`. Its remaining owner-authorized production rollout
-and explicitly deferred hardening are tracked in
-[`01-independent-workspace-runtimes.md`](01-independent-workspace-runtimes.md)
-and do not block beginning Spec 2. The next bounded implementation task is Spec 2
-Sprint 0.
+merged, and pushed to `main`. The executable sequence is now
+[`docs/plans/2026-08-15-0905-feat-spec-01-acceptance-and-strategy-packs-plan.md`](../docs/plans/2026-08-15-0905-feat-spec-01-acceptance-and-strategy-packs-plan.md).
+The next bounded task is U1: the two production prerequisites and truthful
+rollout contract. Local later units may proceed before the owner schedules live
+acceptance, but production pack activation cannot.
 
-## Spec 2 Sprint 0 kickoff prompt
+## Current plan-unit kickoff prompt
 
-Use this only after the reviewed local Spec 1 polling milestone is present on
-`main`. Production rollout is a separate owner-authorized operation, not a Spec 2
-dependency.
+Use this with one U-ID from the implementation-ready plan. U1 is the first unit.
 
 ```text
-Implement only Sprint 0 — contracts and failing fixtures — from Spec 2,
-`specs/02-versioned-strategy-packs.md`. Do not implement Sprint 1 or any later
-sprint in this task.
+Implement only [U_ID] from
+`docs/plans/2026-08-15-0905-feat-spec-01-acceptance-and-strategy-packs-plan.md`.
+Do not implement a later unit in this task.
 
 Before editing, read `AGENTS.md`, `HANDOFF.md`, `NORTH_STAR.md`,
 `specs/IMPLEMENTATION_PROTOCOL.md`, Spec 1, and the entire Spec 2. Read the
@@ -47,22 +47,21 @@ Git history. Read the relevant installed Eve and Next.js documentation before
 changing framework code, and search the Eve registry before implementing an
 integration.
 
-Verify local `main` contains the reviewed Spec 1 merge. Create the local
-integration branch `codex/spec-02-strategy-packs` from that exact `main` commit
-if it does not already exist. If it already exists, verify that its head exactly
-matches the required reviewed `main` commit before Sprint 0 begins; if it does
-not, stop and report the exact divergence. Then create a fresh worktree and
-phase branch `codex/spec-02-sprint-0` from the integration branch. If Codex
-already supplied a fresh isolated worktree at the correct base, use it and do
-not create a nested worktree. Preserve all unrelated changes. If the dependency
-or base is wrong, stop and report the exact missing commit instead of rebuilding
-Spec 1.
+Verify local `main` contains the reviewed Spec 1 merge, then create the one
+temporary worktree and unit branch directly from that exact commit. Use
+`codex/spec-01-u1` for U1 and `codex/spec-02-uN` for U2-U8. If Codex already
+supplied a fresh isolated worktree at the correct base, use it and do not create
+a nested worktree. Preserve all unrelated changes. If another temporary
+worktree exists or the dependency/base is wrong, stop and report the exact state
+instead of creating a second worktree or rebuilding Spec 1. After independent
+review, the coordinator merges the unit to local `main` and removes its
+worktree/branch before the next unit begins.
 
-Follow `specs/IMPLEMENTATION_PROTOCOL.md`. Work through only Sprint 0, one
-checklist item at a time. For each item: inspect first, implement the smallest
-complete change, add the narrowest deterministic test, run focused verification,
-review the diff, mark only that item after it passes, update the progress table,
-and create an atomic local commit containing behavior, test, and checkbox.
+Follow `specs/IMPLEMENTATION_PROTOCOL.md`. Work through only the assigned unit.
+Inspect first, implement the smallest complete behavior, add the narrowest
+deterministic test, run focused verification, review the diff, and create atomic
+local commits at verified boundaries. Track progress in Git and the handoff, not
+by adding a chronological ledger to the specs or plan.
 
 An exit gate is proven only when a test exercises the real production contract
 or caller expected at this phase. Source-text assertions, mock-only success,
@@ -75,17 +74,17 @@ implement Spec 3's source-adapter platform, Spec 4/5 strategy behavior, Spec 6
 sharing, Telegram, private artifacts, or live trading. Pack declarations cannot
 weaken Spec 1 owner, capability, budget, isolation, or financial-safety limits.
 
-After the Sprint 0 exit gate passes, stop. Report the phase base/head commits,
-checked items, exact commands and results, remaining unchecked work, and risks.
-Do not start Sprint 1, review or merge your own branch, push, open a PR, deploy,
-or mutate remote/production state.
+After the assigned unit's verification passes, stop. Report the phase base/head
+commits, requirements covered, exact commands and results, remaining work, and
+risks. Do not start the next unit, review or merge your own branch, push, open a
+PR, deploy, or mutate remote/production state.
 ```
 
 ## Later-sprint implementation prompt template
 
-Use this template in a fresh task. Replace every bracketed field. The previous
-sprint must already be independently reviewed and merged into the spec
-integration branch.
+Use this template for Specs 3-6 in a fresh task. Spec 2 uses the plan-unit prompt
+above. Replace every bracketed field. The previous sprint must already be
+independently reviewed and merged into the spec integration branch.
 
 ```text
 Implement only Sprint [SPRINT_NUMBER] — [SPRINT_TITLE] — from Spec
@@ -109,9 +108,10 @@ report the exact branch/commit gap instead of creating a parallel subsystem.
 Follow `specs/IMPLEMENTATION_PROTOCOL.md`. Work through only the assigned
 sprint, one checklist item at a time. For each item: inspect first, implement the
 smallest complete behavior, add the narrowest deterministic test, run focused
-verification, review the diff, mark only that item after it passes, update the
-progress table, and make an atomic local commit containing behavior, test, and
-checkbox.
+verification, review the diff, mark only that item after it passes, and make an
+atomic local commit containing behavior, test, and checkbox. Use Git and the
+handoff as the progress record rather than appending a chronological spec
+ledger.
 
 Before checking the sprint exit gate, prove the behavior through the real
 production caller or entry point expected by the spec. Do not substitute a
@@ -137,7 +137,6 @@ Use these branch values:
 
 | Spec | Spec path | Integration branch | Phase branch pattern |
 | --- | --- | --- | --- |
-| 2 | `specs/02-versioned-strategy-packs.md` | `codex/spec-02-strategy-packs` | `codex/spec-02-sprint-N` |
 | 3 | `specs/03-public-source-adapters.md` | `codex/spec-03-source-adapters` | `codex/spec-03-sprint-N` |
 | 4 | `specs/04-congressional-signals-house.md` | `codex/spec-04-congressional-signals` | `codex/spec-04-sprint-N` |
 | 5 | `specs/05-insider-clusters.md` | `codex/spec-05-insider-clusters` | `codex/spec-05-sprint-N` |

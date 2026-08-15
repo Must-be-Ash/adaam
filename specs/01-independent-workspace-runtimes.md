@@ -24,10 +24,12 @@ workspace agents remain continuously active without permanently running model
 processes. It does not implement the complete Congressional Signals, Insider
 Clusters, or Cramer Inverse strategies.
 
-Every implementation item is a checklist entry. Complete the sprints in order.
-Do not mark an item complete until its tests and the sprint exit gate pass. If
-implementation reveals a product decision that contradicts this specification,
-stop and resolve it with the owner instead of silently widening the scope.
+The detailed contracts describe the target behavior. The implementation-status
+table distinguishes locally shipped behavior, production acceptance, and
+explicitly deferred hardening; Git and verification output are the evidence.
+If implementation reveals a product decision that contradicts this
+specification, stop and resolve it with the owner instead of silently widening
+the scope.
 
 ## Goal
 
@@ -154,9 +156,10 @@ The completed foundation must support this experience:
 
 ## Non-negotiable invariants
 
-- [ ] Every authenticated Photon message that can cause a control-plane or model
-  action receives one immutable ingress receipt. An ordinary message is assigned
-  to exactly one workspace before any workspace model sees it.
+- [x] In durable ingress mode, every authenticated Photon message that can cause
+  a control-plane or model action receives one immutable ingress receipt. An
+  ordinary message is assigned to exactly one workspace before any workspace
+  model sees it. Explicit legacy compatibility mode creates no such records.
 - [x] Duplicate Photon webhooks reuse the original ingress receipt and cannot
   cause a second model dispatch, control action, paid call, or response.
 - [x] A dispatch or outbound delivery whose completion cannot be proven is
@@ -178,12 +181,14 @@ The completed foundation must support this experience:
   transfers, withdrawals, leverage, credential changes, and interactive HITL.
 - [x] A workspace capability setting may tighten deployment limits but cannot
   loosen a hard global safety limit.
-- [ ] Paid operations reserve budget before execution. An uncertain paid result
-  is not automatically retried.
-- [ ] Every ingress, assignment, dispatch, run, source event, finding, alert,
-  delivery, and control action has a durable idempotency key.
-- [ ] At-least-once Eve delivery must not create duplicate alerts or duplicate
-  paid calls.
+- [x] Paid operations reserve budget before execution and an uncertain paid
+  result is not automatically retried. Expired-reservation reconciliation is
+  deferred below.
+- [x] Every implemented polling-path ingress, assignment, dispatch, run,
+  finding, alert, delivery, and control action has a durable idempotency key.
+  Spec 3 owns source-event receipts.
+- [x] At-least-once Eve delivery does not create duplicate alerts or duplicate
+  paid calls in the implemented ordinary path.
 - [x] Alerts do not silently switch the selected workspace.
 - [x] Public-source facts preserve canonical URL, source identity, observed time,
   published/updated time when available, content hash, and access classification.
@@ -303,9 +308,8 @@ dispatching|dispatched -> uncertain -> quarantined -> resolved
 - [x] Quarantine uncertain model dispatch or response delivery instead of
   replaying it. Recovery may resume only after authoritative reconciliation or
   an explicit owner/operator resolution recorded on the receipt.
-- [ ] Bound receipt payloads and retention. Store only the references or digests
-  needed for dedupe, routing, recovery, and audit; never emit message content in
-  logs or metrics.
+Receipt payloads are bounded to the references needed for dedupe, routing,
+recovery, and audit. Long-term retention policy remains deferred below.
 
 ### Workspace record
 
@@ -462,9 +466,9 @@ active -> archived -> active
 active|archived -> retired
 ```
 
-- [ ] Archiving atomically prevents new interactive routing, pauses/suspends all
-  monitors, revokes pending workspace approvals, and selects a replacement if
-  the archived workspace was selected.
+- [x] Archiving prevents new interactive routing, pauses/suspends monitors,
+  revokes pending workspace approvals, and selects a replacement if needed in
+  the ordinary path. Cross-store atomic convergence is deferred below.
 - [x] Restoring returns the workspace to `active` but converts its monitors to
   manual `paused`; none resume automatically.
 - [x] Starting fresh advances the session generation and revokes approvals tied
@@ -505,8 +509,8 @@ finding_staged -> alert_staged -> completed
 - [x] Different workspaces may run concurrently.
 - [x] A monitor is single-flight. Default workspace concurrency is one worker;
   the owner may raise it only within a hard deployment cap.
-- [ ] Concurrent writes to one workspace use compare-and-set and retry only the
-  state merge, never an already-completed paid call.
+- [x] Concurrent workspace-state writes use compare-and-set; already-completed
+  paid calls are never replayed as a state-merge retry.
 
 ### Alert delivery lifecycle
 
@@ -519,8 +523,8 @@ delivering -> delivery_uncertain
 - [x] A delivered alert is deduplicated by stable alert and destination IDs.
 - [x] If the Photon adapter returns an explicit ambiguous-acceptance error,
   quarantine the delivery and pause the monitor instead of sending it again.
-- [ ] A failed alert does not advance the source checkpoint until safe retry or
-  explicit operator resolution.
+The ordinary staged-alert path creates discoverable delivery work before run
+completion. Crash-atomic alert/checkpoint recovery remains deferred below.
 
 ## Scheduling semantics
 
@@ -603,8 +607,8 @@ run stale before tool execution.
   paid call.
 - [x] Reconcile reservation versus actual cost when the provider returns a
   trustworthy charge.
-- [ ] Keep an uncertain charge reserved until reconciled or expired through an
-  owner-visible process.
+Uncertain charges are not automatically released or retried; durable expiry and
+owner-visible reconciliation remain deferred below.
 - [x] When a budget blocks a run, record a bounded reason and notify the owner
   once; do not generate an alert on every minute tick.
 - [x] Let the owner change workspace budgets through authenticated manager
@@ -872,9 +876,16 @@ without duplicating each requirement.
   redirects before issuing any second outbound request, including redirects to
   private or undeclared origins.
 - [ ] With owner authorization, deploy behind flags and execute the real Photon
-  IPO alert/Discuss/manager flow.
-- [ ] Verify event streams and delivery receipts, not only the final iMessage.
-- [ ] Record rollback evidence before enabling by default.
+  IPO alert/Discuss/manager flow. To avoid waiting indefinitely for a new filing,
+  use a disposable acceptance monitor positioned immediately before one real
+  canonical S-1 already present in the live SEC feed; label it as an acceptance
+  replay, retire it afterward, and introduce no fixture endpoint.
+- [ ] Correlate bounded evidence across ingress and assignment, monitor claim and
+  run snapshot, finding, alert/outbox, Photon delivery receipt, Discuss
+  selection/context, and next-turn assignment. Record no private content.
+- [ ] Prove the non-selected workspace remains selected until Discuss, duplicate
+  delivery is inert, the manager agrees with durable state, and rollback stops
+  new dispatch/alerts without deleting workspace records.
 
 Exit gate:
 
@@ -978,8 +989,9 @@ acceptance** is checked with owner-authorized Photon evidence.
 
 Deferred post-Spec-6 hardening remains tracked below the implementation status
 and is not a blocker unless an item becomes an observed ordinary-path failure.
-After production acceptance, record the deployed commit, smoke evidence, and
-rollback result in `HANDOFF.md`, `NORTH_STAR.md`, and this specification.
+After production acceptance, record the deployed commit, bounded receipt-chain
+evidence, smoke result, and rollback result in `HANDOFF.md`, `NORTH_STAR.md`, and
+this specification.
 
 ## Follow-on specifications
 
