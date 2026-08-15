@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   readWorkspaceRunOutcome,
+  selectUnseenWorkspaceFindingIdentities,
   WorkspaceFindingError,
   type WorkspaceFindingStoreClient,
 } from "../agent/lib/workspace-finding-store";
@@ -44,7 +45,30 @@ class MemoryCasStore implements WorkspaceStateStoreClient, WorkspaceSourceCovera
 }
 
 class MemoryFindingStore implements WorkspaceFindingStoreClient {
+  failNextIdentityCommit = false;
+  forceNextIdentityConflict = false;
   readonly values = new Map<string, string>();
+  async createOutcomeWithIdentityClaims(input: Parameters<WorkspaceFindingStoreClient["createOutcomeWithIdentityClaims"]>[0]) {
+    const outcome = this.values.get(input.outcomeKey);
+    if (outcome) return { status: "existing" as const, value: outcome };
+    if (this.failNextIdentityCommit) {
+      this.failNextIdentityCommit = false;
+      throw new Error("fixture_identity_commit_interrupted");
+    }
+    if (this.forceNextIdentityConflict) {
+      this.forceNextIdentityConflict = false;
+      return { status: "identity_conflict" as const, value: "fixture_conflict" };
+    }
+    for (const claim of input.identityClaims) {
+      const existing = this.values.get(claim.key);
+      if (existing && existing !== claim.value) {
+        return { status: "identity_conflict" as const, value: existing };
+      }
+    }
+    for (const claim of input.identityClaims) this.values.set(claim.key, claim.value);
+    this.values.set(input.outcomeKey, input.outcomeValue);
+    return { status: "created" as const, value: input.outcomeValue };
+  }
   async createOrRead(key: string, value: string) {
     const existing = this.values.get(key);
     if (existing) return existing;
@@ -68,14 +92,21 @@ class MemoryAlertStore implements WorkspaceAlertStoreClient {
 }
 
 class MemoryMonitorStore implements WorkspaceMonitorStoreClient {
+  completeCalls = 0;
+  readonly completedOccurrences = new Set<string>();
   readonly values = new Map<string, string>();
   async complete(input: Parameters<WorkspaceMonitorStoreClient["complete"]>[0]) {
+    if (this.completedOccurrences.has(input.occurrenceRecordKey)) {
+      return "already_completed" as const;
+    }
     const raw = this.values.get(input.recordKey);
     if (!raw) return "missing" as const;
     if (raw !== input.expectedRaw) return "stale" as const;
     const monitor = JSON.parse(input.nextRaw);
     if (monitor.configurationRevision !== input.configurationRevision) return "stale" as const;
     this.values.set(input.recordKey, input.nextRaw);
+    this.completedOccurrences.add(input.occurrenceRecordKey);
+    this.completeCalls += 1;
     return "completed" as const;
   }
   async create(input: Parameters<WorkspaceMonitorStoreClient["create"]>[0]) {
@@ -233,6 +264,7 @@ const finding = {
   accessClassification: "public" as const,
   artifactRefs: [],
   asOf: now.toISOString(),
+  factIdentities: ["0001000001-26-000001:S-1"],
   facts: [{
     accessionNumber: "0001000001-26-000001",
     amendmentIdentity: null,
@@ -303,6 +335,30 @@ assert.equal(outcome.runId, runId);
 assert.equal(outcome.finding?.summary, finding.summary);
 assert.deepEqual(outcome.finding?.facts, finding.facts);
 assert.match(outcome.finding?.findingId ?? "", /^finding_[a-f0-9]{64}$/u);
+assert.deepEqual(
+  await selectUnseenWorkspaceFindingIdentities({
+    factIdentities: finding.factIdentities,
+    monitorId: monitor.monitorId,
+    scope,
+  }, findingClient),
+  [],
+);
+assert.deepEqual(
+  await selectUnseenWorkspaceFindingIdentities({
+    factIdentities: finding.factIdentities,
+    monitorId: monitor.monitorId,
+    scope: otherScope,
+  }, findingClient),
+  finding.factIdentities,
+);
+assert.deepEqual(
+  await selectUnseenWorkspaceFindingIdentities({
+    factIdentities: finding.factIdentities,
+    monitorId: "523e4567-e89b-42d3-a456-426614174000",
+    scope,
+  }, findingClient),
+  finding.factIdentities,
+);
 assert.deepEqual(
   await writeWorkspaceFindingForWorker({ clients, ctx, environment, finding, now: new Date(now.getTime() + 1_000) }),
   outcome,
@@ -455,6 +511,159 @@ await assert.rejects(
   writeWorkspaceFindingForWorker({ clients, ctx: noMatchCtx, environment, finding, now }),
   (error) => error instanceof WorkspaceFindingError && error.code === "finding_conflict",
 );
+
+const interruptedRunId = `${"a".repeat(64)}:attempt:1`;
+const interruptedScheduledFor = new Date(now.getTime() + 60_000).toISOString();
+const interruptedClaimed = {
+  ...claimed,
+  occurrence: {
+    ...claimed.occurrence,
+    leaseTokenDigest: "a".repeat(64),
+    occurrenceIdentity: `interval:${interruptedScheduledFor}`,
+    occurrenceKey: "a".repeat(64),
+    scheduledFor: interruptedScheduledFor,
+  },
+} satisfies ClaimedWorkspaceMonitor;
+const interruptedEnvelope = createWorkspaceWorkerEnvelope({
+  budgetRevision: 1,
+  capabilityRevision: 1,
+  claimed: interruptedClaimed,
+  dispatchBudget: {
+    ...dispatchBudget,
+    global: { ...dispatchBudget.global, runId: interruptedRunId },
+    runId: interruptedRunId,
+    workspace: { ...dispatchBudget.workspace, runId: interruptedRunId },
+  },
+  expiresAt: new Date(now.getTime() + 10 * 60_000),
+  issuedAt: now,
+  stateRevision: { brief: 1, strategy: 1 },
+  window,
+});
+const interruptedToken = signWorkspaceWorkerEnvelope(interruptedEnvelope, environment);
+const interruptedCtx = {
+  session: { auth: { current: workspaceWorkerExecutionAuth(interruptedEnvelope, interruptedToken) } },
+};
+await createWorkspaceSourceCoverage({
+  configurationRevision: monitor.configurationRevision,
+  monitorId: monitor.monitorId,
+  now,
+  runId: interruptedRunId,
+  scope,
+  sources: [{ canonicalUrl: source.canonicalUrl, origin: source.origin, sourceId: source.sourceId }],
+  window,
+}, coverageClient);
+await reserveWorkspaceSourceAttempt({
+  now,
+  runId: interruptedRunId,
+  scope,
+  sourceId: source.sourceId,
+}, coverageClient);
+await markWorkspaceSourceSuccess({
+  contentDigest: "8".repeat(64),
+  now,
+  runId: interruptedRunId,
+  scope,
+  sourceId: source.sourceId,
+}, coverageClient);
+const interruptedIdentity = "0001000002-26-000002:S-1";
+const interruptedFinding = {
+  ...finding,
+  factIdentities: [interruptedIdentity],
+  facts: [{
+    ...finding.facts[0],
+    accessionNumber: "0001000002-26-000002",
+    canonicalFilingUrl:
+      "https://www.sec.gov/Archives/edgar/data/1000002/000100000226000002/fixture-s1-index.htm",
+    cik: "0001000002",
+    contentEvidence: {
+      feedContentHash: "8".repeat(64),
+      normalizedFilingHash: "7".repeat(64),
+    },
+    companyName: "Interrupted Fixture Corp",
+    fileNumber: "333-100002",
+    filingIdentity: interruptedIdentity,
+    registrationIdentity: "0001000002:333-100002",
+  }],
+  summary: "Interrupted Fixture Corp filed a potential IPO registration on Form S-1.",
+};
+const completionsBeforeInterruptedCommit = monitorClient.completeCalls;
+findingClient.failNextIdentityCommit = true;
+await assert.rejects(
+  writeWorkspaceFindingForWorker({
+    clients,
+    ctx: interruptedCtx,
+    environment,
+    finding: interruptedFinding,
+    now,
+  }),
+  /fixture_identity_commit_interrupted/u,
+);
+assert.equal(
+  await readWorkspaceRunOutcome(scope, interruptedEnvelope.occurrenceKey, findingClient),
+  null,
+);
+assert.deepEqual(
+  await selectUnseenWorkspaceFindingIdentities({
+    factIdentities: [interruptedIdentity],
+    monitorId: monitor.monitorId,
+    scope,
+  }, findingClient),
+  [interruptedIdentity],
+);
+assert.equal(monitorClient.completeCalls, completionsBeforeInterruptedCommit);
+findingClient.forceNextIdentityConflict = true;
+await assert.rejects(
+  writeWorkspaceFindingForWorker({
+    clients,
+    ctx: interruptedCtx,
+    environment,
+    finding: interruptedFinding,
+    now,
+  }),
+  (error) =>
+    error instanceof WorkspaceFindingError && error.code === "finding_conflict",
+);
+assert.equal(
+  await readWorkspaceRunOutcome(scope, interruptedEnvelope.occurrenceKey, findingClient),
+  null,
+);
+assert.deepEqual(
+  await selectUnseenWorkspaceFindingIdentities({
+    factIdentities: [interruptedIdentity],
+    monitorId: monitor.monitorId,
+    scope,
+  }, findingClient),
+  [interruptedIdentity],
+);
+assert.equal(monitorClient.completeCalls, completionsBeforeInterruptedCommit);
+const recoveredInterruptedOutcome = await writeWorkspaceFindingForWorker({
+  clients,
+  ctx: interruptedCtx,
+  environment,
+  finding: interruptedFinding,
+  now,
+});
+assert.equal(recoveredInterruptedOutcome.outcome, "finding_staged");
+assert.deepEqual(
+  await selectUnseenWorkspaceFindingIdentities({
+    factIdentities: [interruptedIdentity],
+    monitorId: monitor.monitorId,
+    scope,
+  }, findingClient),
+  [],
+);
+assert.equal(monitorClient.completeCalls, completionsBeforeInterruptedCommit + 1);
+assert.deepEqual(
+  await writeWorkspaceFindingForWorker({
+    clients,
+    ctx: interruptedCtx,
+    environment,
+    finding: interruptedFinding,
+    now,
+  }),
+  recoveredInterruptedOutcome,
+);
+assert.equal(monitorClient.completeCalls, completionsBeforeInterruptedCommit + 1);
 
 const rawMonitor = [...monitorClient.values.entries()][0];
 assert.ok(rawMonitor);

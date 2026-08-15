@@ -88,12 +88,17 @@ assert.equal(
   "The model-facing generic finding schema must not accept authoritative SEC facts.",
 );
 assert.equal(
-  workspaceFindingCandidateSchema.safeParse({ ...generic, facts: [fact] }).success,
+  workspaceFindingCandidateSchema.safeParse({
+    ...generic,
+    factIdentities: [fact.filingIdentity],
+    facts: [fact],
+  }).success,
   true,
 );
 assert.equal(
   workspaceFindingCandidateSchema.safeParse({
     ...generic,
+    factIdentities: [fact.filingIdentity],
     facts: [{ ...fact, classification: "amendment" }],
   }).success,
   false,

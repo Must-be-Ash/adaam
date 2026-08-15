@@ -33,6 +33,10 @@ class MemoryCasStore implements WorkspaceStateStoreClient, WorkspaceSourceCovera
 }
 
 class EmptyFindingStore implements WorkspaceFindingStoreClient {
+  async createOutcomeWithIdentityClaims(input: Parameters<WorkspaceFindingStoreClient["createOutcomeWithIdentityClaims"]>[0]) {
+    return { status: "created" as const, value: input.outcomeValue };
+  }
+
   async createOrRead(_key: string, value: string) {
     return value;
   }

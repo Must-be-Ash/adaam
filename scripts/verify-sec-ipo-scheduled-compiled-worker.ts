@@ -76,6 +76,20 @@ class MemoryCreateStore
   failNextRecordType: string | null = null;
   readonly values = new Map<string, string>();
 
+  async createOutcomeWithIdentityClaims(input: Parameters<WorkspaceFindingStoreClient["createOutcomeWithIdentityClaims"]>[0]) {
+    const outcome = this.values.get(input.outcomeKey);
+    if (outcome) return { status: "existing" as const, value: outcome };
+    for (const claim of input.identityClaims) {
+      const existing = this.values.get(claim.key);
+      if (existing && existing !== claim.value) {
+        return { status: "identity_conflict" as const, value: existing };
+      }
+    }
+    for (const claim of input.identityClaims) this.values.set(claim.key, claim.value);
+    this.values.set(input.outcomeKey, input.outcomeValue);
+    return { status: "created" as const, value: input.outcomeValue };
+  }
+
   async compareAndSet(key: string, expected: string, next: string) {
     if (this.values.get(key) !== expected) return false;
     this.values.set(key, next);
@@ -174,6 +188,7 @@ const fixtureBodies = {
   initial: await fixture("initial.atom"),
   later: await fixture("later-s1.atom"),
   malformed: await fixture("malformed.atom"),
+  sameS1LaterUpdated: await fixture("same-s1-later-updated.atom"),
 };
 const state = new MemoryCasStore();
 const coverage = new MemoryCasStore();
@@ -755,6 +770,43 @@ try {
     ))!;
     assert.notEqual(monitorA.nextOccurrenceAt, sameFilingOccurrence);
     assert.equal(monitors.completeCalls, completionsBeforeSameFiling + 1);
+
+    const laterUpdatedOccurrence = monitorA.nextOccurrenceAt;
+    const findingsBeforeLaterUpdated = storedFindings().length;
+    const alertsBeforeLaterUpdated = storedRecords(alerts, "workspace_alert").length;
+    const outcomesBeforeLaterUpdated = storedRecords(
+      findings,
+      "workspace_run_outcome",
+    ).length;
+    const completionsBeforeLaterUpdated = monitors.completeCalls;
+    const laterUpdated = await dispatch(
+      claim({ monitor: monitorA, now: verificationNow, scope: workspaceA.scope }),
+      fetchResponse(fixtureBodies.sameS1LaterUpdated),
+    );
+    assert.equal(laterUpdated.fetches, 1);
+    assertCompiledEvaluatorEvents(laterUpdated);
+    assert.equal(storedFindings().length, findingsBeforeLaterUpdated);
+    assert.equal(
+      storedRecords(alerts, "workspace_alert").length,
+      alertsBeforeLaterUpdated,
+    );
+    const outcomesAfterLaterUpdated = storedRecords(
+      findings,
+      "workspace_run_outcome",
+    );
+    assert.equal(outcomesAfterLaterUpdated.length, outcomesBeforeLaterUpdated + 1);
+    assert.equal(outcomesAfterLaterUpdated.at(-1)?.outcome, "no_match");
+    monitorA = (await getWorkspaceMonitor(
+      workspaceA.scope,
+      monitorA.monitorId,
+      monitors,
+    ))!;
+    assert.equal(
+      monitorA.sourceCheckpoint.watermark,
+      "2026-08-14T20:00:00.000Z",
+    );
+    assert.notEqual(monitorA.nextOccurrenceAt, laterUpdatedOccurrence);
+    assert.equal(monitors.completeCalls, completionsBeforeLaterUpdated + 1);
 
     const recoveryWorkspace = await setupWorkspace(
       "423e4567-e89b-42d3-a456-426614174000",

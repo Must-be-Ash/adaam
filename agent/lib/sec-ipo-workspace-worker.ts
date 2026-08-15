@@ -14,7 +14,9 @@ import {
 } from "./sec-ipo-reference";
 import {
   readWorkspaceRunOutcome,
+  selectUnseenWorkspaceFindingIdentities,
   type WorkspaceFindingCandidate,
+  type WorkspaceFindingStoreClient,
   type WorkspaceRunOutcome,
 } from "./workspace-finding-store";
 import {
@@ -116,6 +118,7 @@ function findingCandidate(
     accessClassification: "public",
     artifactRefs: [],
     asOf: latest,
+    factIdentities: facts.map((fact) => fact.filingIdentity),
     facts,
     provenance: [{
       accessClassification: "public",
@@ -125,6 +128,36 @@ function findingCandidate(
     }],
     summary,
   };
+}
+
+async function selectUnseenEvaluationFindings(input: {
+  client?: WorkspaceFindingStoreClient;
+  evaluation: SecIpoEvaluation;
+  monitorId: string;
+  scope: ReturnType<typeof authorizeWorkspaceWorkerStore>;
+}): Promise<SecIpoEvaluation> {
+  const unseen = new Set(
+    await selectUnseenWorkspaceFindingIdentities({
+      factIdentities: input.evaluation.findings.map(
+        ({ fact }) => fact.filingIdentity,
+      ),
+      monitorId: input.monitorId,
+      scope: input.scope,
+    }, input.client),
+  );
+  const findings = input.evaluation.findings.filter(
+    ({ fact }) => unseen.has(fact.filingIdentity),
+  );
+  const findingIds = new Set(findings.map(({ findingId }) => findingId));
+  return Object.freeze({
+    ...input.evaluation,
+    alerts: Object.freeze(
+      input.evaluation.alerts.filter(({ findingId }) =>
+        findingIds.has(findingId)
+      ),
+    ),
+    findings: Object.freeze(findings),
+  });
 }
 
 function alertPresentationForFacts(facts: readonly SecIpoFilingFact[]):
@@ -238,7 +271,7 @@ export async function evaluateSecIpoSourceForWorker(input: {
     ...fetched,
     observedAt: now.toISOString(),
   });
-  const evaluation = evaluateSecIpoPage(
+  const evaluated = evaluateSecIpoPage(
     page,
     currentCheckpoint(monitor),
     scope,
@@ -251,6 +284,12 @@ export async function evaluateSecIpoSourceForWorker(input: {
     scope,
     sourceId: source.sourceId,
   }, input.clients?.sourceCoverage);
+  const evaluation = await selectUnseenEvaluationFindings({
+    client: input.clients?.finding,
+    evaluation: evaluated,
+    monitorId: envelope.monitorId,
+    scope,
+  });
   const outcome = await commitDeterministicWorkspaceEvaluationForWorker({
     alertPresentation: alertPresentation(evaluation),
     checkpoint: evaluation.checkpoint,

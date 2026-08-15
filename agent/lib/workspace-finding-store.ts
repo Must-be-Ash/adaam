@@ -19,6 +19,23 @@ if current then return current end
 redis.call("SET", KEYS[1], ARGV[1])
 return ARGV[1]
 `;
+const OUTCOME_WITH_IDENTITIES_SCRIPT = `
+local current = redis.call("GET", KEYS[1])
+if current then return {"existing", current} end
+for index = 2, #KEYS do
+  local identity = redis.call("GET", KEYS[index])
+  if identity and identity ~= ARGV[index] then
+    return {"identity_conflict", identity}
+  end
+end
+for index = 2, #KEYS do
+  if redis.call("EXISTS", KEYS[index]) ~= 1 then
+    redis.call("SET", KEYS[index], ARGV[index])
+  end
+end
+redis.call("SET", KEYS[1], ARGV[1])
+return {"created", ARGV[1]}
+`;
 
 const idSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_./:@-]{1,159}$/u);
 const timestampSchema = z.string().datetime({ offset: true });
@@ -64,8 +81,17 @@ export const workspaceFindingInputSchema = z.object({
 });
 
 export const workspaceFindingCandidateSchema = workspaceFindingInputSchema.extend({
+  factIdentities: z.array(z.string().min(1).max(160)).max(50).default([]),
   facts: z.array(workspaceFindingFactSchema).min(1).max(50).optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  const expected = value.facts?.map((fact) => fact.filingIdentity) ?? [];
+  if (
+    new Set(value.factIdentities).size !== value.factIdentities.length ||
+    JSON.stringify(value.factIdentities) !== JSON.stringify(expected)
+  ) {
+    context.addIssue({ code: "custom", message: "finding_fact_identity_invalid" });
+  }
+});
 
 const findingSchema = workspaceFindingCandidateSchema.extend({
   contentHash: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -104,12 +130,33 @@ const outcomeSchema = z.object({
   }
 });
 
+const identityClaimSchema = z.object({
+  factIdentity: z.string().min(1).max(160),
+  findingId: idSchema,
+  monitorId: z.string().uuid(),
+  occurrenceKey: z.string().regex(/^[a-f0-9]{64}$/u),
+  ownerId: z.string().regex(/^[a-z][a-z0-9_-]{2,63}$/u),
+  recordType: z.literal("workspace_finding_identity"),
+  runId: z.string().min(1).max(160),
+  schemaVersion: z.literal(1),
+  workspaceId: z.string().uuid(),
+}).strict();
+
 export type WorkspaceFindingInput = z.input<typeof workspaceFindingInputSchema>;
 export type WorkspaceFindingCandidate = z.input<typeof workspaceFindingCandidateSchema>;
 export type WorkspaceFinding = z.infer<typeof findingSchema>;
 export type WorkspaceRunOutcome = z.infer<typeof outcomeSchema>;
+export type WorkspaceFindingIdentityClaim = z.infer<typeof identityClaimSchema>;
 
 export interface WorkspaceFindingStoreClient {
+  createOutcomeWithIdentityClaims(input: {
+    identityClaims: readonly { key: string; value: string }[];
+    outcomeKey: string;
+    outcomeValue: string;
+  }): Promise<{
+    status: "created" | "existing" | "identity_conflict";
+    value: unknown;
+  }>;
   createOrRead(key: string, value: string): Promise<unknown>;
   get(key: string): Promise<unknown>;
 }
@@ -138,7 +185,30 @@ function store(): WorkspaceFindingStoreClient {
   if (!url || !token) throw new Error("Workspace finding storage is not configured.");
   redisClient ??= new Redis({ automaticDeserialization: false, token, url });
   let scriptSha = redisClient.scriptLoad(CAS_SCRIPT);
+  let identityScriptSha = redisClient.scriptLoad(OUTCOME_WITH_IDENTITIES_SCRIPT);
   defaultClient = {
+    async createOutcomeWithIdentityClaims(input) {
+      const execute = (candidate: string) =>
+        redisClient!.evalsha<string[], string[]>(
+          candidate,
+          [input.outcomeKey, ...input.identityClaims.map(({ key }) => key)],
+          [input.outcomeValue, ...input.identityClaims.map(({ value }) => value)],
+        );
+      let sha = await identityScriptSha;
+      let result: string[];
+      try {
+        result = await execute(sha);
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes("NOSCRIPT")) throw error;
+        identityScriptSha = redisClient!.scriptLoad(OUTCOME_WITH_IDENTITIES_SCRIPT);
+        sha = await identityScriptSha;
+        result = await execute(sha);
+      }
+      return {
+        status: result[0] as "created" | "existing" | "identity_conflict",
+        value: result[1],
+      };
+    },
     async createOrRead(key, value) {
       let sha = await scriptSha;
       const execute = (candidate: string) =>
@@ -164,6 +234,19 @@ function key(scope: AuthorizedWorkspaceStoreScope, occurrenceKey: string): strin
   return `${KEY_PREFIX}${digest}`;
 }
 
+function identityKey(
+  scope: AuthorizedWorkspaceStoreScope,
+  monitorId: string,
+  factIdentity: string,
+): string {
+  const digest = createHash("sha256")
+    .update(
+      `finding-identity\0${scope.ownerId}\0${scope.workspaceId}\0${monitorId}\0${factIdentity}`,
+    )
+    .digest("hex");
+  return `${KEY_PREFIX}identity:${digest}`;
+}
+
 function rawValue(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   return typeof value === "string" ? value : JSON.stringify(value);
@@ -187,6 +270,68 @@ function parseOutcome(raw: string, scope: AuthorizedWorkspaceStoreScope): Worksp
     if (error instanceof WorkspaceFindingError) throw error;
     throw new WorkspaceFindingError("finding_invalid");
   }
+}
+
+function parseIdentityClaim(
+  raw: string,
+  scope: AuthorizedWorkspaceStoreScope,
+  monitorId: string,
+  factIdentity: string,
+): WorkspaceFindingIdentityClaim {
+  if (Buffer.byteLength(raw, "utf8") > MAX_RECORD_BYTES) {
+    throw new WorkspaceFindingError("finding_invalid");
+  }
+  try {
+    const parsed = identityClaimSchema.safeParse(JSON.parse(raw));
+    if (
+      !parsed.success ||
+      parsed.data.ownerId !== scope.ownerId ||
+      parsed.data.workspaceId !== scope.workspaceId ||
+      parsed.data.monitorId !== monitorId ||
+      parsed.data.factIdentity !== factIdentity
+    ) {
+      throw new WorkspaceFindingError("finding_invalid");
+    }
+    return parsed.data;
+  } catch (error) {
+    if (error instanceof WorkspaceFindingError) throw error;
+    throw new WorkspaceFindingError("finding_invalid");
+  }
+}
+
+export async function selectUnseenWorkspaceFindingIdentities(
+  input: {
+    factIdentities: readonly string[];
+    monitorId: string;
+    scope: AuthorizedWorkspaceStoreScope;
+  },
+  client: WorkspaceFindingStoreClient = store(),
+): Promise<readonly string[]> {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  if (
+    !z.string().uuid().safeParse(input.monitorId).success ||
+    input.factIdentities.length > 50 ||
+    new Set(input.factIdentities).size !== input.factIdentities.length ||
+    input.factIdentities.some(
+      (identity) => identity.length < 1 || identity.length > 160,
+    )
+  ) {
+    throw new WorkspaceFindingError("finding_invalid");
+  }
+  const unseen: string[] = [];
+  for (const factIdentity of input.factIdentities) {
+    const raw = rawValue(
+      await client.get(
+        identityKey(input.scope, input.monitorId, factIdentity),
+      ),
+    );
+    if (raw === null) {
+      unseen.push(factIdentity);
+      continue;
+    }
+    parseIdentityClaim(raw, input.scope, input.monitorId, factIdentity);
+  }
+  return Object.freeze(unseen);
 }
 
 function assertCoverage(
@@ -254,6 +399,7 @@ function contentHash(input: z.output<typeof workspaceFindingCandidateSchema>): s
     accessClassification: input.accessClassification,
     artifactRefs: [...input.artifactRefs].sort(),
     asOf: input.asOf,
+    factIdentities: input.factIdentities,
     facts: input.facts ?? [],
     provenance: [...input.provenance].sort((left, right) =>
       left.sourceId.localeCompare(right.sourceId) || left.canonicalUrl.localeCompare(right.canonicalUrl)),
@@ -265,6 +411,7 @@ async function createOutcome(
   scope: AuthorizedWorkspaceStoreScope,
   candidate: WorkspaceRunOutcome,
   client: WorkspaceFindingStoreClient,
+  identityClaims: readonly WorkspaceFindingIdentityClaim[] = [],
 ): Promise<WorkspaceRunOutcome> {
   assertAuthorizedWorkspaceStoreScope(scope);
   const parsed = outcomeSchema.safeParse(candidate);
@@ -273,10 +420,33 @@ async function createOutcome(
   if (Buffer.byteLength(raw, "utf8") > MAX_RECORD_BYTES) {
     throw new WorkspaceFindingError("finding_invalid");
   }
-  const stored = parseOutcome(
-    rawValue(await client.createOrRead(key(scope, candidate.occurrenceKey), raw)) ?? "",
-    scope,
-  );
+  const outcomeKey = key(scope, candidate.occurrenceKey);
+  const storedValue = identityClaims.length === 0
+    ? await client.createOrRead(outcomeKey, raw)
+    : await client.createOutcomeWithIdentityClaims({
+        identityClaims: identityClaims.map((claim) => ({
+          key: identityKey(scope, claim.monitorId, claim.factIdentity),
+          value: JSON.stringify(claim),
+        })),
+        outcomeKey,
+        outcomeValue: raw,
+      });
+  if (
+    typeof storedValue === "object" &&
+    storedValue !== null &&
+    "status" in storedValue &&
+    storedValue.status === "identity_conflict"
+  ) {
+    throw new WorkspaceFindingError("finding_conflict");
+  }
+  const value =
+    typeof storedValue === "object" &&
+      storedValue !== null &&
+      "status" in storedValue &&
+      "value" in storedValue
+      ? storedValue.value
+      : storedValue;
+  const stored = parseOutcome(rawValue(value) ?? "", scope);
   const same =
     stored.outcome === candidate.outcome &&
     stored.occurrenceKey === candidate.occurrenceKey &&
@@ -302,7 +472,13 @@ export async function stageWorkspaceFinding(
   assertFacts(input.envelope, findingInput.data.facts);
   const hash = contentHash(findingInput.data);
   const findingId = `finding_${createHash("sha256")
-    .update(`finding\0${input.scope.ownerId}\0${input.scope.workspaceId}\0${input.envelope.runId}`)
+    .update(
+      findingInput.data.factIdentities.length === 0
+        ? `finding\0${input.scope.ownerId}\0${input.scope.workspaceId}\0${input.envelope.runId}`
+        : `finding-facts\0${input.scope.ownerId}\0${input.scope.workspaceId}\0${input.envelope.monitorId}\0${[
+            ...findingInput.data.factIdentities,
+          ].sort().join("\0")}`,
+    )
     .digest("hex")}`;
   const finding = findingSchema.parse({
     ...findingInput.data,
@@ -316,7 +492,7 @@ export async function stageWorkspaceFinding(
     state: "staged",
     workspaceId: input.scope.workspaceId,
   });
-  return createOutcome(input.scope, {
+  const outcome = {
     checkpoint: input.coverage.checkpoint,
     configurationRevision: input.envelope.configurationRevision,
     createdAt: (input.now ?? new Date()).toISOString(),
@@ -329,7 +505,21 @@ export async function stageWorkspaceFinding(
     runId: input.envelope.runId,
     schemaVersion: 1,
     workspaceId: input.scope.workspaceId,
-  }, client);
+  } satisfies WorkspaceRunOutcome;
+  const identityClaims = findingInput.data.factIdentities.map((factIdentity) =>
+    identityClaimSchema.parse({
+      factIdentity,
+      findingId,
+      monitorId: input.envelope.monitorId,
+      occurrenceKey: input.envelope.occurrenceKey,
+      ownerId: input.scope.ownerId,
+      recordType: "workspace_finding_identity",
+      runId: input.envelope.runId,
+      schemaVersion: 1,
+      workspaceId: input.scope.workspaceId,
+    })
+  );
+  return createOutcome(input.scope, outcome, client, identityClaims);
 }
 
 export async function completeWorkspaceRunNoMatch(

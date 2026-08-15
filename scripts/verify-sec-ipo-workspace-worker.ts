@@ -49,6 +49,20 @@ class MemoryCreateStore
   failNextRecordType: string | null = null;
   readonly values = new Map<string, string>();
 
+  async createOutcomeWithIdentityClaims(input: Parameters<WorkspaceFindingStoreClient["createOutcomeWithIdentityClaims"]>[0]) {
+    const outcome = this.values.get(input.outcomeKey);
+    if (outcome) return { status: "existing" as const, value: outcome };
+    for (const claim of input.identityClaims) {
+      const existing = this.values.get(claim.key);
+      if (existing && existing !== claim.value) {
+        return { status: "identity_conflict" as const, value: existing };
+      }
+    }
+    for (const claim of input.identityClaims) this.values.set(claim.key, claim.value);
+    this.values.set(input.outcomeKey, input.outcomeValue);
+    return { status: "created" as const, value: input.outcomeValue };
+  }
+
   async compareAndSet(key: string, expected: string, next: string) {
     if (this.values.get(key) !== expected) return false;
     this.values.set(key, next);
@@ -134,6 +148,7 @@ const fixtureBodies = {
   initial: await fixture("initial.atom"),
   later: await fixture("later-s1.atom"),
   malformed: await fixture("malformed.atom"),
+  sameS1LaterUpdated: await fixture("same-s1-later-updated.atom"),
 };
 const state = new MemoryCasStore();
 const coverage = new MemoryCasStore();
@@ -148,6 +163,12 @@ const clients = {
   state,
 };
 const verificationNow = new Date();
+
+function countRecords(store: MemoryCreateStore, recordType: string): number {
+  return [...store.values.values()].filter((raw) =>
+    (JSON.parse(raw) as { recordType?: unknown }).recordType === recordType
+  ).length;
+}
 
 async function setupWorkspace(workspaceId: string): Promise<{
   monitor: WorkspaceMonitor;
@@ -348,7 +369,7 @@ assert.equal(baseline.checkpoint.watermark, "2026-08-14T17:00:00.000Z");
 const countsAfterBaseline = {
   alerts: alerts.values.size,
   coverage: coverage.values.size,
-  findings: findings.values.size,
+  findings: countRecords(findings, "workspace_run_outcome"),
 };
 const baselineReplay = await execute(
   baselinePrepared,
@@ -362,7 +383,7 @@ assert.deepEqual(
   {
     alerts: alerts.values.size,
     coverage: coverage.values.size,
-    findings: findings.values.size,
+    findings: countRecords(findings, "workspace_run_outcome"),
   },
   countsAfterBaseline,
 );
@@ -392,7 +413,7 @@ assert.equal(
   "new_registration",
 );
 assert.equal(alerts.values.size, 1);
-assert.equal(findings.values.size, 2);
+assert.equal(countRecords(findings, "workspace_run_outcome"), 2);
 assert.deepEqual(
   await execute(laterPrepared, laterNow, async () => {
     throw new Error("A finding occurrence replay must not fetch.");
@@ -447,6 +468,48 @@ const sameFiling = await execute(
 assert.equal(sameFiling.outcome.outcome, "no_match");
 assert.equal(sameFiling.factCount, 0);
 assert.equal(alerts.values.size, 2);
+
+monitorA = await getWorkspaceMonitor(
+  workspaceA.scope,
+  workspaceA.monitor.monitorId,
+  monitors,
+);
+assert.ok(monitorA);
+const duplicateIdentityOccurrence = monitorA.nextOccurrenceAt;
+const outcomesBeforeDuplicate = countRecords(
+  findings,
+  "workspace_run_outcome",
+);
+const duplicateIdentity = await execute(
+  await prepare({
+    monitor: monitorA,
+    now: verificationNow,
+    scope: workspaceA.scope,
+  }),
+  verificationNow,
+  fetchResponse(fixtureBodies.sameS1LaterUpdated),
+);
+assert.equal(duplicateIdentity.outcome.outcome, "no_match");
+assert.equal(duplicateIdentity.factCount, 0);
+assert.equal(alerts.values.size, 2);
+assert.equal(
+  countRecords(findings, "workspace_run_outcome"),
+  outcomesBeforeDuplicate + 1,
+);
+const duplicateCompletedMonitor = await getWorkspaceMonitor(
+  workspaceA.scope,
+  workspaceA.monitor.monitorId,
+  monitors,
+);
+assert.ok(duplicateCompletedMonitor);
+assert.equal(
+  duplicateCompletedMonitor.sourceCheckpoint.watermark,
+  "2026-08-14T20:00:00.000Z",
+);
+assert.notEqual(
+  duplicateCompletedMonitor.nextOccurrenceAt,
+  duplicateIdentityOccurrence,
+);
 
 const workspaceRecovery = await setupWorkspace(
   "423e4567-e89b-42d3-a456-426614174000",
