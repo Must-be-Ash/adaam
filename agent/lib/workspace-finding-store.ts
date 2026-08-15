@@ -37,6 +37,10 @@ redis.call("SET", KEYS[1], ARGV[1])
 return {"created", ARGV[1]}
 `;
 
+export const WORKSPACE_FINDING_REDIS_SCRIPTS = Object.freeze({
+  createOutcomeWithIdentityClaims: OUTCOME_WITH_IDENTITIES_SCRIPT,
+});
+
 const idSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_./:@-]{1,159}$/u);
 const timestampSchema = z.string().datetime({ offset: true });
 const provenanceSchema = z.object({

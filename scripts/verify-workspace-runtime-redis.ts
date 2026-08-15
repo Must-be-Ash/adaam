@@ -17,6 +17,10 @@ import {
   type WorkspaceLegacyMonitorAssignmentClient,
 } from "../agent/lib/workspace-legacy-monitor-assignment";
 import {
+  WORKSPACE_FINDING_REDIS_SCRIPTS,
+  type WorkspaceFindingStoreClient,
+} from "../agent/lib/workspace-finding-store";
+import {
   claimDueWorkspaceMonitors,
   claimWorkspaceMonitorOccurrence,
   completeWorkspaceMonitorCheckpoint,
@@ -164,6 +168,33 @@ const assignmentClient: WorkspaceLegacyMonitorAssignmentClient = {
         input.monitorDueAtMs === null ? "" : String(input.monitorDueAtMs), input.assignmentRaw,
       ],
     ));
+  },
+  get: (key) => client.get(key),
+};
+const findingClient: WorkspaceFindingStoreClient = {
+  async createOutcomeWithIdentityClaims(input) {
+    const result = await evalScript(
+      WORKSPACE_FINDING_REDIS_SCRIPTS.createOutcomeWithIdentityClaims,
+      [input.outcomeKey, ...input.identityClaims.map(({ key }) => key)],
+      [input.outcomeValue, ...input.identityClaims.map(({ value }) => value)],
+    ) as unknown[];
+    return {
+      status: String(result[0]) as "created" | "existing" | "identity_conflict",
+      value: result[1],
+    };
+  },
+  async createOrRead(key, value) {
+    const result = await evalScript(
+      `
+local current = redis.call("GET", KEYS[1])
+if current then return current end
+redis.call("SET", KEYS[1], ARGV[1])
+return ARGV[1]
+`,
+      [key],
+      [value],
+    );
+    return result;
   },
   get: (key) => client.get(key),
 };
@@ -315,6 +346,47 @@ try {
   ]);
   assert.equal(budgetRace.filter((result) => result.status === "fulfilled").length, 1);
   assert.equal((await readWorkspaceBudgetLedger(scopeA, casClient)).reservations.length, 1);
+
+  const findingPrefix = "eve:test:workspace-finding-race:";
+  const originalBatch = {
+    identityClaims: [
+      { key: `${findingPrefix}identity:a`, value: "claim:a" },
+      { key: `${findingPrefix}identity:b`, value: "claim:b" },
+    ],
+    outcomeKey: `${findingPrefix}outcome:original`,
+    outcomeValue: "outcome:original",
+  };
+  const sameIdentityRace = await Promise.all([
+    findingClient.createOutcomeWithIdentityClaims(originalBatch),
+    findingClient.createOutcomeWithIdentityClaims(originalBatch),
+  ]);
+  assert.deepEqual(
+    new Set(sameIdentityRace.map(({ status }) => status)),
+    new Set(["created", "existing"]),
+  );
+  assert.equal(await client.get(originalBatch.outcomeKey), "outcome:original");
+  assert.equal(await client.get(originalBatch.identityClaims[0]!.key), "claim:a");
+  assert.equal(await client.get(originalBatch.identityClaims[1]!.key), "claim:b");
+
+  const conflictingBatch = {
+    identityClaims: [
+      { key: `${findingPrefix}identity:b`, value: "claim:conflict" },
+      { key: `${findingPrefix}identity:c`, value: "claim:c" },
+    ],
+    outcomeKey: `${findingPrefix}outcome:conflict`,
+    outcomeValue: "outcome:conflict",
+  };
+  const conflict = await findingClient.createOutcomeWithIdentityClaims(
+    conflictingBatch,
+  );
+  assert.equal(conflict.status, "identity_conflict");
+  assert.equal(await client.get(conflictingBatch.outcomeKey), null);
+  assert.equal(await client.get(conflictingBatch.identityClaims[1]!.key), null);
+  assert.equal(await client.get(originalBatch.identityClaims[1]!.key), "claim:b");
+  assert.equal(
+    (await findingClient.createOutcomeWithIdentityClaims(originalBatch)).status,
+    "existing",
+  );
 
   const coverage = await createWorkspaceSourceCoverage({
     configurationRevision: 1, monitorId: monitor.monitorId, now, runId: "redis_coverage",
