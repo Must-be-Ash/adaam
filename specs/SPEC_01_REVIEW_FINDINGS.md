@@ -115,18 +115,28 @@ claims. The remaining acceptance work is:
 - [ ] **A3 — reclaimed-attempt occurrence recovery.** Production lease expiry
   assigns a new run ID for the same occurrence. A non-model recovery admission
   must run before normal model concurrency and budget gates, then recover and
-  apply the prior outcome using occurrence identity. Acceptance keeps attempt
-  1's uncertain budget reserved, reclaims attempt 2, and proves attempt 2 makes
-  no reservation, model call, source fetch, or provider charge. R5 owns
+  apply the prior outcome using occurrence identity. The persisted outcome is
+  admissible only when its occurrence-form run ID matches its parent run ID and
+  its nested finding owner, workspace, monitor, and run ID match that parent. A
+  reclaimed run accepts only an earlier positive attempt for the same occurrence;
+  a settled replay requires the exact same run. Acceptance keeps attempt 1's
+  uncertain budget reserved, reclaims attempt 2, and proves attempt 2 makes no
+  reservation, model call, source fetch, or provider charge. R5 owns
   reconciliation of attempt 1's reservation; A3 must not release or claim it
   settled.
 - [ ] **A4 — invalid recovery fails durably.** Missing, corrupt, incompatible, or
   stale recovery data must create an explicit durable failure state with a
-  bounded reason and must never fall through to a fresh model execution. A
-  failure to persist recovery quarantine or clean up its lease may be swallowed
-  only after an authoritative re-read proves that a concurrent lifecycle,
-  configuration, or occurrence change superseded that exact operation;
-  otherwise the schedule must fail visibly.
+  bounded reason and must never fall through to a fresh model execution. This
+  includes shape-valid data whose parent/nested identity or attempt relationship
+  is semantically corrupt; it must quarantine before alert, checkpoint, model,
+  fetch, or charge. One recovery failure must not starve unrelated recovered
+  workspaces, first-attempt workspace jobs, or legacy jobs: every claimed job
+  receives an opportunity, per-job failure remains visible, and aggregate
+  schedule failure surfaces after the pass. A failure to persist recovery
+  quarantine or clean up its lease may be swallowed only after an authoritative
+  re-read proves that a concurrent lifecycle, configuration, or occurrence
+  change superseded that exact operation; otherwise the schedule must fail
+  visibly.
 - [ ] **Redis identity/outcome race proof — unverified in this environment.** Run
   the new Lua identity/outcome transaction against real ephemeral Redis with
   competing claims and recovery attempts, proving one canonical outcome and no
