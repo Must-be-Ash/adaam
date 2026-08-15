@@ -42,12 +42,12 @@ Evidence:
 ### R2 — deterministic IPO production path
 
 - [x] Wire the versioned SEC parser/evaluator into the real scheduled worker
-  path. `evaluateSecIpoPage()` is currently called only by fixtures and the
-  standalone live smoke.
+  path. In the reviewed pre-R2 state, `evaluateSecIpoPage()` was called only by
+  fixtures and the standalone live smoke.
 - [x] Persist the required SEC facts as typed fields, including CIK, accession,
   form type, filing/file number, registration/amendment identity, classification,
-  and canonical filing URL. The generic finding schema currently stores only a
-  summary, provenance, time, and artifact references.
+  and canonical filing URL. In the reviewed pre-R2 state, the generic finding
+  schema stored only a summary, provenance, time, and artifact references.
 - [x] Prove scheduler → compiled worker → exact fenced fixture fetch → typed
   finding/no-match → checkpoint → alert behavior and replay through the real
   caller chain.
@@ -77,6 +77,37 @@ Evidence:
   evaluator. The local workflow world and transformed step-registration
   harness use Eve private internals and remain part of R6's framework-boundary
   replacement/version-guard work.
+
+#### R2 independent re-review and remediation
+
+The original R2 phase-gate claims above are not accepted until this checklist
+passes independent re-review. A checked item below means only that remediation
+is implemented on the R2 phase branch and is still pending that review.
+
+- [x] **Implemented, pending independent re-review — occurrence/crash-tail
+  recovery.** An unchanged or already-terminal occurrence resumes from its
+  durable outcome, finishes the schedule tail, and advances the next occurrence
+  instead of remaining due after a worker exit or replay.
+- [ ] **Exact no-follow source transport.** An exact-fenced request rejects a
+  redirect response before any second outbound request, including when the
+  redirect destination would otherwise satisfy the host policy.
+- [x] **Implemented, pending independent re-review — stable filing identity.**
+  Filing deduplication uses durable source-native identity and does not create a
+  second fact or alert merely because observation or source-update timestamps
+  changed.
+- [ ] **Legitimate maximum-feed durability.** Every valid feed at the declared
+  40-entry ceiling fits the durable outcome limits or is handled by a
+  deterministic lossless batching contract.
+- [ ] **Test-fixture bridge lockdown.** Any fixture bridge in the compiled
+  runtime requires explicit acceptance-only opt-in, loopback-only transport,
+  strong ephemeral credentials, and a built-output negative activation test.
+- [ ] **Strict SEC identity relationships.** Validation proves the relationships
+  among accession, CIK, form/file number, registration/amendment identity,
+  classification, and canonical filing URL rather than validating each field's
+  shape independently.
+- [ ] **True concurrent compiled-worker isolation and teardown.** Two production-
+  path compiled workers overlap in execution, reach clean terminal outcomes,
+  retain isolated state/capabilities, and leave no worker/runtime teardown leak.
 
 ### R3 — production alert outbox and delivery recovery
 
