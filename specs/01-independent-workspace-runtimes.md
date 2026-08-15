@@ -872,7 +872,7 @@ without duplicating each requirement.
 - [x] Remove raw workspace/monitor identifiers and arbitrary exception text from
   workspace schedule/worker logs, enforce the fixed low-cardinality catalog,
   and pass negative log-sink tests through the production schedule caller.
-- [ ] Before Spec 2 activates a pack-managed source, reject exact-fenced
+- [x] Before Spec 2 activates a pack-managed source, reject exact-fenced
   redirects before issuing any second outbound request, including redirects to
   private or undeclared origins.
 
