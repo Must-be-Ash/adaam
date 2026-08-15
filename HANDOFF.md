@@ -6,6 +6,12 @@ tracing the implementation, checking the installed Eve and Next.js semantics,
 and reviewing the regression coverage. Use it to form the initial system model;
 then verify task-specific details against current code before making a change.
 
+> **Active Spec 1 work:** Read
+> `specs/SPEC_01_PAUSED_CURRENT_TASK.md` before managing or changing Independent
+> Workspace Runtimes. It is the canonical record of completed work, current
+> branches, remaining R2-R6 remediation, production gates, and documents that
+> must not be executed again.
+
 Snapshot date: 2026-08-13
 
 Repository branch: `main`

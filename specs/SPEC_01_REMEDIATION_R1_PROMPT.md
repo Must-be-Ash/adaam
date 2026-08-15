@@ -1,5 +1,9 @@
 # Spec 1 remediation R1 prompt
 
+> **Historical — do not execute again.** R1 is complete, reviewed, and merged
+> into `codex/spec-01-independent-workspaces`. Continue only from
+> `SPEC_01_PAUSED_CURRENT_TASK.md`.
+
 Use this prompt in a fresh Codex task. Do not resume the original long-running
 implementation task for this phase.
 

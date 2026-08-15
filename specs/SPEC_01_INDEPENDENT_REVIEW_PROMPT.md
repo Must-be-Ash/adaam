@@ -1,5 +1,9 @@
 # Spec 1 independent-review prompt
 
+> **Historical — do not execute again.** This prompt reviewed the old `32370db`
+> boundary. Its findings have already been captured and remediation is underway.
+> Continue only from `SPEC_01_PAUSED_CURRENT_TASK.md`.
+
 Use this prompt in a new Codex task. The reviewer must not edit the
 implementation branch. Return the review to the coordinating agent before any
 finding is sent to the Spec 1 implementer.

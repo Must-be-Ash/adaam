@@ -1,5 +1,10 @@
 # Spec 1: Independent workspace runtimes
 
+> **Status note:** This file defines the product requirements and definition of
+> done; its checkbox state is not the canonical live implementation status.
+> Read `SPEC_01_PAUSED_CURRENT_TASK.md` for completed work, remaining delivery,
+> branch ownership, and the exact role of every Spec 1 document.
+
 Status: Draft for implementation
 
 Date: 2026-08-13

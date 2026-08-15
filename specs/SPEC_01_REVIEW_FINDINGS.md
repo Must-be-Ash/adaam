@@ -1,5 +1,10 @@
 # Spec 1 independent-review findings
 
+> **Detailed ledger, not the current handoff.** The latest expanded ledger is on
+> `codex/spec-roadmap-r2-learnings` and still needs to be merged. Use
+> `SPEC_01_PAUSED_CURRENT_TASK.md` as the canonical record of what is complete,
+> what remains, and which branch owns the work.
+
 Review target: `codex/spec-01-independent-workspaces` at `32370db`
 
 Merge base: `154d1b9`
