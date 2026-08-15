@@ -114,10 +114,16 @@ sprint into one change.
 - An idempotency task needs replay and concurrent/race coverage, not only a
   single successful call.
 - When lease recovery or retry gives the same durable occurrence a new attempt
-  or run ID, verification must resolve any prior outcome by occurrence identity
-  before another model, provider, paid call, or side effect. Missing, corrupt,
-  incompatible, or stale recovery data must become an explicit durable failure,
-  not fall through to fresh execution.
+  or run ID, a non-model recovery admission must resolve any prior outcome by
+  occurrence identity before normal fresh-work concurrency/budget gates or any
+  model, provider, paid call, or side effect. Existing uncertain reservations
+  remain retained for their explicit reconciliation path, and recovery must not
+  create a second reservation.
+- Missing, corrupt, incompatible, or stale recovery data must become an explicit
+  durable failure, not fall through to fresh execution. A failed quarantine or
+  cleanup write may be suppressed only after an authoritative re-read proves a
+  concurrent lifecycle, configuration, or occurrence change superseded the
+  exact operation; otherwise the caller must fail visibly.
 - Atomicity implemented by a database script or transaction requires a
   concurrency/race test against the real database engine. An in-memory fake or
   unit test is supporting evidence only.
