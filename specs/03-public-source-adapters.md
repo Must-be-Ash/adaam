@@ -257,6 +257,9 @@ The adapter returns a typed `SourceObservationResult`:
   failure. Fallback use is explicit in source configuration and provenance.
 - [ ] Bound arrays, strings, nesting, record counts, child fetch counts, and
   total bytes across the entire observation, not only each response.
+- [ ] Make every declared maximum feed/page count fit the serialized durable
+  record limits, or use deterministic lossless batching whose replay cannot
+  skip or duplicate a record.
 - [ ] Require child-stage fan-out to reserve run capacity before starting so one
   unusually large index cannot create unbounded fetch work.
 
@@ -266,6 +269,8 @@ The adapter returns a typed `SourceObservationResult`:
 
 - [ ] Permit HTTPS only except explicitly fixture-owned local test transports.
 - [ ] Revalidate DNS and destination policy for every redirect and connection.
+- [ ] When an adapter declares an exact URL fence, reject every redirect response
+  before following it or making a second outbound request.
 - [ ] Send a reviewed identifying user agent where the source requests one.
 - [ ] Support `ETag` and `Last-Modified` only as optimization metadata; a `304`
   maps to no-change only for the exact same source instance/checkpoint.
@@ -348,6 +353,12 @@ names, or extracted fact payloads.
 
 - [ ] Derive fact identity from source authority, source-native identity, fact
   schema, and stable row/subdocument identity—not model prose or array order.
+- [ ] Keep observation, publication, update, and other source-version timestamps
+  out of canonical fact identity unless the reviewed source contract defines one
+  as part of its source-native identity.
+- [ ] Validate semantic relationships among canonical IDs, source-native IDs,
+  parent/child or amendment lineage, and canonical URL paths; field-shape
+  validation alone is insufficient.
 - [ ] Store a new revision/lineage record for materially changed source content.
 - [ ] Keep unverified entity/ticker matches explicit. A strategy may decline to
   score an unresolved fact.
@@ -360,6 +371,9 @@ opaque bounded cursor/watermark state, conditional request metadata, complete
 coverage window, committed fact IDs/counts, and revision.
 
 - [ ] Commit checkpoint and required fact/child-stage responsibility atomically.
+- [ ] Claim fact identity and commit its outcome/checkpoint through one atomic or
+  explicitly recoverable protocol so a crash cannot strand the identity,
+  duplicate the fact, or skip checkpoint advancement.
 - [ ] Do not treat an in-memory seen set as authoritative.
 - [ ] Support initial baseline without alerting on the complete historical source.
 - [ ] Detect checkpoint schema/version mismatch and require an explicit adapter
@@ -513,6 +527,10 @@ Each transaction fact preserves:
 - [ ] Add failing tests for origin escape, redirect/DNS escape, response limits,
   archive attacks, XML entities, parser ambiguity, duplicate observation,
   checkpoint uncertainty, schema drift, and cross-workspace fact access.
+- [ ] Exercise exact-fence redirects, timestamp-independent identity,
+  maximum-count durability, crash/replay recovery, and actually overlapping
+  concurrent observations through the production observation caller; sequential
+  helper fixtures are supporting evidence only.
 - [ ] Add SEC and House fixture corpora with exact expected facts and coverage.
 - [ ] Define low-cardinality error codes, retention, feature flags, and rollback.
 
