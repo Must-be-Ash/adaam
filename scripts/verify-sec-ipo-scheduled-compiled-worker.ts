@@ -787,6 +787,23 @@ const [
     typeof import("../node_modules/eve/dist/src/internal/workflow/queue-namespace.js")
   >,
 ]);
+const originalVercelEnvironment = process.env.VERCEL;
+let hostedCompilation: Awaited<ReturnType<typeof compileAgent>>;
+try {
+  process.env.VERCEL = "1";
+  hostedCompilation = await compileAgent({ startPath: appRoot });
+} finally {
+  if (originalVercelEnvironment === undefined) delete process.env.VERCEL;
+  else process.env.VERCEL = originalVercelEnvironment;
+}
+const hostedWorkspaceWorker = hostedCompilation.manifest.subagents.find(
+  (candidate) => candidate.name === "workspace-worker",
+);
+assert.equal(
+  hostedWorkspaceWorker?.agent.sandbox?.backendName,
+  "vercel",
+  "The hosted workspace worker must not use a local filesystem-backed sandbox.",
+);
 const compilation = await compileAgent({ startPath: appRoot });
 assert.deepEqual(
   compilation.manifest.config.build?.externalDependencies,
