@@ -886,10 +886,14 @@ replace the remaining owner-authorized production acceptance below.
   read-only SEC smoke and the ephemeral local Redis race suite, then pass
   `npm run typecheck`, `npm run build:agent`, and
   `npm run build -- --webpack`.
+- [x] Merge the reviewed U1 branch into local `main` at
+  `ee01a943d05b31e408d0ab03ed02b76d2ed64f11`, remove the temporary branch, and
+  pass the post-merge observability and source-redirect critical smokes.
 
-The combined gate passed locally on 2026-08-15. The Redis check used the
-required local `REDIS_SERVER_BIN=/opt/homebrew/bin/redis-server`; no Photon
-delivery, deployment, environment change, or production mutation was performed.
+The combined gate and local integration passed on 2026-08-15. The Redis check
+used the required local `REDIS_SERVER_BIN=/opt/homebrew/bin/redis-server`; no
+Photon delivery, deployment, environment change, or production mutation was
+performed.
 
 ### Remaining owner-authorized production acceptance
 
