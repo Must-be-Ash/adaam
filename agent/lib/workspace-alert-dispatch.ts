@@ -1,4 +1,4 @@
-import { sendPhotonWorkspaceAlertCard } from "../channels/photon";
+import { sendPhotonWorkspaceAlertCard } from "./photon-alert-outbound";
 import {
   deliverWorkspaceAlertToPhoton,
   type PhotonAlertCard,

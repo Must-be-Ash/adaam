@@ -25,13 +25,19 @@ return 1
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const idSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_./:@-]{1,159}$/u);
 const timestampSchema = z.string().datetime({ offset: true });
+const alertSourceSchema = z.object({
+  canonicalUrl: z.string().url().max(2_048),
+  sourceId: idSchema,
+}).strict();
 const alertSchema = z.object({
   alertId: idSchema,
   createdAt: timestampSchema,
+  eventTime: timestampSchema.optional(),
   findingId: idSchema,
   ownerId: idSchema,
   recordType: z.literal("workspace_alert"),
   schemaVersion: z.literal(1),
+  sourceLinks: z.array(alertSourceSchema).min(1).max(8).optional(),
   sourceRefs: z.array(idSchema).min(1).max(8),
   state: z.literal("ready"),
   title: z.string().min(1).max(240),
@@ -150,10 +156,15 @@ export async function stageWorkspaceAlert(input: {
   const candidate = alertSchema.parse({
     alertId,
     createdAt: (input.now ?? new Date()).toISOString(),
+    eventTime: input.finding.asOf,
     findingId: input.finding.findingId,
     ownerId: input.scope.ownerId,
     recordType: "workspace_alert",
     schemaVersion: 1,
+    sourceLinks: input.finding.provenance.map((source) => ({
+      canonicalUrl: source.canonicalUrl,
+      sourceId: source.sourceId,
+    })),
     sourceRefs: input.finding.provenance.map((source) => source.sourceId),
     state: "ready",
     title: input.presentation?.title ?? input.monitor.name,

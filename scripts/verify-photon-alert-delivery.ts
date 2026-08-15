@@ -5,7 +5,10 @@ import {
   PhotonAlertDeliveryUncertainError,
 } from "../agent/lib/photon-alert-delivery";
 import type { WorkspaceAlertStoreClient } from "../agent/lib/workspace-alert-store";
-import { getPhotonWorkspaceState } from "../agent/lib/photon-workspace-store";
+import {
+  createPhotonWorkspace,
+  getPhotonWorkspaceState,
+} from "../agent/lib/photon-workspace-store";
 import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization";
 import type { WorkspaceMonitor } from "../agent/lib/workspace-monitor-store";
 
@@ -42,8 +45,16 @@ class MemoryWorkspaceStore {
 process.env.PHOTON_MINI_APP_BASE_URL = "https://eve.example.test";
 const workspaceClient = new MemoryWorkspaceStore();
 const photonScope = { principalId: "imessage:fixture-owner", threadId: "imessage:fixture-thread" };
-const workspaceState = await getPhotonWorkspaceState(photonScope, workspaceClient);
-const workspaceId = workspaceState.activeWorkspace.id;
+const initialWorkspaceState = await getPhotonWorkspaceState(photonScope, workspaceClient);
+const workspaceState = await createPhotonWorkspace({
+  ...photonScope,
+  expectedRevision: initialWorkspaceState.revision,
+  name: "IPO Filings",
+  select: false,
+}, workspaceClient);
+const workspaceId = workspaceState.workspaces.find(
+  (workspace) => workspace.name === "IPO Filings",
+)!.id;
 const scope = authorizeDeploymentWorkspaceStore({ ownerId: "owner_fixture", workspaceId }, {
   EVE_DEPLOYMENT_OWNER_ID: "owner_fixture",
 });
@@ -57,10 +68,15 @@ const monitor = {
 const baseAlert = {
   alertId: `alert_${"a".repeat(64)}`,
   createdAt: now.toISOString(),
+  eventTime: "2026-08-14T19:58:00.000Z",
   findingId: `finding_${"b".repeat(64)}`,
   ownerId: "owner_fixture",
   recordType: "workspace_alert" as const,
   schemaVersion: 1 as const,
+  sourceLinks: [{
+    canonicalUrl: "https://www.sec.gov/Archives/fixture.htm",
+    sourceId: "sec-latest-s1-filings",
+  }],
   sourceRefs: ["sec-latest-s1-filings"],
   state: "ready" as const,
   title: "New S-1 registration filing",
@@ -96,7 +112,12 @@ const delivered = await deliverWorkspaceAlertToPhoton({
 assert.equal(delivered.state, "delivered");
 assert.equal(recorded, 1);
 assert.match(sentCard!.heading, /IPO Filings/u);
-assert.match(sentCard!.discussUrl, /#[-_A-Za-z0-9]{43}$/u);
+assert.match(sentCard!.fallbackText, /Observed: 2026-08-14T19:58:00.000Z/u);
+assert.match(sentCard!.fallbackText, /https:\/\/www\.sec\.gov\/Archives\/fixture\.htm/u);
+assert.match(
+  sentCard!.discussUrl,
+  /#[-_A-Za-z0-9]{43}\.[-_A-Za-z0-9]{43}$/u,
+);
 assert.match(sentCard!.manageUrl, /#[-_A-Za-z0-9]{43}$/u);
 let duplicateSends = 0;
 assert.equal((await deliverWorkspaceAlertToPhoton({

@@ -1,7 +1,4 @@
 import { createRedisState } from "@chat-adapter/state-redis";
-import { createiMessageAdapter } from "@photon-ai/chat-adapter-imessage";
-import { createConnectWebhookVerifier } from "@vercel/connect/chat";
-import { connectPhotonCredentials } from "@vercel/connect/eve";
 import type { Thread } from "chat";
 import {
   chatSdkChannel,
@@ -86,34 +83,11 @@ import {
 import { projectPhotonWorkspaceRuntimeScope } from "../lib/workspace-runtime-scope";
 import { workspaceAlertTurnContext } from "../lib/workspace-alert-presentation";
 import { readWorkspaceAlertById } from "../lib/workspace-alert-store";
-import type { PhotonAlertCard } from "../lib/photon-alert-delivery";
+import { createPhotonImessageAdapter } from "../lib/photon-imessage-adapter";
 import { authorizePhotonWorkspaceControlPlaneStore } from "../lib/workspace-store-authorization";
 
-const webhookSecret = process.env.IMESSAGE_WEBHOOK_SECRET;
-const photonConnectorId =
-  process.env.PHOTON_CONNECTOR_ID?.trim() ||
-  "photon/earnings-call-analyser";
-const imessageAdapter = createiMessageAdapter({
-  credentials: connectPhotonCredentials(photonConnectorId),
-  ...(webhookSecret
-    ? { webhookSecret }
-    : { webhookVerifier: createConnectWebhookVerifier() }),
-});
+const imessageAdapter = createPhotonImessageAdapter();
 const routedImessageAdapter = workspaceAwarePhotonAdapter(imessageAdapter);
-
-export async function sendPhotonWorkspaceAlertCard(input: {
-  card: PhotonAlertCard;
-  destination: string;
-}): Promise<{ messageId: string }> {
-  await imessageAdapter.postMessage(input.destination, {
-    markdown: input.card.fallbackText,
-  });
-  const delivered = await imessageAdapter.sendMiniApp(
-    input.destination,
-    input.card.discussUrl,
-  );
-  return { messageId: delivered.id };
-}
 
 async function completePhotonDispatchReceipt(
   ctx: SessionContext,
@@ -1269,7 +1243,10 @@ async function dispatch(
       if (!alert || alert.findingId !== pending.context.findingId) {
         throw new Error("pending_alert_unavailable");
       }
-      alertContext = workspaceAlertTurnContext(alert);
+      alertContext = workspaceAlertTurnContext({
+        ...alert,
+        workspaceName: workspaceState.activeWorkspace.name,
+      });
     }
   } catch (error) {
     console.error("[photon.alert] Pending context resolution failed", {
