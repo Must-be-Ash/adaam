@@ -109,6 +109,44 @@ is implemented on the R2 phase branch and is still pending that review.
   path compiled workers overlap in execution, reach clean terminal outcomes,
   retain isolated state/capabilities, and leave no worker/runtime teardown leak.
 
+Pass A re-review did not accept the occurrence-recovery or Redis-atomicity
+claims. The remaining acceptance work is:
+
+- [ ] **A3 — reclaimed-attempt occurrence recovery.** Production lease expiry
+  assigns a new run ID for the same occurrence. A non-model recovery admission
+  must run before normal model concurrency and budget gates, then recover and
+  apply the prior outcome using occurrence identity. The persisted outcome is
+  admissible only when its occurrence-form run ID matches its parent run ID and
+  its nested finding owner, workspace, monitor, and run ID match that parent. A
+  reclaimed run accepts only an earlier positive attempt for the same occurrence;
+  a settled replay requires the exact same run. Acceptance keeps attempt 1's
+  uncertain budget reserved, reclaims attempt 2, and proves attempt 2 makes no
+  reservation, model call, source fetch, or provider charge. R5 owns
+  reconciliation of attempt 1's reservation; A3 must not release or claim it
+  settled.
+- [ ] **A4 — invalid recovery fails durably.** Missing, corrupt, incompatible, or
+  stale recovery data must create an explicit durable failure state with a
+  bounded reason and must never fall through to a fresh model execution. This
+  includes shape-valid data whose parent/nested identity or attempt relationship
+  is semantically corrupt; it must quarantine before alert, checkpoint, model,
+  fetch, or charge. One recovery failure must not starve unrelated recovered
+  workspaces, first-attempt workspace jobs, or legacy jobs: every claimed job
+  receives an opportunity, per-job failure remains visible, and aggregate
+  schedule failure surfaces after the pass. Workspace and legacy claim calls are
+  mutating: if one claim path fails after the other has fulfilled, the fulfilled
+  batch must be retained and executed rather than discarded or stranded, and
+  aggregate claim failure surfaces only after that pass. Asymmetric tests must
+  cover workspace-claim failure with fulfilled legacy work and legacy-claim
+  failure with fulfilled workspace work. A failure to persist recovery
+  quarantine or clean up its lease may be swallowed only after an authoritative
+  re-read proves that a concurrent lifecycle, configuration, or occurrence
+  change superseded that exact operation; otherwise the schedule must fail
+  visibly.
+- [ ] **Redis identity/outcome race proof — unverified in this environment.** Run
+  the new Lua identity/outcome transaction against real ephemeral Redis with
+  competing claims and recovery attempts, proving one canonical outcome and no
+  duplicate model, fetch, finding, alert, or charge.
+
 ### R3 — production alert outbox and delivery recovery
 
 - [ ] Add a production caller that drains staged workspace alerts to Photon.

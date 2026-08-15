@@ -113,6 +113,30 @@ sprint into one change.
   including forged identity input where applicable.
 - An idempotency task needs replay and concurrent/race coverage, not only a
   single successful call.
+- When lease recovery or retry gives the same durable occurrence a new attempt
+  or run ID, a non-model recovery admission must resolve any prior outcome by
+  occurrence identity before normal fresh-work concurrency/budget gates or any
+  model, provider, paid call, or side effect. Existing uncertain reservations
+  remain retained for their explicit reconciliation path, and recovery must not
+  create a second reservation. Validate exact parent/nested scope and run IDs
+  plus same-run versus earlier-attempt semantics; shape validation alone is
+  insufficient.
+- Missing, corrupt, incompatible, or stale recovery data must become an explicit
+  durable failure, not fall through to fresh execution. A failed quarantine or
+  cleanup write may be suppressed only after an authoritative re-read proves a
+  concurrent lifecycle, configuration, or occurrence change superseded the
+  exact operation; otherwise the caller must fail visibly.
+- A batch dispatcher must give every claimed job an execution or recovery
+  opportunity even when another job fails. Keep failures visible per job,
+  continue independent work, and surface aggregate schedule failure only after
+  the pass completes. Treat claim calls as mutating: a partial claim failure
+  cannot discard or strand a batch already returned by another claim path.
+  Execute fulfilled claims before surfacing aggregate claim failure, and test
+  both asymmetric cases with each claim path failing in turn.
+- Atomicity implemented by a database script or transaction requires a
+  concurrency/race test against the real database engine. An in-memory fake or
+  unit test, or approval from source inspection alone, is supporting evidence
+  only.
 - A UI task needs state/route tests and, when practical, a real rendered or
   browser smoke for the changed interaction.
 - A migration needs forward, retry, partial-failure, and rollback proof.
