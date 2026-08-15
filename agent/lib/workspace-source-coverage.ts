@@ -249,7 +249,19 @@ export async function createWorkspaceSourceCoverage(
   const raw = JSON.stringify(candidate.data);
   if (!(await client.compareAndSet(key(input.scope, input.runId), null, raw))) {
     const existing = await readWorkspaceSourceCoverage(input.scope, input.runId, client);
-    if (existing && raw === JSON.stringify(existing)) return existing;
+    if (
+      existing &&
+      existing.runId === candidate.data.runId &&
+      existing.monitorId === candidate.data.monitorId &&
+      existing.configurationRevision === candidate.data.configurationRevision &&
+      existing.ownerId === candidate.data.ownerId &&
+      existing.workspaceId === candidate.data.workspaceId &&
+      JSON.stringify(existing.sources) === JSON.stringify(candidate.data.sources) &&
+      existing.window.startAt === candidate.data.window.startAt &&
+      existing.window.endAt === candidate.data.window.endAt
+    ) {
+      return existing;
+    }
     throw new WorkspaceSourceCoverageError("source_coverage_conflict");
   }
   return candidate.data;

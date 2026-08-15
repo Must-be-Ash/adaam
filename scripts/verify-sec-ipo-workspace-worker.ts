@@ -46,6 +46,7 @@ class MemoryCasStore
 
 class MemoryCreateStore
   implements WorkspaceAlertStoreClient, WorkspaceFindingStoreClient {
+  failNextRecordType: string | null = null;
   readonly values = new Map<string, string>();
 
   async compareAndSet(key: string, expected: string, next: string) {
@@ -55,6 +56,11 @@ class MemoryCreateStore
   }
 
   async createOrRead(key: string, value: string) {
+    const recordType = (JSON.parse(value) as { recordType?: unknown }).recordType;
+    if (recordType === this.failNextRecordType) {
+      this.failNextRecordType = null;
+      throw new Error("fixture_create_interrupted");
+    }
     const current = this.values.get(key);
     if (current) return current;
     this.values.set(key, value);
@@ -67,13 +73,20 @@ class MemoryCreateStore
 }
 
 class MemoryMonitorStore implements WorkspaceMonitorStoreClient {
+  completeCalls = 0;
+  readonly completedOccurrences = new Set<string>();
   readonly values = new Map<string, string>();
 
   async complete(input: Parameters<WorkspaceMonitorStoreClient["complete"]>[0]) {
+    if (this.completedOccurrences.has(input.occurrenceRecordKey)) {
+      return "already_completed" as const;
+    }
     const current = this.values.get(input.recordKey);
     if (!current) return "missing" as const;
     if (current !== input.expectedRaw) return "stale" as const;
     this.values.set(input.recordKey, input.nextRaw);
+    this.completeCalls += 1;
+    this.completedOccurrences.add(input.occurrenceRecordKey);
     return "completed" as const;
   }
 
@@ -304,9 +317,10 @@ async function execute(
   prepared: Awaited<ReturnType<typeof prepare>>,
   now: Date,
   fetchSource: SecIpoFetch,
+  overrides: Partial<typeof clients> = {},
 ) {
   return evaluateSecIpoSourceForWorker({
-    clients: { ...clients, fetchSource },
+    clients: { ...clients, ...overrides, fetchSource },
     ctx: { session: { auth: { current: prepared.request.auth } } },
     environment,
     now,
@@ -433,6 +447,87 @@ const sameFiling = await execute(
 assert.equal(sameFiling.outcome.outcome, "no_match");
 assert.equal(sameFiling.factCount, 0);
 assert.equal(alerts.values.size, 2);
+
+const workspaceRecovery = await setupWorkspace(
+  "423e4567-e89b-42d3-a456-426614174000",
+);
+await execute(
+  await prepare({ ...workspaceRecovery, now: baselineNow }),
+  baselineNow,
+  fetchResponse(fixtureBodies.initial),
+);
+const recoveryMonitor = await getWorkspaceMonitor(
+  workspaceRecovery.scope,
+  workspaceRecovery.monitor.monitorId,
+  monitors,
+);
+assert.ok(recoveryMonitor);
+const recoveryPrepared = await prepare({
+  monitor: recoveryMonitor,
+  now: laterNow,
+  scope: workspaceRecovery.scope,
+});
+const recoveryAlertsBefore = alerts.values.size;
+const recoveryCompletionsBefore = monitors.completeCalls;
+alerts.failNextRecordType = "workspace_alert";
+await assert.rejects(
+  execute(
+    recoveryPrepared,
+    laterNow,
+    fetchResponse(fixtureBodies.later),
+  ),
+  /fixture_create_interrupted/u,
+);
+assert.equal(alerts.values.size, recoveryAlertsBefore);
+assert.equal(monitors.completeCalls, recoveryCompletionsBefore);
+assert.equal(
+  (await getWorkspaceMonitor(
+    workspaceRecovery.scope,
+    workspaceRecovery.monitor.monitorId,
+    monitors,
+  ))?.nextOccurrenceAt,
+  recoveryMonitor.nextOccurrenceAt,
+);
+let recoveryFetches = 0;
+const recoveredOutcome = await execute(
+  recoveryPrepared,
+  laterNow,
+  async () => {
+    recoveryFetches += 1;
+    throw new Error("durable outcome recovery must not refetch");
+  },
+);
+assert.equal(recoveryFetches, 0);
+assert.equal(recoveredOutcome.replayed, true);
+assert.equal(alerts.values.size, recoveryAlertsBefore + 1);
+assert.equal(monitors.completeCalls, recoveryCompletionsBefore + 1);
+const recoveredMonitor = await getWorkspaceMonitor(
+  workspaceRecovery.scope,
+  workspaceRecovery.monitor.monitorId,
+  monitors,
+);
+assert.ok(recoveredMonitor);
+assert.notEqual(recoveredMonitor.nextOccurrenceAt, recoveryMonitor.nextOccurrenceAt);
+const recoveryReplay = await execute(
+  recoveryPrepared,
+  laterNow,
+  async () => {
+    recoveryFetches += 1;
+    throw new Error("completed recovery replay must not refetch");
+  },
+);
+assert.equal(recoveryFetches, 0);
+assert.equal(recoveryReplay.replayed, true);
+assert.equal(alerts.values.size, recoveryAlertsBefore + 1);
+assert.equal(monitors.completeCalls, recoveryCompletionsBefore + 1);
+assert.deepEqual(
+  await getWorkspaceMonitor(
+    workspaceRecovery.scope,
+    workspaceRecovery.monitor.monitorId,
+    monitors,
+  ),
+  recoveredMonitor,
+);
 
 const workspaceB = await setupWorkspace(
   "223e4567-e89b-42d3-a456-426614174000",

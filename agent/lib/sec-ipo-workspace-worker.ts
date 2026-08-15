@@ -31,12 +31,15 @@ import { requireWorkspaceWorkerAuth } from "./workspace-worker-auth";
 import { resolveWorkspaceWorkerCapabilitySnapshot } from "./workspace-worker-capabilities";
 import {
   commitDeterministicWorkspaceEvaluationForWorker,
+  finalizeExistingWorkspaceRunOutcomeForWorker,
   type WorkspaceWorkerControlPlaneClients,
 } from "./workspace-worker-control-plane";
+import type { SecIpoFilingFact } from "./workspace-finding-facts";
 import {
   fetchOfficialPublicSourceText,
   type OfficialPublicSourceResponse,
 } from "../tools/fetch_public_source";
+import type { PreparedWorkspaceWorkerRun } from "./workspace-worker-runner";
 
 export { EVALUATE_SEC_IPO_SOURCE_TOOL_ID } from "./sec-ipo-reference";
 
@@ -124,21 +127,32 @@ function findingCandidate(
   };
 }
 
-function alertPresentation(evaluation: SecIpoEvaluation):
+function alertPresentationForFacts(facts: readonly SecIpoFilingFact[]):
   | { title: string; whyMatched: string }
   | undefined {
-  if (evaluation.alerts.length === 0) return undefined;
-  if (evaluation.alerts.length === 1) {
+  if (facts.length === 0) return undefined;
+  if (facts.length === 1) {
+    const fact = facts[0]!;
     return {
-      title: evaluation.alerts[0]!.title,
-      whyMatched: evaluation.alerts[0]!.whyMatched,
+      title: fact.classification === "new_registration"
+        ? "New SEC S-1 registration"
+        : "SEC S-1 registration update",
+      whyMatched: fact.classification === "new_registration"
+        ? "A newly observed S-1 is a potential IPO registration, not confirmation of an IPO."
+        : "A newly observed S-1/A amends an existing registration and is not a new IPO candidate.",
     };
   }
   return {
-    title: `${evaluation.alerts.length} new SEC S-1 filings`,
+    title: `${facts.length} new SEC S-1 filings`,
     whyMatched:
       "The configured SEC feed contained multiple newly observed S-1 registrations or amendments.",
   };
+}
+
+function alertPresentation(evaluation: SecIpoEvaluation) {
+  return alertPresentationForFacts(
+    evaluation.findings.map(({ fact }) => fact),
+  );
 }
 
 export async function evaluateSecIpoSourceForWorker(input: {
@@ -160,14 +174,27 @@ export async function evaluateSecIpoSourceForWorker(input: {
     input.clients?.finding,
   );
   if (existing) {
+    const outcome = await finalizeExistingWorkspaceRunOutcomeForWorker({
+      alertPresentation: alertPresentationForFacts(
+        existing.finding?.facts?.filter(
+          (fact): fact is SecIpoFilingFact => fact.kind === "sec_ipo_filing",
+        ) ?? [],
+      ),
+      clients: input.clients,
+      ctx: input.ctx,
+      environment: input.environment,
+      now,
+      outcome: existing,
+      toolId: EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
+    });
     return Object.freeze({
       baselineEstablished: false,
       checkpoint: {
-        contentDigest: existing.checkpoint.contentDigest,
-        watermark: existing.checkpoint.watermark,
+        contentDigest: outcome.checkpoint.contentDigest,
+        watermark: outcome.checkpoint.watermark,
       },
-      factCount: existing.finding?.facts?.length ?? 0,
-      outcome: existing,
+      factCount: outcome.finding?.facts?.length ?? 0,
+      outcome,
       replayed: true,
     });
   }
@@ -240,6 +267,47 @@ export async function evaluateSecIpoSourceForWorker(input: {
     factCount: evaluation.findings.length,
     outcome,
     replayed: false,
+  });
+}
+
+export async function recoverSecIpoWorkspaceRunForControlPlane(input: {
+  clients?: SecIpoWorkspaceWorkerClients;
+  environment?: NodeJS.ProcessEnv;
+  now?: Date;
+  prepared: PreparedWorkspaceWorkerRun;
+}): Promise<WorkspaceRunOutcome | null> {
+  if (
+    input.prepared.envelope.sources.length !== 1 ||
+    input.prepared.envelope.sources[0]?.sourceId !== SEC_IPO_SOURCE_ID ||
+    input.prepared.envelope.sources[0].canonicalUrl !== SEC_IPO_SOURCE_URL
+  ) {
+    return null;
+  }
+  const existing = await readWorkspaceRunOutcome(
+    input.prepared.scope,
+    input.prepared.envelope.occurrenceKey,
+    input.clients?.finding,
+  );
+  if (!existing) return null;
+  return finalizeExistingWorkspaceRunOutcomeForWorker({
+    alertPresentation: alertPresentationForFacts(
+      existing.finding?.facts?.filter(
+        (fact): fact is SecIpoFilingFact => fact.kind === "sec_ipo_filing",
+      ) ?? [],
+    ),
+    clients: input.clients,
+    ctx: {
+      session: {
+        auth: {
+          current: input.prepared.request.auth,
+          initiator: input.prepared.request.auth,
+        },
+      },
+    },
+    environment: input.environment,
+    now: input.now,
+    outcome: existing,
+    toolId: EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
   });
 }
 

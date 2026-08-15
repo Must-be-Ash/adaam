@@ -35,14 +35,16 @@ class MemoryStore implements WorkspaceMonitorStoreClient {
     const raw = this.values.get(input.recordKey);
     const occurrence = this.occurrences.get(input.occurrenceRecordKey);
     if (!raw) return "missing" as const;
-    if (!this.leases.has(input.leaseKey)) return "lease_mismatch" as const;
-    if (raw !== input.expectedRaw) return "stale" as const;
-    const record = JSON.parse(input.nextRaw);
     if (
-      record.configurationRevision !== input.configurationRevision ||
-      occurrence?.status !== "leased" ||
+      occurrence === undefined ||
+      JSON.parse(raw).configurationRevision !== input.configurationRevision ||
       occurrence.leaseTokenDigest !== input.leaseTokenDigest
     ) return "stale" as const;
+    if (occurrence.status === "completed") return "already_completed" as const;
+    if (!this.leases.has(input.leaseKey)) return "lease_mismatch" as const;
+    if (raw !== input.expectedRaw || occurrence.status !== "leased") {
+      return "stale" as const;
+    }
     this.values.set(input.recordKey, input.nextRaw);
     this.occurrences.set(input.occurrenceRecordKey, { ...occurrence, status: "completed" });
     this.leases.delete(input.leaseKey);
@@ -400,6 +402,56 @@ assert.deepEqual(
     watermark: scheduledFor,
   }, client),
   completed,
+);
+
+const unchangedOccurrenceIdentity = "2026-08-14T12:35:00.000Z";
+const unchanged = await claimWorkspaceMonitorOccurrence(
+  {
+    configurationRevision: completed.configurationRevision,
+    leaseForMs: 60_000,
+    monitorId: completed.monitorId,
+    now: new Date(unchangedOccurrenceIdentity),
+    occurrenceIdentity: unchangedOccurrenceIdentity,
+    scheduledFor: unchangedOccurrenceIdentity,
+    scope,
+  },
+  client,
+);
+const unchangedCompleted = await completeWorkspaceMonitorCheckpoint({
+  completedAt: new Date("2026-08-14T12:36:00.000Z"),
+  configurationRevision: completed.configurationRevision,
+  contentDigest: completed.sourceCheckpoint.contentDigest!,
+  leaseTokenDigest: unchanged.occurrence.leaseTokenDigest,
+  monitorId: completed.monitorId,
+  occurrenceKey: unchanged.occurrence.occurrenceKey,
+  scheduledFor: unchangedOccurrenceIdentity,
+  scope,
+  watermark: completed.sourceCheckpoint.watermark!,
+}, client);
+assert.equal(unchangedCompleted.nextOccurrenceAt, "2026-08-14T13:05:00.000Z");
+assert.equal(client.leases.size, 0);
+assert.equal(client.inflight.size, 0);
+assert.equal(
+  client.occurrences.get(
+    [...client.occurrences.keys()].find((key) =>
+      key.endsWith(unchanged.occurrence.occurrenceKey)
+    )!,
+  )?.status,
+  "completed",
+);
+assert.deepEqual(
+  await completeWorkspaceMonitorCheckpoint({
+    completedAt: new Date("2026-08-14T12:37:00.000Z"),
+    configurationRevision: completed.configurationRevision,
+    contentDigest: completed.sourceCheckpoint.contentDigest!,
+    leaseTokenDigest: unchanged.occurrence.leaseTokenDigest,
+    monitorId: completed.monitorId,
+    occurrenceKey: unchanged.occurrence.occurrenceKey,
+    scheduledFor: unchangedOccurrenceIdentity,
+    scope,
+    watermark: completed.sourceCheckpoint.watermark!,
+  }, client),
+  unchangedCompleted,
 );
 
 const paused = await updateWorkspaceMonitor(

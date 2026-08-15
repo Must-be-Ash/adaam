@@ -209,6 +209,24 @@ assert.deepEqual(
   await completeWorkspaceSourceCoverage({ now, runId, scope }, client),
   complete,
 );
+assert.deepEqual(
+  await createWorkspaceSourceCoverage(
+    {
+      configurationRevision: 3,
+      monitorId: "423e4567-e89b-42d3-a456-426614174000",
+      now,
+      runId,
+      scope,
+      sources,
+      window: {
+        endAt: "2026-08-14T17:00:00.000Z",
+        startAt: "2026-08-14T16:00:00.000Z",
+      },
+    },
+    client,
+  ),
+  complete,
+);
 assert.deepEqual(await readWorkspaceSourceCoverage(scope, runId, client), complete);
 assert.equal(await readWorkspaceSourceCoverage(otherScope, runId, client), null);
 await assert.rejects(

@@ -21,6 +21,7 @@ import {
   type ClaimedWorkspaceMonitor,
 } from "../lib/workspace-monitor-store";
 import { resolveWorkspaceRuntimeFlags } from "../lib/workspace-runtime-flags";
+import { recoverSecIpoWorkspaceRunForControlPlane } from "../lib/sec-ipo-workspace-worker";
 import {
   prepareWorkspaceWorkerRun,
   requireWorkspaceWorkerOutcome,
@@ -33,6 +34,7 @@ export interface EventTriggerScheduleDependencies {
   readonly now: () => Date;
   readonly prepareWorkspaceWorker: typeof prepareWorkspaceWorkerRun;
   readonly recordWorkspaceFailure: typeof recordWorkspaceMonitorFailure;
+  readonly recoverWorkspaceOutcome: typeof recoverSecIpoWorkspaceRunForControlPlane;
   readonly releaseWorkspaceLease: typeof releaseWorkspaceMonitorLease;
   readonly requireWorkspaceOutcome: typeof requireWorkspaceWorkerOutcome;
   readonly reserveWorkspaceBudget: typeof reserveWorkspaceMonitorDispatchBudget;
@@ -48,6 +50,7 @@ const productionDependencies: EventTriggerScheduleDependencies = Object.freeze({
   now: () => new Date(),
   prepareWorkspaceWorker: prepareWorkspaceWorkerRun,
   recordWorkspaceFailure: recordWorkspaceMonitorFailure,
+  recoverWorkspaceOutcome: recoverSecIpoWorkspaceRunForControlPlane,
   releaseWorkspaceLease: releaseWorkspaceMonitorLease,
   requireWorkspaceOutcome: requireWorkspaceWorkerOutcome,
   reserveWorkspaceBudget: reserveWorkspaceMonitorDispatchBudget,
@@ -61,16 +64,30 @@ async function executeWorkspaceJob(
   dependencies: EventTriggerScheduleDependencies,
 ): Promise<void> {
   if (
-    (budget.global.state === "settled" &&
-      (budget.workspace.state === "reconciled" ||
-        budget.workspace.state === "uncertain")) ||
-    (budget.global.state === "released" &&
-      budget.workspace.state === "released")
+    budget.global.state === "settled" &&
+    (budget.workspace.state === "reconciled" ||
+      budget.workspace.state === "uncertain")
   ) {
-    // A redelivered schedule occurrence may observe the exact reservation
-    // after it was already settled/released. Its durable outcome is
-    // authoritative; starting another model turn would duplicate work and
-    // produce different token usage for the same reservation identity.
+    // A settled reservation proves the model work is terminal, but a crash may
+    // still have happened after the durable outcome and before alert/checkpoint
+    // finalization. Recover that deterministic tail without another model turn.
+    try {
+      const prepared = await dependencies.prepareWorkspaceWorker({
+        claimed: job,
+        dispatchBudget: budget,
+      });
+      await dependencies.recoverWorkspaceOutcome({ prepared });
+    } catch {
+      // Keep the occurrence leased for bounded expiry recovery. A settled
+      // budget never authorizes another model turn for this occurrence.
+    }
+    return;
+  }
+  if (
+    budget.global.state === "released" &&
+    budget.workspace.state === "released"
+  ) {
+    // Known-not-started reservations have no model or outcome work to replay.
     return;
   }
   let started = false;

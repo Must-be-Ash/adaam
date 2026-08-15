@@ -101,15 +101,19 @@ return 1
 const COMPLETE_SCRIPT = `
 local raw = redis.call("GET", KEYS[1])
 if not raw then return "missing" end
-if redis.call("EXISTS", KEYS[2]) ~= 1 then return "lease_mismatch" end
 local occurrence_raw = redis.call("GET", KEYS[5])
 if not occurrence_raw then return "lease_mismatch" end
 local occurrence_ok, occurrence = pcall(cjson.decode, occurrence_raw)
 if not occurrence_ok then return "stale" end
-if raw ~= ARGV[3] or tonumber(occurrence.configurationRevision) ~= tonumber(ARGV[1]) or
-   occurrence.status ~= "leased" or occurrence.leaseTokenDigest ~= ARGV[2] then
+if tonumber(occurrence.configurationRevision) ~= tonumber(ARGV[1]) or
+   occurrence.leaseTokenDigest ~= ARGV[2] then
   return "stale"
 end
+if occurrence.status == "completed" then return "already_completed" end
+if occurrence.status ~= "leased" or redis.call("EXISTS", KEYS[2]) ~= 1 then
+  return "lease_mismatch"
+end
+if raw ~= ARGV[3] then return "stale" end
 occurrence.status = "completed"
 occurrence.updatedAt = ARGV[5]
 redis.call("SET", KEYS[1], ARGV[4])
@@ -300,7 +304,7 @@ export interface WorkspaceMonitorStoreClient {
     nextRaw: string;
     occurrenceRecordKey: string;
     recordKey: string;
-  }): Promise<"completed" | "lease_mismatch" | "missing" | "stale">;
+  }): Promise<"already_completed" | "completed" | "lease_mismatch" | "missing" | "stale">;
   claim(input: {
     configurationRevision: number;
     dueAtMs: number;
@@ -383,7 +387,7 @@ function store(): WorkspaceMonitorStoreClient {
     async complete(input) {
       return redisClient!.eval<
         [string, string, string, string, string, string, string],
-        "completed" | "lease_mismatch" | "missing" | "stale"
+        "already_completed" | "completed" | "lease_mismatch" | "missing" | "stale"
       >(
         COMPLETE_SCRIPT,
         [
@@ -1152,12 +1156,6 @@ export async function completeWorkspaceMonitorCheckpoint(
     throw new WorkspaceMonitorError("monitor_occurrence_stale");
   }
   if (
-    monitor.sourceCheckpoint.watermark === input.watermark &&
-    monitor.sourceCheckpoint.contentDigest === input.contentDigest
-  ) {
-    return monitor;
-  }
-  if (
     monitor.sourceCheckpoint.watermark &&
     monitor.sourceCheckpoint.watermark > input.watermark
   ) {
@@ -1201,7 +1199,7 @@ export async function completeWorkspaceMonitorCheckpoint(
     occurrenceRecordKey: `${OCCURRENCE_PREFIX}${input.occurrenceKey}`,
     recordKey: recordKey(input.scope, input.monitorId),
   });
-  if (status !== "completed") {
+  if (status !== "completed" && status !== "already_completed") {
     throw new WorkspaceMonitorError(
       status === "missing" ? "monitor_not_found" : "monitor_occurrence_stale",
     );

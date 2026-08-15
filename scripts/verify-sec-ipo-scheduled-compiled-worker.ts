@@ -34,7 +34,10 @@ import {
   SEC_IPO_SOURCE_ID,
   SEC_IPO_SOURCE_URL,
 } from "../agent/lib/sec-ipo-reference";
-import type { SecIpoWorkspaceWorkerClients } from "../agent/lib/sec-ipo-workspace-worker";
+import {
+  recoverSecIpoWorkspaceRunForControlPlane,
+  type SecIpoWorkspaceWorkerClients,
+} from "../agent/lib/sec-ipo-workspace-worker";
 import type { WorkspaceSourceCoverageClient } from "../agent/lib/workspace-source-coverage";
 import {
   writeWorkspaceDocument,
@@ -70,6 +73,7 @@ class MemoryCasStore
 
 class MemoryCreateStore
   implements WorkspaceAlertStoreClient, WorkspaceFindingStoreClient {
+  failNextRecordType: string | null = null;
   readonly values = new Map<string, string>();
 
   async compareAndSet(key: string, expected: string, next: string) {
@@ -79,6 +83,11 @@ class MemoryCreateStore
   }
 
   async createOrRead(key: string, value: string) {
+    const recordType = (JSON.parse(value) as { recordType?: unknown }).recordType;
+    if (recordType === this.failNextRecordType) {
+      this.failNextRecordType = null;
+      throw new Error("fixture_create_interrupted");
+    }
     const current = this.values.get(key);
     if (current) return current;
     this.values.set(key, value);
@@ -91,13 +100,20 @@ class MemoryCreateStore
 }
 
 class MemoryMonitorStore implements WorkspaceMonitorStoreClient {
+  completeCalls = 0;
+  readonly completedOccurrences = new Set<string>();
   readonly values = new Map<string, string>();
 
   async complete(input: Parameters<WorkspaceMonitorStoreClient["complete"]>[0]) {
+    if (this.completedOccurrences.has(input.occurrenceRecordKey)) {
+      return "already_completed" as const;
+    }
     const current = this.values.get(input.recordKey);
     if (!current) return "missing" as const;
     if (current !== input.expectedRaw) return "stale" as const;
     this.values.set(input.recordKey, input.nextRaw);
+    this.completeCalls += 1;
+    this.completedOccurrences.add(input.occurrenceRecordKey);
     return "completed" as const;
   }
 
@@ -410,6 +426,13 @@ const schedule = createEventTriggerSchedule({
   }),
   recordWorkspaceFailure: (input) =>
     recordWorkspaceMonitorFailure(input, monitors),
+  recoverWorkspaceOutcome: (input) =>
+    recoverSecIpoWorkspaceRunForControlPlane({
+      ...input,
+      clients: workerClients,
+      environment,
+      now: verificationNow,
+    }),
   releaseWorkspaceLease: (input) =>
     releaseWorkspaceMonitorLease(input, monitors),
   requireWorkspaceOutcome: (prepared) =>
@@ -716,6 +739,8 @@ try {
       monitorA.monitorId,
       monitors,
     ))!;
+    const sameFilingOccurrence = monitorA.nextOccurrenceAt;
+    const completionsBeforeSameFiling = monitors.completeCalls;
     const sameFiling = await dispatch(
       claim({ monitor: monitorA, now: verificationNow, scope: workspaceA.scope }),
       fetchResponse(fixtureBodies.amendment),
@@ -723,6 +748,97 @@ try {
     assertCompiledEvaluatorEvents(sameFiling);
     assert.equal(storedFindings().length, 2);
     assert.equal(storedRecords(alerts, "workspace_alert").length, 2);
+    monitorA = (await getWorkspaceMonitor(
+      workspaceA.scope,
+      monitorA.monitorId,
+      monitors,
+    ))!;
+    assert.notEqual(monitorA.nextOccurrenceAt, sameFilingOccurrence);
+    assert.equal(monitors.completeCalls, completionsBeforeSameFiling + 1);
+
+    const recoveryWorkspace = await setupWorkspace(
+      "423e4567-e89b-42d3-a456-426614174000",
+    );
+    const recoveryBaselineJob = claim({
+      monitor: recoveryWorkspace.monitor,
+      now: verificationNow,
+      scope: recoveryWorkspace.scope,
+    });
+    await dispatch(
+      recoveryBaselineJob,
+      fetchResponse(fixtureBodies.initial),
+    );
+    const recoveryMonitor = (await getWorkspaceMonitor(
+      recoveryWorkspace.scope,
+      recoveryWorkspace.monitor.monitorId,
+      monitors,
+    ))!;
+    const recoveryJob = claim({
+      monitor: recoveryMonitor,
+      now: verificationNow,
+      scope: recoveryWorkspace.scope,
+    });
+    const alertsBeforeRecovery = storedRecords(alerts, "workspace_alert").length;
+    const completionsBeforeRecovery = monitors.completeCalls;
+    alerts.failNextRecordType = "workspace_alert";
+    const interrupted = await dispatch(
+      recoveryJob,
+      fetchResponse(fixtureBodies.later),
+    );
+    assert.equal(interrupted.fetches, 1);
+    assert.ok(interrupted.events.some((event) =>
+      event.type === "action.result" &&
+      event.data.result.kind === "tool-result" &&
+      event.data.result.toolName === EVALUATE_SEC_IPO_SOURCE_TOOL_ID &&
+      event.data.result.isError === true
+    ));
+    assert.ok(interrupted.events.some((event) => event.type === "session.completed"));
+    assert.equal(storedRecords(alerts, "workspace_alert").length, alertsBeforeRecovery);
+    assert.equal(monitors.completeCalls, completionsBeforeRecovery);
+    assert.equal(
+      (await getWorkspaceMonitor(
+        recoveryWorkspace.scope,
+        recoveryWorkspace.monitor.monitorId,
+        monitors,
+      ))?.nextOccurrenceAt,
+      recoveryMonitor.nextOccurrenceAt,
+    );
+    const recovered = await dispatch(
+      recoveryJob,
+      async () => {
+        throw new Error("durable outcome recovery must not refetch");
+      },
+    );
+    assert.equal(recovered.fetches, 0);
+    assert.deepEqual(recovered.events, []);
+    assert.equal(
+      storedRecords(alerts, "workspace_alert").length,
+      alertsBeforeRecovery + 1,
+    );
+    assert.equal(monitors.completeCalls, completionsBeforeRecovery + 1);
+    const recoveredMonitor = (await getWorkspaceMonitor(
+      recoveryWorkspace.scope,
+      recoveryWorkspace.monitor.monitorId,
+      monitors,
+    ))!;
+    assert.notEqual(recoveredMonitor.nextOccurrenceAt, recoveryMonitor.nextOccurrenceAt);
+    const recoveryReplay = await dispatch(
+      recoveryJob,
+      async () => {
+        throw new Error("completed occurrence replay must not restart or refetch");
+      },
+    );
+    assert.equal(recoveryReplay.fetches, 0);
+    assert.deepEqual(recoveryReplay.events, []);
+    assert.equal(monitors.completeCalls, completionsBeforeRecovery + 1);
+    assert.deepEqual(
+      await getWorkspaceMonitor(
+        recoveryWorkspace.scope,
+        recoveryWorkspace.monitor.monitorId,
+        monitors,
+      ),
+      recoveredMonitor,
+    );
 
     const workspaceB = await setupWorkspace(
       "223e4567-e89b-42d3-a456-426614174000",
