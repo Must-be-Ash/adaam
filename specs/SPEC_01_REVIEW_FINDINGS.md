@@ -42,14 +42,14 @@ Evidence:
 
 ### R2 — deterministic IPO production path
 
-- [ ] Wire the versioned SEC parser/evaluator into the real scheduled worker
-  path. `evaluateSecIpoPage()` is currently called only by fixtures and the
-  standalone live smoke.
-- [ ] Persist the required SEC facts as typed fields, including CIK, accession,
+- [x] Wire the versioned SEC parser/evaluator into the real scheduled worker
+  path. In the reviewed pre-R2 state, `evaluateSecIpoPage()` was called only by
+  fixtures and the standalone live smoke.
+- [x] Persist the required SEC facts as typed fields, including CIK, accession,
   form type, filing/file number, registration/amendment identity, classification,
-  and canonical filing URL. The generic finding schema currently stores only a
-  summary, provenance, time, and artifact references.
-- [ ] Prove scheduler → compiled worker → exact fenced fixture fetch → typed
+  and canonical filing URL. In the reviewed pre-R2 state, the generic finding
+  schema stored only a summary, provenance, time, and artifact references.
+- [x] Prove scheduler → compiled worker → exact fenced fixture fetch → typed
   finding/no-match → checkpoint → alert behavior and replay through the real
   caller chain.
 

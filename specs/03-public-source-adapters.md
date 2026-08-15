@@ -527,10 +527,16 @@ Each transaction fact preserves:
 - [ ] Add failing tests for origin escape, redirect/DNS escape, response limits,
   archive attacks, XML entities, parser ambiguity, duplicate observation,
   checkpoint uncertainty, schema drift, and cross-workspace fact access.
-- [ ] Exercise exact-fence redirects, timestamp-independent identity,
-  maximum-count durability, crash/replay recovery, and actually overlapping
-  concurrent observations through the production observation caller; sequential
-  helper fixtures are supporting evidence only.
+- [ ] Add a failing exact-URL-fence fixture that observes whether a redirect
+  causes a second outbound request.
+- [ ] Add a failing fixture proving source observation/version timestamps cannot
+  create a second canonical fact identity.
+- [ ] Add a failing fixture at every declared maximum feed/page count and durable
+  serialized-byte boundary.
+- [ ] Add failing crash-boundary fixtures for fact identity claim, outcome, and
+  checkpoint recovery.
+- [ ] Add a barrier-backed failing fixture whose production-path observations
+  actually overlap; a sequential isolation fixture is insufficient.
 - [ ] Add SEC and House fixture corpora with exact expected facts and coverage.
 - [ ] Define low-cardinality error codes, retention, feature flags, and rollback.
 
@@ -544,6 +550,9 @@ Exit gate:
 - [ ] Implement adapter/source-instance schemas, registry, immutable versions,
   digest checks, and configuration validation.
 - [ ] Implement the shared guarded HTTP executor and aggregate observation limits.
+- [ ] Implement exact-URL no-follow transport and prove through the production
+  observation caller that a redirect is rejected before a second outbound
+  request.
 - [ ] Implement bounded RSS/Atom, JSON, XML, ZIP, and PDF input primitives.
 - [ ] Add respectful rate/concurrency limits, conditional requests, cancellation,
   retry classification, and source authority metadata.
@@ -558,11 +567,20 @@ Exit gate:
 
 - [ ] Implement observation/stage receipts, fact and checkpoint stores, indexes,
   correction lineage, and compare-and-set commits.
-- [ ] Implement initial baseline and atomic checkpoint/fact responsibility.
-- [ ] Implement safe observation coalescing and source-global fact deduplication.
+- [ ] Implement initial baseline plus atomic or explicitly recoverable fact-
+  identity claim, outcome, checkpoint, and child-stage responsibility; cover
+  each crash boundary through the production fact/checkpoint caller with replay
+  tests.
+- [ ] Implement safe observation coalescing and source-global fact deduplication
+  whose identity is independent of observation and source-version timestamps;
+  prove timestamp-change replay through the production observation caller.
+- [ ] Make every declared maximum feed/page count fit the serialized durable
+  record limits or deterministic lossless batching, and test every declared
+  ceiling through the production durable-commit path.
 - [ ] Implement subscription filtering, scoped fact retrieval, and projection
   receipts.
-- [ ] Complete Redis race, replay, checkpoint uncertainty, and isolation tests.
+- [ ] Complete production-caller replay, checkpoint uncertainty, isolation, and
+  barrier-backed actually overlapping concurrency tests, plus Redis races.
 
 Exit gate:
 
