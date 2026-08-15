@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>SEC repeated S-1 identity fixture</title>
+  <entry>
+    <title>S-1/A - New Candidate Corp (0001000003) (Filer)</title>
+    <link rel="alternate" href="https://www.sec.gov/Archives/edgar/data/1000003/000100000326000002/new-candidate-s1a-index.htm" />
+    <id>urn:tag:sec.gov,2008:accession-number=0001000003-26-000002</id>
+    <updated>2026-08-14T19:00:00Z</updated>
+    <category term="S-1/A" label="form type" />
+    <summary type="html">&lt;b&gt;File Number:&lt;/b&gt; 333-100003</summary>
+  </entry>
+  <entry>
+    <title>S-1 - New Candidate Corp (0001000003) (Filer)</title>
+    <link rel="alternate" href="https://www.sec.gov/Archives/edgar/data/1000003/000100000326000001/new-candidate-s1-index.htm" />
+    <id>urn:tag:sec.gov,2008:accession-number=0001000003-26-000001</id>
+    <updated>2026-08-14T20:00:00Z</updated>
+    <published>2026-08-14T17:59:00Z</published>
+    <category term="S-1" label="form type" />
+    <summary type="html">&lt;b&gt;File No.:&lt;/b&gt; 333-100003</summary>
+  </entry>
+</feed>

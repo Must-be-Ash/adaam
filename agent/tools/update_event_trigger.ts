@@ -3,14 +3,18 @@ import { z } from "zod";
 
 import { requireEventTriggerOwner } from "../lib/event-trigger-owner";
 import { eventTriggerStore } from "../lib/event-trigger-store";
+import {
+  WORKSPACE_MONITOR_SOURCE_LIMIT,
+  WORKSPACE_MONITOR_SOURCE_LIMIT_CODE,
+} from "../lib/workspace-monitor-input";
 
-const updateSchema = z
+export const updateEventTriggerInputSchema = z
   .object({
     id: z.string().uuid(),
     name: z.string().trim().min(1).max(160).optional(),
     instruction: z.string().trim().min(1).max(8_000).optional(),
-    sourceIds: z.array(z.string().trim().min(1)).max(20).optional(),
-    sourceUrls: z.array(z.string().url().max(2_048)).max(20).optional(),
+    sourceIds: z.array(z.string().trim().min(1)).max(WORKSPACE_MONITOR_SOURCE_LIMIT).optional(),
+    sourceUrls: z.array(z.string().url().max(2_048)).max(WORKSPACE_MONITOR_SOURCE_LIMIT).optional(),
     timezone: z.string().trim().min(1).max(80).optional(),
     nextRunAt: z.string().datetime({ offset: true }).optional(),
     everyMinutes: z
@@ -21,6 +25,14 @@ const updateSchema = z
       .nullable()
       .optional(),
     enabled: z.boolean().optional(),
+  })
+  .superRefine((input, context) => {
+    if (
+      (input.sourceIds?.length ?? 0) + (input.sourceUrls?.length ?? 0) >
+      WORKSPACE_MONITOR_SOURCE_LIMIT
+    ) {
+      context.addIssue({ code: "custom", message: WORKSPACE_MONITOR_SOURCE_LIMIT_CODE });
+    }
   })
   .refine(
     ({ id: _id, ...patch }) =>
@@ -38,7 +50,7 @@ export default defineTool({
           reason: "Scheduled runs cannot update event triggers.",
         }
       : "not-applicable",
-  inputSchema: updateSchema,
+  inputSchema: updateEventTriggerInputSchema,
   async execute({ id, nextRunAt, ...patch }, ctx) {
     const parsedNextRunAt = nextRunAt ? new Date(nextRunAt) : undefined;
     if (parsedNextRunAt && parsedNextRunAt.getTime() < Date.now() - 2 * 60_000) {

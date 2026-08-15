@@ -1,0 +1,281 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eve.local/spec-01/records.schema.json",
+  "title": "Spec 1 durable record fixtures",
+  "type": "array",
+  "minItems": 12,
+  "maxItems": 12,
+  "items": {
+    "oneOf": [
+      { "$ref": "#/$defs/owner_mapping" },
+      { "$ref": "#/$defs/photon_ingress" },
+      { "$ref": "#/$defs/workspace_assignment" },
+      { "$ref": "#/$defs/dispatch" },
+      { "$ref": "#/$defs/workspace" },
+      { "$ref": "#/$defs/monitor" },
+      { "$ref": "#/$defs/run" },
+      { "$ref": "#/$defs/budget" },
+      { "$ref": "#/$defs/finding" },
+      { "$ref": "#/$defs/alert" },
+      { "$ref": "#/$defs/delivery" },
+      { "$ref": "#/$defs/routing_decision" }
+    ]
+  },
+  "$defs": {
+    "opaqueId": { "type": "string", "pattern": "^[a-z][a-z0-9_:-]{2,127}$" },
+    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "money": { "type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,6})?$" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "canonicalUrl", "origin", "accessClassification"],
+      "properties": {
+        "sourceId": { "$ref": "#/$defs/opaqueId" },
+        "canonicalUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "origin": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "accessClassification": { "enum": ["public", "owner_private"] }
+      }
+    },
+    "owner_mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordType", "schemaVersion", "ownerId", "status", "photonAliasDigests", "revision", "createdAt", "updatedAt"],
+      "properties": {
+        "recordType": { "const": "owner_mapping" },
+        "schemaVersion": { "const": 1 },
+        "ownerId": { "$ref": "#/$defs/opaqueId" },
+        "status": { "enum": ["configured", "revoked"] },
+        "photonAliasDigests": { "type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": { "$ref": "#/$defs/digest" } },
+        "revision": { "type": "integer", "minimum": 1 },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "updatedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "photon_ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordType", "schemaVersion", "ingressId", "eventDedupeDigest", "ownerId", "conversationId", "classification", "state", "receivedAt", "retentionExpiresAt"],
+      "properties": {
+        "recordType": { "const": "photon_ingress" },
+        "schemaVersion": { "const": 1 },
+        "ingressId": { "$ref": "#/$defs/opaqueId" },
+        "eventDedupeDigest": { "$ref": "#/$defs/digest" },
+        "ownerId": { "$ref": "#/$defs/opaqueId" },
+        "conversationId": { "$ref": "#/$defs/opaqueId" },
+        "classification": { "enum": ["ordinary", "approval_reply", "session_management", "held_alert_reply"] },
+        "state": { "enum": ["received", "assigned", "intercepted", "held", "dispatching", "dispatched", "completed", "uncertain", "quarantined", "resolved"] },
+        "receivedAt": { "$ref": "#/$defs/timestamp" },
+        "retentionExpiresAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "workspace_assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordType", "schemaVersion", "assignmentId", "ingressId", "ownerId", "workspaceId", "generation", "routingRevision", "reason", "assignedAt", "immutable"],
+      "properties": {
+        "recordType": { "const": "workspace_assignment" },
+        "schemaVersion": { "const": 1 },
+        "assignmentId": { "$ref": "#/$defs/opaqueId" },
+        "ingressId": { "$ref": "#/$defs/opaqueId" },
+        "ownerId": { "$ref": "#/$defs/opaqueId" },
+        "workspaceId": { "$ref": "#/$defs/opaqueId" },
+        "generation": { "type": "integer", "minimum": 1 },
+        "routingRevision": { "type": "integer", "minimum": 0 },
+        "reason": { "enum": ["selected_workspace", "discuss_action", "confirmed_held_reply"] },
+        "assignedAt": { "$ref": "#/$defs/timestamp" },
+        "immutable": { "const": true }
+      }
+    },
+    "dispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordType", "schemaVersion", "dispatchRequestId", "ingressId", "assignmentId", "continuationTargetDigest", "state", "attempt", "createdAt", "failureCode", "quarantineReason"],
+      "properties": {
+        "recordType": { "const": "dispatch" },
+        "schemaVersion": { "const": 1 },
+        "dispatchRequestId": { "$ref": "#/$defs/opaqueId" },
+        "ingressId": { "$ref": "#/$defs/opaqueId" },
+        "assignmentId": { "$ref": "#/$defs/opaqueId" },
+        "continuationTargetDigest": { "$ref": "#/$defs/digest" },
+        "state": { "enum": ["pending", "dispatching", "dispatched", "completed", "uncertain", "quarantined", "resolved"] },
+        "attempt": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "failureCode": { "type": ["string", "null"], "maxLength": 64 },
+        "quarantineReason": { "type": ["string", "null"], "maxLength": 64 }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordType", "schemaVersion", "ownerId", "workspaceId", "displayName", "lifecycleState", "strategyPack", "generation", "briefRevision", "capabilityRevision", "budgetRevision", "revision", "createdAt", "updatedAt"],
+      "properties": {
+        "recordType": { "const": "workspace" },
+        "schemaVersion": { "const": 1 },
+        "ownerId": { "$ref": "#/$defs/opaqueId" },
+        "workspaceId": { "$ref": "#/$defs/opaqueId" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "lifecycleState": { "enum": ["active", "archived", "retired"] },
+        "strategyPack": { "type": ["object", "null"], "required": ["id", "version"], "properties": { "id": { "$ref": "#/$defs/opaqueId" }, "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" } }, "additionalProperties": false },
+        "generation": { "type": "integer", "minimum": 1 },
+        "briefRevision": { "type": "integer", "minimum": 0 },
+        "capabilityRevision": { "type": "integer", "minimum": 0 },
+        "budgetRevision": { "type": "integer", "minimum": 0 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "updatedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "monitor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordType", "schemaVersion", "monitorId", "ownerId", "workspaceId", "workspaceBindingImmutable", "name", "instruction", "lifecycleState", "pauseReason", "schedule", "sources", "requiredCapabilities", "configurationRevision", "checkpoint", "consecutiveFailures", "deliverySubscriptionId", "createdAt", "updatedAt"],
+      "properties": {
+        "recordType": { "const": "monitor" },
+        "schemaVersion": { "const": 1 },
+        "monitorId": { "$ref": "#/$defs/opaqueId" },
+        "ownerId": { "$ref": "#/$defs/opaqueId" },
+        "workspaceId": { "$ref": "#/$defs/opaqueId" },
+        "workspaceBindingImmutable": { "const": true },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "instruction": { "type": "string", "minLength": 1, "maxLength": 8000 },
+        "lifecycleState": { "enum": ["enabled", "paused", "suspended_archived", "paused_failure", "retired"] },
+        "pauseReason": { "type": ["string", "null"], "maxLength": 64 },
+        "schedule": { "type": "object", "additionalProperties": false, "required": ["kind", "timezone", "times"], "properties": { "kind": { "const": "daily_local" }, "timezone": { "type": "string", "minLength": 1, "maxLength": 80 }, "times": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$" } } } },
+        "sources": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/source" } },
+        "requiredCapabilities": { "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": { "$ref": "#/$defs/opaqueId" } },
+        "configurationRevision": { "type": "integer", "minimum": 1 },
+        "checkpoint": { "type": "object", "additionalProperties": false, "required": ["watermark", "contentDigest"], "properties": { "watermark": { "type": ["string", "null"], "format": "date-time" }, "contentDigest": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" } } },
+        "consecutiveFailures": { "type": "integer", "minimum": 0 },
+        "deliverySubscriptionId": { "$ref": "#/$defs/opaqueId" },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "updatedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordType", "schemaVersion", "runId", "occurrenceKey", "ownerId", "workspaceId", "monitorId", "configurationRevision", "briefRevision", "capabilityRevision", "budgetRevision", "state", "scheduledFor", "window", "lease", "reservedBudget", "sourceAttempts", "sourceSuccesses", "outcomeCode", "findingIds", "alertIds"],
+      "properties": {
+        "recordType": { "const": "run" },
+        "schemaVersion": { "const": 1 },
+        "runId": { "$ref": "#/$defs/opaqueId" },
+        "occurrenceKey": { "$ref": "#/$defs/opaqueId" },
+        "ownerId": { "$ref": "#/$defs/opaqueId" },
+        "workspaceId": { "$ref": "#/$defs/opaqueId" },
+        "monitorId": { "$ref": "#/$defs/opaqueId" },
+        "configurationRevision": { "type": "integer", "minimum": 1 },
+        "briefRevision": { "type": "integer", "minimum": 0 },
+        "capabilityRevision": { "type": "integer", "minimum": 0 },
+        "budgetRevision": { "type": "integer", "minimum": 0 },
+        "state": { "enum": ["due", "leased", "dispatched", "running", "no_match", "finding_staged", "alert_staged", "completed", "retryable_failure", "terminal_failure"] },
+        "scheduledFor": { "$ref": "#/$defs/timestamp" },
+        "window": { "type": "object", "additionalProperties": false, "required": ["start", "end"], "properties": { "start": { "$ref": "#/$defs/timestamp" }, "end": { "$ref": "#/$defs/timestamp" } } },
+        "lease": { "type": ["object", "null"], "required": ["ownerDigest", "expiresAt"], "properties": { "ownerDigest": { "$ref": "#/$defs/digest" }, "expiresAt": { "$ref": "#/$defs/timestamp" } }, "additionalProperties": false },
+        "reservedBudget": { "type": "object", "additionalProperties": false, "required": ["runs", "inputTokens", "outputTokens", "paidAmount"], "properties": { "runs": { "type": "integer", "minimum": 0 }, "inputTokens": { "type": "integer", "minimum": 0 }, "outputTokens": { "type": "integer", "minimum": 0 }, "paidAmount": { "$ref": "#/$defs/money" } } },
+        "sourceAttempts": { "type": "array", "maxItems": 8, "uniqueItems": true, "items": { "$ref": "#/$defs/opaqueId" } },
+        "sourceSuccesses": { "type": "array", "maxItems": 8, "uniqueItems": true, "items": { "$ref": "#/$defs/opaqueId" } },
+        "outcomeCode": { "type": ["string", "null"], "maxLength": 64 },
+        "findingIds": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "$ref": "#/$defs/opaqueId" } },
+        "alertIds": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "$ref": "#/$defs/opaqueId" } }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordType", "schemaVersion", "ownerId", "workspaceId", "revision", "effectiveAt", "timezone", "limits", "usage", "reservationState"],
+      "properties": {
+        "recordType": { "const": "budget" },
+        "schemaVersion": { "const": 1 },
+        "ownerId": { "$ref": "#/$defs/opaqueId" },
+        "workspaceId": { "$ref": "#/$defs/opaqueId" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "effectiveAt": { "$ref": "#/$defs/timestamp" },
+        "timezone": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "limits": { "type": "object", "additionalProperties": false, "required": ["runsPerDay", "concurrentWorkers", "inputTokensPerRun", "outputTokensPerRun", "tokensPerDay", "paidPerCall", "paidPerDay", "paidPerMonth", "unknownPriceCeiling"], "properties": { "runsPerDay": { "type": ["integer", "null"], "minimum": 1 }, "concurrentWorkers": { "type": ["integer", "null"], "minimum": 1 }, "inputTokensPerRun": { "type": ["integer", "null"], "minimum": 1 }, "outputTokensPerRun": { "type": ["integer", "null"], "minimum": 1 }, "tokensPerDay": { "type": ["integer", "null"], "minimum": 1 }, "paidPerCall": { "anyOf": [{ "$ref": "#/$defs/money" }, { "type": "null" }] }, "paidPerDay": { "anyOf": [{ "$ref": "#/$defs/money" }, { "type": "null" }] }, "paidPerMonth": { "anyOf": [{ "$ref": "#/$defs/money" }, { "type": "null" }] }, "unknownPriceCeiling": { "$ref": "#/$defs/money" } } },
+        "usage": { "type": "object", "additionalProperties": false, "required": ["windowDate", "runsReserved", "workersRunning", "tokensReserved", "paidReserved"], "properties": { "windowDate": { "type": "string", "format": "date" }, "runsReserved": { "type": "integer", "minimum": 0 }, "workersRunning": { "type": "integer", "minimum": 0 }, "tokensReserved": { "type": "integer", "minimum": 0 }, "paidReserved": { "$ref": "#/$defs/money" } } },
+        "reservationState": { "enum": ["available", "reserved", "reconciled", "uncertain", "released"] }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordType", "schemaVersion", "findingId", "ownerId", "workspaceId", "monitorId", "runId", "state", "asOf", "accessClassification", "contentHash", "provenance", "summary", "artifactRefs"],
+      "properties": {
+        "recordType": { "const": "finding" },
+        "schemaVersion": { "const": 1 },
+        "findingId": { "$ref": "#/$defs/opaqueId" },
+        "ownerId": { "$ref": "#/$defs/opaqueId" },
+        "workspaceId": { "$ref": "#/$defs/opaqueId" },
+        "monitorId": { "$ref": "#/$defs/opaqueId" },
+        "runId": { "$ref": "#/$defs/opaqueId" },
+        "state": { "enum": ["staged", "committed", "rejected"] },
+        "asOf": { "$ref": "#/$defs/timestamp" },
+        "accessClassification": { "enum": ["public", "owner_private"] },
+        "contentHash": { "$ref": "#/$defs/digest" },
+        "provenance": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/source" } },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "artifactRefs": { "type": "array", "maxItems": 8, "items": { "$ref": "#/$defs/opaqueId" } }
+      }
+    },
+    "alert": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordType", "schemaVersion", "alertId", "ownerId", "workspaceId", "findingId", "state", "workspaceName", "title", "whyMatched", "sourceRefs", "createdAt"],
+      "properties": {
+        "recordType": { "const": "alert" },
+        "schemaVersion": { "const": 1 },
+        "alertId": { "$ref": "#/$defs/opaqueId" },
+        "ownerId": { "$ref": "#/$defs/opaqueId" },
+        "workspaceId": { "$ref": "#/$defs/opaqueId" },
+        "findingId": { "$ref": "#/$defs/opaqueId" },
+        "state": { "enum": ["staged", "ready", "retired"] },
+        "workspaceName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "whyMatched": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "sourceRefs": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/opaqueId" } },
+        "createdAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordType", "schemaVersion", "deliveryId", "subscriptionId", "alertId", "ownerId", "workspaceId", "destinationDigest", "state", "attempt", "failureCode", "createdAt", "updatedAt"],
+      "properties": {
+        "recordType": { "const": "delivery" },
+        "schemaVersion": { "const": 1 },
+        "deliveryId": { "$ref": "#/$defs/opaqueId" },
+        "subscriptionId": { "$ref": "#/$defs/opaqueId" },
+        "alertId": { "$ref": "#/$defs/opaqueId" },
+        "ownerId": { "$ref": "#/$defs/opaqueId" },
+        "workspaceId": { "$ref": "#/$defs/opaqueId" },
+        "destinationDigest": { "$ref": "#/$defs/digest" },
+        "state": { "enum": ["staged", "delivering", "delivered", "retryable_failure", "delivery_uncertain", "resolved"] },
+        "attempt": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "failureCode": { "type": ["string", "null"], "maxLength": 64 },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "updatedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "routing_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordType", "schemaVersion", "decisionId", "ingressId", "ownerId", "conversationId", "selectedWorkspaceId", "candidateAlertId", "candidateWorkspaceId", "state", "revision", "expiresAt", "createdAt"],
+      "properties": {
+        "recordType": { "const": "routing_decision" },
+        "schemaVersion": { "const": 1 },
+        "decisionId": { "$ref": "#/$defs/opaqueId" },
+        "ingressId": { "$ref": "#/$defs/opaqueId" },
+        "ownerId": { "$ref": "#/$defs/opaqueId" },
+        "conversationId": { "$ref": "#/$defs/opaqueId" },
+        "selectedWorkspaceId": { "$ref": "#/$defs/opaqueId" },
+        "candidateAlertId": { "$ref": "#/$defs/opaqueId" },
+        "candidateWorkspaceId": { "$ref": "#/$defs/opaqueId" },
+        "state": { "enum": ["received", "held", "assigned", "dispatched", "completed", "expired"] },
+        "revision": { "type": "integer", "minimum": 1 },
+        "expiresAt": { "$ref": "#/$defs/timestamp" },
+        "createdAt": { "$ref": "#/$defs/timestamp" }
+      }
+    }
+  }
+}

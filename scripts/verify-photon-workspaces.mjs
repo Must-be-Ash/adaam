@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { photonApprovalGuardKey } from "../agent/lib/photon-approval-store.ts";
 import {
   applyPhotonWorkspaceManagerAction,
+  claimPhotonWorkspaceManagerRequest,
   archivePhotonWorkspace,
   createPhotonWorkspace,
   findPhotonWorkspaceByName,
@@ -288,6 +289,11 @@ const atomicallyReplaced = await archivePhotonWorkspace(
 assert.equal(atomicallyReplaced.activeWorkspace.id, replacement.id);
 
 const manager = await mintPhotonWorkspaceManager(scope, client);
+const managerRequestId = "123e4567-e89b-42d3-a456-426614174999";
+assert.equal(await claimPhotonWorkspaceManagerRequest("expired", managerRequestId, client), "unavailable");
+assert.equal(await claimPhotonWorkspaceManagerRequest(manager.managerToken, "not-a-uuid", client), "unavailable");
+assert.equal(await claimPhotonWorkspaceManagerRequest(manager.managerToken, managerRequestId, client), "claimed");
+assert.equal(await claimPhotonWorkspaceManagerRequest(manager.managerToken, managerRequestId, client), "replayed");
 const managerState = await getPhotonWorkspaceManagerState(
   manager.managerToken,
   client,

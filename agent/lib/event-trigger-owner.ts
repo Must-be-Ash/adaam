@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import type { SessionAuthContext, SessionContext } from "eve/context";
 
+import { requirePhotonOwnerAccess } from "./owner-identity";
+
 export type EventTriggerDestination =
   | {
       kind: "photon";
@@ -82,7 +84,10 @@ function resolveDestination(
   return null;
 }
 
-export function requireEventTriggerOwner(ctx: SessionContext): EventTriggerOwner {
+export function requireEventTriggerOwner(
+  ctx: SessionContext,
+  environment: NodeJS.ProcessEnv = process.env,
+): EventTriggerOwner {
   const auth = ctx.session.auth.current;
   if (!auth || auth.principalType !== "user") {
     throw new Error(
@@ -102,6 +107,13 @@ export function requireEventTriggerOwner(ctx: SessionContext): EventTriggerOwner
     }
     throw new Error(
       "Event-trigger delivery is available from an iMessage or Telegram conversation. Create the trigger from the conversation where alerts should arrive.",
+    );
+  }
+
+  if (destination.kind === "photon") {
+    requirePhotonOwnerAccess(
+      { principalId: auth.principalId, resource: "monitor" },
+      environment,
     );
   }
 

@@ -1,26 +1,26 @@
 ---
-description: Find official public financial and regulatory feeds, and create, list, pause, resume, change, or delete user-owned event triggers that alert through iMessage or Telegram.
+description: Find official public financial and regulatory feeds, and create, list, pause, resume, edit, or recoverably retire workspace-owned monitors that alert through iMessage.
 ---
 
 # Public event monitoring
 
 Use this skill when the user asks to watch, monitor, alert on, schedule, pause, resume,
-change, list, or delete a public-data event trigger.
+change, list, or recoverably retire a public-data monitor.
 
 ## Core behavior
 
-- Do not create any preset or implicit trigger. Create one only after the user explicitly
+- Do not create any preset or implicit monitor. Create one only after the user explicitly
   asks to monitor something.
-- Derive the alert destination from the current iMessage or private Telegram conversation.
-  Telegram groups cannot manage triggers. Never ask the model to invent a chat ID,
+- Derive the workspace and alert destination from authenticated iMessage routing.
+  Never ask the model to invent a workspace ID, chat ID,
   thread ID, phone number, or owner identifier.
-- Before creating a trigger, confirm the user's IANA time zone, the first check time, and
+- Before creating a monitor, confirm the user's IANA time zone, the first check time, and
   whether it is one-time or recurring. Convert the first check to ISO 8601 with an explicit
-  offset.
+  offset. Preserve existing daily times when the owner says “also run.”
 - Use `list_public_sources` unless the user already supplied exact official source URLs.
   Fixed sources can be stored by ID. Resolve templates and issuer IR pages to exact,
-  official HTTPS URLs before creating the trigger.
-- Make the condition testable. Include the company/ticker or sector, qualifying event,
+  official HTTPS URLs before creating the monitor.
+- Make the instruction testable. Include the company/ticker or sector, qualifying event,
   materiality threshold when relevant, and exclusions that prevent noisy alerts.
 - Prefer the least noisy primary source and a reasonable cadence. The minimum supported
   interval is 15 minutes, but most sources should be checked less often.
@@ -38,7 +38,13 @@ change, list, or delete a public-data event trigger.
    derivatives and commodities; EIA for energy.
 6. A feed is discovery evidence, not always the complete document. During interactive
    research, open and cite the linked primary document. During an isolated scheduled run,
-   open it only when that exact page is already in the trigger's configured source list.
+   open it only when that exact page is already in the monitor's configured source list.
+
+For the Spec 1 IPO reference, use only source ID `sec-latest-s1-filings`, canonical URL
+`https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=S-1&owner=include&count=40&output=atom`,
+origin `https://www.sec.gov`, and public access classification. A daily-local monitor
+with that exact source initializes the bounded public-only IPO workspace runtime when it
+is not configured yet. Do not generalize that initialization to other strategies.
 
 Use `fetch_public_source` for official `.gov` RSS, Atom, and JSON endpoints. It
 normalizes feed entries, applies SEC fair-access identity, and limits untrusted XML and
@@ -54,17 +60,18 @@ response size. Use `web_fetch` for issuer IR HTML and other non-`.gov` public UR
 - Do not use a broad firehose when a company, form, topic, or sector filter can answer the
   request with fewer calls and fewer false positives.
 
-## Managing triggers
+## Managing monitors
 
-- Call `list_event_triggers` before changing or deleting an ambiguous trigger.
-- Use `update_event_trigger` with `enabled: false` to pause and `enabled: true` to resume.
-- Updating a source list replaces only the supplied source field; preserve other sources
-  unless the user asked to remove them.
-- `delete_event_trigger` is permanent and requires the user's approval.
-- Tell the user the trigger name, cadence, next check, sources, and delivery channel after
+- Use `create_workspace_monitor`, `list_workspace_monitors`,
+  `update_workspace_monitor`, and `manage_workspace_monitor` for current-workspace
+  operations. The event-trigger tools are legacy compatibility only.
+- List monitors before changing an ambiguous reference; never choose the nearest name.
+- Use additive daily-time and source fields when the owner says “also” or “add.”
+- Use `manage_workspace_monitor` to pause, resume, or recoverably retire.
+- Tell the user the monitor name, cadence, next check, sources, and delivery channel after
   creating or changing it.
-- Recurring triggers expire after 90 days unless the user resumes or renews them. Daily
-  per-user and global run budgets may defer a check to the next UTC budget window.
+- Workspace and deployment run budgets may defer a check; report the bounded reason from
+  `get_workspace_status` rather than asking the owner to edit storage or environment.
 
 ## Scheduled checks
 
@@ -77,9 +84,7 @@ When a scheduled trigger runs:
 - Evaluate only newly published or materially updated items in the supplied time window.
 - If any source fails, do not advance the watermark or alert; finish so the dispatcher can
   retry the same window.
-- When nothing matches, call `complete_event_check` exactly once and do not call
-  `send_event_alert`.
-- When an event matches, call `send_event_alert` exactly once with structured `event`,
-  `whyMatched`, `publishedAt`, optional `updatedAt`, optional `companyOrTicker`, and
-  direct `sourceUrls` fields.
+- When nothing matches, call `complete_workspace_run` exactly once.
+- When an event matches, call `write_workspace_finding` exactly once with bounded,
+  provenance-bearing fields. The control plane stages its alert; do not send directly.
 - Never turn absence from one feed into proof that no event occurred.

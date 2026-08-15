@@ -1,6 +1,9 @@
 import type { Thread } from "chat";
 
-import type { PhotonWorkspace } from "./photon-workspace-store";
+import type {
+  PhotonWorkspace,
+  PhotonWorkspaceState,
+} from "./photon-workspace-store";
 
 const WORKSPACE_THREAD_MARKER = ":eve-workspace:v1:";
 const WORKSPACE_SUFFIX =
@@ -141,6 +144,39 @@ export function photonWorkspaceContext(workspace: PhotonWorkspace): string {
     `This private iMessage turn is routed to the isolated session ${JSON.stringify(workspace.name)}. ` +
     "Use only this session's history and do not infer context from other sessions. Do not mention its name or routing metadata unless the user asks."
   );
+}
+
+export function photonApprovalWorkspace(
+  state: PhotonWorkspaceState,
+  binding: {
+    sessionId: string;
+    workspaceGeneration?: number;
+    workspaceId?: string;
+  },
+): PhotonWorkspace | null {
+  if (
+    (binding.workspaceId === undefined) !==
+    (binding.workspaceGeneration === undefined)
+  ) {
+    return null;
+  }
+  const workspace =
+    binding.workspaceId && binding.workspaceGeneration
+      ? state.workspaces.find(
+          (candidate) =>
+            candidate.id === binding.workspaceId &&
+            candidate.generation === binding.workspaceGeneration,
+        )
+      : state.workspaces.find(
+          (candidate) => candidate.sessionId === binding.sessionId,
+        ) ??
+        (state.activeWorkspace.continuation === "physical"
+          ? state.activeWorkspace
+          : undefined);
+  return workspace?.status === "active" &&
+    workspace.id === state.activeWorkspace.id
+    ? workspace
+    : null;
 }
 
 export function workspaceAwarePhotonAdapter<T extends object>(adapter: T): T {

@@ -1,5 +1,10 @@
 import type { SessionAuthContext } from "eve/context";
 
+import {
+  workspaceRuntimeScopeAttributes,
+  type WorkspaceRuntimeScope,
+} from "./workspace-runtime-scope";
+
 const PHOTON_PRINCIPAL_PREFIX = "imessage:";
 
 export function photonPrincipalId(senderId: string): string {
@@ -15,11 +20,15 @@ export function photonSenderId(principalId: string): string | null {
 export function photonAuth(
   senderId: string,
   threadId: string,
+  scope: WorkspaceRuntimeScope,
+  additionalAttributes: Readonly<Record<string, string>> = {},
 ): SessionAuthContext {
   return {
     attributes: {
+      ...additionalAttributes,
       channel: "photon",
       thread_id: threadId,
+      ...workspaceRuntimeScopeAttributes(scope),
     },
     authenticator: "photon-imessage-webhook",
     issuer: "photon-imessage",

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>SEC S-1 baseline fixture</title>
+  <entry>
+    <title>S-1 - Baseline One Corp (0001000001) (Filer)</title>
+    <link rel="alternate" href="https://www.sec.gov/Archives/edgar/data/1000001/000100000126000001/baseline-one-s1-index.htm" />
+    <id>urn:tag:sec.gov,2008:accession-number=0001000001-26-000001</id>
+    <updated>2026-08-14T16:00:00Z</updated>
+    <published>2026-08-14T15:59:00Z</published>
+    <category term="S-1" label="form type" />
+    <summary type="html">&lt;b&gt;File No.:&lt;/b&gt; 333-100001</summary>
+  </entry>
+  <entry>
+    <title>S-1 - Baseline Two Corp (0001000002) (Filer)</title>
+    <link rel="alternate" href="https://www.sec.gov/Archives/edgar/data/1000002/000100000226000001/baseline-two-s1-index.htm" />
+    <id>urn:tag:sec.gov,2008:accession-number=0001000002-26-000001</id>
+    <updated>2026-08-14T17:00:00Z</updated>
+    <published>2026-08-14T16:59:00Z</published>
+    <category term="S-1" label="form type" />
+    <summary type="html">&lt;b&gt;File No.:&lt;/b&gt; 333-100002</summary>
+  </entry>
+</feed>
