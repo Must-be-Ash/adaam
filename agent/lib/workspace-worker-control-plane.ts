@@ -3,7 +3,7 @@ import type { SessionContext } from "eve/context";
 import {
   completeWorkspaceRunNoMatch,
   stageWorkspaceFinding,
-  type WorkspaceFindingInput,
+  type WorkspaceFindingCandidate,
   type WorkspaceFindingStoreClient,
   type WorkspaceRunOutcome,
 } from "./workspace-finding-store";
@@ -137,7 +137,7 @@ export async function writeWorkspaceFindingForWorker(input: {
   clients?: WorkspaceWorkerControlPlaneClients;
   ctx: WorkerContext;
   environment?: NodeJS.ProcessEnv;
-  finding: WorkspaceFindingInput;
+  finding: WorkspaceFindingCandidate;
   now?: Date;
 }): Promise<WorkspaceRunOutcome> {
   const prepared = await prepareCommit({

@@ -9,6 +9,7 @@ import {
 } from "./workspace-store-authorization";
 import type { WorkspaceSourceCoverage } from "./workspace-source-coverage";
 import type { WorkspaceWorkerEnvelope } from "./workspace-worker-auth";
+import { workspaceFindingFactSchema } from "./workspace-finding-facts";
 
 const KEY_PREFIX = "eve:workspace-runtime:v1:run-outcome:";
 const MAX_RECORD_BYTES = 32 * 1_024;
@@ -62,7 +63,11 @@ export const workspaceFindingInputSchema = z.object({
   }
 });
 
-const findingSchema = workspaceFindingInputSchema.extend({
+export const workspaceFindingCandidateSchema = workspaceFindingInputSchema.extend({
+  facts: z.array(workspaceFindingFactSchema).min(1).max(50).optional(),
+}).strict();
+
+const findingSchema = workspaceFindingCandidateSchema.extend({
   contentHash: z.string().regex(/^[a-f0-9]{64}$/u),
   findingId: idSchema,
   monitorId: z.string().uuid(),
@@ -100,6 +105,7 @@ const outcomeSchema = z.object({
 });
 
 export type WorkspaceFindingInput = z.input<typeof workspaceFindingInputSchema>;
+export type WorkspaceFindingCandidate = z.input<typeof workspaceFindingCandidateSchema>;
 export type WorkspaceFinding = z.infer<typeof findingSchema>;
 export type WorkspaceRunOutcome = z.infer<typeof outcomeSchema>;
 
@@ -224,11 +230,31 @@ function assertProvenance(
   }
 }
 
-function contentHash(input: z.output<typeof workspaceFindingInputSchema>): string {
+function assertFacts(
+  envelope: WorkspaceWorkerEnvelope,
+  facts: readonly z.infer<typeof workspaceFindingFactSchema>[] | undefined,
+): void {
+  for (const fact of facts ?? []) {
+    const allowed = envelope.sources.find(
+      (candidate) => candidate.sourceId === fact.source.sourceId,
+    );
+    if (
+      !allowed ||
+      allowed.accessClassification !== "public" ||
+      allowed.canonicalUrl !== fact.source.canonicalUrl ||
+      allowed.origin !== fact.source.origin
+    ) {
+      throw new WorkspaceFindingError("finding_source_outside_fence");
+    }
+  }
+}
+
+function contentHash(input: z.output<typeof workspaceFindingCandidateSchema>): string {
   return createHash("sha256").update(JSON.stringify({
     accessClassification: input.accessClassification,
     artifactRefs: [...input.artifactRefs].sort(),
     asOf: input.asOf,
+    facts: input.facts ?? [],
     provenance: [...input.provenance].sort((left, right) =>
       left.sourceId.localeCompare(right.sourceId) || left.canonicalUrl.localeCompare(right.canonicalUrl)),
     summary: input.summary,
@@ -263,16 +289,17 @@ export async function stageWorkspaceFinding(
   input: {
     coverage: WorkspaceSourceCoverage;
     envelope: WorkspaceWorkerEnvelope;
-    finding: WorkspaceFindingInput;
+    finding: WorkspaceFindingCandidate;
     now?: Date;
     scope: AuthorizedWorkspaceStoreScope;
   },
   client: WorkspaceFindingStoreClient = store(),
 ): Promise<WorkspaceRunOutcome> {
   assertCoverage(input.envelope, input.coverage, input.scope);
-  const findingInput = workspaceFindingInputSchema.safeParse(input.finding);
+  const findingInput = workspaceFindingCandidateSchema.safeParse(input.finding);
   if (!findingInput.success) throw new WorkspaceFindingError("finding_invalid");
   assertProvenance(input.envelope, findingInput.data.provenance);
+  assertFacts(input.envelope, findingInput.data.facts);
   const hash = contentHash(findingInput.data);
   const findingId = `finding_${createHash("sha256")
     .update(`finding\0${input.scope.ownerId}\0${input.scope.workspaceId}\0${input.envelope.runId}`)

@@ -2,10 +2,15 @@ import { createHash } from "node:crypto";
 
 import {
   normalizeSecIpoAtom,
+  SEC_IPO_SOURCE_ID,
   SEC_IPO_SOURCE_URL,
   type SecIpoAtomPage,
   type SecIpoFiling,
 } from "./sec-ipo-reference";
+import {
+  SEC_IPO_FACT_SCHEMA_VERSION,
+  type SecIpoFilingFact,
+} from "./workspace-finding-facts";
 
 export interface SecIpoCheckpoint {
   readonly contentDigest: string;
@@ -13,9 +18,47 @@ export interface SecIpoCheckpoint {
 }
 
 export interface SecIpoFindingCandidate {
+  readonly fact: SecIpoFilingFact;
   readonly findingId: string;
   readonly filing: SecIpoFiling;
   readonly summary: string;
+}
+
+function typedFact(
+  filing: SecIpoFiling,
+  page: SecIpoAtomPage,
+): SecIpoFilingFact {
+  return Object.freeze({
+    accessionNumber: filing.accessionNumber,
+    amendmentIdentity:
+      filing.classification === "amendment"
+        ? `${filing.registrationKey}:${filing.dedupeKey}`
+        : null,
+    canonicalFilingUrl: filing.canonicalFilingUrl,
+    cik: filing.cik,
+    classification: filing.classification,
+    companyName: filing.companyName,
+    contentEvidence: Object.freeze({
+      feedContentHash: page.contentHash,
+      normalizedFilingHash: filing.contentHash,
+    }),
+    fileNumber: filing.fileNumber,
+    filedAt: filing.publishedAt,
+    filingIdentity: filing.dedupeKey,
+    formType: filing.formType,
+    kind: "sec_ipo_filing",
+    normalizerVersion: filing.normalizerVersion,
+    observedAt: filing.observedAt,
+    registrationIdentity: filing.registrationKey,
+    schemaVersion: SEC_IPO_FACT_SCHEMA_VERSION,
+    source: Object.freeze({
+      accessClassification: "public",
+      canonicalUrl: SEC_IPO_SOURCE_URL,
+      origin: new URL(SEC_IPO_SOURCE_URL).origin,
+      sourceId: SEC_IPO_SOURCE_ID,
+    }),
+    updatedAt: filing.updatedAt,
+  });
 }
 
 export interface SecIpoAlertCandidate {
@@ -122,6 +165,7 @@ export function evaluateSecIpoPage(
     (filing) => filing.updatedAt > checkpoint.watermark,
   );
   const findings = Object.freeze(newFilings.map((filing) => Object.freeze({
+    fact: typedFact(filing, page),
     findingId: digestId("finding", filing, identityScope),
     filing,
     summary: filing.classification === "new_registration"

@@ -233,6 +233,35 @@ const finding = {
   accessClassification: "public" as const,
   artifactRefs: [],
   asOf: now.toISOString(),
+  facts: [{
+    accessionNumber: "0001000001-26-000001",
+    amendmentIdentity: null,
+    canonicalFilingUrl:
+      "https://www.sec.gov/Archives/edgar/data/1000001/000100000126000001/fixture-s1-index.htm",
+    cik: "0001000001",
+    classification: "new_registration" as const,
+    companyName: "Fixture Corp",
+    contentEvidence: {
+      feedContentHash: "1".repeat(64),
+      normalizedFilingHash: "2".repeat(64),
+    },
+    fileNumber: "333-100001",
+    filedAt: now.toISOString(),
+    filingIdentity: "0001000001-26-000001:S-1",
+    formType: "S-1" as const,
+    kind: "sec_ipo_filing" as const,
+    normalizerVersion: "sec-ipo-atom/1.0.0" as const,
+    observedAt: now.toISOString(),
+    registrationIdentity: "0001000001:333-100001",
+    schemaVersion: 1 as const,
+    source: {
+      accessClassification: "public" as const,
+      canonicalUrl: source.canonicalUrl,
+      origin: source.origin,
+      sourceId: source.sourceId,
+    },
+    updatedAt: now.toISOString(),
+  }],
   provenance: [{
     accessClassification: "public" as const,
     canonicalUrl: "https://www.sec.gov/Archives/edgar/data/1000001/fixture-s1.htm",
@@ -272,6 +301,7 @@ assert.equal(outcome.ownerId, scope.ownerId);
 assert.equal(outcome.workspaceId, scope.workspaceId);
 assert.equal(outcome.runId, runId);
 assert.equal(outcome.finding?.summary, finding.summary);
+assert.deepEqual(outcome.finding?.facts, finding.facts);
 assert.match(outcome.finding?.findingId ?? "", /^finding_[a-f0-9]{64}$/u);
 assert.deepEqual(
   await writeWorkspaceFindingForWorker({ clients, ctx, environment, finding, now: new Date(now.getTime() + 1_000) }),

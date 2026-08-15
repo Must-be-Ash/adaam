@@ -4,6 +4,7 @@ import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { z } from "zod";
 
 import type { WorkspaceCapabilityManifestValue } from "./workspace-state-store";
+import { SEC_IPO_NORMALIZER_VERSION } from "./workspace-finding-facts";
 import {
   COMPLETE_WORKSPACE_RUN_TOOL_ID,
   WRITE_WORKSPACE_FINDING_TOOL_ID,
@@ -13,7 +14,7 @@ export const SEC_IPO_SOURCE_ID = "sec-latest-s1-filings";
 export const SEC_IPO_SOURCE_URL =
   "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=S-1&owner=include&count=40&output=atom";
 export const STAGE_WORKSPACE_ALERT_TOOL_ID = "stage_workspace_alert";
-export const SEC_IPO_NORMALIZER_VERSION = "sec-ipo-atom/1.0.0";
+export { SEC_IPO_NORMALIZER_VERSION } from "./workspace-finding-facts";
 
 const MAX_ATOM_BYTES = 2 * 1_024 * 1_024;
 const MAX_ENTRIES = 100;
