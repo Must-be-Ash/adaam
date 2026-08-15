@@ -78,6 +78,7 @@ export async function deliverWorkspaceAlertToPhoton(input: {
   if (!claim.claimed) return claim.delivery;
   const delivering = claim.delivery;
   let card: PhotonAlertCard;
+  let deliveredWorkspaceName = input.alert.workspaceName;
   try {
     const workspaceState = await getPhotonWorkspaceState({
       principalId: input.subscription.principalId,
@@ -87,6 +88,7 @@ export async function deliverWorkspaceAlertToPhoton(input: {
       (candidate) => candidate.id === input.alert.workspaceId && candidate.status === "active",
     );
     if (!workspace) throw new Error("photon_alert_workspace_unavailable");
+    deliveredWorkspaceName = workspace.name;
     const discuss = await mintPhotonAlertDiscussCapability({
       alertId: input.alert.alertId,
       conversationId: input.subscription.conversationId,
@@ -101,9 +103,16 @@ export async function deliverWorkspaceAlertToPhoton(input: {
       principalId: input.subscription.principalId,
       threadId: input.subscription.threadId,
     }, input.workspaceClient);
-    const presentation = renderWorkspaceAlertPresentation(input.alert);
+    const presentationAlert = {
+      ...input.alert,
+      workspaceName: workspace.name,
+    };
+    const presentation = renderWorkspaceAlertPresentation(presentationAlert);
     card = {
-      discussUrl: photonAlertAppUrl(discuss.alertToken),
+      discussUrl: photonAlertAppUrl(
+        discuss.alertToken,
+        manager.managerToken,
+      ),
       fallbackText: presentation.fallbackText,
       heading: presentation.heading,
       manageUrl: photonWorkspaceAppUrl(manager.managerToken),
@@ -150,7 +159,7 @@ export async function deliverWorkspaceAlertToPhoton(input: {
       deliveryMessageId: messageId,
       title: input.alert.title,
       workspaceId: input.alert.workspaceId,
-      workspaceName: input.alert.workspaceName,
+      workspaceName: deliveredWorkspaceName,
     },
     conversationId: input.subscription.conversationId,
   });

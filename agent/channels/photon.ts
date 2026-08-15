@@ -86,6 +86,7 @@ import {
 import { projectPhotonWorkspaceRuntimeScope } from "../lib/workspace-runtime-scope";
 import { workspaceAlertTurnContext } from "../lib/workspace-alert-presentation";
 import { readWorkspaceAlertById } from "../lib/workspace-alert-store";
+import type { PhotonAlertCard } from "../lib/photon-alert-delivery";
 import { authorizePhotonWorkspaceControlPlaneStore } from "../lib/workspace-store-authorization";
 
 const webhookSecret = process.env.IMESSAGE_WEBHOOK_SECRET;
@@ -99,6 +100,20 @@ const imessageAdapter = createiMessageAdapter({
     : { webhookVerifier: createConnectWebhookVerifier() }),
 });
 const routedImessageAdapter = workspaceAwarePhotonAdapter(imessageAdapter);
+
+export async function sendPhotonWorkspaceAlertCard(input: {
+  card: PhotonAlertCard;
+  destination: string;
+}): Promise<{ messageId: string }> {
+  await imessageAdapter.postMessage(input.destination, {
+    markdown: input.card.fallbackText,
+  });
+  const delivered = await imessageAdapter.sendMiniApp(
+    input.destination,
+    input.card.discussUrl,
+  );
+  return { messageId: delivered.id };
+}
 
 async function completePhotonDispatchReceipt(
   ctx: SessionContext,

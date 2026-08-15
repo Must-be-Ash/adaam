@@ -24,6 +24,7 @@ import {
 } from "../lib/workspace-monitor-store";
 import { resolveWorkspaceRuntimeFlags } from "../lib/workspace-runtime-flags";
 import { recoverSecIpoWorkspaceRunForControlPlane } from "../lib/sec-ipo-workspace-worker";
+import { deliverWorkspaceOutcomeToPhoton } from "../lib/workspace-alert-dispatch";
 import {
   prepareWorkspaceWorkerRecovery,
   prepareWorkspaceWorkerRun,
@@ -33,6 +34,7 @@ import {
 export interface EventTriggerScheduleDependencies {
   readonly claimEventTriggers: typeof eventTriggerStore.claimDue;
   readonly claimWorkspaceMonitors: typeof claimDueWorkspaceMonitors;
+  readonly deliverWorkspaceOutcome: typeof deliverWorkspaceOutcomeToPhoton;
   readonly executeEventTrigger: typeof executeEventTriggerJob;
   readonly finishWorkspaceBudget: typeof finishWorkspaceMonitorDispatchBudget;
   readonly getWorkspaceMonitor: typeof getWorkspaceMonitor;
@@ -53,6 +55,7 @@ const productionDependencies: EventTriggerScheduleDependencies = Object.freeze({
   claimEventTriggers: (...args: Parameters<typeof eventTriggerStore.claimDue>) =>
     eventTriggerStore.claimDue(...args),
   claimWorkspaceMonitors: claimDueWorkspaceMonitors,
+  deliverWorkspaceOutcome: deliverWorkspaceOutcomeToPhoton,
   executeEventTrigger: executeEventTriggerJob,
   finishWorkspaceBudget: finishWorkspaceMonitorDispatchBudget,
   getWorkspaceMonitor,
@@ -166,6 +169,7 @@ async function quarantineWorkspaceRecoveryFailure(
 async function executeWorkspaceRecovery(
   job: ClaimedWorkspaceMonitor,
   dependencies: EventTriggerScheduleDependencies,
+  deliverAlerts: boolean,
   expectedRunId?: string,
 ): Promise<void> {
   let failureCode = "worker_recovery_failed";
@@ -176,6 +180,12 @@ async function executeWorkspaceRecovery(
     });
     const result = await dependencies.recoverWorkspaceOutcome({ prepared });
     if (result.status === "recovered" || result.status === "already_completed") {
+      if (deliverAlerts) {
+        await dependencies.deliverWorkspaceOutcome({
+          job,
+          outcome: result.outcome,
+        });
+      }
       return;
     }
     failureCode = result.status === "missing"
@@ -191,6 +201,7 @@ async function executeWorkspaceJob(
   job: ClaimedWorkspaceMonitor,
   budget: WorkspaceDispatchReservation,
   dependencies: EventTriggerScheduleDependencies,
+  deliverAlerts: boolean,
 ): Promise<void> {
   const settled =
     budget.global.state === "settled" &&
@@ -200,7 +211,7 @@ async function executeWorkspaceJob(
     // A settled reservation proves the model work is terminal, but a crash may
     // still have happened after the durable outcome and before alert/checkpoint
     // finalization. Recover that deterministic tail without another model turn.
-    await executeWorkspaceRecovery(job, dependencies, budget.runId);
+    await executeWorkspaceRecovery(job, dependencies, deliverAlerts, budget.runId);
     return;
   }
   if (
@@ -234,7 +245,10 @@ async function executeWorkspaceJob(
       }
     }
     if (terminalFailure) throw new Error("workspace_worker_session_failed");
-    await dependencies.requireWorkspaceOutcome(prepared);
+    const outcome = await dependencies.requireWorkspaceOutcome(prepared);
+    if (deliverAlerts) {
+      await dependencies.deliverWorkspaceOutcome({ job, outcome });
+    }
     await dependencies.finishWorkspaceBudget(job, budget, {
       actualInputTokens: inputTokens,
       actualOutputTokens: outputTokens,
@@ -411,7 +425,7 @@ export function createEventTriggerSchedule(
           "workspace_recovery",
           await Promise.allSettled(
             recoveryJobs.map((job) =>
-              executeWorkspaceRecovery(job, dependencies)
+              executeWorkspaceRecovery(job, dependencies, flags.photonAlerts)
             ),
           ),
         );
@@ -455,7 +469,12 @@ export function createEventTriggerSchedule(
           "workspace_first_attempt",
           await Promise.allSettled(
             admittedWorkspaceJobs.map(({ budget, job }) =>
-              executeWorkspaceJob(job, budget, dependencies)
+              executeWorkspaceJob(
+                job,
+                budget,
+                dependencies,
+                flags.photonAlerts,
+              )
             ),
           ),
         );

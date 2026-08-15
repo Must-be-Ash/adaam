@@ -577,6 +577,77 @@ async function verifyClaimIsolation(
 await verifyClaimIsolation("event_trigger");
 await verifyClaimIsolation("workspace");
 
+let deliveredWorkspaceOutcomes = 0;
+let deliveryClaimed = false;
+const deliveryDependencies = {
+  claimEventTriggers: async () => [],
+  claimWorkspaceMonitors: async () => {
+    if (deliveryClaimed) return [];
+    deliveryClaimed = true;
+    return [firstAttemptJob];
+  },
+  deliverWorkspaceOutcome: async (input: {
+    job: ClaimedWorkspaceMonitor;
+    outcome: WorkspaceRunOutcome;
+  }) => {
+    assert.equal(input.job.monitor.monitorId, firstAttemptJob.monitor.monitorId);
+    assert.equal(input.outcome.runId, firstAttemptOutcome.runId);
+    deliveredWorkspaceOutcomes += 1;
+  },
+  finishWorkspaceBudget: async () => undefined,
+  now: () => now,
+  prepareWorkspaceWorker: async () => ({
+    envelope: {} as PreparedWorkspaceWorkerRun["envelope"],
+    prompt: "fixture",
+    request: {} as PreparedWorkspaceWorkerRun["request"],
+    scope,
+  }),
+  requireWorkspaceOutcome: async () => firstAttemptOutcome,
+  reserveWorkspaceBudget: async () => firstAttemptReservation,
+  resolveRuntimeFlags: () => ({
+    dispatch: true,
+    legacyTriggerCreation: false,
+    monitorWrites: true,
+    paidResearch: false,
+    photonAlerts: true,
+    sourceEvents: false,
+    state: true,
+  }),
+  startWorkspaceWorker: async () => ({
+    events: (async function* () {
+      return;
+    })(),
+  }) as Awaited<ReturnType<EventTriggerScheduleDependencies["startWorkspaceWorker"]>>,
+} as Partial<EventTriggerScheduleDependencies> & {
+  deliverWorkspaceOutcome(input: {
+    job: ClaimedWorkspaceMonitor;
+    outcome: WorkspaceRunOutcome;
+  }): Promise<void>;
+};
+const deliverySchedule = createEventTriggerSchedule(deliveryDependencies);
+assert.ok("run" in deliverySchedule && deliverySchedule.run);
+const deliveryWaiters: Promise<unknown>[] = [];
+deliverySchedule.run({
+  appAuth: {
+    attributes: {},
+    authenticator: "app",
+    principalId: "eve:app",
+    principalType: "runtime",
+  },
+  to: (() => {
+    throw new Error("legacy_to_not_expected");
+  }) as ScheduleToFn,
+  waitUntil(task) {
+    deliveryWaiters.push(task);
+  },
+});
+await Promise.all(deliveryWaiters);
+assert.equal(
+  deliveredWorkspaceOutcomes,
+  1,
+  "a completed production workspace run must enter the Photon alert delivery path",
+);
+
 const mismatchedClaims: ClaimedWorkspaceMonitor[] = [
   { ...job, monitor: { ...monitor, ownerId: "other_owner" } },
   {

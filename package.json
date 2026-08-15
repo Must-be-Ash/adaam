@@ -45,6 +45,7 @@
     "verify:workspace-runtime:alert-context": "jiti scripts/verify-photon-alert-context.ts",
     "verify:workspace-runtime:alert-replies": "jiti scripts/verify-photon-alert-replies.ts",
     "verify:workspace-runtime:alert-delivery": "jiti scripts/verify-photon-alert-delivery.ts",
+    "verify:workspace-runtime:alert-subscriptions": "jiti scripts/verify-photon-alert-subscriptions.ts",
     "verify:workspace-runtime:alert-app": "node scripts/verify-photon-alert-app.mjs",
     "verify:workspace-runtime:scope": "jiti scripts/verify-workspace-runtime-scope.ts",
     "verify:workspace-runtime:worker-auth": "jiti scripts/verify-workspace-worker-auth.ts",

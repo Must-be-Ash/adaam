@@ -52,9 +52,12 @@ export function photonWorkspaceAppUrl(managerToken: string): string {
   return url.toString();
 }
 
-export function photonAlertAppUrl(alertToken: string): string {
+export function photonAlertAppUrl(
+  alertToken: string,
+  managerToken?: string,
+): string {
   const url = new URL(PHOTON_ALERT_APP_PATH, deploymentOrigin());
-  url.hash = alertToken;
+  url.hash = managerToken ? `${alertToken}.${managerToken}` : alertToken;
   return url.toString();
 }
 

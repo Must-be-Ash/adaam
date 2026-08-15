@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 const OWNER_ID_PATTERN = /^[a-z][a-z0-9_-]{2,63}$/u;
 const PHOTON_PRINCIPAL_PATTERN = /^imessage:.{1,300}$/u;
@@ -98,6 +98,26 @@ export function resolvePhotonOwnerIdentity(
     ownerId,
     principalAlias: ownerAlias(secret, principalId),
   });
+}
+
+export function resolvePhotonPrincipalByAlias(
+  input: { ownerId: string; principalAlias: string },
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  if (!/^[a-f0-9]{64}$/u.test(input.principalAlias)) denied();
+  const candidates = configuredPhotonPrincipals(
+    environment.EVE_PHOTON_OWNER_PRINCIPALS,
+  );
+  for (const principalId of candidates) {
+    const identity = resolvePhotonOwnerIdentity(principalId, environment);
+    if (identity.ownerId !== input.ownerId) continue;
+    const actual = Buffer.from(identity.principalAlias, "hex");
+    const expected = Buffer.from(input.principalAlias, "hex");
+    if (actual.byteLength === expected.byteLength && timingSafeEqual(actual, expected)) {
+      return principalId;
+    }
+  }
+  denied();
 }
 
 export function requirePhotonOwnerAccess(
