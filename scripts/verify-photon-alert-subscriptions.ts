@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   readPhotonAlertDeliverySubscription,
   savePhotonAlertDeliverySubscription,
+  savePhotonToolAlertDeliverySubscription,
   type PhotonAlertDeliverySubscriptionStoreClient,
 } from "../agent/lib/photon-alert-subscription-store";
 import { resolvePhotonOwnerConversationIdentity } from "../agent/lib/owner-identity";
@@ -54,6 +55,33 @@ assert.deepEqual(
     threadId,
   },
 );
+
+const toolClient = new MemorySubscriptionStore();
+await savePhotonToolAlertDeliverySubscription({
+  ctx: {
+    session: {
+      auth: {
+        current: {
+          attributes: { channel: "photon", thread_id: threadId },
+          authenticator: "photon-imessage-webhook",
+          principalId,
+          principalType: "user",
+        },
+      },
+    },
+  } as Parameters<typeof savePhotonToolAlertDeliverySubscription>[0]["ctx"],
+  runtimeScope: {
+    conversationId: identity.conversationId,
+    generation: 1,
+    ownerId: identity.ownerId,
+    schemaVersion: 1,
+    workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+  },
+}, toolClient, environment);
+assert.equal((await readPhotonAlertDeliverySubscription({
+  ownerId: identity.ownerId,
+  subscriptionId: identity.conversationId,
+}, toolClient, environment)).destination, threadId);
 
 await assert.rejects(
   readPhotonAlertDeliverySubscription({

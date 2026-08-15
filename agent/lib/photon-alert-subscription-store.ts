@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { Redis } from "@upstash/redis";
+import type { SessionContext } from "eve/context";
 import { z } from "zod";
 
 import {
@@ -8,6 +9,7 @@ import {
   resolvePhotonPrincipalByAlias,
 } from "./owner-identity";
 import type { PhotonAlertDeliverySubscription } from "./photon-alert-delivery";
+import type { WorkspaceRuntimeScope } from "./workspace-runtime-scope";
 
 const KEY_PREFIX = "eve:workspace-runtime:v1:photon-alert-subscription:";
 const conversationIdSchema = z.string().regex(/^conversation_[a-f0-9]{64}$/u);
@@ -129,6 +131,30 @@ export async function savePhotonAlertDeliverySubscription(
     return;
   }
   await client.set(recordKey, JSON.stringify(record));
+}
+
+export async function savePhotonToolAlertDeliverySubscription(
+  input: {
+    ctx: Pick<SessionContext, "session">;
+    now?: Date;
+    runtimeScope: WorkspaceRuntimeScope;
+  },
+  client: PhotonAlertDeliverySubscriptionStoreClient = store(),
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const auth = input.ctx.session.auth.current;
+  const threadId = auth && typeof auth.attributes.thread_id === "string"
+    ? auth.attributes.thread_id
+    : null;
+  if (!auth || !threadId) throw new PhotonAlertDeliverySubscriptionError();
+  await savePhotonAlertDeliverySubscription({
+    conversationId: input.runtimeScope.conversationId,
+    now: input.now,
+    ownerId: input.runtimeScope.ownerId,
+    principalId: auth.principalId,
+    subscriptionId: input.runtimeScope.conversationId,
+    threadId,
+  }, client, environment);
 }
 
 export async function readPhotonAlertDeliverySubscription(

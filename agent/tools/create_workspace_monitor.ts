@@ -2,7 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 
 import { ensureIpoFilingsWorkspaceRuntime } from "../lib/ipo-filings-workspace-runtime";
-import { savePhotonAlertDeliverySubscription } from "../lib/photon-alert-subscription-store";
+import { savePhotonToolAlertDeliverySubscription } from "../lib/photon-alert-subscription-store";
 import { SEC_IPO_SOURCE_ID, SEC_IPO_SOURCE_URL } from "../lib/sec-ipo-reference";
 import { nextWorkspaceMonitorOccurrence } from "../lib/workspace-monitor-schedule";
 import {
@@ -41,11 +41,6 @@ export default defineTool({
     requireWorkspaceMonitorWrites();
     const runtimeScope = requirePhotonWorkspaceToolScope(ctx);
     const scope = authorizePhotonWorkspaceToolStore(ctx, runtimeScope);
-    const auth = ctx.session.auth.current;
-    const threadId = auth && typeof auth.attributes.thread_id === "string"
-      ? auth.attributes.thread_id
-      : null;
-    if (!auth || !threadId) throw new Error("workspace_scope_invalid");
     const now = new Date();
     const next = nextWorkspaceMonitorOccurrence(input.schedule, now);
     if (input.schedule.kind === "one_time" && !next) {
@@ -77,13 +72,10 @@ export default defineTool({
         throw new Error("workspace_runtime_not_configured");
       }
     }
-    await savePhotonAlertDeliverySubscription({
-      conversationId: runtimeScope.conversationId,
+    await savePhotonToolAlertDeliverySubscription({
+      ctx,
       now,
-      ownerId: runtimeScope.ownerId,
-      principalId: auth.principalId,
-      subscriptionId: runtimeScope.conversationId,
-      threadId,
+      runtimeScope,
     });
     return {
       monitor: await createWorkspaceMonitor({

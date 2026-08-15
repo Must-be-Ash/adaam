@@ -194,5 +194,6 @@ const assignmentTool = await readFile(
 );
 assert.match(assignmentTool, /authorizePhotonWorkspaceToolStore/u);
 assert.match(assignmentTool, /requireWorkspaceMonitorWrites/u);
+assert.match(assignmentTool, /savePhotonToolAlertDeliverySubscription/u);
 assert.doesNotMatch(assignmentTool, /workspaceId\s*:/u);
 console.info("Workspace legacy monitor assignment verification passed.");
