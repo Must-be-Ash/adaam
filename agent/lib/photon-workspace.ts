@@ -56,6 +56,9 @@ export function isPhotonSessionManagerRequest(text: string): boolean {
     return true;
   }
   if (
+    (!/\b(?:in|within) (?:my |the )?(?:active|current) workspace\b/u.test(
+      request,
+    ) || /\b(?:session|workspace) manager\b/u.test(request)) &&
     /\b(?:sessions?|workspaces?)\b/u.test(request) &&
     /\b(?:active|another|archive|change|clear|create|current|different|list|manage|new|open|remove|rename|reset|restore|select|separate|show|start|switch|use|view|what|where|which)\b/u.test(
       request,

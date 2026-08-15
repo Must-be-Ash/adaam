@@ -40,6 +40,7 @@ for (const request of [
   "what session am I in?",
   "which workspace are we using?",
   "rename my session",
+  "Open the workspace manager in the current workspace",
   "reset session",
   "start fresh",
 ]) {
@@ -52,6 +53,9 @@ for (const request of [
 
 for (const request of [
   "create images of a sunset",
+  "Create a durable daily monitor named Spec 1 Acceptance Replay Monitor in the current workspace. Run it at 23:59 America/Vancouver. Watch the exact public SEC latest S-1 filings source for new registration filings. Use no paid research and the default token limits.",
+  "Create a report in the current workspace",
+  "List monitors within my active workspace",
   "show my Coinbase balance",
   "explain browser session cookies",
   "summarize the earnings call",
