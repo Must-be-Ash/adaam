@@ -24,16 +24,16 @@ context.
 ## Current implementation target
 
 Spec 1's polling-first application is implemented, independently reviewed,
-merged, and pushed to `main`. Work Package 1 of U1 has a verified local commit
-and must be independently reviewed and merged before Work Package 2 begins.
-Use the bounded prompt in
+merged, and pushed to `main`. Work Packages 1 and 2 of U1 coexist on the U1
+branch, are complete, and have received their combined review. Use the bounded
+prompt in
 [`docs/prompts/spec-01-sprint-implementation.md`](../docs/prompts/spec-01-sprint-implementation.md)
-for that next task. The executable sequence is
+for the completed work-package record. The executable sequence is
 [`docs/plans/2026-08-15-0905-feat-spec-01-acceptance-and-strategy-packs-plan.md`](../docs/plans/2026-08-15-0905-feat-spec-01-acceptance-and-strategy-packs-plan.md).
-One independent review covers both U1 work packages after Work Package 2; the
-full pre-deployment regression is not a third implementation package. Local
-later units may proceed before the owner schedules live acceptance, but
-production pack activation cannot.
+The final combined local regression gate has passed. The remaining local Spec 1
+work is integration into `main`; owner-authorized production acceptance remains
+separate. The full pre-deployment regression is not a third implementation
+package. Production pack activation remains unauthorized.
 
 ## Current plan-unit kickoff prompt
 

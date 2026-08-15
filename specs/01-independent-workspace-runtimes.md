@@ -865,7 +865,7 @@ without duplicating each requirement.
 | 3 | Isolated worker runtime and IPO/SEC reference implementation | Local gate passed |
 | 4 | Durable-mode Photon receipts, alert delivery, Discuss/Manage routing, and deterministic integration harness | Local gate passed |
 | 5 | Natural-language and Spectrum monitor/budget management plus lifecycle controls | Local gate passed |
-| 6 | Deterministic suites, Redis races, builds, local runbook, simultaneous runs, budget exhaustion, and SEC live smoke | Local gate passed; production acceptance remains |
+| 6 | Deterministic suites, Redis races, builds, local runbook, simultaneous runs, budget exhaustion, and SEC live smoke | Final combined local gate passed; production acceptance remains |
 
 ### Local production prerequisites
 
@@ -879,6 +879,17 @@ without duplicating each requirement.
 Both local production prerequisites are complete, so the Spec 1 local code gate
 is complete. Their focused production-caller and regression checks do not
 replace the remaining owner-authorized production acceptance below.
+
+### Final local regression and integration gate
+
+- [x] Run all 45 `verify:workspace-runtime:*` package checks, including the
+  read-only SEC smoke and the ephemeral local Redis race suite, then pass
+  `npm run typecheck`, `npm run build:agent`, and
+  `npm run build -- --webpack`.
+
+The combined gate passed locally on 2026-08-15. The Redis check used the
+required local `REDIS_SERVER_BIN=/opt/homebrew/bin/redis-server`; no Photon
+delivery, deployment, environment change, or production mutation was performed.
 
 ### Remaining owner-authorized production acceptance
 
@@ -961,7 +972,9 @@ where it can share versioned adapter and canonical-fact contracts.
 
 This matrix distinguishes the completed ordinary path and local production
 prerequisites from explicitly deferred crash/operations work. A deferred tail
-does not reopen a locally passed boundary.
+does not reopen a locally passed boundary. The complete matrix was rerun in the
+final combined local gate on 2026-08-15, together with typecheck and both
+production builds.
 
 | Boundary | Required proof | Current status |
 | --- | --- | --- |
@@ -993,12 +1006,12 @@ does not reopen a locally passed boundary.
 
 ## Definition of done
 
-The ordinary-path polling implementation and local production-code gate are
-complete for the rows labeled `Local gate passed` or `Ordinary path passed`
-above. This does not claim the explicitly deferred recovery/operations tails.
-The specification reaches production acceptance when every item in **Remaining
-owner-authorized production acceptance** and its exit gate is checked with real
-Photon evidence.
+The ordinary-path polling implementation, local production-code gate, and final
+combined local regression and integration gate are complete for the rows
+labeled `Local gate passed` or `Ordinary path passed` above. This does not claim
+the explicitly deferred recovery/operations tails. The specification reaches
+production acceptance when every item in **Remaining owner-authorized
+production acceptance** and its exit gate is checked with real Photon evidence.
 
 Deferred post-Spec-6 hardening remains tracked below the implementation status
 and is not a blocker unless an item becomes an observed ordinary-path failure.
