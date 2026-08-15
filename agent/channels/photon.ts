@@ -8,6 +8,7 @@ import {
   messageToUserContent,
 } from "eve/channels/chat-sdk";
 import type { InputRequest } from "eve/client";
+import type { SessionContext } from "eve/context";
 
 import {
   createPhotonApprovalPrompt,
@@ -32,25 +33,60 @@ import {
 } from "../lib/photon-approval-store.js";
 import { photonAuth, photonPrincipalId } from "../lib/photon-auth";
 import {
+  assignPhotonIngress,
+  createPhotonCompletionReceipt,
+  createPhotonDispatchReceipt,
+  createPhotonIngressReceipt,
+  createPhotonResponseDeliveryReceipt,
+  markPhotonDispatchAccepted,
+  markPhotonResponseDelivery,
+  photonIngressAuthAttributes,
+  photonIngressIdFromAuth,
+  quarantinePhotonDispatch,
+  readPhotonIngressReceipt,
+  readPhotonDispatchReceipt,
+  type PhotonIngressReceipt,
+} from "../lib/photon-ingress-store";
+import {
+  claimPhotonHeldAlertReply,
+  classifyPhotonAlertReply,
+  holdPhotonAlertReply,
+  parsePhotonHeldReplyChoice,
+  readActivePhotonHeldReply,
+  readRecentPhotonAlerts,
+} from "../lib/photon-alert-reply-store";
+import {
+  OwnerIdentityDeniedError,
+  requirePhotonOwnerAccess,
+  resolvePhotonOwnerConversationIdentity,
+} from "../lib/owner-identity";
+import {
   photonArtifactPresentation,
   photonApprovalAppUrl,
   photonWorkspaceAppUrl,
 } from "../lib/photon-mini-app";
 import {
+  consumePhotonPendingAlertContext,
   getPhotonWorkspaceState,
   mintPhotonWorkspaceManager,
   savePhotonWorkspaceSession,
+  selectPhotonWorkspace,
   type PhotonWorkspace,
   type PhotonWorkspaceState,
 } from "../lib/photon-workspace-store";
 import {
   isPhotonSessionManagerRequest,
+  photonApprovalWorkspace,
   photonWorkspaceContext,
   photonWorkspaceThread,
   parsePhotonWorkspaceThreadId,
   physicalPhotonThreadId,
   workspaceAwarePhotonAdapter,
 } from "../lib/photon-workspace";
+import { projectPhotonWorkspaceRuntimeScope } from "../lib/workspace-runtime-scope";
+import { workspaceAlertTurnContext } from "../lib/workspace-alert-presentation";
+import { readWorkspaceAlertById } from "../lib/workspace-alert-store";
+import { authorizePhotonWorkspaceControlPlaneStore } from "../lib/workspace-store-authorization";
 
 const webhookSecret = process.env.IMESSAGE_WEBHOOK_SECRET;
 const photonConnectorId =
@@ -63,6 +99,17 @@ const imessageAdapter = createiMessageAdapter({
     : { webhookVerifier: createConnectWebhookVerifier() }),
 });
 const routedImessageAdapter = workspaceAwarePhotonAdapter(imessageAdapter);
+
+async function completePhotonDispatchReceipt(
+  ctx: SessionContext,
+  outcome: "cancelled" | "completed" | "failed",
+): Promise<void> {
+  const ingressId = photonIngressIdFromAuth(ctx.session.auth.current);
+  if (!ingressId) return;
+  const dispatch = await readPhotonDispatchReceipt(ingressId);
+  if (!dispatch) return;
+  await createPhotonCompletionReceipt({ dispatch, outcome });
+}
 
 function approvalRequestText(prompt: PhotonApprovalPrompt): string {
   return `${prompt.approvalText}\n\nOpen the approval card to choose Approve or Deny. If the card does not open, reply YES or NO.`;
@@ -262,12 +309,44 @@ const bridge = chatSdkChannel({
           })
         : null;
       const artifact = photonArtifactPresentation(data.message);
-      await channel.thread.post({
-        markdown: photonWorkspaceLabeledText(
-          workspaceName,
-          artifact?.message ?? data.message,
-        ),
-      });
+      const responseText = photonWorkspaceLabeledText(
+        workspaceName,
+        artifact?.message ?? data.message,
+      );
+      const ingressId = photonIngressIdFromAuth(ctx.session.auth.current);
+      if (ingressId) {
+        const delivery = await createPhotonResponseDeliveryReceipt({
+          content: responseText,
+          destination: physicalPhotonThreadId(channel.thread.id),
+          ingressId,
+        });
+        if (!delivery.created) {
+          if (delivery.record.state === "delivering") {
+            await markPhotonResponseDelivery({
+              failureCode: "response_delivery_uncertain",
+              ingressId,
+              state: "delivery_uncertain",
+            });
+          }
+          return;
+        }
+        await markPhotonResponseDelivery({ ingressId, state: "delivering" });
+      }
+      try {
+        await channel.thread.post({ markdown: responseText });
+        if (ingressId) {
+          await markPhotonResponseDelivery({ ingressId, state: "delivered" });
+        }
+      } catch (error) {
+        if (ingressId) {
+          await markPhotonResponseDelivery({
+            failureCode: "response_delivery_uncertain",
+            ingressId,
+            state: "delivery_uncertain",
+          }).catch(() => undefined);
+        }
+        throw error;
+      }
       if (artifact) {
         try {
           await imessageAdapter.sendMiniApp(
@@ -283,6 +362,7 @@ const bridge = chatSdkChannel({
       }
     },
     async "turn.failed"(data, channel, ctx) {
+      await completePhotonDispatchReceipt(ctx, "failed");
       const release = await releaseApprovedOrderGuard(ctx.session.id);
       console.error("[photon.turn] Eve turn failed", {
         error_code: data.code,
@@ -308,6 +388,7 @@ const bridge = chatSdkChannel({
       );
     },
     async "turn.completed"(_data, channel, ctx) {
+      await completePhotonDispatchReceipt(ctx, "completed");
       const release = await releaseApprovedOrderGuard(ctx.session.id);
       if (release === "retained" && channel.thread) {
         const principalId = ctx.session.auth.current?.principalId;
@@ -327,6 +408,7 @@ const bridge = chatSdkChannel({
       }
     },
     async "turn.cancelled"(_data, channel, ctx) {
+      await completePhotonDispatchReceipt(ctx, "cancelled");
       const release = await releaseApprovedOrderGuard(ctx.session.id);
       if (release !== "missing" && channel.thread) {
         const principalId = ctx.session.auth.current?.principalId;
@@ -765,29 +847,8 @@ async function submitApprovalDecision(
       principalId,
       threadId: thread.id,
     });
-    const matchedWorkspace =
-      claim.delivery.workspaceId && claim.delivery.workspaceGeneration
-        ? state.workspaces.find(
-            (candidate) =>
-              candidate.id === claim.delivery.workspaceId &&
-              candidate.generation === claim.delivery.workspaceGeneration,
-          )
-        : state.workspaces.find(
-            (candidate) => candidate.sessionId === claim.delivery.sessionId,
-          );
     workspace =
-      matchedWorkspace?.status === "active" &&
-      matchedWorkspace.id === state.activeWorkspace.id
-        ? matchedWorkspace
-        : undefined;
-    if (
-      !workspace &&
-      !claim.delivery.workspaceId &&
-      state.activeWorkspace.continuation === "physical" &&
-      state.activeWorkspace.status === "active"
-    ) {
-      workspace = state.activeWorkspace;
-    }
+      photonApprovalWorkspace(state, claim.delivery) ?? undefined;
   } catch {
     // The approval is failed below before any response reaches Eve.
   }
@@ -809,6 +870,12 @@ async function submitApprovalDecision(
         ? "Approved. Continuing…"
         : "Denied. No action will be taken.";
   try {
+    const runtimeScope = projectPhotonWorkspaceRuntimeScope({
+      generation: workspace.generation,
+      principalId,
+      threadId: thread.id,
+      workspaceId: workspace.id,
+    });
     await bridge.send(
       {
         inputResponses: [
@@ -819,7 +886,7 @@ async function submitApprovalDecision(
         ],
       },
       {
-        auth: photonAuth(senderId, thread.id),
+        auth: photonAuth(senderId, thread.id, runtimeScope),
         thread: photonWorkspaceThread(thread, workspace),
         turnPolicy: "queue",
       },
@@ -905,6 +972,82 @@ async function openPhotonSessionManager(input: {
   }
 }
 
+async function dispatchPhotonWorkspaceTurn(input: {
+  alertContext?: string;
+  ingress: PhotonIngressReceipt;
+  messageContent: ReturnType<typeof messageToUserContent> | string;
+  principalId: string;
+  reason: "confirmed_held_reply" | "discuss_action" | "selected_workspace";
+  senderId: string;
+  thread: Thread;
+  workspaceState: PhotonWorkspaceState;
+}): Promise<void> {
+  const activeWorkspace = input.workspaceState.activeWorkspace;
+  const runtimeScope = projectPhotonWorkspaceRuntimeScope({
+    generation: activeWorkspace.generation,
+    principalId: input.principalId,
+    threadId: input.thread.id,
+    workspaceId: activeWorkspace.id,
+  });
+  const assignment = await assignPhotonIngress({
+    generation: activeWorkspace.generation,
+    ingress: input.ingress,
+    reason: input.reason,
+    routingRevision: input.workspaceState.revision,
+    workspaceId: activeWorkspace.id,
+  });
+  const dispatchReceipt = await createPhotonDispatchReceipt({
+    assignment,
+    continuationTarget: `${input.thread.id}\0${activeWorkspace.id}\0${activeWorkspace.generation}`,
+  });
+  if (!dispatchReceipt.created) return;
+  let session;
+  try {
+    session = await bridge.send(
+      {
+        context: [
+          photonWorkspaceContext(activeWorkspace),
+          ...(input.alertContext ? [input.alertContext] : []),
+        ],
+        message: input.messageContent,
+      },
+      {
+        auth: photonAuth(
+          input.senderId,
+          input.thread.id,
+          runtimeScope,
+          photonIngressAuthAttributes(input.ingress),
+        ),
+        thread: photonWorkspaceThread(input.thread, activeWorkspace),
+        turnPolicy: "steer",
+      },
+    );
+    await markPhotonDispatchAccepted({
+      ingressId: input.ingress.ingressId,
+      sessionId: session.id,
+    });
+  } catch (error) {
+    await quarantinePhotonDispatch({
+      failureCode: "model_dispatch_uncertain",
+      ingressId: input.ingress.ingressId,
+      quarantineReason: "manual_reconciliation_required",
+    }).catch(() => undefined);
+    throw error;
+  }
+  await savePhotonWorkspaceSession({
+    generation: activeWorkspace.generation,
+    principalId: input.principalId,
+    sessionId: session.id,
+    threadId: input.thread.id,
+    workspaceId: activeWorkspace.id,
+  }).catch((error: unknown) => {
+    console.error("[photon.workspace] Session binding update failed", {
+      error_type: error instanceof Error ? error.name : typeof error,
+      session_id: session.id,
+    });
+  });
+}
+
 async function dispatch(
   thread: Parameters<
     Parameters<typeof bridge.bot.onDirectMessage>[0]
@@ -922,7 +1065,31 @@ async function dispatch(
   if (message.author.isBot || !thread.isDM) return;
 
   const senderId = message.author.userId;
+  const principalId = photonPrincipalId(senderId);
+  try {
+    requirePhotonOwnerAccess({ principalId, resource: "session" });
+  } catch (error) {
+    if (!(error instanceof OwnerIdentityDeniedError)) throw error;
+    await thread.post("This iMessage identity is not authorized to use Eve.");
+    return;
+  }
   const textDecision = parsePhotonTextDecision(message.text);
+  const ingressIdentity = resolvePhotonOwnerConversationIdentity({
+    principalId,
+    threadId: thread.id,
+  });
+  const ingressCreation = await createPhotonIngressReceipt({
+    classification:
+      textDecision || isPhotonApprovalAlias(message.text)
+        ? "approval_reply"
+        : isPhotonSessionManagerRequest(message.text)
+          ? "session_management"
+          : "ordinary",
+    conversationId: ingressIdentity.conversationId,
+    eventId: message.id,
+    ownerId: ingressIdentity.ownerId,
+  });
+  if (!ingressCreation.created) return;
   if (textDecision) {
     const decisionSentAtMs = message.metadata.dateSent.getTime();
     if (
@@ -991,7 +1158,6 @@ async function dispatch(
     return;
   }
 
-  const principalId = photonPrincipalId(senderId);
   let workspaceState: PhotonWorkspaceState;
   try {
     workspaceState = await getPhotonWorkspaceState({
@@ -1008,31 +1174,109 @@ async function dispatch(
     return;
   }
 
-  const activeWorkspace = workspaceState.activeWorkspace;
-  const session = await bridge.send(
-    {
-      context: [
-        photonWorkspaceContext(activeWorkspace),
-      ],
-      message: messageToUserContent(message),
-    },
-    {
-      auth: photonAuth(senderId, thread.id),
-      thread: photonWorkspaceThread(thread, activeWorkspace),
-      turnPolicy: "steer",
-    },
-  );
-  await savePhotonWorkspaceSession({
-    generation: activeWorkspace.generation,
-    principalId,
-    sessionId: session.id,
-    threadId: thread.id,
-    workspaceId: activeWorkspace.id,
-  }).catch((error: unknown) => {
-    console.error("[photon.workspace] Session binding update failed", {
-      error_type: error instanceof Error ? error.name : typeof error,
-      session_id: session.id,
+  const held = await readActivePhotonHeldReply(ingressIdentity.conversationId);
+  if (held) {
+    const choice = parsePhotonHeldReplyChoice(message.text, held);
+    if (choice) {
+      if (workspaceState.revision !== held.routingRevision) {
+        await thread.post("The session selection changed, so that alert reply was not routed. Please send it again.");
+        return;
+      }
+      const claimed = await claimPhotonHeldAlertReply({ choice, ingressId: held.ingressId });
+      if (!claimed?.assignedWorkspaceId) return;
+      if (workspaceState.activeWorkspace.id !== claimed.assignedWorkspaceId) {
+        workspaceState = await selectPhotonWorkspace({
+          expectedRevision: workspaceState.revision,
+          principalId,
+          threadId: thread.id,
+          workspaceId: claimed.assignedWorkspaceId,
+        });
+      }
+      const heldIngress = await readPhotonIngressReceipt(claimed.ingressId);
+      if (!heldIngress) {
+        await thread.post("I couldn't recover that held reply, so it was not sent. Please send it again.");
+        return;
+      }
+      await dispatchPhotonWorkspaceTurn({
+        ingress: heldIngress,
+        messageContent: claimed.messageText,
+        principalId,
+        reason: "confirmed_held_reply",
+        senderId,
+        thread,
+        workspaceState,
+      });
+      await thread.post(`Continuing in ${workspaceState.activeWorkspace.name}.`).catch(() => undefined);
+      return;
+    }
+  }
+
+  const recentAlerts = await readRecentPhotonAlerts(ingressIdentity.conversationId);
+  const alertReply = classifyPhotonAlertReply({
+    candidates: recentAlerts,
+    messageText: message.text,
+    selectedWorkspaceId: workspaceState.activeWorkspace.id,
+  });
+  if (alertReply) {
+    await holdPhotonAlertReply({
+      candidateAlertId: alertReply.alertId,
+      candidateWorkspaceId: alertReply.workspaceId,
+      candidateWorkspaceName: alertReply.workspaceName,
+      conversationId: ingressIdentity.conversationId,
+      ingressId: ingressCreation.record.ingressId,
+      messageText: message.text,
+      ownerId: ingressIdentity.ownerId,
+      routingRevision: workspaceState.revision,
+      selectedWorkspaceId: workspaceState.activeWorkspace.id,
+      selectedWorkspaceName: workspaceState.activeWorkspace.name,
     });
+    await thread.post(
+      `That looks related to the ${alertReply.workspaceName} alert. Reply “use ${alertReply.workspaceName}” to switch and send it there, or “stay in ${workspaceState.activeWorkspace.name}” to keep the current session.`,
+    );
+    return;
+  }
+
+  let alertContext: string | undefined;
+  try {
+    const pending = await consumePhotonPendingAlertContext({
+      principalId,
+      threadId: thread.id,
+      workspaceId: workspaceState.activeWorkspace.id,
+    });
+    workspaceState = pending.state;
+    if (pending.context) {
+      const alertScope = authorizePhotonWorkspaceControlPlaneStore({
+        principalId,
+        resource: "alert",
+        workspaceId: pending.context.workspaceId,
+      });
+      const alert = await readWorkspaceAlertById(alertScope, pending.context.alertId);
+      if (!alert || alert.findingId !== pending.context.findingId) {
+        throw new Error("pending_alert_unavailable");
+      }
+      alertContext = workspaceAlertTurnContext(alert);
+    }
+  } catch (error) {
+    console.error("[photon.alert] Pending context resolution failed", {
+      error_type: error instanceof Error ? error.name : typeof error,
+    });
+    await thread.post(
+      "I couldn't verify that alert context, so this message was not sent. Please try again.",
+    );
+    return;
+  }
+
+  const activeWorkspace = workspaceState.activeWorkspace;
+  const ingress = ingressCreation.record;
+  await dispatchPhotonWorkspaceTurn({
+    ...(alertContext ? { alertContext } : {}),
+    ingress,
+    messageContent: messageToUserContent(message),
+    principalId,
+    reason: alertContext ? "discuss_action" : "selected_workspace",
+    senderId,
+    thread,
+    workspaceState,
   });
 }
 

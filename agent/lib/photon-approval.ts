@@ -114,18 +114,6 @@ function approvalSummary(request: InputRequest): string {
       }
       return summary;
     }
-    case "delete_event_trigger": {
-      const id = boundedString(
-        input.id,
-        /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu,
-      );
-      if (!id) {
-        throw new Error(
-          "The event-trigger deletion cannot be rendered as an exact approval.",
-        );
-      }
-      return `Delete event trigger ${id}?`;
-    }
     default: {
       const readableName = readableToolName(toolName);
       return readableName
@@ -163,9 +151,8 @@ function orderPreviewExpiry(
 export function isPhotonApprovalSupported(request: InputRequest): boolean {
   if (request.kind !== "tool-approval") return false;
   const toolName = request.action.toolName;
-  return toolName.startsWith("coinbase_")
-    ? PHOTON_SUPPORTED_COINBASE_APPROVALS.has(toolName)
-    : toolName === "delete_event_trigger";
+  return toolName.startsWith("coinbase_") &&
+    PHOTON_SUPPORTED_COINBASE_APPROVALS.has(toolName);
 }
 
 export function createPhotonApprovalPrompt(

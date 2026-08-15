@@ -1,0 +1,86 @@
+[
+  {
+    "caseId": "cross_workspace_access",
+    "guard": "scope",
+    "input": { "authorizedOwnerId": "owner_fixture", "authorizedWorkspaceId": "workspace_a", "targetOwnerId": "owner_fixture", "targetWorkspaceId": "workspace_b" },
+    "expectedFailure": "scope"
+  },
+  {
+    "caseId": "duplicate_dispatch",
+    "guard": "unique_key",
+    "input": { "seenKeys": ["dispatch_request_fixture"], "candidateKey": "dispatch_request_fixture" },
+    "expectedFailure": "unique_key"
+  },
+  {
+    "caseId": "duplicate_webhook",
+    "guard": "unique_key",
+    "input": { "seenKeys": ["event_digest_fixture"], "candidateKey": "event_digest_fixture" },
+    "expectedFailure": "unique_key"
+  },
+  {
+    "caseId": "immutable_assignment",
+    "guard": "immutable_assignment",
+    "input": { "currentWorkspaceId": "workspace_a", "currentGeneration": 2, "proposedWorkspaceId": "workspace_b", "proposedGeneration": 2 },
+    "expectedFailure": "immutable_assignment"
+  },
+  {
+    "caseId": "dispatch_uncertainty",
+    "guard": "uncertain_replay",
+    "input": { "state": "dispatch_uncertain", "replayRequested": true },
+    "expectedFailure": "uncertain_replay"
+  },
+  {
+    "caseId": "delivery_uncertainty",
+    "guard": "uncertain_replay",
+    "input": { "state": "delivery_uncertain", "replayRequested": true },
+    "expectedFailure": "uncertain_replay"
+  },
+  {
+    "caseId": "duplicate_alert_delivery",
+    "guard": "unique_key",
+    "input": { "seenKeys": ["alert_fixture:destination_fixture"], "candidateKey": "alert_fixture:destination_fixture" },
+    "expectedFailure": "unique_key"
+  },
+  {
+    "caseId": "stale_configuration",
+    "guard": "revision",
+    "input": { "snapshottedRevision": 4, "authoritativeRevision": 5 },
+    "expectedFailure": "revision"
+  },
+  {
+    "caseId": "capability_drift",
+    "guard": "capability",
+    "input": { "reviewedSchemaDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "currentSchemaDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "toolReviewed": true, "hardDenied": false },
+    "expectedFailure": "capability"
+  },
+  {
+    "caseId": "budget_exhaustion",
+    "guard": "budget",
+    "input": { "limit": 8, "reserved": 8, "requested": 1 },
+    "expectedFailure": "budget"
+  },
+  {
+    "caseId": "archive_routing",
+    "guard": "workspace_route",
+    "input": { "workspaceState": "archived" },
+    "expectedFailure": "workspace_route"
+  },
+  {
+    "caseId": "restore_auto_resume",
+    "guard": "restore_resume",
+    "input": { "previousMonitorState": "suspended_archived", "proposedMonitorState": "enabled" },
+    "expectedFailure": "restore_resume"
+  },
+  {
+    "caseId": "start_fresh_stale_generation",
+    "guard": "generation",
+    "input": { "currentGeneration": 3, "claimedGeneration": 2 },
+    "expectedFailure": "generation"
+  },
+  {
+    "caseId": "ambiguous_alert_reply",
+    "guard": "alert_reply",
+    "input": { "selectedWorkspaceId": "workspace_a", "candidateWorkspaceId": "workspace_b", "explicitChoiceWorkspaceId": null, "confidence": "high" },
+    "expectedFailure": "alert_reply"
+  }
+]

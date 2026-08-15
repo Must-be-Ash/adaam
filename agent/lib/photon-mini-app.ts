@@ -4,6 +4,7 @@ import {
 } from "#public-app-url";
 
 export const PHOTON_APPROVAL_APP_PATH = "/eve/v1/photon-approval";
+export const PHOTON_ALERT_APP_PATH = "/eve/v1/photon-alert";
 export const PHOTON_WORKSPACE_APP_PATH = "/eve/v1/photon-workspaces";
 
 const PHOTON_ARTIFACT_HOST = "miniup.app";
@@ -48,6 +49,12 @@ export function photonApprovalAppUrl(approvalToken: string): string {
 export function photonWorkspaceAppUrl(managerToken: string): string {
   const url = new URL(PHOTON_WORKSPACE_APP_PATH, deploymentOrigin());
   url.hash = managerToken;
+  return url.toString();
+}
+
+export function photonAlertAppUrl(alertToken: string): string {
+  const url = new URL(PHOTON_ALERT_APP_PATH, deploymentOrigin());
+  url.hash = alertToken;
   return url.toString();
 }
 

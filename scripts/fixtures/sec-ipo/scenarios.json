@@ -1,0 +1,8 @@
+{
+  "sourceId": "sec-latest-s1-filings",
+  "sourceUrl": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=S-1&owner=include&count=40&output=atom",
+  "initial": { "fixture": "initial.atom", "expectedBaselineCount": 2, "expectedAlerts": 0 },
+  "later": { "fixture": "later-s1.atom", "expectedNewRegistrations": 1, "expectedAlerts": 1 },
+  "amendment": { "fixture": "amendment.atom", "expectedAmendments": 1, "expectedNewRegistrations": 0 },
+  "failures": ["malformed", "oversized", "stale", "redirected", "incomplete"]
+}
