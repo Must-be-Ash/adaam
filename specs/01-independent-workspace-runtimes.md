@@ -869,7 +869,7 @@ without duplicating each requirement.
 
 ### Remaining pre-production acceptance
 
-- [ ] Remove raw workspace/monitor identifiers and arbitrary exception text from
+- [x] Remove raw workspace/monitor identifiers and arbitrary exception text from
   runtime logs, enforce the fixed low-cardinality catalog, and pass negative
   log-sink tests.
 - [ ] Before Spec 2 activates a pack-managed source, reject exact-fenced
@@ -970,7 +970,7 @@ where it can share versioned adapter and canonical-fact contracts.
   retryable failure, terminal failure, budget-deferred, alert delivered, alert
   uncertain, ingress deduplicated, dispatch quarantined, response delivery
   quarantined, and routing-confirmation outcomes.
-- [ ] Emit bounded error codes rather than exception bodies or provider payloads.
+- [x] Emit bounded error codes rather than exception bodies or provider payloads.
 - [x] Provide owner-visible monitor health in the manager.
 - [x] Add kill switches for all workspace dispatch, paid runtime research,
   Photon workspace alerts, and source-event ingestion.

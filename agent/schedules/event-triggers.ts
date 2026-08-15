@@ -23,6 +23,12 @@ import {
   type ClaimedWorkspaceMonitor,
 } from "../lib/workspace-monitor-store";
 import { resolveWorkspaceRuntimeFlags } from "../lib/workspace-runtime-flags";
+import {
+  emitWorkspaceRuntimeObservation,
+  safeWorkspaceRuntimeErrorCode,
+  type WorkspaceRuntimeErrorCode,
+  type WorkspaceRuntimeObservationSink,
+} from "../lib/workspace-runtime-observability";
 import { recoverSecIpoWorkspaceRunForControlPlane } from "../lib/sec-ipo-workspace-worker";
 import { deliverWorkspaceOutcomeToPhoton } from "../lib/workspace-alert-dispatch";
 import {
@@ -35,6 +41,7 @@ export interface EventTriggerScheduleDependencies {
   readonly claimEventTriggers: typeof eventTriggerStore.claimDue;
   readonly claimWorkspaceMonitors: typeof claimDueWorkspaceMonitors;
   readonly deliverWorkspaceOutcome: typeof deliverWorkspaceOutcomeToPhoton;
+  readonly emitRuntimeObservation: WorkspaceRuntimeObservationSink;
   readonly executeEventTrigger: typeof executeEventTriggerJob;
   readonly finishWorkspaceBudget: typeof finishWorkspaceMonitorDispatchBudget;
   readonly getWorkspaceMonitor: typeof getWorkspaceMonitor;
@@ -56,6 +63,7 @@ const productionDependencies: EventTriggerScheduleDependencies = Object.freeze({
     eventTriggerStore.claimDue(...args),
   claimWorkspaceMonitors: claimDueWorkspaceMonitors,
   deliverWorkspaceOutcome: deliverWorkspaceOutcomeToPhoton,
+  emitRuntimeObservation: emitWorkspaceRuntimeObservation,
   executeEventTrigger: executeEventTriggerJob,
   finishWorkspaceBudget: finishWorkspaceMonitorDispatchBudget,
   getWorkspaceMonitor,
@@ -195,6 +203,13 @@ async function executeWorkspaceRecovery(
     failureCode = recoveryFailureCode(error);
   }
   await quarantineWorkspaceRecoveryFailure(job, failureCode, dependencies);
+  dependencies.emitRuntimeObservation({
+    counter: "workspace_monitor_terminal_failure_total",
+    errorCode: failureCode === "worker_recovery_stale"
+      ? "stale_configuration"
+      : "evaluation_failed",
+    value: 1,
+  });
 }
 
 async function executeWorkspaceJob(
@@ -231,6 +246,10 @@ async function executeWorkspaceJob(
     });
     const session = await dependencies.startWorkspaceWorker(prepared.request);
     started = true;
+    dependencies.emitRuntimeObservation({
+      counter: "workspace_monitor_started_total",
+      value: 1,
+    });
     let terminalFailure = false;
     for await (const event of session.events) {
       if (event.type === "step.completed") {
@@ -254,7 +273,24 @@ async function executeWorkspaceJob(
       actualOutputTokens: outputTokens,
       outcome: "reconciled",
     });
+    dependencies.emitRuntimeObservation({
+      counter: "workspace_monitor_completed_total",
+      value: 1,
+    });
+    if (outcome.outcome === "no_match") {
+      dependencies.emitRuntimeObservation({
+        counter: "workspace_monitor_no_match_total",
+        value: 1,
+      });
+    }
   } catch (error) {
+    dependencies.emitRuntimeObservation({
+      counter: started
+        ? "workspace_monitor_terminal_failure_total"
+        : "workspace_monitor_retryable_failure_total",
+      errorCode: safeWorkspaceRuntimeErrorCode(error, "evaluation_failed"),
+      value: 1,
+    });
     if (started) {
       try {
         await dependencies.recordWorkspaceFailure({
@@ -331,35 +367,14 @@ async function executeEventTriggerJob(input: {
   }
 }
 
-function scheduleFailureCode(error: unknown): string {
-  const candidate =
-    typeof error === "object" && error !== null && "code" in error
-      ? Reflect.get(error, "code")
-      : error instanceof Error
-        ? error.message
-        : null;
-  return typeof candidate === "string" && /^[a-z][a-z0-9_]{0,63}$/u.test(candidate)
-    ? candidate
-    : "schedule_job_failed";
-}
-
 function collectScheduleFailures(
-  failures: unknown[],
-  jobKind:
-    | "event_trigger"
-    | "event_trigger_claim"
-    | "workspace_claim"
-    | "workspace_first_attempt"
-    | "workspace_recovery",
+  failures: WorkspaceRuntimeErrorCode[],
   results: readonly PromiseSettledResult<unknown>[],
+  fallback: WorkspaceRuntimeErrorCode,
 ): void {
   for (const result of results) {
     if (result.status !== "rejected") continue;
-    failures.push(result.reason);
-    console.warn("[schedule] Claimed job failed after isolation", {
-      code: scheduleFailureCode(result.reason),
-      job_kind: jobKind,
-    });
+    failures.push(safeWorkspaceRuntimeErrorCode(result.reason, fallback));
   }
 }
 
@@ -377,7 +392,7 @@ export function createEventTriggerSchedule(
         (async () => {
         const now = dependencies.now();
         const flags = dependencies.resolveRuntimeFlags();
-        const scheduleFailures: unknown[] = [];
+        const scheduleFailures: WorkspaceRuntimeErrorCode[] = [];
         const [eventTriggerClaim, workspaceClaim] = await Promise.allSettled([
           dependencies.claimEventTriggers({
             now,
@@ -395,14 +410,24 @@ export function createEventTriggerSchedule(
         ]);
         collectScheduleFailures(
           scheduleFailures,
-          "event_trigger_claim",
           [eventTriggerClaim],
+          "storage_unavailable",
         );
         collectScheduleFailures(
           scheduleFailures,
-          "workspace_claim",
           [workspaceClaim],
+          "storage_unavailable",
         );
+        if (workspaceClaim.status === "rejected") {
+          dependencies.emitRuntimeObservation({
+            counter: "workspace_monitor_retryable_failure_total",
+            errorCode: safeWorkspaceRuntimeErrorCode(
+              workspaceClaim.reason,
+              "storage_unavailable",
+            ),
+            value: 1,
+          });
+        }
         const jobs = eventTriggerClaim.status === "fulfilled"
           ? eventTriggerClaim.value
           : [];
@@ -410,8 +435,9 @@ export function createEventTriggerSchedule(
           ? workspaceClaim.value
           : [];
         if (workspaceJobs.length > 0) {
-          console.info("[workspace.monitor] Minute claim pass completed", {
-            claim_count: workspaceJobs.length,
+          dependencies.emitRuntimeObservation({
+            counter: "workspace_monitor_claimed_total",
+            value: workspaceJobs.length,
           });
         }
         const recoveryJobs = workspaceJobs.filter(
@@ -422,12 +448,12 @@ export function createEventTriggerSchedule(
         );
         collectScheduleFailures(
           scheduleFailures,
-          "workspace_recovery",
           await Promise.allSettled(
             recoveryJobs.map((job) =>
               executeWorkspaceRecovery(job, dependencies, flags.photonAlerts)
             ),
           ),
+          "schedule_job_failed",
         );
 
         const admittedWorkspaceJobs = [];
@@ -445,28 +471,33 @@ export function createEventTriggerSchedule(
                 scope: job.scope,
               });
             } catch (releaseError) {
-              scheduleFailures.push(releaseError);
-              console.warn("[schedule] Claimed job failed after isolation", {
-                code: scheduleFailureCode(releaseError),
-                job_kind: "workspace_first_attempt",
+              const errorCode = safeWorkspaceRuntimeErrorCode(
+                releaseError,
+                "storage_unavailable",
+              );
+              scheduleFailures.push(errorCode);
+              dependencies.emitRuntimeObservation({
+                counter: "workspace_monitor_retryable_failure_total",
+                errorCode,
+                value: 1,
               });
             }
-            console.warn("[workspace.monitor] Dispatch admission denied", {
-              code: scheduleFailureCode(error),
-              monitor_id: job.monitor.monitorId,
-              workspace_id: job.monitor.workspaceId,
+            const errorCode = safeWorkspaceRuntimeErrorCode(
+              error,
+              "storage_unavailable",
+            );
+            dependencies.emitRuntimeObservation({
+              counter: errorCode === "run_budget_exhausted"
+                ? "workspace_monitor_budget_deferred_total"
+                : "workspace_monitor_retryable_failure_total",
+              errorCode,
+              value: 1,
             });
           }
-        }
-        if (admittedWorkspaceJobs.length > 0) {
-          console.info("[workspace.monitor] Dispatch budgets reserved", {
-            admitted_count: admittedWorkspaceJobs.length,
-          });
         }
 
         collectScheduleFailures(
           scheduleFailures,
-          "workspace_first_attempt",
           await Promise.allSettled(
             admittedWorkspaceJobs.map(({ budget, job }) =>
               executeWorkspaceJob(
@@ -477,21 +508,22 @@ export function createEventTriggerSchedule(
               )
             ),
           ),
+          "schedule_job_failed",
         );
 
         collectScheduleFailures(
           scheduleFailures,
-          "event_trigger",
           await Promise.allSettled(
             jobs.map((job) =>
               dependencies.executeEventTrigger({ appAuth, job, to })
             ),
           ),
+          "schedule_job_failed",
         );
         if (scheduleFailures.length > 0) {
           throw new AggregateError(
-            scheduleFailures,
-            "event_trigger_schedule_partial_failure",
+            scheduleFailures.map((code) => new Error(code)),
+            "schedule_job_failed",
           );
         }
         })(),
