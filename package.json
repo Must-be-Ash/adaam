@@ -82,6 +82,7 @@
     "verify:workspaces:redis": "node scripts/verify-photon-workspaces-redis.mjs"
   },
   "dependencies": {
+    "@adaam/eve-workspace-runtime-bridge": "file:packages/adaam-eve-workspace-runtime-bridge-0.0.2.tgz",
     "@ai-sdk/mcp": "^2.0.29",
     "@chat-adapter/state-redis": "^4.37.0",
     "@coinbase/coinbase-cli": "0.0.4",

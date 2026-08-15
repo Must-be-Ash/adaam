@@ -1,6 +1,9 @@
 import { defineAgent } from "eve";
 
 export default defineAgent({
+  build: {
+    externalDependencies: ["@adaam/eve-workspace-runtime-bridge"],
+  },
   model: "google/gemini-3.6-flash",
   reasoning: "high",
   compaction: {

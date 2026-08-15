@@ -733,6 +733,20 @@ function storedFindings(): Record<string, unknown>[] {
 }
 
 const appRoot = process.cwd();
+const hostedRuntimeBridgeSource = await readFile(
+  new URL(import.meta.resolve("@adaam/eve-workspace-runtime-bridge")),
+  "utf8",
+);
+assert.match(
+  hostedRuntimeBridgeSource,
+  /from "\.\.\/\.\.\/eve\/dist\/src\/execution\/workflow-runtime\.js"/,
+  "The hosted runtime bridge must statically trace Eve's private workflow runtime.",
+);
+assert.match(
+  hostedRuntimeBridgeSource,
+  /from "\.\.\/\.\.\/eve\/dist\/src\/runtime\/compiled-artifacts-source\.js"/,
+  "The hosted runtime bridge must statically trace Eve's bundled artifact source.",
+);
 const eveEntry = import.meta.resolve("eve");
 const [
   { compileAgent },
@@ -774,6 +788,11 @@ const [
   >,
 ]);
 const compilation = await compileAgent({ startPath: appRoot });
+assert.deepEqual(
+  compilation.manifest.config.build?.externalDependencies,
+  ["@adaam/eve-workspace-runtime-bridge"],
+  "The hosted worker runtime must retain Eve for its node-targeted private runtime call.",
+);
 const jiti = createJiti(import.meta.url, { interopDefault: false });
 const moduleMapModule = await jiti.import<{ moduleMap: unknown }>(
   pathToFileURL(join(appRoot, ".eve/compile/module-map.mjs")).href,

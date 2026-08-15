@@ -6,6 +6,7 @@
  */
 import type { ChannelAdapter } from "../../node_modules/eve/dist/src/channel/adapter.js";
 import type { RunHandle } from "../../node_modules/eve/dist/src/channel/types.js";
+import { createNodeTargetedWorkflowRuntime } from "@adaam/eve-workspace-runtime-bridge";
 import type { WorkspaceWorkerTaskRequest } from "./workspace-worker-runner";
 
 const adapter: ChannelAdapter = Object.freeze({
@@ -18,20 +19,7 @@ const adapter: ChannelAdapter = Object.freeze({
 export async function startWorkspaceWorkerTask(
   request: WorkspaceWorkerTaskRequest,
 ): Promise<RunHandle> {
-  // Resolve from Eve's own package URL so its private `#...` imports retain
-  // Eve's package scope when authored modules are copied into the build cache.
-  const eveEntry = import.meta.resolve("eve");
-  const [{ createWorkflowRuntime }, { createBundledRuntimeCompiledArtifactsSource }] =
-    await Promise.all([
-      import(new URL("./execution/workflow-runtime.js", eveEntry).href) as Promise<
-        typeof import("../../node_modules/eve/dist/src/execution/workflow-runtime.js")
-      >,
-      import(new URL("./runtime/compiled-artifacts-source.js", eveEntry).href) as Promise<
-        typeof import("../../node_modules/eve/dist/src/runtime/compiled-artifacts-source.js")
-      >,
-    ]);
-  const runtime = createWorkflowRuntime({
-    compiledArtifactsSource: createBundledRuntimeCompiledArtifactsSource(),
+  const runtime = await createNodeTargetedWorkflowRuntime({
     nodeId: request.nodeId,
   });
   return runtime.createSession({
@@ -41,5 +29,5 @@ export async function startWorkspaceWorkerTask(
     input: request.input,
     limits: request.limits,
     mode: request.mode,
-  });
+  }) as Promise<RunHandle>;
 }

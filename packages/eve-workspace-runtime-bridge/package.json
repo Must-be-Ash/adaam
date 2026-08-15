@@ -1,0 +1,15 @@
+{
+  "name": "@adaam/eve-workspace-runtime-bridge",
+  "version": "0.0.2",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "dependencies": {
+    "eve": "0.33.0"
+  }
+}
