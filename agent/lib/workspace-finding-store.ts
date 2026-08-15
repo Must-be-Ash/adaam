@@ -12,7 +12,10 @@ import type { WorkspaceWorkerEnvelope } from "./workspace-worker-auth";
 import { workspaceFindingFactSchema } from "./workspace-finding-facts";
 
 const KEY_PREFIX = "eve:workspace-runtime:v1:run-outcome:";
-const MAX_RECORD_BYTES = 32 * 1_024;
+// The official SEC monitor requests up to 40 entries. Keep the record bounded
+// while allowing a fully typed outcome at every accepted field maximum to
+// commit atomically; the schema-maximum fixture remains below 512 KiB.
+const MAX_RECORD_BYTES = 512 * 1_024;
 const CAS_SCRIPT = `
 local current = redis.call("GET", KEYS[1])
 if current then return current end

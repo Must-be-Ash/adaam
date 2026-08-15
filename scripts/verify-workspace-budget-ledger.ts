@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 
 import {
+  formatWorkspacePaidMicros,
   readWorkspaceBudgetLedger,
   reconcileWorkspaceRunBudget,
   reserveWorkspaceRunBudget,
+  summarizeWorkspaceBudgetUsage,
   WorkspaceBudgetError,
   type WorkspaceBudgetLedgerClient,
 } from "../agent/lib/workspace-budget-ledger";
@@ -71,6 +73,18 @@ const reservation = await reserveWorkspaceRunBudget(
 );
 assert.equal(reservation.paidMicros, "100000");
 assert.equal(reservation.state, "reserved");
+assert.equal(
+  summarizeWorkspaceBudgetUsage(
+    await readWorkspaceBudgetLedger(scope, client),
+    now,
+    policy.ownerTimezone,
+  ).activeWorkers,
+  1,
+);
+assert.equal(
+  formatWorkspacePaidMicros("9007199254740993"),
+  "$9007199254.740993",
+);
 assert.deepEqual(
   await reserveWorkspaceRunBudget(
     {
@@ -322,6 +336,16 @@ const ledger = await readWorkspaceBudgetLedger(scope, client);
 assert.equal(ledger.schemaVersion, 1);
 assert.equal(ledger.reservations.length, 3);
 assert.equal(ledger.reservations.find((item) => item.runId === "run_uncertain")?.state, "reconciled");
+assert.deepEqual(summarizeWorkspaceBudgetUsage(ledger, now, policy.ownerTimezone), {
+  activeWorkers: 0,
+  calendarDay: "2026-08-14",
+  calendarMonth: "2026-08",
+  inputTokensToday: 440,
+  outputTokensToday: 190,
+  paidMicrosThisMonth: "750000",
+  paidMicrosToday: "750000",
+  runsToday: 2,
+});
 
 const deniedClient = new MemoryStore();
 await assert.rejects(

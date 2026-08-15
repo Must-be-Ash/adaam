@@ -20,6 +20,7 @@ import {
   photonAppIconManifest,
 } from "../lib/photon-app-icon";
 import { photonAuth, photonSenderId } from "../lib/photon-auth";
+import { resolvePhotonIngressRolloutMode } from "../lib/photon-ingress-rollout";
 import { PHOTON_APPROVAL_APP_PATH } from "../lib/photon-mini-app";
 import {
   getPhotonWorkspaceState,
@@ -115,12 +116,14 @@ async function deliverApproval(
   }
   let result;
   try {
-    const runtimeScope = projectPhotonWorkspaceRuntimeScope({
-      generation: workspace.generation,
-      principalId: delivery.principalId,
-      threadId: delivery.threadId,
-      workspaceId: workspace.id,
-    });
+    const runtimeScope = resolvePhotonIngressRolloutMode() === "durable"
+      ? projectPhotonWorkspaceRuntimeScope({
+          generation: workspace.generation,
+          principalId: delivery.principalId,
+          threadId: delivery.threadId,
+          workspaceId: workspace.id,
+        })
+      : undefined;
     result = await attachSession(delivery.sessionId).respond(
       [
         {

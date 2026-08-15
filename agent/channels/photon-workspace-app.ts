@@ -15,6 +15,11 @@ import {
 import { getCurrentPhotonApprovalActivity } from "../lib/photon-approval-store";
 import { PHOTON_WORKSPACE_APP_PATH } from "../lib/photon-mini-app";
 import { workspaceMonitorManagerSourcesSchema } from "../lib/workspace-monitor-input";
+import {
+  formatWorkspacePaidMicros,
+  readWorkspaceBudgetLedger,
+  summarizeWorkspaceBudgetUsage,
+} from "../lib/workspace-budget-ledger";
 import { nextWorkspaceMonitorOccurrence } from "../lib/workspace-monitor-schedule";
 import {
   getWorkspaceMonitor,
@@ -30,6 +35,10 @@ import {
 } from "../lib/workspace-state-store";
 import { authorizePhotonWorkspaceControlPlaneStore } from "../lib/workspace-store-authorization";
 import { requireWorkspaceMonitorWrites } from "../lib/workspace-runtime-flags";
+import {
+  PhotonIngressRolloutError,
+  resolvePhotonIngressRolloutMode,
+} from "../lib/photon-ingress-rollout";
 import {
   OwnerIdentityDeniedError,
   requirePhotonOwnerAccess,
@@ -222,13 +231,32 @@ async function publicManagerState(
         resource: "manager",
         workspaceId: workspace.id,
       });
-      const [monitors, budget] = await Promise.all([
+      const [monitors, budget, budgetLedger] = await Promise.all([
         listWorkspaceMonitors(scope),
         readWorkspaceDocument("budget", scope),
+        readWorkspaceBudgetLedger(scope).catch(() => null),
       ]);
+      const budgetUsage = budget && budgetLedger
+        ? summarizeWorkspaceBudgetUsage(
+            budgetLedger,
+            new Date(),
+            budget.value.ownerTimezone,
+          )
+        : null;
       return {
         ...workspace,
         budget,
+        budgetUsage: budgetUsage
+          ? {
+              ...budgetUsage,
+              paidDisplayThisMonth: formatWorkspacePaidMicros(
+                budgetUsage.paidMicrosThisMonth,
+              ),
+              paidDisplayToday: formatWorkspacePaidMicros(
+                budgetUsage.paidMicrosToday,
+              ),
+            }
+          : null,
         monitors: monitors.map((monitor) => ({
           configurationRevision: monitor.configurationRevision,
           lastCompletedAt: monitor.lastCompletedAt,
@@ -427,6 +455,7 @@ function workspaceHtml(nonce: string, origin: string): string {
     }
     .runtime { display: grid; gap: 9px; }
     .runtime-row { padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; }
+    .runtime-detail { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
     .runtime-row .actions { margin-top: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .runtime-row .actions button { grid-column: auto; }
     .actions {
@@ -543,6 +572,18 @@ function workspaceHtml(nonce: string, origin: string): string {
         return element;
       };
 
+      const formatSchedule = (schedule) => {
+        if (schedule.kind === "daily_local") {
+          return schedule.times.join(", ") + " · " + schedule.timezone;
+        }
+        if (schedule.kind === "interval") {
+          return "every " + schedule.everyMinutes + " minutes · anchored " + schedule.anchor;
+        }
+        return "once · " + schedule.at;
+      };
+
+      const paidLimit = (value) => value === null ? "deployment cap" : "$" + value;
+
       const render = () => {
         list.replaceChildren();
         if (!state) return;
@@ -561,12 +602,26 @@ function workspaceHtml(nonce: string, origin: string): string {
           title.textContent = workspace.name;
           const meta = document.createElement("p");
           meta.className = "meta";
+          const workspaceMonitors = workspace.monitors || [];
+          const enabledMonitors = workspaceMonitors.filter(
+            (monitor) => monitor.lifecycleState === "enabled",
+          ).length;
+          const pausedMonitors = workspaceMonitors.filter(
+            (monitor) => monitor.lifecycleState !== "enabled" &&
+              monitor.lifecycleState !== "retired",
+          ).length;
+          const errorMonitors = workspaceMonitors.filter(
+            (monitor) => monitor.lastErrorCode !== null,
+          ).length;
+          const monitorCounts = workspaceMonitors.length + " monitor(s) · " +
+            enabledMonitors + " enabled · " + pausedMonitors + " paused · " +
+            errorMonitors + " error(s)";
           meta.textContent =
             workspace.status === "archived"
-              ? "Archived"
+              ? "Archived · " + monitorCounts
               : isActive
-                ? "Current session"
-                : "Available";
+                ? "Current session · " + monitorCounts
+                : "Available · " + monitorCounts;
           titleWrap.append(title, meta);
           titleRow.append(titleWrap);
 
@@ -582,8 +637,17 @@ function workspaceHtml(nonce: string, origin: string): string {
             monitorMeta.className = "meta";
             monitorMeta.textContent = monitor.lifecycleState + " · next " +
               (monitor.nextOccurrenceAt || "none") + " · last " +
-              (monitor.lastRunAt || "never") + " · " + monitor.sources.length + " source(s)" +
+              (monitor.lastRunAt || "never") + " · completed " +
+              (monitor.lastCompletedAt || "never") +
               (monitor.lastErrorCode ? " · " + monitor.lastErrorCode : "");
+            const monitorSchedule = document.createElement("p");
+            monitorSchedule.className = "runtime-detail";
+            monitorSchedule.textContent = "Schedule · " + formatSchedule(monitor.schedule);
+            const monitorSources = document.createElement("p");
+            monitorSources.className = "runtime-detail";
+            monitorSources.textContent = "Sources · " + monitor.sources.map(
+              (source) => source.sourceId + ": " + source.canonicalUrl,
+            ).join(" · ");
             const monitorActions = document.createElement("div");
             monitorActions.className = "actions";
             monitorActions.append(
@@ -591,7 +655,7 @@ function workspaceHtml(nonce: string, origin: string): string {
                 monitor.lifecycleState === "enabled" ? "monitor-pause" : "monitor-resume", workspace, monitor),
               runtimeButton("Edit schedule", "monitor-schedule", workspace, monitor),
             );
-            row.append(monitorName, monitorMeta, monitorActions);
+            row.append(monitorName, monitorMeta, monitorSchedule, monitorSources, monitorActions);
             runtime.append(row);
           }
           if (workspace.budget) {
@@ -601,10 +665,34 @@ function workspaceHtml(nonce: string, origin: string): string {
             budgetMeta.className = "meta";
             budgetMeta.textContent = "Budget · " + workspace.budget.value.maximumScheduledRunsPerDay +
               " runs/day · " + workspace.budget.value.maximumConcurrentWorkers + " concurrent worker(s)";
+            const budgetTokens = document.createElement("p");
+            budgetTokens.className = "runtime-detail";
+            budgetTokens.textContent = "Tokens · " + workspace.budget.value.maximumInputTokensPerRun +
+              " input/run · " + workspace.budget.value.maximumOutputTokensPerRun +
+              " output/run · " + workspace.budget.value.maximumInputTokensPerDay +
+              " input/day · " + workspace.budget.value.maximumOutputTokensPerDay + " output/day";
+            const budgetPaid = document.createElement("p");
+            budgetPaid.className = "runtime-detail";
+            budgetPaid.textContent = "Paid limits · " + paidLimit(workspace.budget.value.maximumPaidPerCall) +
+              "/call · " + paidLimit(workspace.budget.value.maximumPaidPerDay) +
+              "/day · " + paidLimit(workspace.budget.value.maximumPaidPerMonth) +
+              "/month · unknown-price reserve $" + workspace.budget.value.unknownPriceFallbackCeiling;
+            const budgetUsage = document.createElement("p");
+            budgetUsage.className = "runtime-detail";
+            budgetUsage.textContent = workspace.budgetUsage
+              ? "Usage " + workspace.budgetUsage.calendarDay + " · " + workspace.budgetUsage.runsToday +
+                " run(s) · " + workspace.budgetUsage.inputTokensToday + " input · " +
+                workspace.budgetUsage.outputTokensToday + " output · " +
+                workspace.budgetUsage.activeWorkers + "/" +
+                workspace.budget.value.maximumConcurrentWorkers + " active workers · " +
+                workspace.budgetUsage.paidDisplayToday + " paid today · " +
+                workspace.budgetUsage.paidDisplayThisMonth + " paid this month · " +
+                workspace.budget.value.ownerTimezone
+              : "Usage unavailable";
             const budgetActions = document.createElement("div");
             budgetActions.className = "actions";
             budgetActions.append(runtimeButton("Edit budget", "workspace-budget", workspace));
-            budget.append(budgetMeta, budgetActions);
+            budget.append(budgetMeta, budgetTokens, budgetPaid, budgetUsage, budgetActions);
             runtime.append(budget);
           }
 
@@ -802,18 +890,29 @@ export default defineChannel({
       if (!scope) {
         return json({ error: "This session manager link expired." }, 410);
       }
+      let rolloutMode;
       try {
-        requirePhotonOwnerAccess({
-          principalId: scope.principalId,
-          resource: "manager",
-        });
+        rolloutMode = resolvePhotonIngressRolloutMode();
+        if (rolloutMode === "durable") {
+          requirePhotonOwnerAccess({
+            principalId: scope.principalId,
+            resource: "manager",
+          });
+        }
       } catch (error) {
-        if (!(error instanceof OwnerIdentityDeniedError)) throw error;
-        return json({ error: "This identity is not authorized." }, 403);
+        if (error instanceof OwnerIdentityDeniedError) {
+          return json({ error: "This identity is not authorized." }, 403);
+        }
+        if (error instanceof PhotonIngressRolloutError) {
+          return json({ error: "Eve's iMessage rollout configuration is incomplete." }, 503);
+        }
+        throw error;
       }
       const state = await getPhotonWorkspaceManagerState(body.managerToken);
       return state
-        ? json(await publicManagerState(scope.principalId, state))
+        ? json(rolloutMode === "durable"
+            ? await publicManagerState(scope.principalId, state)
+            : publicState(state))
         : json({ error: "This session manager link expired." }, 410);
     }),
     POST(
@@ -825,14 +924,23 @@ export default defineChannel({
         if (!scope) {
           return json({ error: "This session manager link expired." }, 410);
         }
+        let rolloutMode;
         try {
-          requirePhotonOwnerAccess({
-            principalId: scope.principalId,
-            resource: "manager",
-          });
+          rolloutMode = resolvePhotonIngressRolloutMode();
+          if (rolloutMode === "durable") {
+            requirePhotonOwnerAccess({
+              principalId: scope.principalId,
+              resource: "manager",
+            });
+          }
         } catch (error) {
-          if (!(error instanceof OwnerIdentityDeniedError)) throw error;
-          return json({ error: "This identity is not authorized." }, 403);
+          if (error instanceof OwnerIdentityDeniedError) {
+            return json({ error: "This identity is not authorized." }, 403);
+          }
+          if (error instanceof PhotonIngressRolloutError) {
+            return json({ error: "Eve's iMessage rollout configuration is incomplete." }, 503);
+          }
+          throw error;
         }
         const approvalActivity =
           await getCurrentPhotonApprovalActivity(scope).catch(() => "active");
@@ -857,7 +965,7 @@ export default defineChannel({
           if (requestClaim === "replayed") {
             return json({ error: "That manager action was already consumed. Refresh to see current state." }, 409);
           }
-          const lifecycleScope = "workspaceId" in action
+          const lifecycleScope = rolloutMode === "durable" && "workspaceId" in action
             ? authorizePhotonWorkspaceControlPlaneStore({
                 principalId: scope.principalId,
                 resource: "manager",
@@ -885,7 +993,9 @@ export default defineChannel({
                 )
               : true;
           return json({
-            ...await publicManagerState(scope.principalId, result.state),
+            ...(rolloutMode === "durable"
+              ? await publicManagerState(scope.principalId, result.state)
+              : publicState(result.state)),
             ...(!retired ? { cleanupPending: true } : {}),
           });
         } catch (error) {
@@ -918,6 +1028,9 @@ export default defineChannel({
       const managerScope = await getPhotonWorkspaceManagerScope(body.managerToken);
       if (!managerScope) return json({ error: "This session manager link expired." }, 410);
       try {
+        if (resolvePhotonIngressRolloutMode() !== "durable") {
+          return json({ error: "Workspace runtime controls are not enabled." }, 403);
+        }
         requirePhotonOwnerAccess({ principalId: managerScope.principalId, resource: "manager" });
         const approvalActivity = await getCurrentPhotonApprovalActivity(managerScope).catch(() => "active");
         if (approvalActivity) {
@@ -1018,6 +1131,9 @@ export default defineChannel({
       } catch (error) {
         if (error instanceof OwnerIdentityDeniedError) {
           return json({ error: "This identity is not authorized." }, 403);
+        }
+        if (error instanceof PhotonIngressRolloutError) {
+          return json({ error: "Eve's iMessage rollout configuration is incomplete." }, 503);
         }
         console.error("[photon.workspace] Runtime manager action failed", {
           action: body.action,

@@ -146,6 +146,13 @@ export function photonWorkspaceContext(workspace: PhotonWorkspace): string {
   );
 }
 
+export function photonLegacyMonitoringContext(): string {
+  return (
+    "Workspace runtime features are off for this deployment. For a monitoring request in this turn, " +
+    "use the legacy event-trigger tools described by the public-event-monitoring skill; workspace-monitor tools are unavailable."
+  );
+}
+
 export function photonApprovalWorkspace(
   state: PhotonWorkspaceState,
   binding: {
