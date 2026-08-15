@@ -7,6 +7,9 @@ import {
   IPO_FILINGS_CAPABILITY_MANIFEST,
   normalizeSecIpoAtom,
   SEC_IPO_NORMALIZER_VERSION,
+  SEC_IPO_SOURCE_ALLOWED_ORIGINS,
+  SEC_IPO_SOURCE_CONTRACT_DIGEST,
+  SEC_IPO_SOURCE_CONTRACT_VERSION,
   SEC_IPO_SOURCE_ID,
   SEC_IPO_SOURCE_URL,
   SecIpoNormalizerError,
@@ -123,7 +126,13 @@ const storedManifest = await writeWorkspaceDocument("capabilities", {
   value: IPO_FILINGS_CAPABILITY_MANIFEST,
 }, stateClient);
 assert.deepEqual(storedManifest.value.sources, [
-  { origin: "https://www.sec.gov", sourceId: SEC_IPO_SOURCE_ID },
+  {
+    allowedOrigins: [...SEC_IPO_SOURCE_ALLOWED_ORIGINS],
+    contractDigest: SEC_IPO_SOURCE_CONTRACT_DIGEST,
+    contractVersion: SEC_IPO_SOURCE_CONTRACT_VERSION,
+    origin: "https://www.sec.gov",
+    sourceId: SEC_IPO_SOURCE_ID,
+  },
 ]);
 assert.deepEqual(storedManifest.value.researchToolIds, []);
 assert.deepEqual(resolveWorkspaceRuntimeCapabilities({

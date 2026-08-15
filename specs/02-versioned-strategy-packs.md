@@ -187,7 +187,7 @@ must promote the smallest necessary prerequisite into its own sprint.
 - [ ] Refuse to enable strategy-pack feature flags if the required Spec 1 schema
   versions or runtime guards are absent.
 - [ ] Add adjacent records and indexes; do not duplicate or fork Spec 1 stores.
-- [ ] Keep a general-purpose workspace valid and fully usable without a pack.
+- [x] Keep a general-purpose workspace valid and fully usable without a pack.
 
 ## Non-negotiable invariants
 
@@ -199,7 +199,7 @@ must promote the smallest necessary prerequisite into its own sprint.
   deployment and workspace policy before exposure or execution.
 - [x] Pack versions are immutable. The same pack ID and version cannot resolve
   to different bytes or a different digest across builds.
-- [ ] A workspace binds to exactly one version and digest at a time. There is no
+- [x] A workspace binds to exactly one version and digest at a time. There is no
   floating `latest`, version range, or silent production upgrade.
 - [ ] Installing a pack may declare and bind reviewed source contracts, but no
   fetch, cadence, monitor run, paid access, or broader capability begins without
@@ -212,7 +212,7 @@ must promote the smallest necessary prerequisite into its own sprint.
   HITL, user OAuth, shell, filesystem, or broker-mutation tools.
 - [ ] Installing, configuring, or removing a pack never deletes workspace findings,
   alerts, audit records, or retained monitor history.
-- [ ] Pack-managed records retain stable pack resource IDs and workspace IDs so
+- [x] Pack-managed records retain stable pack resource IDs and workspace IDs so
   an atomic mutation cannot confuse one resource with another or cross
   workspaces.
 - [ ] Every pack mutation is revision-checked, atomic, and idempotent. Failure
@@ -328,7 +328,7 @@ requires monitor pause or session-generation rollover.
 - [x] Reject unknown configuration fields and values outside declared bounds.
 - [x] Treat defaults as suggested configuration, not permission to activate a
   monitor or spend money.
-- [ ] Keep owner overrides separate from pack defaults so configuration changes
+- [x] Keep owner overrides separate from pack defaults so configuration changes
   never rewrite the immutable definition.
 - [x] Never permit credential, free-form executable instruction, URL template,
   arbitrary JSON Schema, or arbitrary code fields in owner configuration.
@@ -385,7 +385,7 @@ Each template includes:
   workspace identity plus pack ID, version, resource ID, and binding revision.
 - [ ] Let the owner edit only template fields declared overridable. Record those
   values as workspace-owned overrides rather than altering the pack definition.
-- [ ] Treat owner-created monitors as separate resources that pack
+- [x] Treat owner-created monitors as separate resources that pack
   mutations can never rewrite or remove.
 
 ### Findings, outputs, and evaluations
@@ -471,7 +471,7 @@ unavailable -> active | unbound
   binding, capability, monitor, and selection revisions for every transition.
 - [ ] Use one stable mutation ID for every install/configure/remove attempt and
   return the prior receipt on replay.
-- [ ] Keep at most one active binding per workspace.
+- [x] Keep at most one active binding per workspace.
 - [ ] Derive owner, conversation, and source assignment from authenticated
   routing. The control plane generates and persists the target workspace ID;
   neither the model nor Spectrum supplies authoritative ownership or grants.

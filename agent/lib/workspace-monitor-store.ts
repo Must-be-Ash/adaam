@@ -17,6 +17,7 @@ import {
   WORKSPACE_MONITOR_SOURCE_LIMIT_CODE,
   workspaceMonitorSourcesSchema,
 } from "./workspace-monitor-input";
+import type { WorkspaceStrategyBindingValue } from "./workspace-state-store";
 
 const KEY_PREFIX = "eve:workspace-runtime:v1:monitor:";
 const DUE_KEY = `${KEY_PREFIX}due`;
@@ -198,6 +199,16 @@ export const workspaceMonitorScheduleSchema = z.discriminatedUnion("kind", [
     })
     .strict(),
 ]);
+export const workspaceMonitorManagedBySchema = z
+  .object({
+    bindingRevision: z.number().int().positive(),
+    kind: z.literal("strategy_pack"),
+    packContentDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+    packId: idSchema,
+    packVersion: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u),
+    resourceId: idSchema,
+  })
+  .strict();
 const monitorSchema = z
   .object({
     configurationRevision: z.number().int().positive(),
@@ -216,6 +227,7 @@ const monitorSchema = z
       "paused_failure",
       "retired",
     ]),
+    managedBy: workspaceMonitorManagedBySchema.nullable().default(null),
     monitorId: z.string().uuid(),
     name: z.string().trim().min(1).max(160),
     nextOccurrenceAt: timestampSchema.nullable(),
@@ -280,6 +292,7 @@ const occurrenceSchema = z
 
 export type WorkspaceMonitor = z.infer<typeof monitorSchema>;
 export type WorkspaceMonitorSchedule = z.infer<typeof workspaceMonitorScheduleSchema>;
+export type WorkspaceMonitorManagedBy = z.infer<typeof workspaceMonitorManagedBySchema>;
 export type WorkspaceMonitorOccurrence = z.infer<typeof occurrenceSchema>;
 
 export interface ClaimedWorkspaceMonitor {
@@ -737,6 +750,7 @@ export async function createWorkspaceMonitor(
     endAt?: string | null;
     idempotencyKey?: string;
     instruction: string;
+    managedBy?: z.input<typeof workspaceMonitorManagedBySchema> | null;
     name: string;
     nextOccurrenceAt: string | null;
     now?: Date;
@@ -775,13 +789,14 @@ export async function createWorkspaceMonitor(
     lastCompletedAt: null,
     lastErrorCode: null,
     lastRunAt: null,
-    lifecycleState: "enabled",
+    lifecycleState: input.managedBy ? "paused" : "enabled",
+    managedBy: input.managedBy ?? null,
     monitorId,
     name: input.name,
     nextOccurrenceAt: input.nextOccurrenceAt,
     ownerId: input.scope.ownerId,
-    pauseReason: null,
-    pausedAt: null,
+    pauseReason: input.managedBy ? "strategy_pack_install_only" : null,
+    pausedAt: input.managedBy ? now : null,
     requiredCapabilityIds: input.requiredCapabilityIds ?? [],
     schedule: input.schedule,
     schemaVersion: 1,
@@ -814,6 +829,7 @@ export async function createWorkspaceMonitor(
       existing.deliverySubscriptionId === candidate.data.deliverySubscriptionId &&
       existing.endAt === candidate.data.endAt &&
       existing.instruction === candidate.data.instruction &&
+      JSON.stringify(existing.managedBy) === JSON.stringify(candidate.data.managedBy) &&
       existing.name === candidate.data.name &&
       JSON.stringify(existing.requiredCapabilityIds) === JSON.stringify(candidate.data.requiredCapabilityIds) &&
       JSON.stringify(existing.schedule) === JSON.stringify(candidate.data.schedule) &&
@@ -825,6 +841,50 @@ export async function createWorkspaceMonitor(
     throw new WorkspaceMonitorError("monitor_conflict");
   }
   return candidate.data;
+}
+
+export function resolveWorkspaceStrategyManagedMonitors(
+  binding: WorkspaceStrategyBindingValue,
+  monitors: readonly WorkspaceMonitor[],
+): WorkspaceMonitor[] {
+  if (!binding.pack?.contentDigest) {
+    if (Object.keys(binding.managedResources).length === 0) return [];
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  const byId = new Map(monitors.map((monitor) => [monitor.monitorId, monitor]));
+  const resolved: WorkspaceMonitor[] = [];
+  for (const [resourceId, resource] of Object.entries(binding.managedResources)) {
+    const monitor = byId.get(resource.monitorId);
+    if (
+      !monitor ||
+      !monitor.managedBy ||
+      monitor.managedBy.kind !== "strategy_pack" ||
+      monitor.managedBy.bindingRevision !== binding.bindingRevision ||
+      monitor.managedBy.packContentDigest !== binding.pack.contentDigest ||
+      monitor.managedBy.packId !== binding.pack.id ||
+      monitor.managedBy.packVersion !== binding.pack.version ||
+      monitor.managedBy.resourceId !== resourceId ||
+      JSON.stringify(monitor.sources.map(({ sourceId }) => sourceId).sort()) !==
+        JSON.stringify(resource.sourceIds)
+    ) {
+      throw new WorkspaceMonitorError("monitor_invalid");
+    }
+    resolved.push(monitor);
+  }
+  for (const monitor of monitors) {
+    const provenance = monitor.managedBy;
+    if (
+      provenance?.kind === "strategy_pack" &&
+      provenance.bindingRevision === binding.bindingRevision &&
+      provenance.packContentDigest === binding.pack.contentDigest &&
+      provenance.packId === binding.pack.id &&
+      provenance.packVersion === binding.pack.version &&
+      binding.managedResources[provenance.resourceId]?.monitorId !== monitor.monitorId
+    ) {
+      throw new WorkspaceMonitorError("monitor_invalid");
+    }
+  }
+  return resolved.sort((left, right) => left.monitorId.localeCompare(right.monitorId));
 }
 
 export async function getWorkspaceMonitor(
@@ -889,7 +949,12 @@ export async function updateWorkspaceMonitor(
     configurationRevision: current.configurationRevision + 1,
     updatedAt: (input.now ?? new Date()).toISOString(),
   });
-  if (!next.success || next.data.workspaceId !== current.workspaceId || next.data.ownerId !== current.ownerId) {
+  if (
+    !next.success ||
+    next.data.workspaceId !== current.workspaceId ||
+    next.data.ownerId !== current.ownerId ||
+    JSON.stringify(next.data.managedBy) !== JSON.stringify(current.managedBy)
+  ) {
     throw new WorkspaceMonitorError("monitor_invalid");
   }
   const nextRaw = JSON.stringify(next.data);

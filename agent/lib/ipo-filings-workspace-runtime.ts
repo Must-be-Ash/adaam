@@ -1,9 +1,13 @@
 import {
   IPO_FILINGS_CAPABILITY_MANIFEST,
+  SEC_IPO_SOURCE_ALLOWED_ORIGINS,
+  SEC_IPO_SOURCE_CONTRACT_DIGEST,
+  SEC_IPO_SOURCE_CONTRACT_VERSION,
   SEC_IPO_SOURCE_ID,
 } from "./sec-ipo-reference";
 import {
   readWorkspaceDocument,
+  validateWorkspaceCapabilitySourceContract,
   WorkspaceStateConflictError,
   writeWorkspaceDocument,
   type WorkspaceDocument,
@@ -54,7 +58,19 @@ function supportsIpoReference(
   return (
     value.maximumDataAccessClassification === "public" &&
     value.paidResearchAllowed === false &&
-    value.sources.some((source) => source.sourceId === SEC_IPO_SOURCE_ID && source.origin === "https://www.sec.gov") &&
+    value.sources.some((source) => {
+      try {
+        validateWorkspaceCapabilitySourceContract(source, {
+          allowedOrigins: SEC_IPO_SOURCE_ALLOWED_ORIGINS,
+          contractDigest: SEC_IPO_SOURCE_CONTRACT_DIGEST,
+          contractVersion: SEC_IPO_SOURCE_CONTRACT_VERSION,
+          sourceId: SEC_IPO_SOURCE_ID,
+        });
+        return source.origin === "https://www.sec.gov";
+      } catch {
+        return false;
+      }
+    }) &&
     IPO_FILINGS_CAPABILITY_MANIFEST.controlPlaneToolIds.every((id) => value.controlPlaneToolIds.includes(id)) &&
     IPO_FILINGS_CAPABILITY_MANIFEST.researchToolIds.every((id) => value.researchToolIds.includes(id)) &&
     IPO_FILINGS_CAPABILITY_MANIFEST.workerModelPolicy.allowedModelIds.every((id) =>

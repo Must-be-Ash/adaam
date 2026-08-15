@@ -305,6 +305,7 @@ export async function assignLegacyMonitorToWorkspace(
     lastErrorCode: legacy.lastErrorCode,
     lastRunAt: legacy.lastRunAtMs === null ? null : new Date(legacy.lastRunAtMs).toISOString(),
     lifecycleState: enabled ? "enabled" : "paused",
+    managedBy: null,
     monitorId,
     name: legacy.name,
     nextOccurrenceAt: enabled ? nextAt : null,
