@@ -132,7 +132,12 @@ claims. The remaining acceptance work is:
   fetch, or charge. One recovery failure must not starve unrelated recovered
   workspaces, first-attempt workspace jobs, or legacy jobs: every claimed job
   receives an opportunity, per-job failure remains visible, and aggregate
-  schedule failure surfaces after the pass. A failure to persist recovery
+  schedule failure surfaces after the pass. Workspace and legacy claim calls are
+  mutating: if one claim path fails after the other has fulfilled, the fulfilled
+  batch must be retained and executed rather than discarded or stranded, and
+  aggregate claim failure surfaces only after that pass. Asymmetric tests must
+  cover workspace-claim failure with fulfilled legacy work and legacy-claim
+  failure with fulfilled workspace work. A failure to persist recovery
   quarantine or clean up its lease may be swallowed only after an authoritative
   re-read proves that a concurrent lifecycle, configuration, or occurrence
   change superseded that exact operation; otherwise the schedule must fail
