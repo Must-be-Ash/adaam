@@ -129,7 +129,10 @@ sprint into one change.
 - A batch dispatcher must give every claimed job an execution or recovery
   opportunity even when another job fails. Keep failures visible per job,
   continue independent work, and surface aggregate schedule failure only after
-  the pass completes.
+  the pass completes. Treat claim calls as mutating: a partial claim failure
+  cannot discard or strand a batch already returned by another claim path.
+  Execute fulfilled claims before surfacing aggregate claim failure, and test
+  both asymmetric cases with each claim path failing in turn.
 - Atomicity implemented by a database script or transaction requires a
   concurrency/race test against the real database engine. An in-memory fake or
   unit test, or approval from source inspection alone, is supporting evidence
