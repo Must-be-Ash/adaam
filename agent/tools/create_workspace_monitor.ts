@@ -2,6 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 
 import { ensureIpoFilingsWorkspaceRuntime } from "../lib/ipo-filings-workspace-runtime";
+import { savePhotonToolAlertDeliverySubscription } from "../lib/photon-alert-subscription-store";
 import { SEC_IPO_SOURCE_ID, SEC_IPO_SOURCE_URL } from "../lib/sec-ipo-reference";
 import { nextWorkspaceMonitorOccurrence } from "../lib/workspace-monitor-schedule";
 import {
@@ -71,6 +72,11 @@ export default defineTool({
         throw new Error("workspace_runtime_not_configured");
       }
     }
+    await savePhotonToolAlertDeliverySubscription({
+      ctx,
+      now,
+      runtimeScope,
+    });
     return {
       monitor: await createWorkspaceMonitor({
         ...input,

@@ -19,6 +19,14 @@ function singleLine(value: string, maximum: number): string {
   return value.replace(/[\u0000-\u001f\u007f]+/gu, " ").replace(/\s+/gu, " ").trim().slice(0, maximum);
 }
 
+function sourceEvidence(alert: WorkspaceAlert): string {
+  return (alert.sourceLinks ?? alert.sourceRefs.map((sourceId) => ({ sourceId })))
+    .map((source) => "canonicalUrl" in source
+      ? `${singleLine(source.sourceId, 160)}: ${source.canonicalUrl}`
+      : singleLine(source.sourceId, 160))
+    .join(", ");
+}
+
 export function renderWorkspaceAlertPresentation(
   alert: WorkspaceAlert,
 ): WorkspaceAlertPresentation {
@@ -26,7 +34,10 @@ export function renderWorkspaceAlertPresentation(
   const heading = `Workspace alert · ${workspaceName}`;
   const title = singleLine(alert.title, 240);
   const whyMatched = singleLine(alert.whyMatched, 1_000);
-  const sources = alert.sourceRefs.map((source) => singleLine(source, 160)).join(", ");
+  const sources = sourceEvidence(alert);
+  const eventTime = alert.eventTime
+    ? `Observed: ${singleLine(alert.eventTime, 100)}`
+    : null;
   return presentationSchema.parse({
     actions: [
       { action: "discuss", label: "Discuss in workspace" },
@@ -36,6 +47,7 @@ export function renderWorkspaceAlertPresentation(
       heading,
       title,
       whyMatched,
+      ...(eventTime ? [eventTime] : []),
       `Sources: ${sources}`,
       "Open the alert card to Discuss in workspace or Manage sessions.",
     ].join("\n\n"),
@@ -47,12 +59,13 @@ export function renderWorkspaceAlertPresentation(
 export function workspaceAlertTurnContext(alert: WorkspaceAlert): string {
   const title = singleLine(alert.title, 240);
   const whyMatched = singleLine(alert.whyMatched, 1_000);
-  const sources = alert.sourceRefs.map((source) => singleLine(source, 160)).join(", ");
+  const sources = sourceEvidence(alert);
   return [
     "The owner explicitly chose to discuss this durable alert in the current workspace.",
     `Alert reference: ${alert.alertId}`,
     `Title: ${title}`,
     `Why it matched: ${whyMatched}`,
+    ...(alert.eventTime ? [`Observed: ${singleLine(alert.eventTime, 100)}`] : []),
     `Source references: ${sources}`,
     "Treat this as bounded context for the current turn only. Do not infer or load another workspace's history.",
   ].join("\n");

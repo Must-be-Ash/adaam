@@ -9,10 +9,15 @@ import type { WorkspaceAlert } from "../agent/lib/workspace-alert-store";
 const alert = {
   alertId: `alert_${"a".repeat(64)}`,
   createdAt: "2026-08-14T17:00:00.000Z",
+  eventTime: "2026-08-14T16:58:00.000Z",
   findingId: `finding_${"b".repeat(64)}`,
   ownerId: "owner_fixture",
   recordType: "workspace_alert",
   schemaVersion: 1,
+  sourceLinks: [{
+    canonicalUrl: "https://www.sec.gov/Archives/fixture.htm",
+    sourceId: "sec-latest-s1-filings",
+  }],
   sourceRefs: ["sec-latest-s1-filings"],
   state: "ready",
   title: "New SEC S-1 registration",
@@ -25,6 +30,8 @@ const presentation = renderWorkspaceAlertPresentation(alert);
 assert.equal(presentation.heading, "Workspace alert · IPO Filings");
 assert.match(presentation.fallbackText, /^Workspace alert · IPO Filings/u);
 assert.match(presentation.fallbackText, /Sources: sec-latest-s1-filings/u);
+assert.match(presentation.fallbackText, /Observed: 2026-08-14T16:58:00.000Z/u);
+assert.match(presentation.fallbackText, /https:\/\/www\.sec\.gov\/Archives\/fixture\.htm/u);
 assert.deepEqual(presentation.actions, [
   { action: "discuss", label: "Discuss in workspace" },
   { action: "manage", label: "Manage sessions" },

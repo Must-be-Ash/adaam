@@ -2,6 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 
 import { requireEventTriggerOwner } from "../lib/event-trigger-owner";
+import { savePhotonToolAlertDeliverySubscription } from "../lib/photon-alert-subscription-store";
 import { assignLegacyMonitorToWorkspace } from "../lib/workspace-legacy-monitor-assignment";
 import { requireWorkspaceMonitorWrites } from "../lib/workspace-runtime-flags";
 import { requirePhotonWorkspaceToolScope } from "../lib/workspace-runtime-scope";
@@ -18,6 +19,7 @@ export default defineTool({
     requireWorkspaceMonitorWrites();
     const runtimeScope = requirePhotonWorkspaceToolScope(ctx);
     const owner = requireEventTriggerOwner(ctx);
+    await savePhotonToolAlertDeliverySubscription({ ctx, runtimeScope });
     return assignLegacyMonitorToWorkspace({
       ...input,
       deliverySubscriptionId: runtimeScope.conversationId,
