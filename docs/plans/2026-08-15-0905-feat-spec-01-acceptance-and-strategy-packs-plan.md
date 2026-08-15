@@ -212,8 +212,8 @@ Schema rollback is not arbitrary binary rollback. U3 first deploys dual readers 
 - **Requirements:** R1-R2, R7.
 - **Files:** `agent/schedules/event-triggers.ts`, `agent/lib/workspace-runtime-observability.ts`, `agent/tools/fetch_public_source.ts`, `agent/lib/sec-ipo-evaluation.ts`, `specs/fixtures/01-independent-workspace-runtimes/feature-flags.md`, `scripts/verify-workspace-runtime-observability.mjs`, SEC fetch/evaluation fixtures.
 - **Approach:** Replace free-form schedule error logging with the fixed catalog and privacy-safe fields. Add an exact allowed-origin fence that rejects an undeclared redirect before a follow-up request. Document owner-plus-Redis durable-ingress cutover separately from workspace runtime flags.
-- **Test scenarios:** Raw identifiers/error text never reach the log sink; same-origin SEC behavior still works; off-origin redirect makes one request only; incomplete owner/Redis config fails closed; worker rollback preserves durable ingress/state.
-- **Verification:** Focused observability, source-fence, Photon rollout, SEC fact/live-fixture, typecheck, and build tests.
+- **Test scenarios:** Raw identifiers/error text never reach the workspace schedule log sink; same-origin SEC behavior still works; an off-origin redirect makes one request only. Existing rollout behavior is unchanged and is rechecked once at the U1 boundary, not after each work package.
+- **Verification:** Work Package 1 runs the production schedule log-sink test, closest scheduler regressions, typecheck, and Eve build. Work Package 2 runs the production source-fence test, focused SEC regressions, typecheck, and Eve build. One independent U1 review and one pre-deployment regression gate follow both packages; neither package reruns the full Photon/Redis/manager matrix alone.
 
 ### U2. Add the deterministic pack package and catalog
 
@@ -284,9 +284,10 @@ Schema rollback is not arbitrary binary rollback. U3 first deploys dual readers 
 
 | Gate | Commands or evidence | Applies after |
 | --- | --- | --- |
-| Static and builds | `npm run typecheck`; `npm run build:agent`; `npm run build -- --webpack` | Every implementation unit touching runtime code |
-| Existing Spec 1 contracts | `npm run verify:workspace-runtime:contracts`; Photon rollout, harness, ingress, scope, owner, owner-workflow, manager, alert app/context/replies/delivery/subscription, flags, Redis, and observability commands from `package.json` | U1 and final regression |
-| Reference worker | `npm run verify:workspace-runtime:sec-ipo-scheduled-compiled`; existing SEC fact/live-fixture and isolation commands from `package.json` | U1, U5-U7 |
+| Static and builds | `npm run typecheck` plus the build for the changed surface: `npm run build:agent` for Eve/runtime changes and `npm run build -- --webpack` for Next.js application changes | Each affected implementation unit |
+| Spec 1 focused prerequisites | Production schedule log-sink plus closest scheduler regressions for Work Package 1; production redirect fence plus focused SEC regressions for Work Package 2 | U1 work packages |
+| Existing Spec 1 contracts | `npm run verify:workspace-runtime:contracts`; Photon rollout, harness, ingress, scope, owner, owner-workflow, manager, alert app/context/replies/delivery/subscription, flags, Redis, and observability commands from `package.json` | Combined U1 pre-deployment gate and final regression |
+| Reference worker | `npm run verify:workspace-runtime:sec-ipo-scheduled-compiled`; existing SEC fact/live-fixture and isolation commands from `package.json` | Affected U1 work package and U5-U7 |
 | Pack catalog/runtime | `npm run verify:strategy-packs`; generated-catalog clean diff; pack runtime/isolation fixtures | U2-U7 |
 | Durable mutations | `npm run verify:strategy-packs:redis`; replay, concurrent install, stale revision, and injected atomic-failure cases | U4-U8 |
 | Local vertical acceptance | `npm run verify:strategy-packs:acceptance` through real production callers with fake external delivery/model boundaries | U6-U7 |
