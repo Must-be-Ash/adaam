@@ -348,43 +348,49 @@ try {
   assert.equal((await readWorkspaceBudgetLedger(scopeA, casClient)).reservations.length, 1);
 
   const findingPrefix = "eve:test:workspace-finding-race:";
-  const originalBatch = {
+  const batchA = {
     identityClaims: [
+      { key: `${findingPrefix}identity:shared`, value: "claim:shared:occurrence-a" },
       { key: `${findingPrefix}identity:a`, value: "claim:a" },
+    ],
+    outcomeKey: `${findingPrefix}outcome:a`,
+    outcomeValue: "outcome:a",
+  };
+  const batchB = {
+    identityClaims: [
+      { key: `${findingPrefix}identity:shared`, value: "claim:shared:occurrence-b" },
       { key: `${findingPrefix}identity:b`, value: "claim:b" },
     ],
-    outcomeKey: `${findingPrefix}outcome:original`,
-    outcomeValue: "outcome:original",
+    outcomeKey: `${findingPrefix}outcome:b`,
+    outcomeValue: "outcome:b",
   };
-  const sameIdentityRace = await Promise.all([
-    findingClient.createOutcomeWithIdentityClaims(originalBatch),
-    findingClient.createOutcomeWithIdentityClaims(originalBatch),
+  const overlappingIdentityRace = await Promise.all([
+    findingClient.createOutcomeWithIdentityClaims(batchA),
+    findingClient.createOutcomeWithIdentityClaims(batchB),
   ]);
   assert.deepEqual(
-    new Set(sameIdentityRace.map(({ status }) => status)),
-    new Set(["created", "existing"]),
+    new Set(overlappingIdentityRace.map(({ status }) => status)),
+    new Set(["created", "identity_conflict"]),
   );
-  assert.equal(await client.get(originalBatch.outcomeKey), "outcome:original");
-  assert.equal(await client.get(originalBatch.identityClaims[0]!.key), "claim:a");
-  assert.equal(await client.get(originalBatch.identityClaims[1]!.key), "claim:b");
-
-  const conflictingBatch = {
-    identityClaims: [
-      { key: `${findingPrefix}identity:b`, value: "claim:conflict" },
-      { key: `${findingPrefix}identity:c`, value: "claim:c" },
-    ],
-    outcomeKey: `${findingPrefix}outcome:conflict`,
-    outcomeValue: "outcome:conflict",
-  };
-  const conflict = await findingClient.createOutcomeWithIdentityClaims(
-    conflictingBatch,
+  const winnerIndex = overlappingIdentityRace.findIndex(
+    ({ status }) => status === "created",
   );
-  assert.equal(conflict.status, "identity_conflict");
-  assert.equal(await client.get(conflictingBatch.outcomeKey), null);
-  assert.equal(await client.get(conflictingBatch.identityClaims[1]!.key), null);
-  assert.equal(await client.get(originalBatch.identityClaims[1]!.key), "claim:b");
+  assert.notEqual(winnerIndex, -1);
+  const winner = winnerIndex === 0 ? batchA : batchB;
+  const loser = winnerIndex === 0 ? batchB : batchA;
+  assert.equal(await client.get(winner.outcomeKey), winner.outcomeValue);
+  assert.equal(await client.get(loser.outcomeKey), null);
   assert.equal(
-    (await findingClient.createOutcomeWithIdentityClaims(originalBatch)).status,
+    await client.get(winner.identityClaims[0]!.key),
+    winner.identityClaims[0]!.value,
+  );
+  assert.equal(
+    await client.get(winner.identityClaims[1]!.key),
+    winner.identityClaims[1]!.value,
+  );
+  assert.equal(await client.get(loser.identityClaims[1]!.key), null);
+  assert.equal(
+    (await findingClient.createOutcomeWithIdentityClaims(winner)).status,
     "existing",
   );
 
