@@ -1,21 +1,30 @@
 # Specification implementation protocol
 
-Use this protocol for implementing Specs 1–6. Each implementation agent owns
-one spec and must work through it in order. The protocol exists so the six agent
-prompts can stay short and consistent.
+Use this protocol for implementing Specs 1–6. One implementation task owns one
+sprint phase, not an entire spec. Every phase is implemented, independently
+reviewed, remediated if necessary, and integrated before a fresh task starts the
+next sprint. The protocol exists so phase prompts can stay short and consistent
+without asking one context window to implement and judge a whole specification.
 
 ## Repository and branch setup
 
-- Create a fresh dedicated Git worktree and branch for the assigned spec from
-  the latest merged dependency base. If Codex already created a fresh isolated
-  worktree for the task, use it and do not create a nested worktree.
-- Suggested branches:
+- Maintain one local integration branch for the assigned spec. Suggested
+  integration branches:
   - `codex/spec-01-independent-workspaces`
   - `codex/spec-02-strategy-packs`
   - `codex/spec-03-source-adapters`
   - `codex/spec-04-congressional-signals`
   - `codex/spec-05-insider-clusters`
   - `codex/spec-06-shared-signal-plane`
+- Create a fresh dedicated worktree and phase branch for the assigned sprint
+  from the latest reviewed commit on the spec integration branch. Suggested
+  phase branches use `codex/spec-NN-sprint-N`. If Codex already created a fresh
+  isolated worktree at the correct base, use it and do not create a nested
+  worktree.
+- For Sprint 0, create the spec integration branch from the latest merged
+  dependency base, then create the Sprint 0 phase branch from it. For each later
+  sprint, start only after the previous sprint has passed independent review and
+  has been merged into the integration branch.
 - Start from the latest agreed base containing every completed dependency spec.
   Specs are sequential: Spec 2 starts after Spec 1 is merged, Spec 3 after Spec
   2, and so on.
@@ -24,10 +33,11 @@ prompts can stay short and consistent.
   stash, discard, reset, overwrite, or commit another person's changes.
 - If the assigned spec or a completed dependency is missing from the base,
   stop and report the exact branch/commit dependency instead of recreating it.
-- Local atomic commits and the final safe local merge into `main` are authorized
-  by this protocol. Do not push, rebase published work, open a pull request,
-  deploy, or otherwise alter remote/production state unless the user separately
-  asks.
+- Local atomic commits, reviewed phase-to-integration merges, and the final safe
+  integration-to-`main` merge are authorized by this protocol. An implementation
+  task must stop at its phase handoff; it does not review or merge its own phase.
+  Do not push, rebase published work, open a pull request, deploy, or otherwise
+  alter remote/production state unless the user separately asks.
 
 ## Required orientation
 
@@ -39,7 +49,8 @@ Before implementation:
 3. Read `NORTH_STAR.md` completely enough to understand the product boundary
    and the strategy examples affected by the spec.
 4. Read the assigned spec completely, including dependencies, exclusions,
-   invariants, sprint exit gates, rollout, and definition of done.
+   invariants, sprint exit gates, rollout, and definition of done. Implement
+   only the sprint named in the task prompt.
 5. Read every preceding spec on which the assigned spec depends. Verify its
    required implementation exists in the current branch; do not build a
    parallel replacement for a dependency-owned subsystem.
@@ -52,8 +63,9 @@ Before implementation:
    integration from scratch, as required by `AGENTS.md`.
 9. Before writing Next.js code, locate and read the relevant installed Next.js
    documentation required by `AGENTS.md`; do not rely on remembered APIs.
-10. Write a concise implementation plan whose steps follow the spec's sprint
-    order. Keep exactly one checklist task in progress at a time.
+10. Write a concise implementation plan containing only the assigned sprint,
+    its exit gate, and its phase handoff. Keep exactly one checklist task in
+    progress at a time.
 
 Do not spend the first implementation turn rewriting the spec. If code and the
 spec disagree, gather evidence, explain the mismatch, and make the smallest
@@ -61,7 +73,7 @@ safe correction only when it is necessary to implement the agreed product.
 
 ## One-task-at-a-time loop
 
-Work from the first incomplete checklist item in the first incomplete sprint.
+Work from the first incomplete checklist item in the assigned sprint.
 For every item:
 
 1. Quote or identify the exact checklist item being attempted.
@@ -81,9 +93,11 @@ For every item:
    verification passes. Commit the code, test, and checkbox update together.
 9. Record the verification in the commit message/body or the spec's progress
    log described below.
-10. Move to the next checklist item without waiting for approval unless a real
-    blocker, destructive action, external credential, paid service, production
-    mutation, or material product choice requires the user.
+10. Move to the next checklist item in the assigned sprint without waiting for
+    approval unless a real blocker, destructive action, external credential,
+    paid service, production mutation, or material product choice requires the
+    user. Stop after the assigned sprint exit gate and phase handoff; never begin
+    the next sprint in the same task.
 
 “One task” normally means one checklist item. A small group may be implemented
 together only when the items are technically inseparable and share one testable
@@ -108,16 +122,25 @@ sprint into one change.
 - A live-source acceptance item is complete only after the bounded live smoke
   described by the spec actually runs. A fixture cannot be relabeled as a live
   smoke.
+- An integration or sprint-exit claim needs a test through the real production
+  caller or entry point. A fixture runtime, prompt inspection, source-text
+  assertion, isolated store test, or build may supplement that proof but cannot
+  replace it.
+- For each durable-write-plus-side-effect sequence, test the crash boundaries
+  before and after the side effect. A retry must complete safely or reach an
+  explicit recoverable/quarantined state; silently returning from an
+  intermediate record is a failure.
 - Do not mark an item complete because code compiles, because a mock returns the
   expected value, or because the intended behavior is documented.
 - If an existing test is too broad or flaky to prove the item, add a focused
   deterministic test before checking it off.
 
-After each meaningful change, run the focused verification. At each sprint exit
-gate, run all focused tests accumulated for that sprint plus the relevant
-regression suite. At final completion, run every command required by the spec
-and repository for type safety, tests, build, migrations, security/isolation,
-and fixture/live-smoke acceptance.
+After each meaningful change, run the focused verification. At the assigned
+sprint exit gate, run all focused tests accumulated for that sprint plus the
+relevant regression suite, then stop for independent review. At final spec
+completion, a separate integration/release task runs every command required by
+the spec and repository for type safety, tests, build, migrations,
+security/isolation, and fixture/live-smoke acceptance.
 
 ## Checklist and progress rules
 
@@ -136,6 +159,10 @@ and fixture/live-smoke acceptance.
   smallest decision needed. Do not silently reinterpret the requirement.
 - Do not mark a sprint exit gate until every prerequisite behavior for that gate
   passes, even if later independent checklist items remain.
+- A sprint implementation task may update only its sprint items, its exit gate,
+  and its progress rows. Only the final integration/release task may check
+  cross-sprint acceptance criteria, rollout completion, or definition-of-done
+  items.
 - Update `HANDOFF.md`, `NORTH_STAR.md`, and `BACKLOG.md` only where the spec asks
   and only with durable implemented facts. Do not describe planned work as
   shipped.
@@ -165,9 +192,10 @@ rewrite history merely to put a commit hash inside the document.
   downloaded source documents, private artifacts, or unrelated formatting.
 - Generated files should be committed only when repository policy requires them
   and the generating command is deterministic.
-- At a sprint boundary, provide a concise checkpoint containing completed
-  checklist items, verification commands/results, commits, remaining work, and
-  any risks. Continue automatically if unblocked.
+- At the assigned sprint boundary, provide a concise checkpoint containing the
+  phase base and head commits, completed checklist items, verification
+  commands/results, remaining work, and risks. Stop and wait for independent
+  review even when unblocked.
 
 ## Scope, safety, and blockers
 
@@ -185,12 +213,40 @@ rewrite history merely to put a commit hash inside the document.
   credential/authority or environmental change needed.
 - Ask before destructive migrations, irreversible data changes, paid calls,
   production deployment, any push or pull-request operation, any merge other
-  than the protocol's final local spec-to-`main` merge, or any meaningful
-  expansion beyond the assigned spec.
+  than a reviewed phase-to-integration merge or the final local
+  integration-to-`main` merge, or any meaningful expansion beyond the assigned
+  spec.
+
+## Independent phase review and integration
+
+The implementation task must not review or approve its own sprint. After it
+stops at the phase boundary:
+
+1. Start a fresh read-only review task from the phase head. The reviewer reads
+   the spec and complete phase diff, runs focused tests, and checks production
+   wiring, failure semantics, privacy/security boundaries, and checkbox truth.
+2. The reviewer returns findings only. It does not edit, check boxes, commit,
+   merge, push, deploy, or contact the implementation task.
+3. A coordinating agent verifies each material finding against current code.
+   Unproven or incorrect findings are discarded with evidence.
+4. Send the verified findings to a bounded remediation task on the same phase
+   branch. Each fix receives a focused regression test and atomic commit.
+5. Re-run an independent review of the changed areas and the sprint exit gate.
+6. Only after the review is clean, merge the phase branch into the spec
+   integration branch with a normal local merge and verify the merge result.
+7. Start the next sprint in a fresh task and worktree from that reviewed
+   integration commit.
+
+Review findings must cite tight file/line ranges, a reproducible failure
+scenario, the violated requirement, and the smallest acceptance test that would
+prove remediation. Treat generated volume, naming, or style as findings only
+when they create a concrete correctness, security, operational, or
+maintainability risk.
 
 ## Final review and local merge
 
-Review and merge are the final task for every spec. Do not begin this task until
+Whole-spec review and merge are a separate final integration/release task for
+every spec. Do not begin this task until
 all applicable implementation checklist items, sprint exit gates, verification
 matrix boundaries, rollout requirements, and definition-of-done items are
 checked with evidence.
@@ -204,23 +260,28 @@ checked with evidence.
 3. Confirm the target `main` worktree and index contain no uncommitted changes.
    Never stash, discard, overwrite, or include someone else's work to make the
    merge possible.
-4. If `main` advanced after the spec branch was created, integrate the latest
-   local `main` into the spec branch with a normal merge, resolve conflicts
-   deliberately, and rerun final verification. Do not rewrite published
-   history.
-5. Merge the reviewed spec branch into local `main` without squashing away its
-   atomic task commits. Use an explicit merge commit when practical so the spec
-   boundary remains visible.
+4. If `main` advanced after the integration branch was created, integrate the
+   latest local `main` into the integration branch with a normal merge, resolve
+   conflicts deliberately, and rerun final verification. Do not rewrite
+   published history.
+5. Merge the reviewed integration branch into local `main` without squashing
+   away its atomic task commits. Use an explicit merge commit when practical so
+   the spec boundary remains visible.
 6. Verify the post-merge commit graph and working tree, then rerun the narrowest
    critical smoke that proves the merge did not change behavior.
-7. Do not push `main` or the spec branch unless the user separately authorizes
-   remote changes.
+7. Do not push `main` or the integration branch unless the user separately
+   authorizes remote changes.
 
 If `main` is dirty, checked out somewhere inaccessible, has an unresolved
 conflict, or cannot accept the branch safely, do not pretend the merge occurred.
 Report the exact blocker and leave the fully reviewed branch ready to merge.
 
 ## Final handoff
+
+A sprint-phase assignment ends after its exit gate is locally verified and its
+phase handoff is reported. It is not authorized to begin the next sprint, merge
+itself, or claim the whole specification complete. The phase becomes accepted
+only after the independent review and integration sequence above.
 
 The assignment is complete only when every applicable checklist item, sprint
 exit gate, verification-matrix boundary, rollout requirement, and definition of
