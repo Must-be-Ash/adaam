@@ -6,7 +6,7 @@
 > this specification's deferred-hardening phase; source-event ingestion is owned
 > by Spec 3 Sprint 4.
 
-Status: Polling implementation complete locally; production acceptance pending
+Status: Complete — production accepted on 2026-08-15
 
 Date: 2026-08-13
 
@@ -865,7 +865,7 @@ without duplicating each requirement.
 | 3 | Isolated worker runtime and IPO/SEC reference implementation | Local gate passed |
 | 4 | Durable-mode Photon receipts, alert delivery, Discuss/Manage routing, and deterministic integration harness | Local gate passed |
 | 5 | Natural-language and Spectrum monitor/budget management plus lifecycle controls | Local gate passed |
-| 6 | Deterministic suites, Redis races, builds, local runbook, simultaneous runs, budget exhaustion, and SEC live smoke | Final combined local gate passed; production acceptance remains |
+| 6 | Deterministic suites, Redis races, builds, local runbook, simultaneous runs, budget exhaustion, and SEC live smoke | Production accepted |
 
 ### Local production prerequisites
 
@@ -895,24 +895,50 @@ used the required local `REDIS_SERVER_BIN=/opt/homebrew/bin/redis-server`; no
 Photon delivery, deployment, environment change, or production mutation was
 performed.
 
-### Remaining owner-authorized production acceptance
+### Owner-authorized production acceptance
 
-- [ ] With owner authorization, deploy behind flags and execute the real Photon
+- [x] With owner authorization, deploy behind flags and execute the real Photon
   IPO alert/Discuss/manager flow. To avoid waiting indefinitely for a new filing,
   use a disposable acceptance monitor positioned immediately before one real
   canonical S-1 already present in the live SEC feed; label it as an acceptance
   replay, retire it afterward, and introduce no fixture endpoint.
-- [ ] Correlate bounded evidence across ingress and assignment, monitor claim and
+- [x] Correlate bounded evidence across ingress and assignment, monitor claim and
   run snapshot, finding, alert/outbox, Photon delivery receipt, Discuss
   selection/context, and next-turn assignment. Record no private content.
-- [ ] Prove the non-selected workspace remains selected until Discuss, duplicate
+- [x] Prove the non-selected workspace remains selected until Discuss, duplicate
   delivery is inert, the manager agrees with durable state, and rollback stops
   new dispatch/alerts without deleting workspace records.
 
 Exit gate:
 
-- [ ] Polling is proven end to end in Photon with no context leakage, duplicate
+- [x] Polling is proven end to end in Photon with no context leakage, duplicate
   alerts, unexpected session switch, or unauthorized capability.
+
+Production acceptance completed on 2026-08-15 at commit `7db61b4` using the
+owner-authorized deployment `dpl_GExEuFouN3j2jqVYrkFSZ3pnVjrP`. The deployment
+built one hosted sandbox template for the isolated worker. The disposable
+monitor `7e51a85a8f5e` claimed occurrence `656fc1c4c17a`; Workflow run
+`75e9568da1f0` completed; source coverage `687f3a47cd9a` recorded one attempt and
+one success for `sec-latest-s1-filings`; and finding `4c90025d5bac` produced
+alert `824dbf5d0786`. Photon delivery `aba53eaa1cc0` reached `delivered` in one
+attempt at `2026-08-15T20:31:59.067Z`. These are bounded fingerprints, not raw
+production identifiers.
+
+The `Main` workspace fingerprint `864bb6b4f1db` remained selected when the
+alert arrived. The owner used **Discuss**, then ingress `dcc2db24e045` was
+immutably assigned with reason `discuss_action` to workspace `40f6d8954c45`;
+the one-time alert context was consumed, the turn completed, and its response
+receipt reached `delivered` at `2026-08-15T20:35:21.616Z`. A second delivery
+claim returned `claimed: false` while preserving attempt `1` and state
+`delivered`. The Spectrum manager's page and state request both returned 200
+against the same durable registry.
+
+Cleanup retired the monitor at revision 8, archived the disposable workspace
+without deleting its records, and restored `Main`. Rollback deployment
+`dpl_AkkAbHddZxS42Ga7YYvi8urpeZy4` left workspace state and monitor writes on,
+turned dispatch and Photon workspace alerts off, and retained the other
+disabled-by-default runtime switches. Two subsequent scheduler requests
+returned 200 with zero new Workflow runs, findings, alerts, or deliveries.
 
 ### Deferred hardening — after Specs 2–6
 
@@ -997,7 +1023,7 @@ production builds.
 | Routing | Alert receipt does not switch workspaces; Discuss and held-message choices are one-time and revision-bound. | Ordinary path passed; crash recovery deferred |
 | Lifecycle | Archive pauses, restore stays paused, and start-fresh retains durable workspace state. | Ordinary path passed; atomic convergence deferred |
 | UX | Natural-language and Spectrum operations agree on authoritative state. | Local gate passed |
-| Photon integration | Fixture webhooks cover routing, duplicate delivery, switching, Start fresh, alerts, stale actions, and owner denial without access to real broker mutations. | Local gate passed; real Photon acceptance pending |
+| Photon integration | Fixture webhooks cover routing, duplicate delivery, switching, Start fresh, alerts, stale actions, and owner denial without access to real broker mutations. | Production accepted |
 | Financial safety | Runtime workers cannot access live mutation tools; proposed orders still require fresh approval. | Local gate passed |
 | Migration | Legacy triggers are never guessed into a workspace and can be explicitly assigned without replaying history. | Local gate passed |
 
@@ -1010,18 +1036,15 @@ production builds.
 
 ## Definition of done
 
-The ordinary-path polling implementation, local production-code gate, and final
-combined local regression and integration gate are complete for the rows
-labeled `Local gate passed` or `Ordinary path passed` above. This does not claim
-the explicitly deferred recovery/operations tails. The specification reaches
-production acceptance when every item in **Remaining owner-authorized
-production acceptance** and its exit gate is checked with real Photon evidence.
+The ordinary-path polling implementation, local production-code gate, final
+combined local regression and integration gate, and owner-authorized production
+acceptance are complete. This does not claim the explicitly deferred
+recovery/operations tails.
 
 Deferred post-Spec-6 hardening remains tracked below the implementation status
 and is not a blocker unless an item becomes an observed ordinary-path failure.
-After production acceptance, record the deployed commit, bounded receipt-chain
-evidence, smoke result, and rollback result in `HANDOFF.md`, `NORTH_STAR.md`, and
-this specification.
+The deployed commit, bounded receipt-chain evidence, smoke result, and rollback
+result are recorded in `HANDOFF.md`, `NORTH_STAR.md`, and this specification.
 
 ## Follow-on specifications
 

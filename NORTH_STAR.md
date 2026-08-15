@@ -229,8 +229,10 @@ private-artifact, and financial layers remain incomplete.
   scheduler can execute isolated compiled workers with workspace state, budgets,
   permissions, deterministic findings, and Photon alert routing. Legacy triggers
   retain their restricted compatibility runner until explicitly assigned.
-  Owner-authorized production rollout and real iMessage acceptance remain
-  pending; source-event/RSS/WebSub ingestion moves to Spec 3 Sprint 4.
+  Owner-authorized production rollout and the real iMessage alert, Discuss,
+  next-turn, manager, and rollback acceptance passed on 2026-08-15. Dispatch and
+  Photon workspace alerts returned to off afterward; source-event/RSS/WebSub
+  ingestion moves to Spec 3 Sprint 4.
 - Exact previews currently protect order creation only. Edit/cancel use generic
   approval, market-order collars are not yet enforced by the approval protocol,
   and uncertain operations do not yet block subsequent mutations. All mutation
@@ -353,7 +355,9 @@ directories so a fork contains its own north-star sources.
 9. Introduce cheaper bounded worker models only where evals show no quality or
    safety regression.
 
-Owner-authorized Spec 1 production rollout is operationally separate from this
-product sequence and can occur whenever the owner chooses to configure flags,
-deploy, inspect event receipts, run the real Photon alert/Discuss/manager smoke,
-and record rollback evidence.
+Owner-authorized Spec 1 production rollout completed on 2026-08-15 at commit
+`7db61b4`. One live canonical SEC replay produced one durable finding, one
+single-attempt Photon delivery, a Discuss-bound next turn, and a matching
+manager state read; rollback then disabled dispatch and alerts without deleting
+workspace records. Bounded fingerprints and deployment evidence live in
+`specs/01-independent-workspace-runtimes.md` and `HANDOFF.md`.

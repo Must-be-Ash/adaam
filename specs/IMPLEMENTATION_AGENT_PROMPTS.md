@@ -30,11 +30,11 @@ prompt in
 [`docs/prompts/spec-01-sprint-implementation.md`](../docs/prompts/spec-01-sprint-implementation.md)
 for the completed work-package record. The executable sequence is
 [`docs/plans/2026-08-15-0905-feat-spec-01-acceptance-and-strategy-packs-plan.md`](../docs/plans/2026-08-15-0905-feat-spec-01-acceptance-and-strategy-packs-plan.md).
-The final combined local regression gate has passed, and U1 is integrated into
-local `main` at `ee01a943d05b31e408d0ab03ed02b76d2ed64f11`. Only
-owner-authorized production acceptance remains for Spec 1. The full
-pre-deployment regression is not a third implementation package. Production
-pack activation remains unauthorized.
+The final combined local regression gate has passed, U1 is integrated into
+`main`, and owner-authorized production acceptance completed successfully on
+2026-08-15. Spec 1 is complete. The next implementation target is U2 only when
+the owner authorizes starting Spec 2; production pack activation remains
+unauthorized.
 
 ## Current plan-unit kickoff prompt
 

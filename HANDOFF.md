@@ -7,9 +7,9 @@ and reviewing the regression coverage. Use it to form the initial system model;
 then verify task-specific details against current code before making a change.
 
 > **Spec 1 status:** The polling-first Independent Workspace Runtimes milestone
-> is implemented, independently reviewed, merged, and pushed to `main`.
+> is implemented, independently reviewed, production accepted, and pushed to `main`.
 > `specs/01-independent-workspace-runtimes.md` is now the single authoritative
-> record for completed behavior, owner-authorized rollout gates, and deferred
+> record for completed behavior, production evidence, and deferred
 > hardening. The next product specification is Spec 2.
 
 Snapshot date: 2026-08-15
@@ -38,7 +38,7 @@ architecture. Keep them distinct:
 | Research | Direct sources, public feeds, FMP/SEC-oriented skills, and guarded Masterkey fallback | Durable private ingestion of every paid or temporary result |
 | Trading | Allowlisted Coinbase reads and preview-bound spot-order approval | A generally safe live-trading surface or account-wide reconciliation |
 | Deliverables | Public-data reports and media on stable Eve URLs | Owner-private artifacts for portfolio, account, or personal data |
-| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC findings, durable Photon alert delivery, and manager controls | Owner-authorized production acceptance, Spec 3 source events, and deferred crash/operations hardening |
+| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC findings, durable Photon alert delivery, manager controls, and real Photon production acceptance | Spec 3 source events and deferred crash/operations hardening |
 | Authorization | Fail-closed deployment-owner mapping for Photon workspace paths plus a separate Coinbase allowlist | Owner-global enforcement across Telegram, HTTP, and every remaining private capability |
 
 `NORTH_STAR.md` describes the intended strategy-workspace architecture; it is
@@ -110,9 +110,11 @@ The app runtime has normal Node.js access and secrets. Eve's sandbox is a
 separate capability boundary and does not inherit environment variables.
 Task-mode schedules cannot pause for interactive OAuth or human approval.
 
-There are no configured Eve subagents. The static `.eve/agent-summary.json` is
-useful for routes, channels, schedules, and static tools, but it does not
-enumerate every dynamic Coinbase or Masterkey tool.
+There is one declared internal Eve subagent, `workspace-worker`, for bounded
+monitor occurrences. Its hosted build uses Vercel Sandbox with deny-all network
+policy; local verification uses `just-bash`. The static
+`.eve/agent-summary.json` is useful for routes, channels, schedules, and static
+tools, but it does not enumerate every dynamic Coinbase or Masterkey tool.
 
 ### Photon message path
 
@@ -190,8 +192,19 @@ switching the selected workspace merely because the alert arrived.
 
 The Spectrum manager renders monitor schedule/timezone, sources, health,
 enabled/paused/error counts, last/next run, budget limits, token/paid usage, and
-active workers. Production flags, environment changes, and a real iMessage
-alert/Discuss/manager smoke remain owner-authorized rollout actions.
+active workers. The real iMessage alert/Discuss/manager flow passed production
+acceptance on 2026-08-15. Dispatch and Photon workspace alerts were returned to
+off afterward; workspace state and monitor writes remain on.
+
+The accepted run used commit `7db61b4`, acceptance deployment
+`dpl_GExEuFouN3j2jqVYrkFSZ3pnVjrP`, and rollback deployment
+`dpl_AkkAbHddZxS42Ga7YYvi8urpeZy4`. Bounded receipt-chain evidence is recorded
+in `specs/01-independent-workspace-runtimes.md`: one live SEC source attempt and
+success, one completed worker run, one finding, one alert, one delivered Photon
+receipt, inert duplicate delivery, Discuss-bound next-turn assignment, a 200
+manager state read, and zero new worker runs across two post-rollback scheduler
+ticks. The disposable monitor is retired, its workspace is archived but
+retained, and `Main` is selected.
 
 ### Approval state machine
 
@@ -426,17 +439,14 @@ The most important differences between the working app and `NORTH_STAR.md` are:
    the runtime foundation, but reusable versioned strategies, canonical public
    facts, Congressional Signals, Insider Clusters, and shared signals remain
    Specs 2–6.
-3. **Production acceptance is pending.** The local polling path is compiled and
-   verified, but enabling flags, environment changes, and a real iMessage
-   alert/Discuss/manager smoke require explicit owner authorization.
-4. **Artifacts are public-only.** Private portfolio/account deliverables and
+3. **Artifacts are public-only.** Private portfolio/account deliverables and
    safe recovery of paid temporary outputs require owner-private storage.
-5. **MCP ingestion is incomplete.** Normalized model context is safe and
+4. **MCP ingestion is incomplete.** Normalized model context is safe and
    bounded, but raw provider output is not durably captured before reduction.
-6. **Financial recovery is session-scoped.** The uncertain-order guard is not
+5. **Financial recovery is session-scoped.** The uncertain-order guard is not
    account-wide reconciliation, and the dynamic Coinbase mutation surface is
    broader than the approved product scope.
-7. **Deferred Spec 1 hardening remains.** Crash-only receipt/outbox recovery,
+6. **Deferred Spec 1 hardening remains.** Crash-only receipt/outbox recovery,
    ambiguous worker-start accounting, revision freshness, atomic lifecycle
    convergence, log/privacy catalog enforcement, and Eve private-runtime
    compatibility are parked after the remaining product specs.
@@ -465,6 +475,15 @@ Do not start one of these items merely because it is listed here. Use
 The project requires Node 24. Its deployed operation depends on Upstash Redis,
 Vercel Blob, and project-specific Vercel Connect integrations for Photon and
 Masterkey. `eve link` does not provision those resources for a new fork.
+
+For Photon connector recovery, first confirm the repository is linked to the
+intended Vercel project and that its existing `photon/<project-slug>` Connect
+integration is attached. Resolve app-scoped credentials lazily through
+`connectPhotonCredentials(...)`; never print, persist, or copy the returned
+values into source or documentation. Explicit Photon credentials may remain in
+the ignored local environment for operator tooling, but Vercel marks production
+connector values sensitive and does not export them through ordinary CLI env
+downloads. Verify access with a bounded read before any delivery smoke.
 
 The preparation hooks embed the Coinbase CLI and Photon assets before local
 development, typechecking, and builds. If generated imports are missing, inspect
@@ -497,8 +516,9 @@ Spectrum UI, or iMessage response path.
 
 At this snapshot, the Spec 1 deterministic matrix, Redis races, TypeScript, the
 compiled Eve build, the Next.js webpack production build, and a read-only live
-SEC smoke have passed. These prove the local polling application, not a real
-Photon alert or deployed configuration. Earlier real-channel smokes validated
+SEC smoke have passed. Production acceptance additionally proved the real SEC
+polling, Photon alert, Discuss routing, next-turn context, manager state, and
+kill-switch rollback path described above. Earlier real-channel smokes validated
 named-session operations and isolation, Coinbase balance and spot-order flows,
 Spectrum order approval, guarded Masterkey research, public report publication,
 and natural-language artifact-card delivery. These establish a baseline, not a
