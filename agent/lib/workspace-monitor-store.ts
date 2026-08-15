@@ -1058,6 +1058,10 @@ export async function recordWorkspaceMonitorFailure(
   const now = input.now ?? new Date();
   const failures = current.consecutiveFailures + 1;
   const paused = failures >= threshold;
+  const boundedErrorCode = boundedMonitorErrorCode(input.errorCode);
+  const pauseCode = paused && boundedErrorCode.startsWith("worker_recovery_")
+    ? boundedErrorCode
+    : "auto_paused_after_repeated_failures";
   return updateWorkspaceMonitor(
     {
       expectedRevision: input.expectedRevision,
@@ -1066,14 +1070,14 @@ export async function recordWorkspaceMonitorFailure(
       patch: {
         consecutiveFailures: failures,
         lastErrorCode: paused
-          ? "auto_paused_after_repeated_failures"
-          : boundedMonitorErrorCode(input.errorCode),
+          ? pauseCode
+          : boundedErrorCode,
         lastRunAt: now.toISOString(),
         ...(paused
           ? {
               lifecycleState: "paused_failure" as const,
               nextOccurrenceAt: null,
-              pauseReason: "auto_paused_after_repeated_failures",
+              pauseReason: pauseCode,
               pausedAt: now.toISOString(),
             }
           : {}),

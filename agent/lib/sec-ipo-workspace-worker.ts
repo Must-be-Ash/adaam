@@ -34,6 +34,7 @@ import { resolveWorkspaceWorkerCapabilitySnapshot } from "./workspace-worker-cap
 import {
   commitDeterministicWorkspaceEvaluationForWorker,
   finalizeExistingWorkspaceRunOutcomeForWorker,
+  finalizePriorWorkspaceRunOutcomeForControlPlane,
   type WorkspaceWorkerControlPlaneClients,
 } from "./workspace-worker-control-plane";
 import type { SecIpoFilingFact } from "./workspace-finding-facts";
@@ -309,45 +310,42 @@ export async function evaluateSecIpoSourceForWorker(input: {
   });
 }
 
+export type SecIpoWorkspaceRunRecoveryResult =
+  | { readonly outcome: WorkspaceRunOutcome; readonly status: "recovered" }
+  | { readonly status: "missing" | "not_applicable" };
+
 export async function recoverSecIpoWorkspaceRunForControlPlane(input: {
   clients?: SecIpoWorkspaceWorkerClients;
   environment?: NodeJS.ProcessEnv;
   now?: Date;
   prepared: PreparedWorkspaceWorkerRun;
-}): Promise<WorkspaceRunOutcome | null> {
+}): Promise<SecIpoWorkspaceRunRecoveryResult> {
   if (
     input.prepared.envelope.sources.length !== 1 ||
     input.prepared.envelope.sources[0]?.sourceId !== SEC_IPO_SOURCE_ID ||
     input.prepared.envelope.sources[0].canonicalUrl !== SEC_IPO_SOURCE_URL
   ) {
-    return null;
+    return Object.freeze({ status: "not_applicable" });
   }
   const existing = await readWorkspaceRunOutcome(
     input.prepared.scope,
     input.prepared.envelope.occurrenceKey,
     input.clients?.finding,
   );
-  if (!existing) return null;
-  return finalizeExistingWorkspaceRunOutcomeForWorker({
+  if (!existing) return Object.freeze({ status: "missing" });
+  const outcome = await finalizePriorWorkspaceRunOutcomeForControlPlane({
     alertPresentation: alertPresentationForFacts(
       existing.finding?.facts?.filter(
         (fact): fact is SecIpoFilingFact => fact.kind === "sec_ipo_filing",
       ) ?? [],
     ),
     clients: input.clients,
-    ctx: {
-      session: {
-        auth: {
-          current: input.prepared.request.auth,
-          initiator: input.prepared.request.auth,
-        },
-      },
-    },
-    environment: input.environment,
     now: input.now,
     outcome: existing,
+    prepared: input.prepared,
     toolId: EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
   });
+  return Object.freeze({ outcome, status: "recovered" });
 }
 
 export const secIpoWorkspaceWorkerOutputSchema = z.object({

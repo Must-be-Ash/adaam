@@ -12,6 +12,7 @@ import { createJiti } from "jiti";
 import type { OfficialPublicSourceResponse } from "../agent/tools/fetch_public_source";
 import type { WorkspaceAlertStoreClient } from "../agent/lib/workspace-alert-store";
 import type { WorkspaceBudgetLedgerClient } from "../agent/lib/workspace-budget-ledger";
+import { readWorkspaceBudgetLedger } from "../agent/lib/workspace-budget-ledger";
 import {
   finishWorkspaceMonitorDispatchBudget,
   reserveWorkspaceMonitorDispatchBudget,
@@ -20,6 +21,7 @@ import {
 import { startWorkspaceWorkerTask } from "../agent/lib/eve-workspace-worker-runtime";
 import type { WorkspaceFindingStoreClient } from "../agent/lib/workspace-finding-store";
 import {
+  claimDueWorkspaceMonitors,
   createWorkspaceMonitor,
   getWorkspaceMonitor,
   recordWorkspaceMonitorFailure,
@@ -27,6 +29,7 @@ import {
   type ClaimedWorkspaceMonitor,
   type WorkspaceMonitor,
   type WorkspaceMonitorStoreClient,
+  updateWorkspaceMonitor,
 } from "../agent/lib/workspace-monitor-store";
 import {
   EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
@@ -74,6 +77,7 @@ class MemoryCasStore
 class MemoryCreateStore
   implements WorkspaceAlertStoreClient, WorkspaceFindingStoreClient {
   failNextRecordType: string | null = null;
+  nextGetValue: unknown = undefined;
   readonly values = new Map<string, string>();
 
   async createOutcomeWithIdentityClaims(input: Parameters<WorkspaceFindingStoreClient["createOutcomeWithIdentityClaims"]>[0]) {
@@ -109,6 +113,11 @@ class MemoryCreateStore
   }
 
   async get(key: string) {
+    if (this.nextGetValue !== undefined) {
+      const value = this.nextGetValue;
+      this.nextGetValue = undefined;
+      return value;
+    }
     return this.values.get(key) ?? null;
   }
 }
@@ -116,7 +125,12 @@ class MemoryCreateStore
 class MemoryMonitorStore implements WorkspaceMonitorStoreClient {
   completeCalls = 0;
   readonly completedOccurrences = new Set<string>();
+  readonly dueAt = new Map<string, number>();
+  readonly inflightUntil = new Map<string, number>();
+  readonly leases = new Map<string, { expiresAt: number; token: string }>();
+  readonly occurrences = new Map<string, Record<string, unknown>>();
   readonly values = new Map<string, string>();
+  dueMonitorId: string | null = null;
 
   async complete(input: Parameters<WorkspaceMonitorStoreClient["complete"]>[0]) {
     if (this.completedOccurrences.has(input.occurrenceRecordKey)) {
@@ -125,7 +139,28 @@ class MemoryMonitorStore implements WorkspaceMonitorStoreClient {
     const current = this.values.get(input.recordKey);
     if (!current) return "missing" as const;
     if (current !== input.expectedRaw) return "stale" as const;
+    const occurrence = this.occurrences.get(input.occurrenceRecordKey);
+    if (occurrence) {
+      if (
+        occurrence.configurationRevision !== input.configurationRevision ||
+        occurrence.leaseTokenDigest !== input.leaseTokenDigest
+      ) {
+        return "stale" as const;
+      }
+      if (occurrence.status !== "leased" || !this.leases.has(input.leaseKey)) {
+        return "lease_mismatch" as const;
+      }
+      this.occurrences.set(input.occurrenceRecordKey, {
+        ...occurrence,
+        status: "completed",
+        updatedAt: input.completedAt,
+      });
+      this.leases.delete(input.leaseKey);
+      this.inflightUntil.delete(input.recordKey);
+    }
     this.values.set(input.recordKey, input.nextRaw);
+    if (input.nextDueAtMs === null) this.dueAt.delete(input.recordKey);
+    else this.dueAt.set(input.recordKey, input.nextDueAtMs);
     this.completeCalls += 1;
     this.completedOccurrences.add(input.occurrenceRecordKey);
     return "completed" as const;
@@ -134,6 +169,7 @@ class MemoryMonitorStore implements WorkspaceMonitorStoreClient {
   async create(input: Parameters<WorkspaceMonitorStoreClient["create"]>[0]) {
     if (this.values.has(input.recordKey)) return false;
     this.values.set(input.recordKey, input.raw);
+    if (input.dueAtMs !== null) this.dueAt.set(input.recordKey, input.dueAtMs);
     return true;
   }
 
@@ -141,25 +177,98 @@ class MemoryMonitorStore implements WorkspaceMonitorStoreClient {
     return this.values.get(key) ?? null;
   }
 
-  async claim(): Promise<{ status: "missing" }> {
-    return { status: "missing" };
+  async claim(input: Parameters<WorkspaceMonitorStoreClient["claim"]>[0]) {
+    const current = this.values.get(input.recordKey);
+    if (!current) return { status: "missing" as const };
+    const monitor = JSON.parse(current) as WorkspaceMonitor;
+    if (monitor.configurationRevision !== input.configurationRevision) {
+      return { status: "stale" as const };
+    }
+    if (monitor.lifecycleState !== "enabled" || !monitor.nextOccurrenceAt) {
+      this.dueAt.delete(input.recordKey);
+      return { status: "not_due" as const };
+    }
+    if (Date.parse(monitor.nextOccurrenceAt) > input.nowMs) {
+      return { status: "not_due" as const };
+    }
+    const lease = this.leases.get(input.leaseKey);
+    if (lease && lease.expiresAt > input.nowMs) {
+      return { status: "leased" as const };
+    }
+    if (lease) this.leases.delete(input.leaseKey);
+    const existing = this.occurrences.get(input.occurrenceRecordKey);
+    if (existing && existing.status !== "leased") {
+      return { status: "duplicate" as const };
+    }
+    const attempt = existing ? Number(existing.attempt) + 1 : 1;
+    this.leases.set(input.leaseKey, {
+      expiresAt: input.leaseExpiresAtMs,
+      token: input.leaseToken,
+    });
+    this.occurrences.set(input.occurrenceRecordKey, {
+      attempt,
+      configurationRevision: input.configurationRevision,
+      leaseTokenDigest: input.leaseTokenDigest,
+      monitorId: input.monitorId,
+      occurrenceIdentity: input.occurrenceIdentity,
+      occurrenceKey: input.occurrenceKey,
+      scheduledFor: input.scheduledFor,
+      schemaVersion: 1,
+      status: "leased",
+      updatedAt: input.updatedAt,
+    });
+    this.dueAt.delete(input.recordKey);
+    this.inflightUntil.set(input.recordKey, input.leaseExpiresAtMs);
+    return { attempt, status: "claimed" as const };
   }
 
   async list(): Promise<unknown[]> {
     return [...this.values.values()];
   }
 
-  async listDue(): Promise<[]> {
-    return [];
+  async listDue(input: Parameters<WorkspaceMonitorStoreClient["listDue"]>[0]) {
+    for (const [recordKey, expiresAt] of this.inflightUntil) {
+      if (expiresAt <= input.nowMs) {
+        this.inflightUntil.delete(recordKey);
+        this.dueAt.set(recordKey, input.nowMs);
+      }
+    }
+    for (const [leaseKey, lease] of this.leases) {
+      if (lease.expiresAt <= input.nowMs) this.leases.delete(leaseKey);
+    }
+    return [...this.dueAt.entries()]
+      .filter(([, dueAt]) => dueAt <= input.nowMs)
+      .filter(([recordKey]) => {
+        if (!this.dueMonitorId) return true;
+        const raw = this.values.get(recordKey);
+        return raw
+          ? (JSON.parse(raw) as WorkspaceMonitor).monitorId === this.dueMonitorId
+          : false;
+      })
+      .sort((left, right) => left[1] - right[1])
+      .slice(0, input.limit)
+      .map(([recordKey]) => ({
+        raw: this.values.get(recordKey) ?? null,
+        recordKey,
+      }));
   }
 
-  async releaseLease(): Promise<boolean> {
+  async releaseLease(input: Parameters<WorkspaceMonitorStoreClient["releaseLease"]>[0]) {
+    const lease = this.leases.get(input.leaseKey);
+    if (!lease) return true;
+    if (lease.token !== input.leaseToken) return false;
+    this.leases.delete(input.leaseKey);
+    this.inflightUntil.delete(input.recordKey);
+    if (input.dueAtMs === null) this.dueAt.delete(input.recordKey);
+    else this.dueAt.set(input.recordKey, input.dueAtMs);
     return true;
   }
 
   async update(input: Parameters<WorkspaceMonitorStoreClient["update"]>[0]) {
     if (this.values.get(input.recordKey) !== input.expected) return false;
     this.values.set(input.recordKey, input.next);
+    if (input.dueAtMs === null) this.dueAt.delete(input.recordKey);
+    else this.dueAt.set(input.recordKey, input.dueAtMs);
     return true;
   }
 }
@@ -420,6 +529,7 @@ type DispatchEvidence = {
 };
 let pendingClaim: ClaimedWorkspaceMonitor | null = null;
 let eventCapture: Promise<MessageStreamEvent[]> | null = null;
+let workspaceWorkerStarts = 0;
 const schedule = createEventTriggerSchedule({
   claimEventTriggers: async () => [],
   claimWorkspaceMonitors: async () => {
@@ -468,6 +578,7 @@ const schedule = createEventTriggerSchedule({
     state: true,
   }),
   startWorkspaceWorker: async (request) => {
+    workspaceWorkerStarts += 1;
     const session = await startWorkspaceWorkerTask(request);
     const [scheduleEvents, observedEvents] = session.events.tee();
     eventCapture = (async () => {
@@ -478,7 +589,48 @@ const schedule = createEventTriggerSchedule({
     return { ...session, events: scheduleEvents };
   },
 });
-const verificationNow = new Date();
+let verificationNow = new Date();
+
+async function alignMonitorForProductionClaim(input: {
+  monitor: WorkspaceMonitor;
+  scope: ReturnType<typeof authorizeDeploymentWorkspaceStore>;
+}): Promise<WorkspaceMonitor> {
+  const scheduledFor = new Date(verificationNow.getTime() - 60_000).toISOString();
+  return updateWorkspaceMonitor({
+    expectedRevision: input.monitor.configurationRevision,
+    monitorId: input.monitor.monitorId,
+    now: verificationNow,
+    patch: {
+      nextOccurrenceAt: scheduledFor,
+      schedule: {
+        anchor: scheduledFor,
+        everyMinutes: 360,
+        kind: "interval",
+      },
+    },
+    scope: input.scope,
+  }, monitors);
+}
+
+async function claimProductionOccurrence(
+  monitorId: string,
+): Promise<ClaimedWorkspaceMonitor> {
+  monitors.dueMonitorId = monitorId;
+  try {
+    const jobs = await claimDueWorkspaceMonitors({
+      environment,
+      leaseForMs: 30 * 60_000,
+      limit: 10,
+      now: verificationNow,
+      recoveryWindowMs: 6 * 60 * 60_000,
+    }, monitors);
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0]?.monitor.monitorId, monitorId);
+    return jobs[0]!;
+  } finally {
+    monitors.dueMonitorId = null;
+  }
+}
 
 async function dispatch(
   job: ClaimedWorkspaceMonitor,
@@ -825,19 +977,24 @@ try {
       recoveryWorkspace.monitor.monitorId,
       monitors,
     ))!;
-    const recoveryJob = claim({
+    const alignedRecoveryMonitor = await alignMonitorForProductionClaim({
       monitor: recoveryMonitor,
-      now: verificationNow,
       scope: recoveryWorkspace.scope,
     });
+    const recoveryAttemptOne = await claimProductionOccurrence(
+      alignedRecoveryMonitor.monitorId,
+    );
+    assert.equal(recoveryAttemptOne.occurrence.attempt, 1);
     const alertsBeforeRecovery = storedRecords(alerts, "workspace_alert").length;
     const completionsBeforeRecovery = monitors.completeCalls;
+    const workerStartsBeforeRecovery = workspaceWorkerStarts;
     alerts.failNextRecordType = "workspace_alert";
     const interrupted = await dispatch(
-      recoveryJob,
+      recoveryAttemptOne,
       fetchResponse(fixtureBodies.later),
     );
     assert.equal(interrupted.fetches, 1);
+    assert.equal(workspaceWorkerStarts, workerStartsBeforeRecovery + 1);
     assert.ok(interrupted.events.some((event) =>
       event.type === "action.result" &&
       event.data.result.kind === "tool-result" &&
@@ -853,16 +1010,28 @@ try {
         recoveryWorkspace.monitor.monitorId,
         monitors,
       ))?.nextOccurrenceAt,
-      recoveryMonitor.nextOccurrenceAt,
+      alignedRecoveryMonitor.nextOccurrenceAt,
+    );
+    verificationNow = new Date(
+      Date.parse(recoveryAttemptOne.leaseExpiresAt) + 1,
+    );
+    const recoveryAttemptTwo = await claimProductionOccurrence(
+      alignedRecoveryMonitor.monitorId,
+    );
+    assert.equal(recoveryAttemptTwo.occurrence.attempt, 2);
+    assert.equal(
+      recoveryAttemptTwo.occurrence.occurrenceKey,
+      recoveryAttemptOne.occurrence.occurrenceKey,
     );
     const recovered = await dispatch(
-      recoveryJob,
+      recoveryAttemptTwo,
       async () => {
         throw new Error("durable outcome recovery must not refetch");
       },
     );
     assert.equal(recovered.fetches, 0);
     assert.deepEqual(recovered.events, []);
+    assert.equal(workspaceWorkerStarts, workerStartsBeforeRecovery + 1);
     assert.equal(
       storedRecords(alerts, "workspace_alert").length,
       alertsBeforeRecovery + 1,
@@ -873,15 +1042,35 @@ try {
       recoveryWorkspace.monitor.monitorId,
       monitors,
     ))!;
-    assert.notEqual(recoveredMonitor.nextOccurrenceAt, recoveryMonitor.nextOccurrenceAt);
+    assert.notEqual(
+      recoveredMonitor.nextOccurrenceAt,
+      alignedRecoveryMonitor.nextOccurrenceAt,
+    );
+    const recoveryBudget = await readWorkspaceBudgetLedger(
+      recoveryWorkspace.scope,
+      budget,
+    );
+    const recoveryReservations = recoveryBudget.reservations.filter(
+      ({ runId }) =>
+        runId.startsWith(recoveryAttemptOne.occurrence.occurrenceKey),
+    );
+    assert.deepEqual(
+      recoveryReservations.map(({ state }) => state),
+      ["reconciled", "released"],
+    );
+    assert.notEqual(
+      recoveryReservations[0]?.runId,
+      recoveryReservations[1]?.runId,
+    );
     const recoveryReplay = await dispatch(
-      recoveryJob,
+      recoveryAttemptTwo,
       async () => {
         throw new Error("completed occurrence replay must not restart or refetch");
       },
     );
     assert.equal(recoveryReplay.fetches, 0);
     assert.deepEqual(recoveryReplay.events, []);
+    assert.equal(workspaceWorkerStarts, workerStartsBeforeRecovery + 1);
     assert.equal(monitors.completeCalls, completionsBeforeRecovery + 1);
     assert.deepEqual(
       await getWorkspaceMonitor(
@@ -892,6 +1081,108 @@ try {
       recoveredMonitor,
     );
 
+    const missingRecoveryWorkspace = await setupWorkspace(
+      "523e4567-e89b-42d3-a456-426614174000",
+    );
+    const missingRecoveryMonitor = await alignMonitorForProductionClaim({
+      monitor: missingRecoveryWorkspace.monitor,
+      scope: missingRecoveryWorkspace.scope,
+    });
+    const missingAttemptOne = await claimProductionOccurrence(
+      missingRecoveryMonitor.monitorId,
+    );
+    verificationNow = new Date(Date.parse(missingAttemptOne.leaseExpiresAt) + 1);
+    const missingAttemptTwo = await claimProductionOccurrence(
+      missingRecoveryMonitor.monitorId,
+    );
+    assert.equal(missingAttemptTwo.occurrence.attempt, 2);
+    const startsBeforeMissingRecovery = workspaceWorkerStarts;
+    const missingRecovery = await dispatch(
+      missingAttemptTwo,
+      async () => {
+        throw new Error("missing recovery must not fetch");
+      },
+    );
+    assert.equal(missingRecovery.fetches, 0);
+    assert.deepEqual(missingRecovery.events, []);
+    assert.equal(workspaceWorkerStarts, startsBeforeMissingRecovery);
+    const missingFailedMonitor = (await getWorkspaceMonitor(
+      missingRecoveryWorkspace.scope,
+      missingRecoveryMonitor.monitorId,
+      monitors,
+    ))!;
+    assert.equal(missingFailedMonitor.lifecycleState, "paused_failure");
+    assert.equal(missingFailedMonitor.nextOccurrenceAt, null);
+    assert.equal(missingFailedMonitor.consecutiveFailures, 1);
+    assert.equal(
+      missingFailedMonitor.lastErrorCode,
+      "worker_recovery_outcome_missing",
+    );
+    assert.equal(
+      missingFailedMonitor.pauseReason,
+      "worker_recovery_outcome_missing",
+    );
+    const missingBudget = await readWorkspaceBudgetLedger(
+      missingRecoveryWorkspace.scope,
+      budget,
+    );
+    assert.deepEqual(
+      missingBudget.reservations.map(({ state }) => state),
+      ["released"],
+    );
+
+    const corruptRecoveryWorkspace = await setupWorkspace(
+      "623e4567-e89b-42d3-a456-426614174000",
+    );
+    const corruptRecoveryMonitor = await alignMonitorForProductionClaim({
+      monitor: corruptRecoveryWorkspace.monitor,
+      scope: corruptRecoveryWorkspace.scope,
+    });
+    const corruptAttemptOne = await claimProductionOccurrence(
+      corruptRecoveryMonitor.monitorId,
+    );
+    verificationNow = new Date(Date.parse(corruptAttemptOne.leaseExpiresAt) + 1);
+    const corruptAttemptTwo = await claimProductionOccurrence(
+      corruptRecoveryMonitor.monitorId,
+    );
+    assert.equal(corruptAttemptTwo.occurrence.attempt, 2);
+    findings.nextGetValue = "{corrupt-outcome";
+    const startsBeforeCorruptRecovery = workspaceWorkerStarts;
+    const corruptRecovery = await dispatch(
+      corruptAttemptTwo,
+      async () => {
+        throw new Error("corrupt recovery must not fetch");
+      },
+    );
+    assert.equal(corruptRecovery.fetches, 0);
+    assert.deepEqual(corruptRecovery.events, []);
+    assert.equal(workspaceWorkerStarts, startsBeforeCorruptRecovery);
+    const corruptFailedMonitor = (await getWorkspaceMonitor(
+      corruptRecoveryWorkspace.scope,
+      corruptRecoveryMonitor.monitorId,
+      monitors,
+    ))!;
+    assert.equal(corruptFailedMonitor.lifecycleState, "paused_failure");
+    assert.equal(corruptFailedMonitor.nextOccurrenceAt, null);
+    assert.equal(corruptFailedMonitor.consecutiveFailures, 1);
+    assert.equal(
+      corruptFailedMonitor.lastErrorCode,
+      "worker_recovery_outcome_corrupt",
+    );
+    assert.equal(
+      corruptFailedMonitor.pauseReason,
+      "worker_recovery_outcome_corrupt",
+    );
+    const corruptBudget = await readWorkspaceBudgetLedger(
+      corruptRecoveryWorkspace.scope,
+      budget,
+    );
+    assert.deepEqual(
+      corruptBudget.reservations.map(({ state }) => state),
+      ["released"],
+    );
+
+    verificationNow = new Date();
     const workspaceB = await setupWorkspace(
       "223e4567-e89b-42d3-a456-426614174000",
     );

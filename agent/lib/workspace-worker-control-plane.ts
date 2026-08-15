@@ -19,6 +19,7 @@ import {
   type WorkspaceSourceCoverageClient,
 } from "./workspace-source-coverage";
 import type { WorkspaceStateStoreClient } from "./workspace-state-store";
+import type { PreparedWorkspaceWorkerRun } from "./workspace-worker-runner";
 import {
   stageWorkspaceAlert,
   type WorkspaceAlertStoreClient,
@@ -263,6 +264,64 @@ export async function finalizeExistingWorkspaceRunOutcomeForWorker(input: {
     client: input.clients?.monitor,
     now: input.now,
   });
+  return input.outcome;
+}
+
+export async function finalizePriorWorkspaceRunOutcomeForControlPlane(input: {
+  alertPresentation?: { title: string; whyMatched: string };
+  clients?: WorkspaceWorkerControlPlaneClients;
+  now?: Date;
+  outcome: WorkspaceRunOutcome;
+  prepared: PreparedWorkspaceWorkerRun;
+  toolId: string;
+}): Promise<WorkspaceRunOutcome> {
+  const { envelope, scope } = input.prepared;
+  if (
+    input.outcome.ownerId !== scope.ownerId ||
+    input.outcome.workspaceId !== scope.workspaceId ||
+    input.outcome.monitorId !== envelope.monitorId ||
+    input.outcome.occurrenceKey !== envelope.occurrenceKey ||
+    input.outcome.configurationRevision !== envelope.configurationRevision
+  ) {
+    throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
+  }
+  const capabilities = await resolveWorkspaceWorkerCapabilitySnapshot({
+    envelope,
+    registry: [{
+      definition: true,
+      metadata: { category: "control_plane", id: input.toolId },
+    }],
+    scope,
+    stateClient: input.clients?.state,
+  });
+  if (!(input.toolId in capabilities.tools)) {
+    throw new WorkspaceWorkerCommitError("workspace_worker_capability_denied");
+  }
+  const monitor = await assertCurrentMonitor(
+    envelope,
+    scope,
+    input.clients?.monitor,
+  );
+  if (input.outcome.finding) {
+    await stageWorkspaceAlert({
+      finding: input.outcome.finding,
+      monitor,
+      now: input.now,
+      presentation: input.alertPresentation,
+      scope,
+    }, input.clients?.alert);
+  }
+  await completeWorkspaceMonitorCheckpoint({
+    completedAt: input.now,
+    configurationRevision: envelope.configurationRevision,
+    contentDigest: input.outcome.checkpoint.contentDigest,
+    leaseTokenDigest: envelope.leaseTokenDigest,
+    monitorId: envelope.monitorId,
+    occurrenceKey: envelope.occurrenceKey,
+    scheduledFor: envelope.scheduledFor,
+    scope,
+    watermark: input.outcome.checkpoint.watermark,
+  }, input.clients?.monitor);
   return input.outcome;
 }
 

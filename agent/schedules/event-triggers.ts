@@ -63,23 +63,70 @@ async function executeWorkspaceJob(
   budget: WorkspaceDispatchReservation,
   dependencies: EventTriggerScheduleDependencies,
 ): Promise<void> {
-  if (
+  const settled =
     budget.global.state === "settled" &&
     (budget.workspace.state === "reconciled" ||
-      budget.workspace.state === "uncertain")
-  ) {
+      budget.workspace.state === "uncertain");
+  const reserved =
+    budget.global.state === "reserved" &&
+    budget.workspace.state === "reserved";
+  if (settled || job.occurrence.attempt > 1) {
     // A settled reservation proves the model work is terminal, but a crash may
     // still have happened after the durable outcome and before alert/checkpoint
-    // finalization. Recover that deterministic tail without another model turn.
+    // finalization. A reclaimed occurrence is also recovery-only: its new run
+    // id must never authorize repeating the model work for the same occurrence.
+    let recoveryFailureCode = "worker_recovery_failed";
     try {
       const prepared = await dependencies.prepareWorkspaceWorker({
         claimed: job,
         dispatchBudget: budget,
       });
-      await dependencies.recoverWorkspaceOutcome({ prepared });
+      const result = await dependencies.recoverWorkspaceOutcome({ prepared });
+      if (result.status === "recovered") {
+        if (reserved) {
+          await dependencies.finishWorkspaceBudget(job, budget, {
+            outcome: "released",
+          });
+        }
+        return;
+      }
+      recoveryFailureCode = result.status === "missing"
+        ? "worker_recovery_outcome_missing"
+        : "worker_recovery_not_applicable";
+    } catch (error) {
+      recoveryFailureCode =
+        error instanceof Error && error.message === "finding_invalid"
+          ? "worker_recovery_outcome_corrupt"
+          : error instanceof Error &&
+              (error.message === "workspace_worker_run_stale" ||
+                error.message === "workspace_worker_capability_denied")
+            ? "worker_recovery_stale"
+            : "worker_recovery_failed";
+    }
+    try {
+      await dependencies.recordWorkspaceFailure({
+        errorCode: recoveryFailureCode,
+        expectedRevision: job.monitor.configurationRevision,
+        failureThreshold: 1,
+        monitorId: job.monitor.monitorId,
+        scope: job.scope,
+      });
     } catch {
-      // Keep the occurrence leased for bounded expiry recovery. A settled
-      // budget never authorizes another model turn for this occurrence.
+      // A concurrent lifecycle/configuration edit is authoritative.
+    }
+    try {
+      await dependencies.releaseWorkspaceLease({
+        leaseToken: job.leaseToken,
+        monitorId: job.monitor.monitorId,
+        scope: job.scope,
+      });
+    } catch {
+      // Lease expiry remains the final cleanup fence.
+    }
+    if (reserved) {
+      await dependencies.finishWorkspaceBudget(job, budget, {
+        outcome: "released",
+      });
     }
     return;
   }
