@@ -126,6 +126,9 @@ sprint into one change.
   caller or entry point. A fixture runtime, prompt inspection, source-text
   assertion, isolated store test, or build may supplement that proof but cannot
   replace it.
+- A concurrency exit claim requires production-path executions whose lifetimes
+  actually overlap. Sequential isolation fixtures may supplement that proof but
+  cannot replace it.
 - For each durable-write-plus-side-effect sequence, test the crash boundaries
   before and after the side effect. A retry must complete safely or reach an
   explicit recoverable/quarantined state; silently returning from an
@@ -206,6 +209,10 @@ rewrite history merely to put a commit hash inside the document.
   broker mutation, unrelated strategies, or later-spec systems early.
 - Fixture and development paths must not call paid providers or mutate external
   production state.
+- Any test-only seam included in a runtime bundle requires explicit acceptance-
+  only opt-in, loopback-only endpoints where applicable, strong ephemeral
+  credentials, and a built-output test proving ordinary production and self-host
+  configurations cannot activate it.
 - Use official or reviewed public sources required by the spec. Do not add an
   unreviewed third-party source merely to make a test pass.
 - A blocked external live smoke does not justify checking the item off. Complete
