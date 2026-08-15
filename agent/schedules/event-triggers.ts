@@ -16,6 +16,8 @@ import {
 } from "../lib/workspace-dispatch-budget";
 import {
   claimDueWorkspaceMonitors,
+  getWorkspaceMonitor,
+  inspectWorkspaceMonitorOccurrenceLease,
   recordWorkspaceMonitorFailure,
   releaseWorkspaceMonitorLease,
   type ClaimedWorkspaceMonitor,
@@ -23,6 +25,7 @@ import {
 import { resolveWorkspaceRuntimeFlags } from "../lib/workspace-runtime-flags";
 import { recoverSecIpoWorkspaceRunForControlPlane } from "../lib/sec-ipo-workspace-worker";
 import {
+  prepareWorkspaceWorkerRecovery,
   prepareWorkspaceWorkerRun,
   requireWorkspaceWorkerOutcome,
 } from "../lib/workspace-worker-runner";
@@ -31,7 +34,10 @@ export interface EventTriggerScheduleDependencies {
   readonly claimEventTriggers: typeof eventTriggerStore.claimDue;
   readonly claimWorkspaceMonitors: typeof claimDueWorkspaceMonitors;
   readonly finishWorkspaceBudget: typeof finishWorkspaceMonitorDispatchBudget;
+  readonly getWorkspaceMonitor: typeof getWorkspaceMonitor;
+  readonly inspectWorkspaceLease: typeof inspectWorkspaceMonitorOccurrenceLease;
   readonly now: () => Date;
+  readonly prepareWorkspaceRecovery: typeof prepareWorkspaceWorkerRecovery;
   readonly prepareWorkspaceWorker: typeof prepareWorkspaceWorkerRun;
   readonly recordWorkspaceFailure: typeof recordWorkspaceMonitorFailure;
   readonly recoverWorkspaceOutcome: typeof recoverSecIpoWorkspaceRunForControlPlane;
@@ -47,7 +53,10 @@ const productionDependencies: EventTriggerScheduleDependencies = Object.freeze({
     eventTriggerStore.claimDue(...args),
   claimWorkspaceMonitors: claimDueWorkspaceMonitors,
   finishWorkspaceBudget: finishWorkspaceMonitorDispatchBudget,
+  getWorkspaceMonitor,
+  inspectWorkspaceLease: inspectWorkspaceMonitorOccurrenceLease,
   now: () => new Date(),
+  prepareWorkspaceRecovery: prepareWorkspaceWorkerRecovery,
   prepareWorkspaceWorker: prepareWorkspaceWorkerRun,
   recordWorkspaceFailure: recordWorkspaceMonitorFailure,
   recoverWorkspaceOutcome: recoverSecIpoWorkspaceRunForControlPlane,
@@ -58,6 +67,122 @@ const productionDependencies: EventTriggerScheduleDependencies = Object.freeze({
   startWorkspaceWorker: startWorkspaceWorkerTask,
 });
 
+function recoveryFailureCode(error: unknown): string {
+  if (error instanceof Error && error.message === "finding_invalid") {
+    return "worker_recovery_outcome_corrupt";
+  }
+  if (
+    error instanceof Error &&
+    (error.message === "workspace_worker_run_stale" ||
+      error.message === "workspace_worker_capability_denied" ||
+      error.message === "workspace_worker_state_stale" ||
+      error.message === "monitor_occurrence_stale")
+  ) {
+    return "worker_recovery_stale";
+  }
+  return "worker_recovery_failed";
+}
+
+function leaseInspectionInput(job: ClaimedWorkspaceMonitor) {
+  return {
+    configurationRevision: job.monitor.configurationRevision,
+    leaseToken: job.leaseToken,
+    leaseTokenDigest: job.occurrence.leaseTokenDigest,
+    monitorId: job.monitor.monitorId,
+    occurrenceKey: job.occurrence.occurrenceKey,
+    scope: job.scope,
+  };
+}
+
+async function monitorWasSuperseded(
+  job: ClaimedWorkspaceMonitor,
+  dependencies: EventTriggerScheduleDependencies,
+): Promise<boolean> {
+  const current = await dependencies.getWorkspaceMonitor(
+    job.scope,
+    job.monitor.monitorId,
+  );
+  return (
+    !current ||
+    current.configurationRevision !== job.monitor.configurationRevision ||
+    current.lifecycleState !== "enabled"
+  );
+}
+
+async function quarantineWorkspaceRecoveryFailure(
+  job: ClaimedWorkspaceMonitor,
+  errorCode: string,
+  dependencies: EventTriggerScheduleDependencies,
+): Promise<void> {
+  let quarantineError: unknown;
+  try {
+    await dependencies.recordWorkspaceFailure({
+      errorCode,
+      expectedRevision: job.monitor.configurationRevision,
+      failureThreshold: 1,
+      monitorId: job.monitor.monitorId,
+      scope: job.scope,
+    });
+  } catch (error) {
+    let superseded = false;
+    try {
+      superseded = await monitorWasSuperseded(job, dependencies);
+    } catch {
+      // The original quarantine write remains the authoritative failure. Still
+      // attempt lease cleanup below before surfacing it to the scheduler.
+    }
+    if (!superseded) {
+      quarantineError = error;
+    }
+  }
+
+  let releaseError: unknown;
+  try {
+    const released = await dependencies.releaseWorkspaceLease({
+      leaseToken: job.leaseToken,
+      monitorId: job.monitor.monitorId,
+      scope: job.scope,
+    });
+    if (!released) {
+      const lease = await dependencies.inspectWorkspaceLease(
+        leaseInspectionInput(job),
+      );
+      if (lease === "current") {
+        releaseError = new Error("worker_recovery_lease_release_failed");
+      }
+    }
+  } catch (error) {
+    const lease = await dependencies.inspectWorkspaceLease(
+      leaseInspectionInput(job),
+    );
+    if (lease === "current") releaseError = error;
+  }
+  if (quarantineError) throw quarantineError;
+  if (releaseError) throw releaseError;
+}
+
+async function executeWorkspaceRecovery(
+  job: ClaimedWorkspaceMonitor,
+  dependencies: EventTriggerScheduleDependencies,
+): Promise<void> {
+  let failureCode = "worker_recovery_failed";
+  try {
+    const prepared = await dependencies.prepareWorkspaceRecovery({
+      claimed: job,
+    });
+    const result = await dependencies.recoverWorkspaceOutcome({ prepared });
+    if (result.status === "recovered" || result.status === "already_completed") {
+      return;
+    }
+    failureCode = result.status === "missing"
+      ? "worker_recovery_outcome_missing"
+      : "worker_recovery_not_applicable";
+  } catch (error) {
+    failureCode = recoveryFailureCode(error);
+  }
+  await quarantineWorkspaceRecoveryFailure(job, failureCode, dependencies);
+}
+
 async function executeWorkspaceJob(
   job: ClaimedWorkspaceMonitor,
   budget: WorkspaceDispatchReservation,
@@ -67,67 +192,11 @@ async function executeWorkspaceJob(
     budget.global.state === "settled" &&
     (budget.workspace.state === "reconciled" ||
       budget.workspace.state === "uncertain");
-  const reserved =
-    budget.global.state === "reserved" &&
-    budget.workspace.state === "reserved";
-  if (settled || job.occurrence.attempt > 1) {
+  if (settled) {
     // A settled reservation proves the model work is terminal, but a crash may
     // still have happened after the durable outcome and before alert/checkpoint
-    // finalization. A reclaimed occurrence is also recovery-only: its new run
-    // id must never authorize repeating the model work for the same occurrence.
-    let recoveryFailureCode = "worker_recovery_failed";
-    try {
-      const prepared = await dependencies.prepareWorkspaceWorker({
-        claimed: job,
-        dispatchBudget: budget,
-      });
-      const result = await dependencies.recoverWorkspaceOutcome({ prepared });
-      if (result.status === "recovered") {
-        if (reserved) {
-          await dependencies.finishWorkspaceBudget(job, budget, {
-            outcome: "released",
-          });
-        }
-        return;
-      }
-      recoveryFailureCode = result.status === "missing"
-        ? "worker_recovery_outcome_missing"
-        : "worker_recovery_not_applicable";
-    } catch (error) {
-      recoveryFailureCode =
-        error instanceof Error && error.message === "finding_invalid"
-          ? "worker_recovery_outcome_corrupt"
-          : error instanceof Error &&
-              (error.message === "workspace_worker_run_stale" ||
-                error.message === "workspace_worker_capability_denied")
-            ? "worker_recovery_stale"
-            : "worker_recovery_failed";
-    }
-    try {
-      await dependencies.recordWorkspaceFailure({
-        errorCode: recoveryFailureCode,
-        expectedRevision: job.monitor.configurationRevision,
-        failureThreshold: 1,
-        monitorId: job.monitor.monitorId,
-        scope: job.scope,
-      });
-    } catch {
-      // A concurrent lifecycle/configuration edit is authoritative.
-    }
-    try {
-      await dependencies.releaseWorkspaceLease({
-        leaseToken: job.leaseToken,
-        monitorId: job.monitor.monitorId,
-        scope: job.scope,
-      });
-    } catch {
-      // Lease expiry remains the final cleanup fence.
-    }
-    if (reserved) {
-      await dependencies.finishWorkspaceBudget(job, budget, {
-        outcome: "released",
-      });
-    }
+    // finalization. Recover that deterministic tail without another model turn.
+    await executeWorkspaceRecovery(job, dependencies);
     return;
   }
   if (
@@ -249,8 +318,18 @@ export function createEventTriggerSchedule(
             claim_count: workspaceJobs.length,
           });
         }
+        const recoveryJobs = workspaceJobs.filter(
+          (job) => job.occurrence.attempt > 1,
+        );
+        const firstAttemptJobs = workspaceJobs.filter(
+          (job) => job.occurrence.attempt === 1,
+        );
+        await Promise.all(
+          recoveryJobs.map((job) => executeWorkspaceRecovery(job, dependencies)),
+        );
+
         const admittedWorkspaceJobs = [];
-        for (const job of workspaceJobs) {
+        for (const job of firstAttemptJobs) {
           try {
             const budget = await dependencies.reserveWorkspaceBudget(job, {
               now,

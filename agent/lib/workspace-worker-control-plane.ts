@@ -10,6 +10,7 @@ import {
 import {
   completeWorkspaceMonitorCheckpoint,
   getWorkspaceMonitor,
+  inspectWorkspaceMonitorOccurrenceLease,
   type WorkspaceMonitor,
   type WorkspaceMonitorStoreClient,
 } from "./workspace-monitor-store";
@@ -19,7 +20,7 @@ import {
   type WorkspaceSourceCoverageClient,
 } from "./workspace-source-coverage";
 import type { WorkspaceStateStoreClient } from "./workspace-state-store";
-import type { PreparedWorkspaceWorkerRun } from "./workspace-worker-runner";
+import type { PreparedWorkspaceWorkerRecovery } from "./workspace-worker-runner";
 import {
   stageWorkspaceAlert,
   type WorkspaceAlertStoreClient,
@@ -58,13 +59,16 @@ export class WorkspaceWorkerCommitError extends Error {
 
 function sameSources(
   monitor: WorkspaceMonitor,
-  envelope: WorkspaceWorkerEnvelope,
+  envelope: Pick<WorkspaceWorkerEnvelope, "sources">,
 ): boolean {
   return JSON.stringify(monitor.sources) === JSON.stringify(envelope.sources);
 }
 
 async function assertCurrentMonitor(
-  envelope: WorkspaceWorkerEnvelope,
+  envelope: Pick<
+    WorkspaceWorkerEnvelope,
+    "configurationRevision" | "monitorId" | "sources"
+  >,
   scope: ReturnType<typeof authorizeWorkspaceWorkerStore>,
   client?: WorkspaceMonitorStoreClient,
 ): Promise<WorkspaceMonitor> {
@@ -272,10 +276,24 @@ export async function finalizePriorWorkspaceRunOutcomeForControlPlane(input: {
   clients?: WorkspaceWorkerControlPlaneClients;
   now?: Date;
   outcome: WorkspaceRunOutcome;
-  prepared: PreparedWorkspaceWorkerRun;
+  prepared: PreparedWorkspaceWorkerRecovery;
   toolId: string;
-}): Promise<WorkspaceRunOutcome> {
-  const { envelope, scope } = input.prepared;
+}): Promise<{
+  outcome: WorkspaceRunOutcome;
+  status: "already_completed" | "recovered";
+}> {
+  const { claimed, scope } = input.prepared;
+  const envelope = {
+    capabilityRevision: input.prepared.capabilityRevision,
+    configurationRevision: claimed.monitor.configurationRevision,
+    leaseTokenDigest: claimed.occurrence.leaseTokenDigest,
+    monitorId: claimed.monitor.monitorId,
+    occurrenceKey: claimed.occurrence.occurrenceKey,
+    ownerId: scope.ownerId,
+    scheduledFor: claimed.occurrence.scheduledFor,
+    sources: claimed.monitor.sources,
+    workspaceId: scope.workspaceId,
+  };
   if (
     input.outcome.ownerId !== scope.ownerId ||
     input.outcome.workspaceId !== scope.workspaceId ||
@@ -302,6 +320,20 @@ export async function finalizePriorWorkspaceRunOutcomeForControlPlane(input: {
     scope,
     input.clients?.monitor,
   );
+  const lease = await inspectWorkspaceMonitorOccurrenceLease({
+    configurationRevision: envelope.configurationRevision,
+    leaseToken: claimed.leaseToken,
+    leaseTokenDigest: envelope.leaseTokenDigest,
+    monitorId: envelope.monitorId,
+    occurrenceKey: envelope.occurrenceKey,
+    scope,
+  }, input.clients?.monitor);
+  if (lease === "completed") {
+    return Object.freeze({ outcome: input.outcome, status: "already_completed" });
+  }
+  if (lease !== "current") {
+    throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
+  }
   if (input.outcome.finding) {
     await stageWorkspaceAlert({
       finding: input.outcome.finding,
@@ -322,7 +354,7 @@ export async function finalizePriorWorkspaceRunOutcomeForControlPlane(input: {
     scope,
     watermark: input.outcome.checkpoint.watermark,
   }, input.clients?.monitor);
-  return input.outcome;
+  return Object.freeze({ outcome: input.outcome, status: "recovered" });
 }
 
 export async function writeWorkspaceFindingForWorker(input: {

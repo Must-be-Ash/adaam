@@ -42,7 +42,7 @@ import {
   fetchOfficialPublicSourceText,
   type OfficialPublicSourceResponse,
 } from "../tools/fetch_public_source";
-import type { PreparedWorkspaceWorkerRun } from "./workspace-worker-runner";
+import type { PreparedWorkspaceWorkerRecovery } from "./workspace-worker-runner";
 
 export { EVALUATE_SEC_IPO_SOURCE_TOOL_ID } from "./sec-ipo-reference";
 
@@ -311,29 +311,32 @@ export async function evaluateSecIpoSourceForWorker(input: {
 }
 
 export type SecIpoWorkspaceRunRecoveryResult =
-  | { readonly outcome: WorkspaceRunOutcome; readonly status: "recovered" }
+  | {
+      readonly outcome: WorkspaceRunOutcome;
+      readonly status: "already_completed" | "recovered";
+    }
   | { readonly status: "missing" | "not_applicable" };
 
 export async function recoverSecIpoWorkspaceRunForControlPlane(input: {
   clients?: SecIpoWorkspaceWorkerClients;
-  environment?: NodeJS.ProcessEnv;
   now?: Date;
-  prepared: PreparedWorkspaceWorkerRun;
+  prepared: PreparedWorkspaceWorkerRecovery;
 }): Promise<SecIpoWorkspaceRunRecoveryResult> {
+  const sources = input.prepared.monitor.sources;
   if (
-    input.prepared.envelope.sources.length !== 1 ||
-    input.prepared.envelope.sources[0]?.sourceId !== SEC_IPO_SOURCE_ID ||
-    input.prepared.envelope.sources[0].canonicalUrl !== SEC_IPO_SOURCE_URL
+    sources.length !== 1 ||
+    sources[0]?.sourceId !== SEC_IPO_SOURCE_ID ||
+    sources[0].canonicalUrl !== SEC_IPO_SOURCE_URL
   ) {
     return Object.freeze({ status: "not_applicable" });
   }
   const existing = await readWorkspaceRunOutcome(
     input.prepared.scope,
-    input.prepared.envelope.occurrenceKey,
+    input.prepared.claimed.occurrence.occurrenceKey,
     input.clients?.finding,
   );
   if (!existing) return Object.freeze({ status: "missing" });
-  const outcome = await finalizePriorWorkspaceRunOutcomeForControlPlane({
+  return finalizePriorWorkspaceRunOutcomeForControlPlane({
     alertPresentation: alertPresentationForFacts(
       existing.finding?.facts?.filter(
         (fact): fact is SecIpoFilingFact => fact.kind === "sec_ipo_filing",
@@ -345,7 +348,6 @@ export async function recoverSecIpoWorkspaceRunForControlPlane(input: {
     prepared: input.prepared,
     toolId: EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
   });
-  return Object.freeze({ outcome, status: "recovered" });
 }
 
 export const secIpoWorkspaceWorkerOutputSchema = z.object({

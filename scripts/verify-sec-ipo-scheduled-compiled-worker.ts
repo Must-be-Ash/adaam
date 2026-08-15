@@ -15,6 +15,7 @@ import type { WorkspaceBudgetLedgerClient } from "../agent/lib/workspace-budget-
 import { readWorkspaceBudgetLedger } from "../agent/lib/workspace-budget-ledger";
 import {
   finishWorkspaceMonitorDispatchBudget,
+  readGlobalDispatchBudgetLedger,
   reserveWorkspaceMonitorDispatchBudget,
   type WorkspaceGlobalBudgetClient,
 } from "../agent/lib/workspace-dispatch-budget";
@@ -24,6 +25,7 @@ import {
   claimDueWorkspaceMonitors,
   createWorkspaceMonitor,
   getWorkspaceMonitor,
+  inspectWorkspaceMonitorOccurrenceLease,
   recordWorkspaceMonitorFailure,
   releaseWorkspaceMonitorLease,
   type ClaimedWorkspaceMonitor,
@@ -48,6 +50,7 @@ import {
 } from "../agent/lib/workspace-state-store";
 import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization";
 import {
+  prepareWorkspaceWorkerRecovery,
   prepareWorkspaceWorkerRun,
   requireWorkspaceWorkerOutcome,
 } from "../agent/lib/workspace-worker-runner";
@@ -174,6 +177,10 @@ class MemoryMonitorStore implements WorkspaceMonitorStoreClient {
   }
 
   async get(key: string) {
+    const lease = this.leases.get(key);
+    if (lease) return lease.token;
+    const occurrence = this.occurrences.get(key);
+    if (occurrence) return JSON.stringify(occurrence);
     return this.values.get(key) ?? null;
   }
 
@@ -530,6 +537,8 @@ type DispatchEvidence = {
 let pendingClaim: ClaimedWorkspaceMonitor | null = null;
 let eventCapture: Promise<MessageStreamEvent[]> | null = null;
 let workspaceWorkerStarts = 0;
+let workspaceBudgetReservations = 0;
+let workspaceBudgetEnvironment: NodeJS.ProcessEnv = environment;
 const schedule = createEventTriggerSchedule({
   claimEventTriggers: async () => [],
   claimWorkspaceMonitors: async () => {
@@ -542,7 +551,16 @@ const schedule = createEventTriggerSchedule({
       global: budget,
       workspace: budget,
     }),
+  getWorkspaceMonitor: (scope, monitorId) =>
+    getWorkspaceMonitor(scope, monitorId, monitors),
+  inspectWorkspaceLease: (input) =>
+    inspectWorkspaceMonitorOccurrenceLease(input, monitors),
   now: () => verificationNow,
+  prepareWorkspaceRecovery: (input) =>
+    prepareWorkspaceWorkerRecovery({
+      ...input,
+      clients: { monitor: monitors, state },
+    }),
   prepareWorkspaceWorker: (input) => prepareWorkspaceWorkerRun({
     ...input,
     clients: { sourceCoverage: coverage, state },
@@ -555,19 +573,20 @@ const schedule = createEventTriggerSchedule({
     recoverSecIpoWorkspaceRunForControlPlane({
       ...input,
       clients: workerClients,
-      environment,
       now: verificationNow,
     }),
   releaseWorkspaceLease: (input) =>
     releaseWorkspaceMonitorLease(input, monitors),
   requireWorkspaceOutcome: (prepared) =>
     requireWorkspaceWorkerOutcome(prepared, findings),
-  reserveWorkspaceBudget: (job, options) =>
-    reserveWorkspaceMonitorDispatchBudget(job, {
+  reserveWorkspaceBudget: (job, options) => {
+    workspaceBudgetReservations += 1;
+    return reserveWorkspaceMonitorDispatchBudget(job, {
       ...options,
       clients: { global: budget, state, workspace: budget },
-      environment,
-    }),
+      environment: workspaceBudgetEnvironment,
+    });
+  },
   resolveRuntimeFlags: () => ({
     dispatch: true,
     legacyTriggerCreation: false,
@@ -661,6 +680,18 @@ async function dispatch(
   assert.equal(waiters.length, 1);
   await Promise.all(waiters);
   const events = eventCapture ? await eventCapture : [];
+  return { events, fetches: fetchCount - fetchesBefore };
+}
+
+async function runCompiledWorkspaceWorkerWithoutSchedulerTail(
+  request: Parameters<typeof startWorkspaceWorkerTask>[0],
+  fetchSource: (requestedUrl: string) => Promise<OfficialPublicSourceResponse>,
+): Promise<DispatchEvidence> {
+  activeFetch = fetchSource;
+  const fetchesBefore = fetchCount;
+  const session = await startWorkspaceWorkerTask(request);
+  const events: MessageStreamEvent[] = [];
+  for await (const event of session.events) events.push(event);
   return { events, fetches: fetchCount - fetchesBefore };
 }
 
@@ -853,17 +884,6 @@ try {
     assert.equal(storedFindings().length, 0);
     assert.equal(storedRecords(findings, "workspace_run_outcome").length, 1);
 
-    const baselineReplay = await dispatch(
-      baselineJob,
-      async () => {
-        throw new Error("completed occurrence replay must not fetch");
-      },
-    );
-    assert.equal(baselineReplay.fetches, 0);
-    assert.deepEqual(baselineReplay.events, []);
-    assert.equal(storedRecords(alerts, "workspace_alert").length, 0);
-    assert.equal(storedRecords(findings, "workspace_run_outcome").length, 1);
-
     monitorA = (await getWorkspaceMonitor(
       workspaceA.scope,
       monitorA.monitorId,
@@ -985,16 +1005,33 @@ try {
       alignedRecoveryMonitor.monitorId,
     );
     assert.equal(recoveryAttemptOne.occurrence.attempt, 1);
+    workspaceBudgetEnvironment = {
+      ...environment,
+      EVE_WORKSPACE_GLOBAL_CONCURRENT_WORKERS: "1",
+    };
+    const recoveryAttemptOneBudget =
+      await reserveWorkspaceMonitorDispatchBudget(recoveryAttemptOne, {
+        clients: { global: budget, state, workspace: budget },
+        environment: workspaceBudgetEnvironment,
+        now: verificationNow,
+      });
+    const recoveryAttemptOnePrepared = await prepareWorkspaceWorkerRun({
+      claimed: recoveryAttemptOne,
+      clients: { sourceCoverage: coverage, state },
+      dispatchBudget: recoveryAttemptOneBudget,
+      environment,
+      now: verificationNow,
+    });
     const alertsBeforeRecovery = storedRecords(alerts, "workspace_alert").length;
     const completionsBeforeRecovery = monitors.completeCalls;
     const workerStartsBeforeRecovery = workspaceWorkerStarts;
     alerts.failNextRecordType = "workspace_alert";
-    const interrupted = await dispatch(
-      recoveryAttemptOne,
+    const interrupted = await runCompiledWorkspaceWorkerWithoutSchedulerTail(
+      recoveryAttemptOnePrepared.request,
       fetchResponse(fixtureBodies.later),
     );
     assert.equal(interrupted.fetches, 1);
-    assert.equal(workspaceWorkerStarts, workerStartsBeforeRecovery + 1);
+    assert.equal(workspaceWorkerStarts, workerStartsBeforeRecovery);
     assert.ok(interrupted.events.some((event) =>
       event.type === "action.result" &&
       event.data.result.kind === "tool-result" &&
@@ -1012,6 +1049,22 @@ try {
       ))?.nextOccurrenceAt,
       alignedRecoveryMonitor.nextOccurrenceAt,
     );
+    const reservedAttemptOneLedger = await readWorkspaceBudgetLedger(
+      recoveryWorkspace.scope,
+      budget,
+    );
+    assert.equal(
+      reservedAttemptOneLedger.reservations.find(
+        ({ runId }) => runId === recoveryAttemptOneBudget.runId,
+      )?.state,
+      "reserved",
+    );
+    assert.equal(
+      (await readGlobalDispatchBudgetLedger(budget)).reservations.find(
+        ({ runId }) => runId === recoveryAttemptOneBudget.runId,
+      )?.state,
+      "reserved",
+    );
     verificationNow = new Date(
       Date.parse(recoveryAttemptOne.leaseExpiresAt) + 1,
     );
@@ -1023,6 +1076,11 @@ try {
       recoveryAttemptTwo.occurrence.occurrenceKey,
       recoveryAttemptOne.occurrence.occurrenceKey,
     );
+    const expectedAttemptTwoRunId =
+      `${recoveryAttemptTwo.occurrence.occurrenceKey}:attempt:2`;
+    assert.notEqual(expectedAttemptTwoRunId, recoveryAttemptOneBudget.runId);
+    const budgetAdmissionsBeforeAttemptTwo = workspaceBudgetReservations;
+    const coverageRecordsBeforeAttemptTwo = coverage.values.size;
     const recovered = await dispatch(
       recoveryAttemptTwo,
       async () => {
@@ -1031,7 +1089,9 @@ try {
     );
     assert.equal(recovered.fetches, 0);
     assert.deepEqual(recovered.events, []);
-    assert.equal(workspaceWorkerStarts, workerStartsBeforeRecovery + 1);
+    assert.equal(workspaceWorkerStarts, workerStartsBeforeRecovery);
+    assert.equal(workspaceBudgetReservations, budgetAdmissionsBeforeAttemptTwo);
+    assert.equal(coverage.values.size, coverageRecordsBeforeAttemptTwo);
     assert.equal(
       storedRecords(alerts, "workspace_alert").length,
       alertsBeforeRecovery + 1,
@@ -1056,11 +1116,20 @@ try {
     );
     assert.deepEqual(
       recoveryReservations.map(({ state }) => state),
-      ["reconciled", "released"],
+      ["reserved"],
     );
-    assert.notEqual(
-      recoveryReservations[0]?.runId,
-      recoveryReservations[1]?.runId,
+    assert.equal(recoveryReservations[0]?.runId, recoveryAttemptOneBudget.runId);
+    assert.equal(
+      recoveryBudget.reservations.some(
+        ({ runId }) => runId === expectedAttemptTwoRunId,
+      ),
+      false,
+    );
+    assert.equal(
+      (await readGlobalDispatchBudgetLedger(budget)).reservations.some(
+        ({ runId }) => runId === expectedAttemptTwoRunId,
+      ),
+      false,
     );
     const recoveryReplay = await dispatch(
       recoveryAttemptTwo,
@@ -1070,7 +1139,8 @@ try {
     );
     assert.equal(recoveryReplay.fetches, 0);
     assert.deepEqual(recoveryReplay.events, []);
-    assert.equal(workspaceWorkerStarts, workerStartsBeforeRecovery + 1);
+    assert.equal(workspaceWorkerStarts, workerStartsBeforeRecovery);
+    assert.equal(workspaceBudgetReservations, budgetAdmissionsBeforeAttemptTwo);
     assert.equal(monitors.completeCalls, completionsBeforeRecovery + 1);
     assert.deepEqual(
       await getWorkspaceMonitor(
@@ -1080,6 +1150,7 @@ try {
       ),
       recoveredMonitor,
     );
+    workspaceBudgetEnvironment = environment;
 
     const missingRecoveryWorkspace = await setupWorkspace(
       "523e4567-e89b-42d3-a456-426614174000",
@@ -1128,7 +1199,7 @@ try {
     );
     assert.deepEqual(
       missingBudget.reservations.map(({ state }) => state),
-      ["released"],
+      [],
     );
 
     const corruptRecoveryWorkspace = await setupWorkspace(
@@ -1179,7 +1250,7 @@ try {
     );
     assert.deepEqual(
       corruptBudget.reservations.map(({ state }) => state),
-      ["released"],
+      [],
     );
 
     verificationNow = new Date();

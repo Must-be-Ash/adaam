@@ -1134,6 +1134,59 @@ export async function releaseWorkspaceMonitorLease(
   });
 }
 
+export type WorkspaceMonitorLeaseInspection =
+  | "completed"
+  | "current"
+  | "stale";
+
+export async function inspectWorkspaceMonitorOccurrenceLease(
+  input: {
+    configurationRevision: number;
+    leaseToken: string;
+    leaseTokenDigest: string;
+    monitorId: string;
+    occurrenceKey: string;
+    scope: AuthorizedWorkspaceStoreScope;
+  },
+  client: WorkspaceMonitorStoreClient = store(),
+): Promise<WorkspaceMonitorLeaseInspection> {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  if (
+    !z.string().uuid().safeParse(input.monitorId).success ||
+    !/^[a-f0-9]{64}$/u.test(input.leaseTokenDigest) ||
+    !/^[a-f0-9]{64}$/u.test(input.occurrenceKey)
+  ) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  const [leaseRaw, occurrenceRaw] = await Promise.all([
+    client.get(leaseKey(input.scope, input.monitorId)),
+    client.get(`${OCCURRENCE_PREFIX}${input.occurrenceKey}`),
+  ]);
+  const occurrenceValue = rawValue(occurrenceRaw);
+  if (occurrenceValue === null) return "stale";
+  let occurrence: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(occurrenceValue) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("invalid occurrence");
+    }
+    occurrence = parsed as Record<string, unknown>;
+  } catch {
+    throw new WorkspaceMonitorError("monitor_occurrence_stale");
+  }
+  if (
+    occurrence.monitorId !== input.monitorId ||
+    occurrence.occurrenceKey !== input.occurrenceKey ||
+    occurrence.configurationRevision !== input.configurationRevision ||
+    occurrence.leaseTokenDigest !== input.leaseTokenDigest
+  ) {
+    return "stale";
+  }
+  if (occurrence.status === "completed") return "completed";
+  if (occurrence.status !== "leased") return "stale";
+  return rawValue(leaseRaw) === input.leaseToken ? "current" : "stale";
+}
+
 export async function completeWorkspaceMonitorCheckpoint(
   input: {
     completedAt?: Date;

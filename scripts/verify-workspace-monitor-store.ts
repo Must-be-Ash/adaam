@@ -7,6 +7,7 @@ import {
   completeWorkspaceMonitorCheckpoint,
   createWorkspaceMonitor,
   getWorkspaceMonitor,
+  inspectWorkspaceMonitorOccurrenceLease,
   listWorkspaceMonitors,
   pauseWorkspaceMonitorsAfterRestore,
   releaseWorkspaceMonitorLease,
@@ -27,7 +28,14 @@ class MemoryStore implements WorkspaceMonitorStoreClient {
   >();
   readonly indexes = new Map<string, Set<string>>();
   readonly leases = new Map<string, string>();
-  readonly occurrences = new Map<string, { attempt: number; leaseTokenDigest: string; status: string }>();
+  readonly occurrences = new Map<string, {
+    attempt: number;
+    configurationRevision: number;
+    leaseTokenDigest: string;
+    monitorId: string;
+    occurrenceKey: string;
+    status: string;
+  }>();
   readonly values = new Map<string, string>();
 
   async complete(input: Parameters<WorkspaceMonitorStoreClient["complete"]>[0]) {
@@ -82,7 +90,10 @@ class MemoryStore implements WorkspaceMonitorStoreClient {
     });
     this.occurrences.set(input.occurrenceRecordKey, {
       attempt,
+      configurationRevision: input.configurationRevision,
       leaseTokenDigest: input.leaseTokenDigest,
+      monitorId: input.monitorId,
+      occurrenceKey: input.occurrenceKey,
       status: "leased",
     });
     this.due.delete(input.recordKey);
@@ -102,6 +113,10 @@ class MemoryStore implements WorkspaceMonitorStoreClient {
 
   async get(key: string) {
     this.calls += 1;
+    if (this.leases.has(key)) return this.leases.get(key) ?? null;
+    if (this.occurrences.has(key)) {
+      return JSON.stringify(this.occurrences.get(key));
+    }
     return this.values.get(key) ?? null;
   }
 
@@ -453,6 +468,17 @@ assert.deepEqual(
   }, client),
   unchangedCompleted,
 );
+assert.equal(
+  await inspectWorkspaceMonitorOccurrenceLease({
+    configurationRevision: unchanged.occurrence.configurationRevision,
+    leaseToken: unchanged.leaseToken,
+    leaseTokenDigest: unchanged.occurrence.leaseTokenDigest,
+    monitorId: completed.monitorId,
+    occurrenceKey: unchanged.occurrence.occurrenceKey,
+    scope,
+  }, client),
+  "completed",
+);
 
 const paused = await updateWorkspaceMonitor(
   {
@@ -608,6 +634,28 @@ assert.equal(recoveredDispatchClaims[0]?.occurrence.attempt, 2);
 assert.equal(
   recoveredDispatchClaims[0]?.occurrence.occurrenceKey,
   dispatchClaims[0]?.occurrence.occurrenceKey,
+);
+assert.equal(
+  await inspectWorkspaceMonitorOccurrenceLease({
+    configurationRevision: recoveredDispatchClaims[0]!.occurrence.configurationRevision,
+    leaseToken: recoveredDispatchClaims[0]!.leaseToken,
+    leaseTokenDigest: recoveredDispatchClaims[0]!.occurrence.leaseTokenDigest,
+    monitorId: recoveredDispatchClaims[0]!.monitor.monitorId,
+    occurrenceKey: recoveredDispatchClaims[0]!.occurrence.occurrenceKey,
+    scope,
+  }, dispatcherClient),
+  "current",
+);
+assert.equal(
+  await inspectWorkspaceMonitorOccurrenceLease({
+    configurationRevision: recoveredDispatchClaims[0]!.occurrence.configurationRevision,
+    leaseToken: "stale-lease-token",
+    leaseTokenDigest: recoveredDispatchClaims[0]!.occurrence.leaseTokenDigest,
+    monitorId: recoveredDispatchClaims[0]!.monitor.monitorId,
+    occurrenceKey: recoveredDispatchClaims[0]!.occurrence.occurrenceKey,
+    scope,
+  }, dispatcherClient),
+  "stale",
 );
 
 const missedClient = new MemoryStore();
