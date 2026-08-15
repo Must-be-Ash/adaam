@@ -123,6 +123,29 @@ async function readLimitedText(response: Response): Promise<string> {
   return text + decoder.decode();
 }
 
+export interface OfficialPublicSourceResponse {
+  readonly body: string;
+  readonly contentType: string;
+  readonly finalUrl: string;
+  readonly requestedUrl: string;
+  readonly status: number;
+  readonly truncated?: boolean;
+}
+
+export async function fetchOfficialPublicSourceText(
+  requestedUrl: string,
+): Promise<OfficialPublicSourceResponse> {
+  const initialUrl = publicGovernmentUrl(requestedUrl);
+  const { response, finalUrl } = await fetchOfficialSource(initialUrl);
+  return Object.freeze({
+    body: await readLimitedText(response),
+    contentType: response.headers.get("content-type") ?? "",
+    finalUrl: finalUrl.toString(),
+    requestedUrl: initialUrl.toString(),
+    status: response.status,
+  });
+}
+
 function asArray(value: unknown): unknown[] {
   if (value === undefined || value === null) return [];
   return Array.isArray(value) ? value : [value];
@@ -482,11 +505,12 @@ export default defineTool({
       throw new Error("Use web_fetch for HTML sources.");
     }
 
-    const { response, finalUrl } = await fetchOfficialSource(initialUrl);
-    if (workspaceSource && finalUrl.toString() !== workspaceSource.canonicalUrl) {
+    const { body, contentType, finalUrl, status } =
+      await fetchOfficialPublicSourceText(initialUrl.toString());
+    const final = new URL(finalUrl);
+    if (workspaceSource && finalUrl !== workspaceSource.canonicalUrl) {
       throw new Error("A workspace source redirect crossed the exact configured URL fence.");
     }
-    const body = await readLimitedText(response);
     const contentDigest = createHash("sha256").update(body).digest("hex");
     const markSuccess = async (): Promise<void> => {
       if (workspaceSource) {
@@ -500,7 +524,6 @@ export default defineTool({
         await markScheduledSourceSuccess(scheduledScope);
       }
     };
-    const contentType = response.headers.get("content-type") ?? "";
     const looksJson =
       expectedFormat === "json" ||
       contentType.includes("application/json") ||
@@ -523,8 +546,8 @@ export default defineTool({
       }
       const parsedJson = normalizedJsonPayload(
         JSON.parse(body) as unknown,
-        finalUrl,
-        response.status,
+        final,
+        status,
       );
       if (
         scheduledScope &&
@@ -536,7 +559,7 @@ export default defineTool({
       }
       const result = {
         sourceId: source?.id ?? null,
-        sourceUrl: finalUrl.toString(),
+        sourceUrl: finalUrl,
         format: "json",
         fetchedAt: new Date().toISOString(),
         data: truncateJson(parsedJson, input.maxItems),
@@ -588,7 +611,7 @@ export default defineTool({
 
     const result = {
       sourceId: source?.id ?? null,
-      sourceUrl: finalUrl.toString(),
+      sourceUrl: finalUrl,
       format: parsed.format,
       title: parsed.title,
       fetchedAt: new Date().toISOString(),

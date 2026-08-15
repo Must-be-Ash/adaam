@@ -47,13 +47,14 @@ const successSchema = z.object({
   sourceId: idSchema,
   succeededAt: timestampSchema,
 }).strict();
+const checkpointSchema = z.object({
+  completedAt: timestampSchema,
+  contentDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+  watermark: timestampSchema,
+}).strict();
 const recordSchema = z.object({
   attempts: z.array(idSchema).max(8),
-  checkpoint: z.object({
-    completedAt: timestampSchema,
-    contentDigest: z.string().regex(/^[a-f0-9]{64}$/u),
-    watermark: timestampSchema,
-  }).strict().nullable(),
+  checkpoint: checkpointSchema.nullable(),
   configurationRevision: z.number().int().positive(),
   createdAt: timestampSchema,
   monitorId: z.string().uuid(),
@@ -381,11 +382,25 @@ export async function markWorkspaceSourceSuccess(
 }
 
 export async function completeWorkspaceSourceCoverage(
-  input: { now?: Date; runId: string; scope: AuthorizedWorkspaceStoreScope },
+  input: {
+    checkpoint?: { contentDigest: string; watermark: string };
+    now?: Date;
+    runId: string;
+    scope: AuthorizedWorkspaceStoreScope;
+  },
   client: WorkspaceSourceCoverageClient = store(),
 ): Promise<WorkspaceSourceCoverage> {
   return update(input.scope, input.runId, client, (record) => {
-    if (record.state === "complete") return { record, result: record };
+    if (record.state === "complete") {
+      if (
+        input.checkpoint &&
+        (record.checkpoint?.contentDigest !== input.checkpoint.contentDigest ||
+          record.checkpoint.watermark !== input.checkpoint.watermark)
+      ) {
+        throw new WorkspaceSourceCoverageError("source_coverage_conflict");
+      }
+      return { record, result: record };
+    }
     if (
       record.sources.some(
         (source) => !record.successes.some((success) => success.sourceId === source.sourceId),
@@ -393,7 +408,7 @@ export async function completeWorkspaceSourceCoverage(
     ) {
       throw new WorkspaceSourceCoverageError("source_coverage_incomplete");
     }
-    const contentDigest = createHash("sha256")
+    const coverageContentDigest = createHash("sha256")
       .update(
         record.sources
           .map((source) => {
@@ -404,13 +419,21 @@ export async function completeWorkspaceSourceCoverage(
       )
       .digest("hex");
     const timestamp = (input.now ?? new Date()).toISOString();
+    const checkpoint = checkpointSchema.safeParse({
+      completedAt: timestamp,
+      contentDigest: input.checkpoint?.contentDigest ?? coverageContentDigest,
+      watermark: input.checkpoint?.watermark ?? record.window.endAt,
+    });
+    if (
+      !checkpoint.success ||
+      Date.parse(checkpoint.data.watermark) < Date.parse(record.window.startAt) ||
+      Date.parse(checkpoint.data.watermark) > Date.parse(record.window.endAt)
+    ) {
+      throw new WorkspaceSourceCoverageError("source_coverage_conflict");
+    }
     const next = recordSchema.parse({
       ...record,
-      checkpoint: {
-        completedAt: timestamp,
-        contentDigest,
-        watermark: record.window.endAt,
-      },
+      checkpoint: checkpoint.data,
       state: "complete",
       updatedAt: timestamp,
     });

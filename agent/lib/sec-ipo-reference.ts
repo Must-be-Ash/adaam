@@ -5,11 +5,7 @@ import { z } from "zod";
 
 import type { WorkspaceCapabilityManifestValue } from "./workspace-state-store";
 import { SEC_IPO_NORMALIZER_VERSION } from "./workspace-finding-facts";
-import {
-  COMPLETE_WORKSPACE_RUN_TOOL_ID,
-  WRITE_WORKSPACE_FINDING_TOOL_ID,
-} from "./workspace-worker-control-plane";
-
+export const EVALUATE_SEC_IPO_SOURCE_TOOL_ID = "evaluate_sec_ipo_source";
 export const SEC_IPO_SOURCE_ID = "sec-latest-s1-filings";
 export const SEC_IPO_SOURCE_URL =
   "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=S-1&owner=include&count=40&output=atom";
@@ -261,11 +257,7 @@ export function normalizeSecIpoAtom(
 
 export const IPO_FILINGS_CAPABILITY_MANIFEST = Object.freeze({
   connectionIds: [],
-  controlPlaneToolIds: [
-    COMPLETE_WORKSPACE_RUN_TOOL_ID,
-    STAGE_WORKSPACE_ALERT_TOOL_ID,
-    WRITE_WORKSPACE_FINDING_TOOL_ID,
-  ],
+  controlPlaneToolIds: [EVALUATE_SEC_IPO_SOURCE_TOOL_ID],
   financialToolIds: [],
   hardDeniedCapabilityIds: [
     "bash",
@@ -288,7 +280,7 @@ export const IPO_FILINGS_CAPABILITY_MANIFEST = Object.freeze({
   maximumDataAccessClassification: "public",
   paidResearchAllowed: false,
   providerTools: [],
-  researchToolIds: ["fetch_public_source"],
+  researchToolIds: [],
   skills: [{ id: "public-event-monitoring", version: "1.0.0" }],
   sources: [{ origin: "https://www.sec.gov", sourceId: SEC_IPO_SOURCE_ID }],
   workerModelPolicy: {

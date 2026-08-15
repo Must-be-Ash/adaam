@@ -137,12 +137,46 @@ function nextCheckpoint(page: SecIpoAtomPage): SecIpoCheckpoint {
   });
 }
 
+function pageThrough(
+  page: SecIpoAtomPage,
+  windowEndAt: string | undefined,
+): SecIpoAtomPage {
+  if (windowEndAt === undefined) return page;
+  const endAtMs = Date.parse(windowEndAt);
+  if (!Number.isFinite(endAtMs)) {
+    throw new SecIpoEvaluationError("sec_atom_fetch_incomplete");
+  }
+  const filings = page.filings.filter(
+    (filing) => Date.parse(filing.updatedAt) <= endAtMs,
+  );
+  const contentHash = createHash("sha256")
+    .update(JSON.stringify({
+      filings: filings.map((filing) => ({
+        contentHash: filing.contentHash,
+        filingIdentity: filing.dedupeKey,
+      })),
+      normalizerVersion: page.normalizerVersion,
+      sourceId: page.sourceId,
+      sourceUrl: page.sourceUrl,
+    }))
+    .digest("hex");
+  return Object.freeze({
+    ...page,
+    contentHash,
+    filings: Object.freeze(filings),
+    observedAt:
+      Date.parse(page.observedAt) <= endAtMs ? page.observedAt : windowEndAt,
+  });
+}
+
 export function evaluateSecIpoPage(
   page: SecIpoAtomPage,
   checkpoint: SecIpoCheckpoint | null,
   identityScope: { ownerId: string; workspaceId: string },
+  options?: { windowEndAt?: string },
 ): SecIpoEvaluation {
-  const next = nextCheckpoint(page);
+  const evaluatedPage = pageThrough(page, options?.windowEndAt);
+  const next = nextCheckpoint(evaluatedPage);
   if (checkpoint === null) {
     return Object.freeze({
       alerts: Object.freeze([]),
@@ -151,17 +185,18 @@ export function evaluateSecIpoPage(
       findings: Object.freeze([]),
     });
   }
-  const latest = page.filings.at(-1)?.updatedAt ?? page.observedAt;
+  const latest =
+    evaluatedPage.filings.at(-1)?.updatedAt ?? evaluatedPage.observedAt;
   if (latest < checkpoint.watermark) {
     throw new SecIpoEvaluationError("sec_atom_stale");
   }
   if (
     latest === checkpoint.watermark &&
-    page.contentHash !== checkpoint.contentDigest
+    evaluatedPage.contentHash !== checkpoint.contentDigest
   ) {
     throw new SecIpoEvaluationError("sec_atom_ambiguous_window");
   }
-  const newFilings = page.filings.filter(
+  const newFilings = evaluatedPage.filings.filter(
     (filing) => filing.updatedAt > checkpoint.watermark,
   );
   const findings = Object.freeze(newFilings.map((filing) => Object.freeze({

@@ -137,6 +137,7 @@ export async function stageWorkspaceAlert(input: {
   finding: WorkspaceFinding;
   monitor: WorkspaceMonitor;
   now?: Date;
+  presentation?: { title: string; whyMatched: string };
   scope: AuthorizedWorkspaceStoreScope;
 }, client: WorkspaceAlertStoreClient = store()): Promise<WorkspaceAlert> {
   assertAuthorizedWorkspaceStoreScope(input.scope);
@@ -155,8 +156,8 @@ export async function stageWorkspaceAlert(input: {
     schemaVersion: 1,
     sourceRefs: input.finding.provenance.map((source) => source.sourceId),
     state: "ready",
-    title: input.monitor.name,
-    whyMatched: input.finding.summary,
+    title: input.presentation?.title ?? input.monitor.name,
+    whyMatched: input.presentation?.whyMatched ?? input.finding.summary,
     workspaceId: input.scope.workspaceId,
     workspaceName: input.monitor.name,
   });

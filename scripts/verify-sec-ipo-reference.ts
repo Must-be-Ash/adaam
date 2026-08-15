@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { getPublicFeed } from "../agent/lib/public-feeds";
 import { resolveWorkspaceRuntimeCapabilities } from "../agent/lib/workspace-runtime-capabilities";
 import {
+  EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
   IPO_FILINGS_CAPABILITY_MANIFEST,
   normalizeSecIpoAtom,
   SEC_IPO_NORMALIZER_VERSION,
@@ -124,9 +125,13 @@ const storedManifest = await writeWorkspaceDocument("capabilities", {
 assert.deepEqual(storedManifest.value.sources, [
   { origin: "https://www.sec.gov", sourceId: SEC_IPO_SOURCE_ID },
 ]);
-assert.deepEqual(storedManifest.value.researchToolIds, ["fetch_public_source"]);
+assert.deepEqual(storedManifest.value.researchToolIds, []);
 assert.deepEqual(resolveWorkspaceRuntimeCapabilities({
   catalog: [
+    {
+      category: "control_plane",
+      id: EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
+    },
     { category: "control_plane", id: "complete_workspace_run" },
     { category: "control_plane", id: "stage_workspace_alert" },
     { category: "control_plane", id: "write_workspace_finding" },
@@ -140,10 +145,7 @@ assert.deepEqual(resolveWorkspaceRuntimeCapabilities({
   ownerId: scope.ownerId,
   workspaceId: scope.workspaceId,
 }).toolIds, [
-  "complete_workspace_run",
-  "fetch_public_source",
-  "stage_workspace_alert",
-  "write_workspace_finding",
+  EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
 ]);
 
 for (const invalid of [

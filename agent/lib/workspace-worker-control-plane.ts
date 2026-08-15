@@ -80,6 +80,7 @@ async function assertCurrentMonitor(
 }
 
 async function prepareCommit(input: {
+  checkpoint?: { contentDigest: string; watermark: string };
   clients?: WorkspaceWorkerControlPlaneClients;
   ctx: WorkerContext;
   environment?: NodeJS.ProcessEnv;
@@ -120,7 +121,12 @@ async function prepareCommit(input: {
     throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
   }
   const coverage = await completeWorkspaceSourceCoverage(
-    { now: input.now, runId: envelope.runId, scope },
+    {
+      checkpoint: input.checkpoint,
+      now: input.now,
+      runId: envelope.runId,
+      scope,
+    },
     input.clients?.sourceCoverage,
   );
   await assertCurrentMonitor(envelope, scope, input.clients?.monitor);
@@ -131,6 +137,89 @@ async function prepareCommit(input: {
     monitor,
     scope,
   };
+}
+
+async function completeMonitorCheckpoint(
+  prepared: Awaited<ReturnType<typeof prepareCommit>>,
+  input: {
+    client?: WorkspaceMonitorStoreClient;
+    now?: Date;
+  },
+): Promise<void> {
+  if (prepared.coverage.checkpoint === null) {
+    throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
+  }
+  await completeWorkspaceMonitorCheckpoint({
+    completedAt: input.now,
+    configurationRevision: prepared.envelope.configurationRevision,
+    contentDigest: prepared.coverage.checkpoint.contentDigest,
+    leaseTokenDigest: prepared.envelope.leaseTokenDigest,
+    monitorId: prepared.envelope.monitorId,
+    occurrenceKey: prepared.envelope.occurrenceKey,
+    scheduledFor: prepared.envelope.scheduledFor,
+    scope: prepared.scope,
+    watermark: prepared.coverage.checkpoint.watermark,
+  }, input.client);
+}
+
+export async function commitDeterministicWorkspaceEvaluationForWorker(input: {
+  alertPresentation?: { title: string; whyMatched: string };
+  checkpoint: { contentDigest: string; watermark: string };
+  clients?: WorkspaceWorkerControlPlaneClients;
+  ctx: WorkerContext;
+  environment?: NodeJS.ProcessEnv;
+  finding: WorkspaceFindingCandidate | null;
+  now?: Date;
+  toolId: string;
+}): Promise<WorkspaceRunOutcome> {
+  const prepared = await prepareCommit({
+    checkpoint: input.checkpoint,
+    clients: input.clients,
+    ctx: input.ctx,
+    environment: input.environment,
+    now: input.now,
+    toolId: input.toolId,
+  });
+  let outcome: WorkspaceRunOutcome;
+  if (input.finding === null) {
+    outcome = await completeWorkspaceRunNoMatch({
+      coverage: prepared.coverage,
+      envelope: prepared.envelope,
+      now: input.now,
+      scope: prepared.scope,
+    }, input.clients?.finding);
+  } else {
+    if (
+      input.finding.accessClassification === "owner_private" &&
+      prepared.maximumDataAccessClassification === "public"
+    ) {
+      throw new WorkspaceWorkerCommitError(
+        "workspace_worker_classification_denied",
+      );
+    }
+    outcome = await stageWorkspaceFinding({
+      coverage: prepared.coverage,
+      envelope: prepared.envelope,
+      finding: input.finding,
+      now: input.now,
+      scope: prepared.scope,
+    }, input.clients?.finding);
+    if (!outcome.finding) {
+      throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
+    }
+    await stageWorkspaceAlert({
+      finding: outcome.finding,
+      monitor: prepared.monitor,
+      now: input.now,
+      presentation: input.alertPresentation,
+      scope: prepared.scope,
+    }, input.clients?.alert);
+  }
+  await completeMonitorCheckpoint(prepared, {
+    client: input.clients?.monitor,
+    now: input.now,
+  });
+  return outcome;
 }
 
 export async function writeWorkspaceFindingForWorker(input: {
@@ -169,17 +258,10 @@ export async function writeWorkspaceFindingForWorker(input: {
     now: input.now,
     scope: prepared.scope,
   }, input.clients?.alert);
-  await completeWorkspaceMonitorCheckpoint({
-    completedAt: input.now,
-    configurationRevision: prepared.envelope.configurationRevision,
-    contentDigest: outcome.checkpoint.contentDigest,
-    leaseTokenDigest: prepared.envelope.leaseTokenDigest,
-    monitorId: prepared.envelope.monitorId,
-    occurrenceKey: prepared.envelope.occurrenceKey,
-    scheduledFor: prepared.envelope.scheduledFor,
-    scope: prepared.scope,
-    watermark: outcome.checkpoint.watermark,
-  }, input.clients?.monitor);
+  await completeMonitorCheckpoint(prepared, {
+    client: input.clients?.monitor,
+    now: input.now,
+  });
   return outcome;
 }
 
@@ -202,16 +284,9 @@ export async function completeWorkspaceRunForWorker(input: {
     now: input.now,
     scope: prepared.scope,
   }, input.clients?.finding);
-  await completeWorkspaceMonitorCheckpoint({
-    completedAt: input.now,
-    configurationRevision: prepared.envelope.configurationRevision,
-    contentDigest: outcome.checkpoint.contentDigest,
-    leaseTokenDigest: prepared.envelope.leaseTokenDigest,
-    monitorId: prepared.envelope.monitorId,
-    occurrenceKey: prepared.envelope.occurrenceKey,
-    scheduledFor: prepared.envelope.scheduledFor,
-    scope: prepared.scope,
-    watermark: outcome.checkpoint.watermark,
-  }, input.clients?.monitor);
+  await completeMonitorCheckpoint(prepared, {
+    client: input.clients?.monitor,
+    now: input.now,
+  });
   return outcome;
 }
