@@ -11,7 +11,7 @@ const ALERT_ACTION_KEY_PREFIX = "eve:photon:v1:workspace-alert-action:";
 const MANAGER_REQUEST_KEY_PREFIX = "eve:photon:v1:workspace-manager-request:";
 const MANAGER_TTL_SECONDS = 15 * 60;
 const ALERT_ACTION_TTL_SECONDS = 10 * 60;
-const MAX_WORKSPACES = 12;
+export const PHOTON_WORKSPACE_LIMIT = 12;
 const MAX_CAS_ATTEMPTS = 5;
 
 const COMPARE_AND_SET_SCRIPT = `
@@ -53,7 +53,7 @@ const registrySchema = z
     pendingAlertContext: pendingAlertContextSchema.optional(),
     revision: z.number().int().nonnegative(),
     schemaVersion: z.literal(1),
-    workspaces: z.array(workspaceSchema).min(1).max(MAX_WORKSPACES),
+    workspaces: z.array(workspaceSchema).min(1).max(PHOTON_WORKSPACE_LIMIT),
   })
   .superRefine((registry, context) => {
     const ids = new Set<string>();
@@ -113,6 +113,7 @@ const alertActionCapabilitySchema = z.object({
 
 export type PhotonWorkspace = z.infer<typeof workspaceSchema>;
 export type PhotonPendingAlertContext = z.infer<typeof pendingAlertContextSchema>;
+export type PhotonWorkspaceRegistry = z.infer<typeof registrySchema>;
 
 export interface PhotonWorkspaceState {
   activeWorkspace: PhotonWorkspace;
@@ -282,6 +283,10 @@ function store(): PhotonWorkspaceStoreClient {
   return redisStoreClient;
 }
 
+export function photonWorkspaceStoreClient(): PhotonWorkspaceStoreClient {
+  return store();
+}
+
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -290,7 +295,10 @@ function scopeHash(principalId: string, threadId: string): string {
   return sha256(`photon-workspaces\u0000${principalId}\u0000${threadId}`);
 }
 
-function registryKey(principalId: string, threadId: string): string {
+export function photonWorkspaceRegistryStorageKey(
+  principalId: string,
+  threadId: string,
+): string {
   return `${REGISTRY_KEY_PREFIX}${scopeHash(principalId, threadId)}`;
 }
 
@@ -306,7 +314,7 @@ function alertActionKey(token: string): string {
   return `${ALERT_ACTION_KEY_PREFIX}${sha256(token)}`;
 }
 
-function parseRegistry(value: unknown): z.infer<typeof registrySchema> {
+export function parsePhotonWorkspaceRegistry(value: unknown): PhotonWorkspaceRegistry {
   if (typeof value !== "string") {
     throw new Error("The Photon workspace registry is unavailable.");
   }
@@ -384,14 +392,28 @@ async function ensureRegistry(
   input: { principalId: string; threadId: string },
   client: PhotonWorkspaceStoreClient,
 ): Promise<z.infer<typeof registrySchema>> {
-  const key = registryKey(input.principalId, input.threadId);
+  const key = photonWorkspaceRegistryStorageKey(input.principalId, input.threadId);
   const existing = await client.get(key);
   if (existing !== null && existing !== undefined) {
-    return parseRegistry(existing);
+    return parsePhotonWorkspaceRegistry(existing);
   }
   const initial = initialRegistry();
   await client.set(key, JSON.stringify(initial), { nx: true });
-  return parseRegistry(await client.get(key));
+  return parsePhotonWorkspaceRegistry(await client.get(key));
+}
+
+export async function readPhotonWorkspaceRegistryRecord(
+  input: { principalId: string; threadId: string },
+  client: PhotonWorkspaceStoreClient = store(),
+): Promise<{ raw: string; registry: PhotonWorkspaceRegistry }> {
+  await ensureRegistry(input, client);
+  const raw = await client.get(
+    photonWorkspaceRegistryStorageKey(input.principalId, input.threadId),
+  );
+  if (typeof raw !== "string") {
+    throw new Error("The Photon workspace registry is unavailable.");
+  }
+  return { raw, registry: parsePhotonWorkspaceRegistry(raw) };
 }
 
 async function mutateRegistry<T>(
@@ -406,13 +428,13 @@ async function mutateRegistry<T>(
   ) => { registry: z.infer<typeof registrySchema>; value: T },
   client: PhotonWorkspaceStoreClient,
 ): Promise<{ registry: z.infer<typeof registrySchema>; value: T }> {
-  const key = registryKey(input.principalId, input.threadId);
+  const key = photonWorkspaceRegistryStorageKey(input.principalId, input.threadId);
   const mutationId = randomUUID();
   await ensureRegistry(input, client);
 
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
     const raw = await client.get(key);
-    const current = parseRegistry(raw);
+    const current = parsePhotonWorkspaceRegistry(raw);
     if (
       input.expectedRevision !== undefined &&
       current.revision !== input.expectedRevision
@@ -436,7 +458,7 @@ async function mutateRegistry<T>(
       );
     } catch (error) {
       try {
-        const observed = parseRegistry(await client.get(key));
+        const observed = parsePhotonWorkspaceRegistry(await client.get(key));
         if (observed.lastMutationId === mutationId) {
           return { registry: observed, value: mutation.value };
         }
@@ -452,7 +474,7 @@ async function mutateRegistry<T>(
       throw new PhotonWorkspaceApprovalBlockedError();
     }
     if (input.expectedRevision !== undefined) {
-      const observed = parseRegistry(await client.get(key));
+      const observed = parsePhotonWorkspaceRegistry(await client.get(key));
       if (observed.lastMutationId === mutationId) {
         return { registry: observed, value: mutation.value };
       }
@@ -620,7 +642,7 @@ export function normalizePhotonWorkspaceName(name: string): string {
   return normalized;
 }
 
-function normalizedName(name: string): string {
+export function normalizePhotonWorkspaceNameKey(name: string): string {
   return normalizePhotonWorkspaceName(name).toLocaleLowerCase("en-US");
 }
 
@@ -628,12 +650,54 @@ export function findPhotonWorkspaceByName(
   state: PhotonWorkspaceState,
   name: string,
 ): PhotonWorkspace | null {
-  const target = normalizedName(name);
+  const target = normalizePhotonWorkspaceNameKey(name);
   return (
     state.workspaces.find(
       (workspace) => workspace.normalizedName === target,
     ) ?? null
   );
+}
+
+export function preparePhotonWorkspaceRegistryCreation(input: {
+  current: PhotonWorkspaceRegistry;
+  name: string;
+  now: Date;
+  select: boolean;
+  workspaceId: string;
+}): { registry: PhotonWorkspaceRegistry; workspace: PhotonWorkspace } {
+  const name = normalizePhotonWorkspaceName(input.name);
+  const normalizedName = normalizePhotonWorkspaceNameKey(name);
+  if (input.current.workspaces.length >= PHOTON_WORKSPACE_LIMIT) {
+    throw new PhotonWorkspaceValidationError(
+      `A conversation can have at most ${PHOTON_WORKSPACE_LIMIT} sessions.`,
+    );
+  }
+  if (
+    input.current.workspaces.some(
+      (workspace) => workspace.normalizedName === normalizedName,
+    )
+  ) {
+    throw new PhotonWorkspaceValidationError(`A session named “${name}” already exists.`);
+  }
+  const now = input.now.getTime();
+  const workspace = workspaceSchema.parse({
+    continuation: "isolated",
+    createdAtMs: now,
+    generation: 1,
+    id: input.workspaceId,
+    name,
+    normalizedName,
+    status: "active",
+    updatedAtMs: now,
+  });
+  return {
+    registry: registrySchema.parse(updatedRegistry(
+      input.current,
+      [...input.current.workspaces, workspace],
+      input.select ? workspace.id : input.current.activeWorkspaceId,
+    )),
+    workspace,
+  };
 }
 
 export async function getPhotonWorkspaceState(
@@ -655,7 +719,7 @@ export async function createPhotonWorkspace(
   client: PhotonWorkspaceStoreClient = store(),
 ): Promise<PhotonWorkspaceState> {
   const name = normalizePhotonWorkspaceName(input.name);
-  const targetName = normalizedName(name);
+  const targetName = normalizePhotonWorkspaceNameKey(name);
   const now = Date.now();
   const workspace: PhotonWorkspace = {
     continuation: "isolated",
@@ -670,9 +734,9 @@ export async function createPhotonWorkspace(
   const result = await mutateRegistry(
     input,
     (registry) => {
-      if (registry.workspaces.length >= MAX_WORKSPACES) {
+      if (registry.workspaces.length >= PHOTON_WORKSPACE_LIMIT) {
         throw new PhotonWorkspaceValidationError(
-          `A conversation can have at most ${MAX_WORKSPACES} sessions.`,
+          `A conversation can have at most ${PHOTON_WORKSPACE_LIMIT} sessions.`,
         );
       }
       if (
@@ -745,7 +809,7 @@ export async function renamePhotonWorkspace(
   client: PhotonWorkspaceStoreClient = store(),
 ): Promise<PhotonWorkspaceState> {
   const name = normalizePhotonWorkspaceName(input.name);
-  const targetName = normalizedName(name);
+  const targetName = normalizePhotonWorkspaceNameKey(name);
   const now = Date.now();
   const result = await mutateRegistry(
     input,

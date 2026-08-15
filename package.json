@@ -36,6 +36,8 @@
     "verify:sessions": "node scripts/verify-photon-session.mjs",
     "verify:transport": "node scripts/verify-bounded-stdio.mjs",
     "verify:strategy-packs": "jiti scripts/verify-strategy-packs.mjs",
+    "verify:strategy-pack-mutations": "jiti scripts/verify-strategy-pack-mutations.mjs",
+    "verify:strategy-pack-mutations:redis": "jiti scripts/verify-strategy-pack-mutations-redis.mjs",
     "verify:workspace-runtime:contracts": "node scripts/verify-workspace-runtime-contracts.mjs",
     "verify:workspace-runtime:failures": "node scripts/verify-workspace-runtime-failures.mjs",
     "verify:workspace-runtime:photon-harness": "node scripts/verify-workspace-photon-harness.mjs",

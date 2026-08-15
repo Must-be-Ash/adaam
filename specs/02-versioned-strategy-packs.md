@@ -72,21 +72,21 @@ The completed feature must support this experience:
 
 - [x] A strategy pack is a declarative, versioned repository package, not a
   permanently running model, remote agent, or independent user identity.
-- [ ] A workspace may have zero or one installed strategy pack. A workspace
+- [x] A workspace may have zero or one installed strategy pack. A workspace
   with no pack remains a general-purpose Eve research session.
-- [ ] The workspace owns its conversation, configuration overrides, monitors,
+- [x] The workspace owns its conversation, configuration overrides, monitors,
   findings, and budgets. The reusable pack never owns or receives that data.
 - [x] Packs are pinned to an exact semantic version and immutable content
   digest. Configuration and removal are explicit control-plane actions.
-- [ ] Pack content can request capabilities but cannot grant them. Effective
+- [x] Pack content can request capabilities but cannot grant them. Effective
   access remains the intersection of deployment policy, owner authorization,
   workspace policy, pack requirements, monitor scope, and runtime hard denials.
-- [ ] Packs may tighten shared safety and budget limits but never loosen them.
+- [x] Packs may tighten shared safety and budget limits but never loosen them.
 - [x] A pack definition contains no credentials, owner data, executable scripts,
   provider tokens, or arbitrary remote code.
 - [x] Source adapters, tools, schemas, and migrations are reviewed application
   code referenced by stable IDs. A pack manifest cannot execute code by itself.
-- [ ] Installing a pack does not silently activate preset monitors. Background
+- [x] Installing a pack does not silently activate preset monitors. Background
   work starts only when the owner's request or manager action explicitly enables
   the resulting monitor and schedule.
 - [ ] Removing a pack does not rewrite or delete workspace findings. Managed
@@ -201,7 +201,7 @@ must promote the smallest necessary prerequisite into its own sprint.
   to different bytes or a different digest across builds.
 - [x] A workspace binds to exactly one version and digest at a time. There is no
   floating `latest`, version range, or silent production upgrade.
-- [ ] Installing a pack may declare and bind reviewed source contracts, but no
+- [x] Installing a pack may declare and bind reviewed source contracts, but no
   fetch, cadence, monitor run, paid access, or broader capability begins without
   an explicit owner request or manager action describing that activation.
 - [ ] Pack instructions, research documents, and other packs are not loaded into
@@ -472,10 +472,10 @@ unavailable -> active | unbound
 - [ ] Use one stable mutation ID for every install/configure/remove attempt and
   return the prior receipt on replay.
 - [x] Keep at most one active binding per workspace.
-- [ ] Derive owner, conversation, and source assignment from authenticated
+- [x] Derive owner, conversation, and source assignment from authenticated
   routing. The control plane generates and persists the target workspace ID;
   neither the model nor Spectrum supplies authoritative ownership or grants.
-- [ ] A failed or stale mutation changes no durable key and creates no success
+- [x] A failed or stale mutation changes no durable key and creates no success
   receipt. Replaying the same canonical request returns its prior receipt.
 
 ## Installation, configuration, and removal mutations
@@ -485,11 +485,11 @@ package-upgrade or recovery system. Each install, configuration change, or
 removal validates one canonical request and atomically records the complete
 state change plus immutable receipt against expected revisions.
 
-- [ ] Reconcile resources by stable pack resource ID, never display name or
+- [x] Reconcile resources by stable pack resource ID, never display name or
   array position.
-- [ ] Reject a stale expected revision as a harmless conflict; never merge it
+- [x] Reject a stale expected revision as a harmless conflict; never merge it
   best-effort.
-- [ ] Keep newly materialized monitor templates paused unless the same explicit
+- [x] Keep newly materialized monitor templates paused unless the same explicit
   owner request supplies and enables their schedule.
 - [ ] Validate configuration before committing it, pause affected monitors when
   required, and advance the session generation with the binding revision.

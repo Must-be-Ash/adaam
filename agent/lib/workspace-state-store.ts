@@ -614,6 +614,42 @@ export async function writeWorkspaceDocument<K extends WorkspaceDocumentKind>(
   return parsed.data as WorkspaceDocument<K>;
 }
 
+export function prepareInitialWorkspaceDocument<
+  K extends Exclude<WorkspaceDocumentKind, "strategy">,
+>(
+  kind: K,
+  input: {
+    now: Date;
+    scope: AuthorizedWorkspaceStoreScope;
+    value: WorkspaceDocument<K>["value"];
+  },
+): { document: WorkspaceDocument<K>; key: string; raw: string } {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  const now = input.now.toISOString();
+  const parsed = schemas[kind].safeParse({
+    createdAt: now,
+    ownerId: input.scope.ownerId,
+    recordType: recordTypes[kind],
+    revision: 1,
+    schemaVersion: 1,
+    updatedAt: now,
+    value: input.value,
+    workspaceId: input.scope.workspaceId,
+  });
+  if (!parsed.success) {
+    throw new WorkspaceStateValidationError("workspace_state_invalid");
+  }
+  const raw = JSON.stringify(parsed.data);
+  if (Buffer.byteLength(raw, "utf8") > WORKSPACE_DOCUMENT_BYTE_LIMITS[kind]) {
+    throw new WorkspaceStateValidationError("workspace_state_invalid");
+  }
+  return {
+    document: parsed.data as WorkspaceDocument<K>,
+    key: workspaceDocumentStorageKey(kind, input.scope),
+    raw,
+  };
+}
+
 function strategyBindingCandidate(input: {
   current: WorkspaceDocument<"strategy"> | null;
   now: string;
@@ -630,6 +666,36 @@ function strategyBindingCandidate(input: {
     value: input.value,
     workspaceId: input.scope.workspaceId,
   });
+}
+
+export function prepareInitialWorkspaceStrategyBinding(input: {
+  now: Date;
+  scope: AuthorizedWorkspaceStoreScope;
+  value: WorkspaceStrategyBindingValue;
+}): {
+  document: z.infer<typeof workspaceStrategyBindingDocumentSchema>;
+  key: string;
+  raw: string;
+} {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  const candidate = strategyBindingCandidate({
+    current: null,
+    now: input.now.toISOString(),
+    scope: input.scope,
+    value: input.value,
+  });
+  if (!candidate.success) {
+    throw new WorkspaceStateValidationError("workspace_state_invalid");
+  }
+  const raw = JSON.stringify(candidate.data);
+  if (Buffer.byteLength(raw, "utf8") > WORKSPACE_DOCUMENT_BYTE_LIMITS.strategy) {
+    throw new WorkspaceStateValidationError("workspace_state_invalid");
+  }
+  return {
+    document: candidate.data,
+    key: workspaceDocumentStorageKey("strategy", input.scope),
+    raw,
+  };
 }
 
 export async function writeWorkspaceStrategyBinding(
