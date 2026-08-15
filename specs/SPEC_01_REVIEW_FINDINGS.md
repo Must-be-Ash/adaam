@@ -113,7 +113,8 @@ is implemented on the R2 phase branch and is still pending that review.
 Pass A re-review did not accept the occurrence-recovery or Redis-atomicity
 claims. The remaining acceptance work is:
 
-- [ ] **A3 — reclaimed-attempt occurrence recovery.** Production lease expiry
+- [x] **Implemented and locally verified; independent final review pending — A3
+  reclaimed-attempt occurrence recovery.** Production lease expiry
   assigns a new run ID for the same occurrence. A non-model recovery admission
   must run before normal model concurrency and budget gates, then recover and
   apply the prior outcome using occurrence identity. The persisted outcome is
@@ -125,7 +126,8 @@ claims. The remaining acceptance work is:
   reservation, model call, source fetch, or provider charge. R5 owns
   reconciliation of attempt 1's reservation; A3 must not release or claim it
   settled.
-- [ ] **A4 — invalid recovery fails durably.** Missing, corrupt, incompatible, or
+- [x] **Implemented and locally verified; independent final review pending — A4
+  invalid recovery fails durably.** Missing, corrupt, incompatible, or
   stale recovery data must create an explicit durable failure state with a
   bounded reason and must never fall through to a fresh model execution. This
   includes shape-valid data whose parent/nested identity or attempt relationship
@@ -143,10 +145,11 @@ claims. The remaining acceptance work is:
   re-read proves that a concurrent lifecycle, configuration, or occurrence
   change superseded that exact operation; otherwise the schedule must fail
   visibly.
-- [ ] **Redis identity/outcome race proof — unverified in this environment.** Run
-  the new Lua identity/outcome transaction against real ephemeral Redis with
-  competing claims and recovery attempts, proving one canonical outcome and no
-  duplicate model, fetch, finding, alert, or charge.
+- [x] **Locally verified against real Redis; independent final review pending —
+  Redis identity/outcome race proof.** The Lua identity/outcome transaction ran
+  against an ephemeral local Redis server with competing claims and recovery
+  attempts, proving one canonical outcome and no duplicate model, fetch,
+  finding, alert, or charge.
 
 ### R3 — production alert outbox and delivery recovery
 
