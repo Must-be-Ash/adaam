@@ -40,12 +40,13 @@ routed. It does not start, stop, or pause background work in other workspaces.
 
 The completed foundation must support this experience:
 
-1. The owner creates an `IPO Filings` workspace.
-2. In that workspace, the owner asks Eve to check for new SEC S-1 filings every
+1. The owner creates an `IPO Filings` session.
+2. In that session, the owner asks Eve to check for new SEC S-1 filings every
    day at 9:00 AM in the owner's timezone.
 3. The owner later says, “Also run this at 4:00 PM,” and Eve edits the same
    workspace-owned monitor.
-4. The owner switches to `Insider Clusters`; the IPO monitor continues running.
+4. The owner switches to the `Insider Clusters` session; the IPO monitor
+   continues running.
 5. A bounded IPO worker detects a new filing and sends an iMessage alert headed
    **IPO Filings** without changing the selected workspace.
 6. The owner taps **Discuss in IPO Filings**. Eve atomically selects that
@@ -89,7 +90,7 @@ The completed foundation must support this experience:
 | Owner | The one person who controls this deployment. Approved Photon principals may be aliases of that owner. |
 | Conversation | One authenticated Photon principal and physical iMessage thread. |
 | Selected workspace | The workspace that receives ordinary unqualified messages in a conversation. This is a routing pointer, not a runtime status. |
-| Workspace | A durable specialized agent container with isolated state, monitors, tools, skills, and budget. |
+| Workspace | The internal durable specialized-agent record, shown to the owner as a session, with isolated state, monitors, tools, skills, and budget. |
 | Session generation | Temporary Eve conversation history for a workspace. `Start fresh` replaces it without deleting workspace state. |
 | Monitor | An editable, durable instruction and trigger configuration owned by one workspace. |
 | Worker | A stateless, bounded Eve task session for one monitor occurrence. It is not user-facing and cannot read workspace chat history. |
@@ -715,6 +716,17 @@ Each workspace view shows:
 - schedule editor for supported schedule variants; and
 - workspace budget editor constrained by deployment caps.
 
+Spectrum state behavior is explicit:
+
+- while loading or mutating, keep the last authoritative state visible and
+  disable only actions that could conflict;
+- a workspace with no monitors shows a valid empty state with the create-monitor
+  entry point;
+- a read failure shows a bounded reason and retry action without presenting
+  stale data as current; and
+- successful, stale, replayed, and failed mutations produce distinct bounded
+  outcomes.
+
 - [x] Keep the existing owner-bound short-lived manager capability and URL
   fragment transport.
 - [x] Add request IDs, expected revisions, expirations, and one-time durable
@@ -836,140 +848,38 @@ real Coinbase mutation endpoints.
 - [x] Use fixture-backed Eve and Photon adapters and keep all live financial
   mutation capabilities unavailable in the harness.
 
-## Implementation sprints
+## Implementation status
 
-### Sprint 0 — contracts and failure fixtures
+The detailed contracts above are authoritative. This table records completion
+without duplicating each requirement.
 
-- [x] Add state diagrams and schema fixtures for owner mapping, Photon ingress,
-  assignment, dispatch, workspace, monitor, run, budget, finding, alert,
-  delivery, and routing-decision records.
-- [x] Write failing tests for cross-workspace access, duplicate dispatch,
-  duplicate webhooks, immutable assignment, dispatch/delivery uncertainty,
-  duplicate alert delivery, stale configuration, capability drift, budget
-  exhaustion, archive, restore, start-fresh, and ambiguous alert replies.
-- [x] Define the fixture-backed Photon integration harness and prove it cannot
-  reach real Coinbase mutation endpoints.
-- [x] Define low-cardinality error codes and operational counters.
-- [x] Document feature flags and rollback behavior.
+| Sprint | Delivered scope | Status |
+| --- | --- | --- |
+| 0 | Contracts, state transitions, failure fixtures, flags, and rollback design | Local gate passed |
+| 1 | Owner/workspace identity, state, capabilities, budgets, and Start fresh | Local gate passed |
+| 2 | Monitor store, scheduling, dispatch, leases, budgets, checkpoints, and legacy assignment | Local gate passed |
+| 3 | Isolated worker runtime and IPO/SEC reference implementation | Local gate passed |
+| 4 | Durable-mode Photon receipts, alert delivery, Discuss/Manage routing, and deterministic integration harness | Local gate passed |
+| 5 | Natural-language and Spectrum monitor/budget management plus lifecycle controls | Local gate passed |
+| 6 | Deterministic suites, Redis races, builds, local runbook, simultaneous runs, budget exhaustion, and SEC live smoke | Local gate passed; production acceptance remains |
 
-Exit gate:
+### Remaining pre-production acceptance
 
-- [x] Every state transition and forbidden transition is represented by a
-  deterministic failing test before production implementation begins.
-
-### Sprint 1 — owner, workspace state, capabilities, and budgets
-
-- [x] Add stable deployment-owner mapping for approved Photon principals.
-- [x] Enforce that mapping before Photon session, monitor, manager, worker, and
-  alert access; add negative tests for an authenticated unmapped principal.
-- [x] Project typed owner/conversation/workspace/generation metadata from the
-  Photon router and reject missing or mismatched tool scope.
-- [x] Add versioned, bounded workspace brief, durable strategy configuration,
-  capability manifest, and budget stores.
-- [x] Add owner/workspace-scoped authorization helpers used by every store.
-- [x] Add atomic run and paid-budget reservation/reconciliation primitives.
-- [x] Add default-deny dynamic capability resolution for runtime sessions.
-- [x] Add provider tool-inventory/schema drift reporting and typed unavailable-
-  capability reasons; newly discovered tools remain disabled.
-- [x] Verify `Start fresh` retains the new workspace state and revokes stale
-  generation-bound approvals.
-
-Exit gate:
-
-- [x] Two workspaces can hold different briefs, skills, tools, sources, and
-  budgets, and adversarial tests cannot cross either boundary.
-
-### Sprint 2 — workspace monitor store and polling dispatcher
-
-- [x] Add the workspace-monitor schema, indexes, CRUD, revisions, leases, and
-  occurrence keys.
-- [x] Add local-time daily schedules with DST and missed-run behavior.
-- [x] Adapt the existing minute dispatcher to claim workspace monitor runs.
-- [x] Enforce workspace and global concurrency/run budgets before dispatch.
-- [x] Preserve exact source fencing and complete-coverage checkpoints.
-- [x] Align monitor create/update tools, manager validation, and storage on the
-  maximum of eight combined sources.
-- [x] Add legacy trigger compatibility and explicit immutable-workspace
-  assignment flow.
-- [x] Add Redis-backed tests for leases, competing claims, budgets, retries,
-  checkpoints, failure pause, archive/pause races, expiration, and uncertain
-  alert delivery.
-
-Exit gate:
-
-- [x] Polling occurrences are deterministic, single-flight per monitor,
-  concurrent across workspaces, recoverable after lease expiry, and unable to
-  exceed configured budgets.
-
-### Sprint 3 — isolated worker and IPO reference
-
-- [x] Build the typed worker envelope and signed runtime auth.
-- [x] Dynamically expose only the workspace's permitted skills and tools.
-- [x] Add scoped finding and completion tools.
-- [x] Implement the `IPO Filings` reference manifest and SEC Atom normalizer.
-- [x] Complete all reference fixture tests, including concurrent workspaces.
-- [x] Prove the worker has no interactive history or cross-workspace state.
-
-Exit gate:
-
-- [x] A scheduled IPO fixture occurrence produces one correct durable finding or
-  no-match checkpoint with bounded context and no duplicate side effects.
-
-### Sprint 4 — durable alerts and reply-safe Photon routing
-
-- [x] Add immutable ingress, workspace-assignment, dispatch, completion, and
-  outbound response-delivery receipts for every actionable Photon webhook.
-- [x] Deduplicate concurrent Photon webhooks before dispatch and quarantine
-  uncertain model dispatch or response delivery for reconciliation.
-- [x] Add channel-independent alert/outbox records and Photon delivery receipts.
-- [x] Render workspace-headed alert cards with **Discuss** and **Manage**.
-- [x] Implement atomic workspace selection and one-time pending alert context.
-- [x] Route held alert replies through the same ingress assignment and dispatch
-  state machine as ordinary messages.
-- [x] Add delivery uncertainty quarantine and explicit recovery controls.
-- [x] Complete the deterministic Photon integration harness for routing,
-  duplicate webhooks, session switching, `Start fresh`, alerts, and stale
-  actions.
-
-Exit gate:
-
-- [x] Every fixture Photon message has one durable outcome, duplicate or
-  uncertain delivery cannot cause blind replay, and an IPO alert arriving while
-  another workspace is selected can be discussed safely without cross-routing.
-
-### Sprint 5 — natural-language and Spectrum management
-
-- [x] Add workspace-derived monitor CRUD tools and compatibility aliases.
-- [x] Support “also run at 4 PM,” source additions, budget changes, and status
-  questions through natural language.
-- [x] Extend the session manager with monitor details, pause/resume, schedule,
-  and workspace budget controls.
-- [x] Implement archive/restore/start-fresh monitor lifecycle behavior.
-- [x] Correct trigger-deletion approval copy or replace it with the dedicated
-  recoverable monitor-retirement action.
-- [x] Add stale/replayed mini-app action tests and plain-text fallbacks.
-
-Exit gate:
-
-- [x] The complete agreed owner workflow works without editing Redis,
-  environment variables, or tracked files.
-
-### Sprint 6 — polling production smoke and hardening
-
-- [x] Run all deterministic suites, Redis-backed race tests, typecheck, Eve
-  build, and application build.
-- [x] Publish and execute the local schedule-test runbook.
-- [x] Verify two simultaneous workspace runs and controlled budget exhaustion.
-- [x] Run the SEC read-only live smoke.
+- [ ] Remove raw workspace/monitor identifiers and arbitrary exception text from
+  runtime logs, enforce the fixed low-cardinality catalog, and pass negative
+  log-sink tests.
+- [ ] Before Spec 2 activates a pack-managed source, reject exact-fenced
+  redirects before issuing any second outbound request, including redirects to
+  private or undeclared origins.
 - [ ] With owner authorization, deploy behind flags and execute the real Photon
-  IPO alert/discuss/manager flow.
+  IPO alert/Discuss/manager flow.
 - [ ] Verify event streams and delivery receipts, not only the final iMessage.
 - [ ] Record rollback evidence before enabling by default.
 
 Exit gate:
 
 - [ ] Polling is proven end to end in Photon with no context leakage, duplicate
-  alerts, unexpected workspace switch, or unauthorized capability.
+  alerts, unexpected session switch, or unauthorized capability.
 
 ### Deferred hardening — after Specs 2–6
 
@@ -980,7 +890,6 @@ becomes an observed ordinary-path failure.
 
 #### Source and compiled-runtime boundaries
 
-- [ ] Reject exact-fenced redirects before any second outbound request.
 - [ ] Require explicit acceptance-only fixture-bridge opt-in, loopback-only
   transport, strong ephemeral credentials, and a built-output negative test.
 - [ ] Strengthen cross-field SEC identity relationships among accession, CIK,
@@ -1013,8 +922,6 @@ becomes an observed ordinary-path failure.
 
 - [ ] Make archive/restore converge atomically or through a durable idempotent
   lifecycle intent.
-- [ ] Remove raw workspace/monitor IDs and arbitrary exception messages from
-  runtime logs; use the fixed low-cardinality catalog and call-site tests.
 - [ ] Replace Eve private runtime imports with a public API when available;
   until then pin/guard the compatible Eve version and keep the compiled-worker
   upgrade gate.
@@ -1023,45 +930,12 @@ Source-event/RSS/WebSub implementation moved to
 [`Spec 3 Sprint 4`](03-public-source-adapters.md#sprint-4--spec-1-polling-and-source-event-integration),
 where it can share versioned adapter and canonical-fact contracts.
 
-## Planned code areas
-
-Prefer adjacent versioned modules over turning the existing trigger store into a
-single oversized file. Final names may change, but ownership must remain clear.
-
-- `agent/lib/owner-identity.ts`: stable owner and Photon alias mapping.
-- `agent/lib/photon-ingress-store.ts`: immutable ingress, assignment, dispatch,
-  completion, delivery, and quarantine receipts.
-- `agent/lib/workspace-state-store.ts`: briefs and structured workspace state.
-- `agent/lib/workspace-capabilities.ts`: manifest schema, runtime resolution,
-  provider drift reports, and unavailable-capability reasons.
-- `agent/lib/workspace-budget-store.ts`: atomic run/token/paid reservations.
-- `agent/lib/workspace-monitor-store.ts`: monitor configuration, indexes, leases,
-  schedules, and checkpoints.
-- `agent/lib/workspace-finding-store.ts`: scoped structured findings.
-- `agent/lib/workspace-alert-store.ts`: alerts, outbox, and delivery receipts.
-- `agent/lib/workspace-runtime-auth.ts`: signed worker claims and validation.
-- `agent/channels/workspace-monitor-runner.ts`: isolated Eve task dispatch.
-- `agent/schedules/workspace-monitors.ts`: static minute dispatcher.
-- `agent/channels/photon.ts`: selected-workspace routing and alert-reply guard.
-- `agent/channels/photon-workspace-app.ts`: monitor and budget management UI.
-- `agent/lib/photon-workspace-store.ts`: lifecycle integration and conversation
-  pointer revisions.
-- `agent/tools/`: workspace monitor CRUD, scoped finding/alert/completion, and
-  budget tools.
-- `agent/lib/public-feeds.ts` and `agent/tools/fetch_public_source.ts`: SEC
-  reference source and normalization.
-- `scripts/verify-*.mjs` and `evals/`: deterministic, Redis, and model behavior
-  coverage.
-
-Do not duplicate the shared MCP normalizer, bounded transport, artifact store,
-approval state machine, or Photon mini-app capability helpers.
-
 ## Verification matrix
 
 | Boundary | Required proof |
 | --- | --- |
 | Identity | Unmapped Photon principals fail closed before session, monitor, worker, manager, or alert state is read; aliases resolve only to the configured owner. |
-| Ingress | Every actionable Photon webhook has one immutable receipt and, when model-bound, one workspace/generation assignment recorded before dispatch. |
+| Durable-mode ingress | Every actionable Photon webhook has one immutable receipt and, when model-bound, one workspace/generation assignment recorded before dispatch. Legacy compatibility mode is covered separately and creates no durable ingress records. |
 | Dispatch | Concurrent duplicate webhooks cause one model dispatch; completion is idempotent; uncertain dispatch or response delivery is quarantined instead of blindly replayed. |
 | Isolation | A worker cannot read or write another workspace even with forged IDs in model input. |
 | Scheduling | Daily local times, DST, edits, downtime, leases, and stale revisions behave deterministically. |
@@ -1097,43 +971,15 @@ approval state machine, or Photon mini-app capability helpers.
 
 ## Definition of done
 
-The local polling implementation is complete when the applicable Sprint 0–6
-local gates below pass. Production rollout checks remain owner-authorized, and
-the deferred source-event follow-on is not part of this milestone.
+The local polling milestone is complete when the implementation-status table and
+verification matrix pass; that gate is met. The specification reaches
+production acceptance when every item in **Remaining pre-production
+acceptance** is checked with owner-authorized Photon evidence.
 
-The local milestone checks are complete. Unchecked entries below are explicitly
-owner-authorized rollout gates or deferred post-Spec-6 hardening, not blockers to
-beginning Spec 2. The complete status ledger is:
-
-- [x] Every applicable local polling exit gate through Sprint 6 passes.
-- [ ] Deferred crash-hardening gate: every actionable Photon webhook receives
-  one immutable ingress receipt;
-  every model-bound message is durably assigned before dispatch; duplicates and
-  uncertain outcomes cannot cause blind replay.
-- [x] The `IPO Filings` fixture and live-source smoke pass.
-- [ ] Deferred compiled-concurrency gate: two production-path workspace workers
-  overlap without cross-context, cross-tool, budget, or state leakage.
-- [ ] In owner-authorized production Photon, the owner can create and edit the
-  9 AM/4 PM monitor conversationally.
-- [x] The session manager accurately shows and controls monitors and budgets in
-  the local deterministic application path.
-- [ ] In owner-authorized production Photon, an alert from a non-selected
-  workspace is labeled, delivered once, and
-  does not change routing until the owner taps **Discuss** or confirms a held
-  reply.
-- [x] Archive, restore, and start-fresh follow the agreed lifecycle in the local
-  deterministic application path.
-- [x] Paid research is impossible without both an explicit capability and
-  available budget.
-- [x] Background live trading is impossible even if a model requests it.
-- [x] Existing approved financial and Photon safety tests remain green.
-- [x] The fixture-backed Photon integration harness passes routing, duplicate
-  webhook, switching, `Start fresh`, alert, stale-action, and owner-denial cases.
-- [x] Rollback can stop new dispatch without deleting durable state.
-- [x] `HANDOFF.md`, `NORTH_STAR.md`, and the focused verification map describe
-  the merged local implementation and distinguish it from production rollout.
-- [ ] After owner-authorized rollout, record the deployed commit and real Photon
-  acceptance evidence in `HANDOFF.md` and this specification.
+Deferred post-Spec-6 hardening remains tracked below the implementation status
+and is not a blocker unless an item becomes an observed ordinary-path failure.
+After production acceptance, record the deployed commit, smoke evidence, and
+rollback result in `HANDOFF.md`, `NORTH_STAR.md`, and this specification.
 
 ## Follow-on specifications
 
@@ -1148,70 +994,5 @@ own bounded implementation spec:
 6. Cramer Inverse source acquisition, quote attribution, and signal rules.
 7. Workspace-aware proposed-order, reservation, preview, approval, and broker
    reconciliation.
-8. General topic-change detection and held-message recovery.
+8. General topic-change detection beyond the bounded alert-reply guard.
 9. Telegram migration to the workspace broker.
-
-## Implementation progress
-
-| Date | Checklist item | Verification |
-| --- | --- | --- |
-| 2026-08-15 | Reconcile the temporary Spec 1 handoff/review ledgers into this canonical specification, Spec 3, `BACKLOG.md`, `HANDOFF.md`, and `NORTH_STAR.md` | Documentation reference scan, unchecked-item destination audit, and `git diff --check` — passed |
-| 2026-08-15 | Resolve final-review blockers in legacy monitoring, fail-closed rollout parsing, maximum-feed durability, and manager correctness | Owner/rollout, schema-maximum findings, budget, manager, Photon regressions, typecheck, live SEC smoke, compiled scheduled worker, Eve build, and Next.js webpack build — passed |
-| 2026-08-15 | Complete production scheduled-outcome delivery with authenticated Photon subscriptions, authoritative alert metadata, and Discuss/Manage actions | Alert subscription, delivery, presentation, app, context, reply, recovery, and compiled scheduled SEC verifiers — passed |
-| 2026-08-15 | Prove bounded 40-fact SEC durability, render complete manager status/usage, and preserve legacy Photon behavior behind a fail-closed rollout matrix | Findings, budget-ledger, manager, rollout, Photon workspace, approval, typecheck, Eve build, and Next.js webpack build — passed |
-| 2026-08-15 | Independently review the polling completion diff and reconcile Spec 1 into product-complete versus deferred hardening/rollout work | Two independent ordinary-path reviews found no remaining local product blocker |
-| 2026-08-14 | Add state diagrams and schema fixtures for durable workspace-runtime records | `node scripts/verify-workspace-runtime-contracts.mjs` and `jq empty specs/fixtures/01-independent-workspace-runtimes/*.json` — passed |
-| 2026-08-14 | Write deterministic pre-implementation failure fixtures for isolation, idempotency, uncertainty, drift, budgets, lifecycle, and alert routing | `node scripts/verify-workspace-runtime-failures.mjs` — passed |
-| 2026-08-14 | Define a fixture-backed Photon integration harness with no live broker or network surface | `node scripts/verify-workspace-photon-harness.mjs` — passed |
-| 2026-08-14 | Define fixed runtime error codes, counters, and routing-confirmation outcomes | `node scripts/verify-workspace-runtime-observability.mjs` and `tsc --noEmit` — passed |
-| 2026-08-14 | Document and enforce fail-closed rollout flags and non-destructive rollback behavior | `node scripts/verify-workspace-runtime-flags.mjs` and `tsc --noEmit` — passed |
-| 2026-08-14 | Sprint 0 exit gate: exercise every declared allowed and forbidden transition | All `verify:workspace-runtime:*`, `verify:workspaces`, `verify:approvals`, and `tsc --noEmit` — passed |
-| 2026-08-14 | Add fail-closed deployment-owner mapping with HMAC-derived Photon aliases | `node scripts/verify-owner-identity.mjs` and `tsc --noEmit` — passed |
-| 2026-08-14 | Enforce deployment-owner authorization before Photon session, monitor, manager, worker, and alert access | `node scripts/verify-owner-identity.mjs`, `node scripts/verify-photon-workspaces.mjs`, `node scripts/verify-photon-approval.mjs`, and `tsc --noEmit` — passed |
-| 2026-08-14 | Project typed Photon runtime scope through signed auth and reject missing or mismatched tool scope | `jiti scripts/verify-workspace-runtime-scope.ts`, `node scripts/verify-photon-workspaces.mjs`, `node scripts/verify-photon-approval.mjs`, and `tsc --noEmit` — passed |
-| 2026-08-14 | Add versioned, byte-bounded CAS stores for workspace briefs, strategy configuration, capability manifests, and budget policies | `jiti scripts/verify-workspace-state-store.ts` and `tsc --noEmit` — passed |
-| 2026-08-14 | Require non-serializable owner/workspace authorization scopes for every workspace state-store read and write | `jiti scripts/verify-workspace-state-store.ts` and `tsc --noEmit` — passed |
-| 2026-08-14 | Add CAS-atomic run/token/paid-budget reservations with exact decimal reconciliation and retained uncertainty | `jiti scripts/verify-workspace-budget-ledger.ts`, `jiti scripts/verify-workspace-state-store.ts`, and `tsc --noEmit` — passed |
-| 2026-08-14 | Add step-level default-deny runtime capability resolution with shared hard denials and reviewed provider schemas | `jiti scripts/verify-workspace-runtime-capabilities.ts` and `tsc --noEmit` — passed |
-| 2026-08-14 | Report bounded provider inventory drift and return typed unavailable-capability reasons without auto-enabling discoveries | `jiti scripts/verify-workspace-capability-drift.ts`, `jiti scripts/verify-workspace-runtime-capabilities.ts`, and `tsc --noEmit` — passed |
-| 2026-08-14 | Verify `Start fresh` preserves workspace-owned documents while rejecting stale approval and tool generations | `jiti scripts/verify-workspace-start-fresh.ts`, `node scripts/verify-photon-workspaces.mjs`, `node scripts/verify-photon-approval.mjs`, and `tsc --noEmit` — passed |
-| 2026-08-14 | Sprint 1 exit gate: prove distinct workspace state/capabilities/budgets and adversarial owner/workspace isolation | `jiti scripts/verify-workspace-isolation.ts` and `tsc --noEmit` — passed |
-| 2026-08-14 | Add the scoped workspace-monitor schema, durable indexes, CAS CRUD, lifecycle revisions, leases, and occurrence keys | `jiti scripts/verify-workspace-monitor-store.ts` and `tsc --noEmit` — passed |
-| 2026-08-14 | Add anchored and local-time schedule resolution with DST gap/fold and bounded newest-missed recovery semantics | `jiti scripts/verify-workspace-monitor-schedule.ts`, `jiti scripts/verify-workspace-monitor-store.ts`, and `tsc --noEmit` — passed |
-| 2026-08-14 | Adapt the single legacy minute schedule to claim bounded workspace-monitor occurrences with inflight lease recovery | `jiti scripts/verify-workspace-monitor-store.ts`, `jiti scripts/verify-workspace-monitor-schedule.ts`, and `tsc --noEmit` — passed |
-| 2026-08-14 | Enforce CAS-atomic workspace and deployment concurrency/run admission before workspace worker handoff | `jiti scripts/verify-workspace-dispatch-budget.ts`, `jiti scripts/verify-workspace-monitor-store.ts`, `jiti scripts/verify-workspace-budget-ledger.ts`, and `tsc --noEmit` — passed |
-| 2026-08-14 | Preserve exact configured-source fences, at-most-once attempts, and all-sources-success durable checkpoints | `jiti scripts/verify-workspace-source-coverage.ts`, `jiti scripts/verify-workspace-monitor-store.ts`, and `tsc --noEmit` — passed |
-| 2026-08-14 | Align workspace and compatibility monitor create/update schemas, manager validation, and storage on the same eight-source ceiling and bounded ninth-source code | `jiti scripts/verify-workspace-monitor-input.ts`, `jiti scripts/verify-workspace-monitor-store.ts`, `node scripts/verify-photon-workspaces.mjs`, `tsc --noEmit`, and `eve build` with fixture-only storage configuration — passed |
-| 2026-08-14 | Add labeled legacy compatibility and explicit current-workspace assignment with one atomic monitor-create/legacy-disable transaction | `jiti scripts/verify-workspace-legacy-assignment.ts`, `node scripts/verify-workspace-runtime-flags.mjs`, `jiti scripts/verify-workspace-monitor-store.ts`, `jiti scripts/verify-workspace-monitor-input.ts`, and `tsc --noEmit` — passed |
-| 2026-08-14 | Exercise workspace leases, competing claims, retry recovery, budgets, checkpoints, failure pause, lifecycle races, expiration, uncertain-alert pause, and assignment against ephemeral Redis | `REDIS_SERVER_BIN=<ephemeral redis-server> jiti scripts/verify-workspace-runtime-redis.ts`, focused deterministic suites, and `tsc --noEmit` — passed |
-| 2026-08-14 | Sprint 2 exit gate: prove deterministic polling, per-monitor single flight, concurrent cross-workspace claims, recovery, and duplicate-work prevention | All Sprint 0–2 workspace-runtime fixtures, ephemeral-Redis runtime matrix, Photon workspace/approval regressions, and `tsc --noEmit` — passed |
-| 2026-08-14 | Build a bounded typed worker envelope, dedicated HMAC runtime token, runtime-auth projection, and verified worker store scope | `jiti scripts/verify-workspace-worker-auth.ts`, monitor/dispatch/scope/state regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Re-resolve the isolated worker's exact source scope and default-deny skill/tool registry from the authoritative capability revision | `jiti scripts/verify-workspace-runtime-capabilities.ts`, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Add capability-gated worker completion and structured-finding tools backed by one CAS-atomic, source-complete run outcome | `jiti scripts/verify-workspace-finding-store.ts`, source-coverage/worker-auth/capability/monitor regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Add the public-only IPO Filings capability manifest, exact filtered SEC source, and bounded versioned S-1/S-1/A Atom normalizer | `jiti scripts/verify-sec-ipo-reference.ts`, finding regression, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Complete the SEC IPO baseline/new/replay/amendment/failure/concurrent-workspace corpus and occurrence-key retry-safe checkpoint semantics | `jiti scripts/verify-sec-ipo-fixtures.ts`, finding/monitor regressions, ephemeral-Redis checkpoint matrix, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Dispatch each occurrence directly to a fresh declared worker task with typed bounded context, exact source-tool fencing, scoped terminal outcomes, and no interactive or cross-workspace state | `jiti scripts/verify-workspace-worker-isolation.ts`, worker auth/source coverage/finding/capability/SEC fixture regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Sprint 3 exit gate: prove a bounded scheduled IPO baseline/no-match and new-filing outcome are occurrence-idempotent with one durable side-effect set | `jiti scripts/verify-sec-ipo-fixtures.ts`, `jiti scripts/verify-workspace-worker-isolation.ts`, source/finding/monitor regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Add content-free immutable Photon ingress/assignment/dispatch/completion and response-delivery receipts before model dispatch or outbound delivery | `jiti scripts/verify-photon-ingress-store.ts`, Photon harness/workspace/approval/scope regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Atomically gate duplicate Photon events before any action and quarantine ambiguous model dispatch or response delivery without replay | `jiti scripts/verify-photon-ingress-store.ts`, concurrent Photon harness regression, workspace/approval regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Stage one channel-independent workspace alert per durable finding and one content-free Photon delivery receipt per subscription | `jiti scripts/verify-workspace-alert-store.ts`, `jiti scripts/verify-workspace-finding-store.ts`, Photon receipt regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Render a bounded workspace-headed alert presentation with explicit **Discuss in workspace** and **Manage sessions** card actions plus a plain-text fallback | `jiti scripts/verify-workspace-alert-presentation.ts`, alert-store and Photon presentation regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Mint short-lived owner/conversation/workspace/alert/revision-bound Discuss capabilities in URL fragments, atomically select and stage one pending alert reference, and make stale taps and consumption harmless | `jiti scripts/verify-photon-alert-context.ts`, Photon workspace/ingress/alert regressions, ephemeral Redis runtime verification, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Hold only strong quoted or exact workspace-and-title alert replies outside workspace history, require an explicit workspace choice, and dispatch the original ingress exactly once through immutable assignment and dispatch receipts | `jiti scripts/verify-photon-alert-replies.ts`, alert-context/store regressions, Photon workspace and ingress regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Add CAS alert-delivery transitions, never replay uncertain Photon sends, pause the owning monitor on ambiguity, and require an explicit recorded reconciliation outcome | `jiti scripts/verify-workspace-alert-store.ts`, `jiti scripts/verify-photon-alert-delivery.ts`, monitor and alert-reply regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Expand the network- and broker-free Photon harness across routing, concurrent duplicate webhooks, switching, Start fresh, alert dedupe, uncertain-delivery denial, stale actions, Discuss routing, and owner denial | `node scripts/verify-workspace-photon-harness.mjs` and `tsc --noEmit` — passed |
-| 2026-08-14 | Add the fragment-token Photon alert action route so Discuss performs only the atomic workspace/pending-context mutation and never starts a model turn | `node scripts/verify-photon-alert-app.mjs`, alert-context regression, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Sprint 4 exit gate: prove durable Photon ingress outcomes, alert dedupe/uncertainty quarantine, safe non-selected-workspace alerts, explicit Discuss routing, and no cross-routing | Photon approval/workspace/ingress/alert/action/harness regressions, ephemeral Redis runtime verification, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Complete workspace-derived monitor create/list/update/pause/resume/recoverable-retire tools while retaining the isolated legacy event-trigger compatibility surface | `jiti scripts/verify-workspace-monitor-tools.mjs`, monitor store/input regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Add deterministic additive daily-time/source updates, authenticated workspace budget mutation, read-only workspace status, and monitor-first natural-language guidance | `jiti scripts/verify-workspace-monitor-tools.mjs`, monitor/state-store regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Extend the existing Spectrum session manager with scoped monitor health/schedule/source details, pause/resume and daily-schedule controls, and revision-bound workspace budget controls | `node scripts/verify-photon-workspace-runtime-manager.mjs`, Photon workspace and monitor/state-store regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Suspend monitors before workspace archive, restore them to manual pause without auto-resume, and preserve monitor state across Start fresh generation changes | manager/lifecycle verification, monitor-store and Start-fresh regressions, Photon approval regression, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Remove legacy trigger deletion from the Photon rich-approval protocol and direct new workspace monitors to authenticated recoverable retirement without altering Coinbase approval behavior | `node scripts/verify-photon-approval.mjs`, monitor-tool compatibility verification, and `tsc --noEmit` — passed |
-| 2026-08-14 | Require one-time UUID request claims for every Spectrum mutation, reject stale or replayed actions, and expose chat fallbacks for essential monitor operations | Photon workspace/manager/monitor-tool regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Sprint 5 exit gate: initialize the exact public-only IPO reference runtime from the owner’s monitor request, use Eve call IDs for retry-safe creation, and fail closed for unconfigured generic runtimes | Owner-workflow, monitor, monitor-tool, SEC reference/fixture, worker-isolation, Photon manager/workspace regressions, `tsc --noEmit`, and `eve build` with fixture-only configuration — passed |
-| 2026-08-14 | Run the complete deterministic verification matrix, ephemeral-Redis runtime races, typecheck, Eve build, and application production build | All package-mapped non-live verification scripts, `REDIS_SERVER_BIN=<ephemeral redis-server> jiti scripts/verify-workspace-runtime-redis.ts`, `tsc --noEmit`, fixture-configured `eve build`, and `next build --webpack` (documented fallback for a Turbopack worktree-symlink panic) — passed |
-| 2026-08-14 | Publish and execute the local schedule-test runbook with disposable Redis and the real Eve development dispatch route | Runbook contract verification, local REST-proxy command/pipeline check, `POST /eve/v1/dev/schedules/event-triggers` returning an empty successful dispatch, and deliberate internal-runner 404 — passed |
-| 2026-08-14 | Hold two isolated workspace runs concurrently, deny a third at the global cap, reconcile both, and prove controlled admission recovery | Dispatch-budget overlap/barrier verification, ephemeral-Redis concurrent claims, SEC concurrent-workspace fixtures, worker-isolation regression, and `tsc --noEmit` — passed |
-| 2026-08-14 | Run one bounded, declared, read-only SEC IPO feed smoke and establish a local no-alert baseline checkpoint | Fixture-tested live-smoke contract plus one configured-user-agent GET of the exact SEC S-1 Atom feed; 10 entries parsed and checkpoint watermark `2026-08-14T21:23:15.000Z` created without remote writes — passed |
-| 2026-08-14 | Disable undeclared provider-managed web search in the workspace worker and lock its compiled Gateway tool surface | `jiti scripts/verify-workspace-worker-compiled-tools.ts`, capability/isolation regressions, `tsc`, and fixture-configured `eve build` — passed |
-| 2026-08-14 | Re-prove Sprint 3 by putting deterministic SEC evaluation and versioned filing facts on the durable scheduled compiled-worker path, including terminal reservation replay | Compiled scheduled-worker acceptance; SEC parser/fact/fixture/live-smoke-safe, worker isolation/tool/capability, finding/source/alert, schedule/dispatch regressions; `tsc --noEmit`; fixture-configured `eve build`; and `next build --webpack` — passed |
