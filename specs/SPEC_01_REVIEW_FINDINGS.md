@@ -114,13 +114,20 @@ Pass A re-review did not accept the occurrence-recovery or Redis-atomicity
 claims. The remaining acceptance work is:
 
 - [ ] **A3 — reclaimed-attempt occurrence recovery.** Production lease expiry
-  assigns a new run ID for the same occurrence. Before any model, source fetch,
-  provider charge, or other side effect, the new attempt must recover and apply
-  the prior durable occurrence outcome using occurrence identity.
+  assigns a new run ID for the same occurrence. A non-model recovery admission
+  must run before normal model concurrency and budget gates, then recover and
+  apply the prior outcome using occurrence identity. Acceptance keeps attempt
+  1's uncertain budget reserved, reclaims attempt 2, and proves attempt 2 makes
+  no reservation, model call, source fetch, or provider charge. R5 owns
+  reconciliation of attempt 1's reservation; A3 must not release or claim it
+  settled.
 - [ ] **A4 — invalid recovery fails durably.** Missing, corrupt, incompatible, or
   stale recovery data must create an explicit durable failure state with a
-  bounded reason. It must never be swallowed or fall through to a fresh model
-  execution.
+  bounded reason and must never fall through to a fresh model execution. A
+  failure to persist recovery quarantine or clean up its lease may be swallowed
+  only after an authoritative re-read proves that a concurrent lifecycle,
+  configuration, or occurrence change superseded that exact operation;
+  otherwise the schedule must fail visibly.
 - [ ] **Redis identity/outcome race proof — unverified in this environment.** Run
   the new Lua identity/outcome transaction against real ephemeral Redis with
   competing claims and recovery attempts, proving one canonical outcome and no
