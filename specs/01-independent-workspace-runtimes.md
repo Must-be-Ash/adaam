@@ -876,9 +876,9 @@ without duplicating each requirement.
   redirects before issuing any second outbound request, including redirects to
   private or undeclared origins.
 
-This is the only remaining local code prerequisite. Verify it through the real
-fetch caller and its focused SEC regression tests; it does not reopen Sprints
-0–6 or require the full Photon/Redis/manager suite.
+Both local production prerequisites are complete, so the Spec 1 local code gate
+is complete. Their focused production-caller and regression checks do not
+replace the remaining owner-authorized production acceptance below.
 
 ### Remaining owner-authorized production acceptance
 
@@ -959,9 +959,9 @@ where it can share versioned adapter and canonical-fact contracts.
 
 ## Verification matrix
 
-This matrix distinguishes the completed ordinary path from the one remaining
-local prerequisite and explicitly deferred crash/operations work. A deferred
-tail does not reopen a locally passed boundary.
+This matrix distinguishes the completed ordinary path and local production
+prerequisites from explicitly deferred crash/operations work. A deferred tail
+does not reopen a locally passed boundary.
 
 | Boundary | Required proof | Current status |
 | --- | --- | --- |
@@ -974,7 +974,7 @@ tail does not reopen a locally passed boundary.
 | Context | Worker prompt/history contains no interactive transcript or unrelated skill/tool. | Local gate passed |
 | Capabilities | Omitted tools/providers are unavailable; hard runtime denials cannot be loosened; new or schema-changed provider tools remain disabled and are reported accurately. | Local gate passed |
 | Budgets | Reservations are atomic; concurrent runs cannot overspend; uncertain cost remains reserved. | Ordinary path passed; stale/ambiguous recovery deferred |
-| Sources | Exact source fencing, at-most-once fetch per run, complete coverage, and provenance survive retries. | Exact pre-request redirect fence pending |
+| Sources | Exact source fencing, at-most-once fetch per run, complete coverage, and provenance survive retries. | Local gate passed |
 | Findings | Duplicate occurrences cannot create duplicate structured findings. | Local gate passed |
 | Alerts | Duplicate/uncertain delivery cannot spam the owner or advance an unsafe checkpoint. | Ordinary path passed; crash recovery deferred |
 | Routing | Alert receipt does not switch workspaces; Discuss and held-message choices are one-time and revision-bound. | Ordinary path passed; crash recovery deferred |
@@ -993,13 +993,12 @@ tail does not reopen a locally passed boundary.
 
 ## Definition of done
 
-The ordinary-path polling implementation is complete for the rows labeled
-`Local gate passed` or `Ordinary path passed` above. This does not claim the
-pending exact redirect fence or the explicitly deferred recovery/operations
-tails. The local production-code gate closes when every item in **Local
-production prerequisites** is checked. The specification reaches production
-acceptance when every item in **Remaining owner-authorized production
-acceptance** and its exit gate is checked with real Photon evidence.
+The ordinary-path polling implementation and local production-code gate are
+complete for the rows labeled `Local gate passed` or `Ordinary path passed`
+above. This does not claim the explicitly deferred recovery/operations tails.
+The specification reaches production acceptance when every item in **Remaining
+owner-authorized production acceptance** and its exit gate is checked with real
+Photon evidence.
 
 Deferred post-Spec-6 hardening remains tracked below the implementation status
 and is not a blocker unless an item becomes an observed ordinary-path failure.

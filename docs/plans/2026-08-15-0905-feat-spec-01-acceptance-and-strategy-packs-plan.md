@@ -208,12 +208,15 @@ Schema rollback is not arbitrary binary rollback. U3 first deploys dual readers 
 
 ### U1. Close Spec 1 production prerequisites and rollout contract
 
+- **Status:** Work Package 1 completed in `1b7921d` and Work Package 2 completed
+  in `b5bbb8e`. Both coexist on `codex/spec1-runtime-observability` for one
+  combined independent U1 review before the branch is merged.
 - **Goal:** Make the live reference path safe and the deployment order truthful without reopening deferred hardening.
 - **Requirements:** R1-R2, R7.
 - **Files:** `agent/schedules/event-triggers.ts`, `agent/lib/workspace-runtime-observability.ts`, `agent/tools/fetch_public_source.ts`, `agent/lib/sec-ipo-evaluation.ts`, `specs/fixtures/01-independent-workspace-runtimes/feature-flags.md`, `scripts/verify-workspace-runtime-observability.mjs`, SEC fetch/evaluation fixtures.
 - **Approach:** Replace free-form schedule error logging with the fixed catalog and privacy-safe fields. Add an exact allowed-origin fence that rejects an undeclared redirect before a follow-up request. Document owner-plus-Redis durable-ingress cutover separately from workspace runtime flags.
 - **Test scenarios:** Raw identifiers/error text never reach the workspace schedule log sink; same-origin SEC behavior still works; an off-origin redirect makes one request only. Existing rollout behavior is unchanged and is rechecked once at the U1 boundary, not after each work package.
-- **Verification:** Work Package 1 runs the production schedule log-sink test, closest scheduler regressions, typecheck, and Eve build. Work Package 2 runs the production source-fence test, focused SEC regressions, typecheck, and Eve build. One independent U1 review and one pre-deployment regression gate follow both packages; neither package reruns the full Photon/Redis/manager matrix alone.
+- **Verification:** Work Package 1 runs the production schedule log-sink test, closest scheduler regressions, typecheck, and Eve build. Work Package 2 runs the production source-fence test, focused SEC regressions, typecheck, and Eve build. Both packages coexist on the U1 branch for one combined independent review before merging; one pre-deployment regression gate follows that review, and neither package reruns the full Photon/Redis/manager matrix alone.
 
 ### U2. Add the deterministic pack package and catalog
 
