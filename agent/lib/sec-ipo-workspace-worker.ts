@@ -265,9 +265,9 @@ export async function evaluateSecIpoSourceForWorker(input: {
     scope,
     sourceId: source.sourceId,
   }, input.clients?.sourceCoverage);
-  const fetched = await (input.clients?.fetchSource ?? fetchOfficialPublicSourceText)(
-    SEC_IPO_SOURCE_URL,
-  );
+  const fetched = input.clients?.fetchSource
+    ? await input.clients.fetchSource(SEC_IPO_SOURCE_URL)
+    : await fetchOfficialPublicSourceText(SEC_IPO_SOURCE_URL, source);
   const page = normalizeSecIpoFetch({
     ...fetched,
     observedAt: now.toISOString(),

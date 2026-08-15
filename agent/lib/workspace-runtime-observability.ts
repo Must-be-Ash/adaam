@@ -31,6 +31,7 @@ export const WORKSPACE_RUNTIME_ERROR_CODES = [
   "storage_unavailable",
   "lease_conflict",
   "evaluation_failed",
+  "schedule_job_failed",
 ] as const;
 
 export type WorkspaceRuntimeErrorCode =
@@ -94,8 +95,68 @@ export type WorkspaceRuntimeObservation = z.infer<
   typeof workspaceRuntimeObservationSchema
 >;
 
+export type WorkspaceRuntimeObservationSink = (
+  observation: WorkspaceRuntimeObservation,
+) => void;
+
+const errorCodeAliases: Readonly<Record<string, WorkspaceRuntimeErrorCode>> =
+  Object.freeze({
+    budget_exhausted: "run_budget_exhausted",
+    budget_ledger_corrupt: "storage_unavailable",
+    budget_policy_stale: "stale_configuration",
+    budget_policy_unresolved: "storage_unavailable",
+    budget_reservation_conflict: "lease_conflict",
+    global_budget_conflict: "lease_conflict",
+    global_budget_exhausted: "run_budget_exhausted",
+    global_budget_invalid: "storage_unavailable",
+    workspace_budget_missing: "storage_unavailable",
+    workspace_worker_capability_denied: "capability_denied",
+    workspace_worker_model_denied: "runtime_restricted",
+    workspace_worker_run_stale: "stale_configuration",
+    workspace_worker_state_missing: "workspace_unavailable",
+    workspace_worker_state_stale: "stale_configuration",
+  });
+
+function errorCandidate(error: unknown): string | null {
+  try {
+    if (typeof error === "object" && error !== null && "code" in error) {
+      const code = Reflect.get(error, "code");
+      if (typeof code === "string") return code;
+    }
+    return error instanceof Error ? error.message : null;
+  } catch {
+    return null;
+  }
+}
+
 export function parseWorkspaceRuntimeObservation(
   value: unknown,
 ): WorkspaceRuntimeObservation {
   return workspaceRuntimeObservationSchema.parse(value);
+}
+
+export function safeWorkspaceRuntimeErrorCode(
+  error: unknown,
+  fallback: WorkspaceRuntimeErrorCode,
+): WorkspaceRuntimeErrorCode {
+  const candidate = errorCandidate(error);
+  if (candidate) {
+    const parsed = errorCodeSchema.safeParse(candidate);
+    if (parsed.success) return parsed.data;
+  }
+  return candidate ? (errorCodeAliases[candidate] ?? fallback) : fallback;
+}
+
+const consoleWorkspaceRuntimeObservationSink:
+  WorkspaceRuntimeObservationSink = (observation) => {
+    const write = observation.errorCode ? console.warn : console.info;
+    write("[workspace.runtime]", observation);
+  };
+
+export function emitWorkspaceRuntimeObservation(
+  value: unknown,
+  sink: WorkspaceRuntimeObservationSink =
+    consoleWorkspaceRuntimeObservationSink,
+): void {
+  sink(Object.freeze(parseWorkspaceRuntimeObservation(value)));
 }

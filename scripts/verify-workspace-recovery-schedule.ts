@@ -259,7 +259,7 @@ await assert.rejects(
       throw new Error("quarantine_write_failed");
     },
   }),
-  (error) => aggregateContains(error, "quarantine_write_failed"),
+  (error) => aggregateContains(error, "schedule_job_failed"),
 );
 
 const supersededQuarantine = await runScenario({
@@ -281,7 +281,7 @@ await assert.rejects(
     inspectWorkspaceLease: async () => "current",
     releaseWorkspaceLease: async () => false,
   }),
-  (error) => aggregateContains(error, "worker_recovery_lease_release_failed"),
+  (error) => aggregateContains(error, "schedule_job_failed"),
 );
 await assert.rejects(
   runScenario({
@@ -290,7 +290,7 @@ await assert.rejects(
       throw new Error("lease_release_failed");
     },
   }),
-  (error) => aggregateContains(error, "lease_release_failed"),
+  (error) => aggregateContains(error, "schedule_job_failed"),
 );
 await runScenario({
   inspectWorkspaceLease: async () => "stale",
@@ -479,7 +479,7 @@ try {
 } catch (error) {
   mixedRejected = true;
   assert.ok(error instanceof AggregateError);
-  assert.equal(error.message, "event_trigger_schedule_partial_failure");
+  assert.equal(error.message, "schedule_job_failed");
   assert.equal(successfulRecoveryRuns, 1);
   assert.equal(recoveryQuarantineWrites, 1);
   assert.equal(recoveryCleanupAttempts, 1);
@@ -560,7 +560,7 @@ async function verifyClaimIsolation(
     await Promise.all(waiters);
   } catch (error) {
     rejected = true;
-    assert.ok(aggregateContains(error, claimError));
+    assert.ok(aggregateContains(error, "storage_unavailable"));
     if (failingClaim === "event_trigger") {
       assert.equal(workspaceRuns, 1);
       assert.equal(workspaceFinishes, 1);

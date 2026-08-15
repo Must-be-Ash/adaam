@@ -24,15 +24,21 @@ context.
 ## Current implementation target
 
 Spec 1's polling-first application is implemented, independently reviewed,
-merged, and pushed to `main`. The executable sequence is now
+merged, and pushed to `main`. Work Packages 1 and 2 of U1 coexist on the U1
+branch, are complete, and have received their combined review. Use the bounded
+prompt in
+[`docs/prompts/spec-01-sprint-implementation.md`](../docs/prompts/spec-01-sprint-implementation.md)
+for the completed work-package record. The executable sequence is
 [`docs/plans/2026-08-15-0905-feat-spec-01-acceptance-and-strategy-packs-plan.md`](../docs/plans/2026-08-15-0905-feat-spec-01-acceptance-and-strategy-packs-plan.md).
-The next bounded task is U1: the two production prerequisites and truthful
-rollout contract. Local later units may proceed before the owner schedules live
-acceptance, but production pack activation cannot.
+The final combined local regression gate has passed. The remaining local Spec 1
+work is integration into `main`; owner-authorized production acceptance remains
+separate. The full pre-deployment regression is not a third implementation
+package. Production pack activation remains unauthorized.
 
 ## Current plan-unit kickoff prompt
 
-Use this with one U-ID from the implementation-ready plan. U1 is the first unit.
+Use this with U2-U8 from the implementation-ready plan. U1 uses the smaller
+work-package prompt linked above.
 
 ```text
 Implement only [U_ID] from
@@ -49,13 +55,13 @@ integration.
 
 Verify local `main` contains the reviewed Spec 1 merge, then create the one
 temporary worktree and unit branch directly from that exact commit. Use
-`codex/spec-01-u1` for U1 and `codex/spec-02-uN` for U2-U8. If Codex already
-supplied a fresh isolated worktree at the correct base, use it and do not create
-a nested worktree. Preserve all unrelated changes. If another temporary
-worktree exists or the dependency/base is wrong, stop and report the exact state
-instead of creating a second worktree or rebuilding Spec 1. After independent
-review, the coordinator merges the unit to local `main` and removes its
-worktree/branch before the next unit begins.
+`codex/spec-02-uN` for U2-U8. If Codex already supplied a fresh isolated
+worktree at the correct base, use it and do not create a nested worktree.
+Preserve all unrelated changes. If another temporary worktree exists or the
+dependency/base is wrong, stop and report the exact state instead of creating a
+second worktree or rebuilding Spec 1. After independent review, the coordinator
+merges the unit to local `main` and removes its worktree/branch before the next
+unit begins.
 
 Follow `specs/IMPLEMENTATION_PROTOCOL.md`. Work through only the assigned unit.
 Inspect first, implement the smallest complete behavior, add the narrowest

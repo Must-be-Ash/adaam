@@ -865,16 +865,34 @@ without duplicating each requirement.
 | 3 | Isolated worker runtime and IPO/SEC reference implementation | Local gate passed |
 | 4 | Durable-mode Photon receipts, alert delivery, Discuss/Manage routing, and deterministic integration harness | Local gate passed |
 | 5 | Natural-language and Spectrum monitor/budget management plus lifecycle controls | Local gate passed |
-| 6 | Deterministic suites, Redis races, builds, local runbook, simultaneous runs, budget exhaustion, and SEC live smoke | Local gate passed; production acceptance remains |
+| 6 | Deterministic suites, Redis races, builds, local runbook, simultaneous runs, budget exhaustion, and SEC live smoke | Final combined local gate passed; production acceptance remains |
 
-### Remaining pre-production acceptance
+### Local production prerequisites
 
-- [ ] Remove raw workspace/monitor identifiers and arbitrary exception text from
-  runtime logs, enforce the fixed low-cardinality catalog, and pass negative
-  log-sink tests.
-- [ ] Before Spec 2 activates a pack-managed source, reject exact-fenced
+- [x] Remove raw workspace/monitor identifiers and arbitrary exception text from
+  workspace schedule/worker logs, enforce the fixed low-cardinality catalog,
+  and pass negative log-sink tests through the production schedule caller.
+- [x] Before Spec 2 activates a pack-managed source, reject exact-fenced
   redirects before issuing any second outbound request, including redirects to
   private or undeclared origins.
+
+Both local production prerequisites are complete, so the Spec 1 local code gate
+is complete. Their focused production-caller and regression checks do not
+replace the remaining owner-authorized production acceptance below.
+
+### Final local regression and integration gate
+
+- [x] Run all 45 `verify:workspace-runtime:*` package checks, including the
+  read-only SEC smoke and the ephemeral local Redis race suite, then pass
+  `npm run typecheck`, `npm run build:agent`, and
+  `npm run build -- --webpack`.
+
+The combined gate passed locally on 2026-08-15. The Redis check used the
+required local `REDIS_SERVER_BIN=/opt/homebrew/bin/redis-server`; no Photon
+delivery, deployment, environment change, or production mutation was performed.
+
+### Remaining owner-authorized production acceptance
+
 - [ ] With owner authorization, deploy behind flags and execute the real Photon
   IPO alert/Discuss/manager flow. To avoid waiting indefinitely for a new filing,
   use a disposable acceptance monitor positioned immediately before one real
@@ -920,6 +938,8 @@ becomes an observed ordinary-path failure.
   consumption, workspace selection, assignment, and model dispatch.
 - [ ] Give intercepted approval and session-manager actions explicit durable
   terminal outcomes, with crash/lifecycle tests at each write/side-effect edge.
+- [ ] Add a privacy-safe operator report and resolution path for quarantined
+  ingress dispatches, response deliveries, runs, and uncertain alert deliveries.
 
 #### Worker accounting and authoritative freshness
 
@@ -933,6 +953,13 @@ becomes an observed ordinary-path failure.
 
 - [ ] Make archive/restore converge atomically or through a durable idempotent
   lifecycle intent.
+- [ ] Complete low-cardinality counter emission for recovery/quarantine outcomes
+  when those deferred paths are implemented.
+- [ ] Replace raw session, turn, and approval-request identifiers in legacy
+  Photon logs with approved bounded correlations and production-caller sink
+  tests before private or paid-provider outputs are activated.
+- [ ] Define retention for runs, findings, alerts, receipts, and budget ledgers;
+  never use model context as the only retained record.
 - [ ] Replace Eve private runtime imports with a public API when available;
   until then pin/guard the compatible Eve version and keep the compiled-worker
   upgrade gate.
@@ -943,49 +970,48 @@ where it can share versioned adapter and canonical-fact contracts.
 
 ## Verification matrix
 
-| Boundary | Required proof |
-| --- | --- |
-| Identity | Unmapped Photon principals fail closed before session, monitor, worker, manager, or alert state is read; aliases resolve only to the configured owner. |
-| Durable-mode ingress | Every actionable Photon webhook has one immutable receipt and, when model-bound, one workspace/generation assignment recorded before dispatch. Legacy compatibility mode is covered separately and creates no durable ingress records. |
-| Dispatch | Concurrent duplicate webhooks cause one model dispatch; completion is idempotent; uncertain dispatch or response delivery is quarantined instead of blindly replayed. |
-| Isolation | A worker cannot read or write another workspace even with forged IDs in model input. |
-| Scheduling | Daily local times, DST, edits, downtime, leases, and stale revisions behave deterministically. |
-| Concurrency | Different workspaces run concurrently; the same monitor remains single-flight. |
-| Context | Worker prompt/history contains no interactive transcript or unrelated skill/tool. |
-| Capabilities | Omitted tools/providers are unavailable; hard runtime denials cannot be loosened; new or schema-changed provider tools remain disabled and are reported accurately. |
-| Budgets | Reservations are atomic; concurrent runs cannot overspend; uncertain cost remains reserved. |
-| Sources | Exact source fencing, at-most-once fetch per run, complete coverage, and provenance survive retries. |
-| Findings | Duplicate occurrences cannot create duplicate structured findings. |
-| Alerts | Duplicate/uncertain delivery cannot spam the owner or advance an unsafe checkpoint. |
-| Routing | Alert receipt does not switch workspaces; Discuss and held-message choices are one-time and revision-bound. |
-| Lifecycle | Archive pauses, restore stays paused, and start-fresh retains durable workspace state. |
-| UX | Natural-language and Spectrum operations agree on authoritative state. |
-| Photon integration | Fixture webhooks cover routing, duplicate delivery, switching, Start fresh, alerts, stale actions, and owner denial without access to real broker mutations. |
-| Financial safety | Runtime workers cannot access live mutation tools; proposed orders still require fresh approval. |
-| Migration | Legacy triggers are never guessed into a workspace and can be explicitly assigned without replaying history. |
+This matrix distinguishes the completed ordinary path and local production
+prerequisites from explicitly deferred crash/operations work. A deferred tail
+does not reopen a locally passed boundary. The complete matrix was rerun in the
+final combined local gate on 2026-08-15, together with typecheck and both
+production builds.
 
-## Observability and operations
+| Boundary | Required proof | Current status |
+| --- | --- | --- |
+| Identity | Unmapped Photon principals fail closed before session, monitor, worker, manager, or alert state is read; aliases resolve only to the configured owner. | Local gate passed |
+| Durable-mode ingress | Every actionable Photon webhook has one immutable receipt and, when model-bound, one workspace/generation assignment recorded before dispatch. Legacy compatibility mode is covered separately and creates no durable ingress records. | Local gate passed |
+| Dispatch | Concurrent duplicate webhooks cause one model dispatch; completion is idempotent; uncertain dispatch or response delivery is quarantined instead of blindly replayed. | Ordinary path passed; crash recovery deferred |
+| Isolation | A worker cannot read or write another workspace even with forged IDs in model input. | Local gate passed |
+| Scheduling | Daily local times, DST, edits, downtime, leases, and stale revisions behave deterministically. | Local gate passed |
+| Concurrency | Different workspaces run concurrently; the same monitor remains single-flight. | Ordinary path passed; compiled overlap/teardown deferred |
+| Context | Worker prompt/history contains no interactive transcript or unrelated skill/tool. | Local gate passed |
+| Capabilities | Omitted tools/providers are unavailable; hard runtime denials cannot be loosened; new or schema-changed provider tools remain disabled and are reported accurately. | Local gate passed |
+| Budgets | Reservations are atomic; concurrent runs cannot overspend; uncertain cost remains reserved. | Ordinary path passed; stale/ambiguous recovery deferred |
+| Sources | Exact source fencing, at-most-once fetch per run, complete coverage, and provenance survive retries. | Local gate passed |
+| Findings | Duplicate occurrences cannot create duplicate structured findings. | Local gate passed |
+| Alerts | Duplicate/uncertain delivery cannot spam the owner or advance an unsafe checkpoint. | Ordinary path passed; crash recovery deferred |
+| Routing | Alert receipt does not switch workspaces; Discuss and held-message choices are one-time and revision-bound. | Ordinary path passed; crash recovery deferred |
+| Lifecycle | Archive pauses, restore stays paused, and start-fresh retains durable workspace state. | Ordinary path passed; atomic convergence deferred |
+| UX | Natural-language and Spectrum operations agree on authoritative state. | Local gate passed |
+| Photon integration | Fixture webhooks cover routing, duplicate delivery, switching, Start fresh, alerts, stale actions, and owner denial without access to real broker mutations. | Local gate passed; real Photon acceptance pending |
+| Financial safety | Runtime workers cannot access live mutation tools; proposed orders still require fresh approval. | Local gate passed |
+| Migration | Legacy triggers are never guessed into a workspace and can be explicitly assigned without replaying history. | Local gate passed |
 
-- [ ] Emit low-cardinality counters for claimed, started, completed, no-match,
-  retryable failure, terminal failure, budget-deferred, alert delivered, alert
-  uncertain, ingress deduplicated, dispatch quarantined, response delivery
-  quarantined, and routing-confirmation outcomes.
-- [ ] Emit bounded error codes rather than exception bodies or provider payloads.
+## Current observability and operations
+
+- [x] Emit bounded error codes rather than exception bodies or provider payloads.
 - [x] Provide owner-visible monitor health in the manager.
 - [x] Add kill switches for all workspace dispatch, paid runtime research,
   Photon workspace alerts, and source-event ingestion.
-- [ ] Add an operator command/report that lists quarantined ingress dispatches,
-  response deliveries, runs, and uncertain alert deliveries without exposing
-  private content.
-- [ ] Define retention for runs, findings, alerts, receipts, and budget ledgers;
-  never use model context as the only retained record.
 
 ## Definition of done
 
-The local polling milestone is complete when the implementation-status table and
-verification matrix pass; that gate is met. The specification reaches
-production acceptance when every item in **Remaining pre-production
-acceptance** is checked with owner-authorized Photon evidence.
+The ordinary-path polling implementation, local production-code gate, and final
+combined local regression and integration gate are complete for the rows
+labeled `Local gate passed` or `Ordinary path passed` above. This does not claim
+the explicitly deferred recovery/operations tails. The specification reaches
+production acceptance when every item in **Remaining owner-authorized
+production acceptance** and its exit gate is checked with real Photon evidence.
 
 Deferred post-Spec-6 hardening remains tracked below the implementation status
 and is not a blocker unless an item becomes an observed ordinary-path failure.

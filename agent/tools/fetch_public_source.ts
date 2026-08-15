@@ -17,6 +17,7 @@ import {
   authorizeWorkspaceSourceFetch,
   markWorkspaceSourceSuccess,
   reserveWorkspaceSourceAttempt,
+  type WorkspaceSourceDefinition,
 } from "../lib/workspace-source-coverage";
 import { authorizeWorkspaceWorkerStore } from "../lib/workspace-store-authorization";
 import { requireWorkspaceWorkerAuth } from "../lib/workspace-worker-auth";
@@ -68,6 +69,7 @@ function requestHeaders(url: URL): HeadersInit {
 
 async function fetchOfficialSource(
   initialUrl: URL,
+  declaredOrigin?: string,
 ): Promise<{ response: Response; finalUrl: URL }> {
   let url = initialUrl;
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
@@ -82,7 +84,15 @@ async function fetchOfficialSource(
       if (!location || redirect === MAX_REDIRECTS) {
         throw new Error("The public source returned an invalid redirect.");
       }
-      url = publicGovernmentUrl(new URL(location, url).toString());
+      const destination = publicGovernmentUrl(
+        new URL(location, url).toString(),
+      );
+      if (declaredOrigin && destination.origin !== declaredOrigin) {
+        throw new Error(
+          "A workspace source redirect crossed the exact configured origin fence.",
+        );
+      }
+      url = destination;
       continue;
     }
 
@@ -134,9 +144,21 @@ export interface OfficialPublicSourceResponse {
 
 export async function fetchOfficialPublicSourceText(
   requestedUrl: string,
+  source?: Pick<WorkspaceSourceDefinition, "origin">,
 ): Promise<OfficialPublicSourceResponse> {
   const initialUrl = publicGovernmentUrl(requestedUrl);
-  const { response, finalUrl } = await fetchOfficialSource(initialUrl);
+  const declaredOrigin = source
+    ? publicGovernmentUrl(source.origin).origin
+    : undefined;
+  if (declaredOrigin && initialUrl.origin !== declaredOrigin) {
+    throw new Error(
+      "A workspace source URL crossed the exact configured origin fence.",
+    );
+  }
+  const { response, finalUrl } = await fetchOfficialSource(
+    initialUrl,
+    declaredOrigin,
+  );
   return Object.freeze({
     body: await readLimitedText(response),
     contentType: response.headers.get("content-type") ?? "",
@@ -506,10 +528,15 @@ export default defineTool({
     }
 
     const { body, contentType, finalUrl, status } =
-      await fetchOfficialPublicSourceText(initialUrl.toString());
+      await fetchOfficialPublicSourceText(
+        initialUrl.toString(),
+        workspaceSource ?? undefined,
+      );
     const final = new URL(finalUrl);
-    if (workspaceSource && finalUrl !== workspaceSource.canonicalUrl) {
-      throw new Error("A workspace source redirect crossed the exact configured URL fence.");
+    if (workspaceSource && final.origin !== workspaceSource.origin) {
+      throw new Error(
+        "A workspace source redirect crossed the exact configured origin fence.",
+      );
     }
     const contentDigest = createHash("sha256").update(body).digest("hex");
     const markSuccess = async (): Promise<void> => {

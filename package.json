@@ -56,6 +56,7 @@
     "verify:workspace-runtime:budget": "jiti scripts/verify-workspace-budget-ledger.ts",
     "verify:workspace-runtime:dispatch-budget": "jiti scripts/verify-workspace-dispatch-budget.ts",
     "verify:workspace-runtime:source-coverage": "jiti scripts/verify-workspace-source-coverage.ts",
+    "verify:workspace-runtime:source-redirects": "jiti scripts/verify-workspace-source-redirects.ts",
     "verify:workspace-runtime:findings": "jiti scripts/verify-workspace-finding-store.ts",
     "verify:workspace-runtime:sec-ipo": "jiti scripts/verify-sec-ipo-reference.ts",
     "verify:workspace-runtime:sec-ipo-fixtures": "jiti scripts/verify-sec-ipo-fixtures.ts",
