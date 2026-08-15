@@ -238,6 +238,16 @@ function usagePaid(reservation: WorkspaceBudgetReservation): bigint {
   return BigInt(reservation.reconciledPaidMicros ?? reservation.paidMicros);
 }
 
+export function formatWorkspacePaidMicros(micros: string): string {
+  const amount = BigInt(micros);
+  const whole = amount / 1_000_000n;
+  const fraction = (amount % 1_000_000n)
+    .toString()
+    .padStart(6, "0")
+    .replace(/0+$/u, "");
+  return `$${whole}${fraction ? `.${fraction}` : ""}`;
+}
+
 export function summarizeWorkspaceBudgetUsage(
   ledger: WorkspaceBudgetLedger,
   now: Date,

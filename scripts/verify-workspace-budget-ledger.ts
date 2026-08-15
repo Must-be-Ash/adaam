@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import {
+  formatWorkspacePaidMicros,
   readWorkspaceBudgetLedger,
   reconcileWorkspaceRunBudget,
   reserveWorkspaceRunBudget,
@@ -72,6 +73,18 @@ const reservation = await reserveWorkspaceRunBudget(
 );
 assert.equal(reservation.paidMicros, "100000");
 assert.equal(reservation.state, "reserved");
+assert.equal(
+  summarizeWorkspaceBudgetUsage(
+    await readWorkspaceBudgetLedger(scope, client),
+    now,
+    policy.ownerTimezone,
+  ).activeWorkers,
+  1,
+);
+assert.equal(
+  formatWorkspacePaidMicros("9007199254740993"),
+  "$9007199254.740993",
+);
 assert.deepEqual(
   await reserveWorkspaceRunBudget(
     {

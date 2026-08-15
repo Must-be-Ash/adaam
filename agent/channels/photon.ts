@@ -74,6 +74,7 @@ import {
 import {
   isPhotonSessionManagerRequest,
   photonApprovalWorkspace,
+  photonLegacyMonitoringContext,
   photonWorkspaceContext,
   photonWorkspaceThread,
   parsePhotonWorkspaceThreadId,
@@ -1187,7 +1188,10 @@ async function dispatch(
     const activeWorkspace = workspaceState.activeWorkspace;
     const session = await bridge.send(
       {
-        context: [photonWorkspaceContext(activeWorkspace)],
+        context: [
+          photonWorkspaceContext(activeWorkspace),
+          photonLegacyMonitoringContext(),
+        ],
         message: messageToUserContent(message),
       },
       {

@@ -64,7 +64,9 @@ response size. Use `web_fetch` for issuer IR HTML and other non-`.gov` public UR
 
 - Use `create_workspace_monitor`, `list_workspace_monitors`,
   `update_workspace_monitor`, and `manage_workspace_monitor` for current-workspace
-  operations. The event-trigger tools are legacy compatibility only.
+  operations. When authenticated turn context explicitly says workspace runtime
+  features are off, use `create_event_trigger`, `list_event_triggers`, and
+  `update_event_trigger` instead. Never infer legacy mode from a tool failure.
 - List monitors before changing an ambiguous reference; never choose the nearest name.
 - Use additive daily-time and source fields when the owner says “also” or “add.”
 - Use `manage_workspace_monitor` to pause, resume, or recoverably retire.

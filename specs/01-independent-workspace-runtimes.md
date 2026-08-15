@@ -1091,25 +1091,30 @@ the deferred source-event follow-on is not part of this milestone.
 The polling milestone is complete only when:
 
 - [x] Every applicable local polling exit gate through Sprint 6 passes.
-- [ ] Every actionable Photon webhook receives one immutable ingress receipt;
+- [ ] Deferred crash-hardening gate: every actionable Photon webhook receives
+  one immutable ingress receipt;
   every model-bound message is durably assigned before dispatch; duplicates and
   uncertain outcomes cannot cause blind replay.
-- [ ] The `IPO Filings` fixture and live-source smoke pass.
-- [ ] Two workspaces run concurrently without cross-context, cross-tool, budget,
-  or state leakage.
-- [ ] The owner can create and edit the 9 AM/4 PM monitor conversationally.
-- [ ] The session manager accurately shows and controls monitors and budgets.
-- [ ] An alert from a non-selected workspace is labeled, delivered once, and
+- [x] The `IPO Filings` fixture and live-source smoke pass.
+- [ ] Deferred compiled-concurrency gate: two production-path workspace workers
+  overlap without cross-context, cross-tool, budget, or state leakage.
+- [ ] In owner-authorized production Photon, the owner can create and edit the
+  9 AM/4 PM monitor conversationally.
+- [x] The session manager accurately shows and controls monitors and budgets in
+  the local deterministic application path.
+- [ ] In owner-authorized production Photon, an alert from a non-selected
+  workspace is labeled, delivered once, and
   does not change routing until the owner taps **Discuss** or confirms a held
   reply.
-- [ ] Archive, restore, and start-fresh follow the agreed lifecycle.
-- [ ] Paid research is impossible without both an explicit capability and
+- [x] Archive, restore, and start-fresh follow the agreed lifecycle in the local
+  deterministic application path.
+- [x] Paid research is impossible without both an explicit capability and
   available budget.
-- [ ] Background live trading is impossible even if a model requests it.
-- [ ] Existing approved financial and Photon safety tests remain green.
-- [ ] The fixture-backed Photon integration harness passes routing, duplicate
+- [x] Background live trading is impossible even if a model requests it.
+- [x] Existing approved financial and Photon safety tests remain green.
+- [x] The fixture-backed Photon integration harness passes routing, duplicate
   webhook, switching, `Start fresh`, alert, stale-action, and owner-denial cases.
-- [ ] Rollback can stop new dispatch without deleting durable state.
+- [x] Rollback can stop new dispatch without deleting durable state.
 - [ ] `HANDOFF.md`, `NORTH_STAR.md`, and the focused verification map are updated
   with durable implemented facts after rollout—not before.
 
@@ -1133,6 +1138,7 @@ own bounded implementation spec:
 
 | Date | Checklist item | Verification |
 | --- | --- | --- |
+| 2026-08-15 | Resolve final-review blockers in legacy monitoring, fail-closed rollout parsing, maximum-feed durability, and manager correctness | Owner/rollout, schema-maximum findings, budget, manager, Photon regressions, typecheck, live SEC smoke, compiled scheduled worker, Eve build, and Next.js webpack build — passed |
 | 2026-08-15 | Complete production scheduled-outcome delivery with authenticated Photon subscriptions, authoritative alert metadata, and Discuss/Manage actions | Alert subscription, delivery, presentation, app, context, reply, recovery, and compiled scheduled SEC verifiers — passed |
 | 2026-08-15 | Prove bounded 40-fact SEC durability, render complete manager status/usage, and preserve legacy Photon behavior behind a fail-closed rollout matrix | Findings, budget-ledger, manager, rollout, Photon workspace, approval, typecheck, Eve build, and Next.js webpack build — passed |
 | 2026-08-15 | Independently review the polling completion diff and reconcile Spec 1 into product-complete versus deferred hardening/rollout work | Two independent ordinary-path reviews found no remaining local product blocker |

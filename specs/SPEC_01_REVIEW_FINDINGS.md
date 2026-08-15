@@ -18,6 +18,9 @@ Status: **historical hardening ledger; ordinary polling path completed locally**
 > resolved. Remaining unchecked R2–R6 items are deferred hardening or
 > owner-authorized rollout work as classified in
 > `SPEC_01_PAUSED_CURRENT_TASK.md`; they are not the active pre-Spec-2 queue.
+> The final functional review also corrected legacy monitoring compatibility,
+> whitespace-only rollout fallback, the true schema-maximum record ceiling, and
+> manager projection correctness before local merge.
 
 The independent reviewer inspected the complete 53-commit branch, traced the
 production paths, ran the deterministic verification matrix, typecheck, Eve

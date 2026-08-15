@@ -24,7 +24,7 @@ ordinary owner workflow now reaches the complete application path:
 The previously isolated R3 work was completed, reviewed, and merged into local
 `main`. The remaining functional-completion work is on
 `codex/spec-01-functional-completion` and is to be merged locally after its
-documentation commit. Nothing has been pushed or deployed.
+final review-fix commit. Nothing has been pushed or deployed.
 
 Use at most two worktrees: `/Users/ashnouruzi/dev/adaam` on `main` and one
 temporary worktree for the active bounded slice. Merge each accepted slice back
@@ -40,23 +40,30 @@ to local `main`, then remove its worktree and branch.
 - Added **Discuss** and **Manage** to the delivered alert app.
 - Resolved the current authoritative workspace name at delivery and Discuss
   time; retained the finding observation time and canonical public source URL.
-- Proved a realistic 40-fact SEC outcome exceeds the old 32 KiB record limit and
-  commits under a still-bounded 128 KiB ceiling.
+- Proved a schema-maximum 40-fact SEC outcome is 303,881 bytes and commits
+  losslessly under a still-bounded 512 KiB ceiling.
 - Made the manager visibly render schedule/timezone, sources, monitor counts and
   health, budget limits, daily/monthly usage, and active worker count.
 - Added an explicit Photon rollout matrix: fully absent/off new configuration
   preserves legacy chat/session-manager/approval behavior; partial or enabled
   configuration fails closed; complete configuration uses durable owner and
   ingress receipts.
+- Restored the pre-Spec event-trigger tools and explicit monitoring guidance in
+  legacy mode, while keeping workspace tools scoped to durable mode.
+- Made whitespace-only owner configuration fail closed instead of silently
+  selecting legacy mode.
+- Made manager usage degrade per workspace when its ledger is unavailable,
+  preserve exact paid micro-units, and count every authoritative paused state.
 - Independently reviewed both the alert-delivery slice and the final functional
-  slice; all ordinary-path findings were fixed and the final review found no
-  remaining product blocker.
+  slice. An independent validator confirmed the final product findings, and the
+  confirmed defects were fixed and reverified.
 
 ## Verification completed
 
 - TypeScript typecheck.
 - Eve production build.
 - Next.js 16 webpack production build.
+- Live read-only SEC IPO smoke (three current filings; baseline established).
 - Owner workflow, monitor CRUD/migration, manager, rollout, budget, findings,
   alert store/subscription/delivery/context/reply/app, recovery schedule,
   start-fresh, owner/workspace isolation, Photon approval/workspace regressions,

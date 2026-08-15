@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { SessionAuthContext, SessionContext } from "eve/context";
 
 import { requirePhotonOwnerAccess } from "./owner-identity";
+import { resolvePhotonIngressRolloutMode } from "./photon-ingress-rollout";
 
 export type EventTriggerDestination =
   | {
@@ -111,10 +112,16 @@ export function requireEventTriggerOwner(
   }
 
   if (destination.kind === "photon") {
-    requirePhotonOwnerAccess(
-      { principalId: auth.principalId, resource: "monitor" },
-      environment,
-    );
+    // Preserve the pre-workspace event-trigger owner contract only when the
+    // rollout resolver has positively selected legacy mode. Partial or enabled
+    // workspace configuration throws before this branch can relax the new
+    // deployment-owner guard.
+    if (resolvePhotonIngressRolloutMode(environment) === "durable") {
+      requirePhotonOwnerAccess(
+        { principalId: auth.principalId, resource: "monitor" },
+        environment,
+      );
+    }
   }
 
   const userId = stableUserId(auth);

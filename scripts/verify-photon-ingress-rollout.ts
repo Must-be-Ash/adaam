@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import { photonAuth } from "../agent/lib/photon-auth";
+import { requireEventTriggerOwner } from "../agent/lib/event-trigger-owner";
+import { OwnerIdentityDeniedError } from "../agent/lib/owner-identity";
 import {
   PhotonIngressRolloutError,
   resolvePhotonIngressRolloutMode,
@@ -25,8 +27,31 @@ const redis = {
   KV_REST_API_URL: "https://redis.example.test",
 };
 
+function photonEventTriggerContext(principalId: string) {
+  return {
+    session: {
+      auth: {
+        current: {
+          attributes: { channel: "photon", thread_id: "fixture-thread" },
+          authenticator: "photon-imessage-webhook",
+          issuer: "photon-imessage",
+          principalId,
+          principalType: "user" as const,
+          subject: principalId.slice("imessage:".length),
+        },
+      },
+    },
+  };
+}
+
 assert.equal(resolvePhotonIngressRolloutMode({}), "legacy");
 assert.equal(resolvePhotonIngressRolloutMode(off), "legacy");
+assert.equal(resolvePhotonIngressRolloutMode({
+  ...off,
+  EVE_DEPLOYMENT_OWNER_ID: "",
+  EVE_OWNER_ALIAS_HMAC_SECRET: "",
+  EVE_PHOTON_OWNER_PRINCIPALS: "",
+}), "legacy");
 assert.equal(resolvePhotonIngressRolloutMode({ ...off, ...owner, ...redis }), "durable");
 assert.equal(resolvePhotonIngressRolloutMode({
   ...off,
@@ -35,8 +60,46 @@ assert.equal(resolvePhotonIngressRolloutMode({
   EVE_WORKSPACE_STATE_ENABLED: "1",
 }), "durable");
 
+assert.equal(
+  requireEventTriggerOwner(
+    photonEventTriggerContext("imessage:fixture-owner"),
+    off,
+  ).destination.kind,
+  "photon",
+);
+assert.throws(
+  () => requireEventTriggerOwner(
+    photonEventTriggerContext("imessage:fixture-owner"),
+    { ...off, EVE_DEPLOYMENT_OWNER_ID: owner.EVE_DEPLOYMENT_OWNER_ID },
+  ),
+  PhotonIngressRolloutError,
+);
+assert.equal(
+  requireEventTriggerOwner(
+    photonEventTriggerContext("imessage:fixture-owner"),
+    { ...off, ...owner, ...redis },
+  ).destination.kind,
+  "photon",
+);
+assert.throws(
+  () => requireEventTriggerOwner(
+    photonEventTriggerContext("imessage:unmapped-owner"),
+    { ...off, ...owner, ...redis },
+  ),
+  OwnerIdentityDeniedError,
+);
+
 for (const invalid of [
   { ...off, EVE_DEPLOYMENT_OWNER_ID: owner.EVE_DEPLOYMENT_OWNER_ID },
+  { ...off, EVE_DEPLOYMENT_OWNER_ID: " \t" },
+  { ...off, EVE_OWNER_ALIAS_HMAC_SECRET: " \t" },
+  { ...off, EVE_PHOTON_OWNER_PRINCIPALS: " \t" },
+  {
+    ...off,
+    EVE_DEPLOYMENT_OWNER_ID: " \t",
+    EVE_OWNER_ALIAS_HMAC_SECRET: " \t",
+    EVE_PHOTON_OWNER_PRINCIPALS: " \t",
+  },
   { ...off, ...owner },
   { ...off, ...owner, KV_REST_API_URL: redis.KV_REST_API_URL },
   { ...off, EVE_WORKSPACE_STATE_ENABLED: "true" },
@@ -61,6 +124,7 @@ const photonSource = await readFile(
   "utf8",
 );
 assert.match(photonSource, /resolvePhotonIngressRolloutMode\(\)/u);
+assert.match(photonSource, /photonLegacyMonitoringContext\(\)/u);
 assert.match(photonSource, /rolloutMode === "legacy"[\s\S]*auth: photonAuth\(senderId, thread\.id\)/u);
 assert.match(photonSource, /rolloutMode === "durable"[\s\S]*requirePhotonOwnerAccess/u);
 assert.match(photonSource, /resolvePhotonIngressRolloutMode\(\) === "durable"[\s\S]*projectPhotonWorkspaceRuntimeScope/u);

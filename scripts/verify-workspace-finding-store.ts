@@ -345,13 +345,34 @@ assert.ok(outcome.finding);
 
 const maxOccurrenceKey = "7".repeat(64);
 const maxRunId = `${maxOccurrenceKey}:attempt:1`;
+const maxSecUrl = (pathPrefix: string) => {
+  const prefix = `https://www.sec.gov/${pathPrefix}`;
+  assert.ok(prefix.length < 2_048);
+  return `${prefix}${"a".repeat(2_048 - prefix.length)}`;
+};
+const maxSources = Array.from({ length: 8 }, (_, index) => {
+  const sourceIdPrefix = `sec.maximum.${index}.`;
+  return {
+    accessClassification: "public" as const,
+    canonicalUrl: maxSecUrl(`source-${index}/`),
+    origin: "https://www.sec.gov",
+    sourceId: `${sourceIdPrefix}${"s".repeat(160 - sourceIdPrefix.length)}`,
+  };
+});
+const maxCoverageSources = maxSources.map(
+  ({ canonicalUrl, origin, sourceId }) => ({ canonicalUrl, origin, sourceId }),
+);
 const maxClaimed = {
   ...claimed,
+  monitor: {
+    ...claimed.monitor,
+    sources: maxSources,
+  },
   occurrence: {
     ...claimed.occurrence,
     occurrenceKey: maxOccurrenceKey,
   },
-};
+} satisfies ClaimedWorkspaceMonitor;
 const maxEnvelope = createWorkspaceWorkerEnvelope({
   budgetRevision: 1,
   capabilityRevision: 1,
@@ -373,17 +394,24 @@ await createWorkspaceSourceCoverage({
   now,
   runId: maxRunId,
   scope,
-  sources: [{ canonicalUrl: source.canonicalUrl, origin: source.origin, sourceId: source.sourceId }],
+  sources: maxCoverageSources,
   window,
 }, coverageClient);
-await reserveWorkspaceSourceAttempt({ now, runId: maxRunId, scope, sourceId: source.sourceId }, coverageClient);
-await markWorkspaceSourceSuccess({
-  contentDigest: "9".repeat(64),
-  now,
-  runId: maxRunId,
-  scope,
-  sourceId: source.sourceId,
-}, coverageClient);
+for (const maxSource of maxSources) {
+  await reserveWorkspaceSourceAttempt({
+    now,
+    runId: maxRunId,
+    scope,
+    sourceId: maxSource.sourceId,
+  }, coverageClient);
+  await markWorkspaceSourceSuccess({
+    contentDigest: "9".repeat(64),
+    now,
+    runId: maxRunId,
+    scope,
+    sourceId: maxSource.sourceId,
+  }, coverageClient);
+}
 const maxCoverage = await completeWorkspaceSourceCoverage({
   now,
   runId: maxRunId,
@@ -392,15 +420,20 @@ const maxCoverage = await completeWorkspaceSourceCoverage({
 const maxFacts = Array.from({ length: 40 }, (_, index) => {
   const ordinal = String(index + 101).padStart(6, "0");
   const accessionNumber = `0001000001-26-${ordinal}`;
+  const registrationPrefix = `registration-${ordinal}-`;
   return {
     ...finding.facts[0]!,
     accessionNumber,
-    canonicalFilingUrl:
-      `https://www.sec.gov/Archives/edgar/data/1000001/${accessionNumber.replaceAll("-", "")}/fixture-s1-index.htm`,
-    companyName: `Fixture Corporation ${index + 1}`,
-    fileNumber: `333-${100_001 + index}`,
-    filingIdentity: `${accessionNumber}:S-1`,
-    registrationIdentity: `0001000001:333-${100_001 + index}`,
+    amendmentIdentity: "修".repeat(256),
+    canonicalFilingUrl: maxSecUrl(`Archives/edgar/data/1000001/${ordinal}/`),
+    classification: "amendment" as const,
+    companyName: "界".repeat(300),
+    fileNumber: "3".repeat(80),
+    filingIdentity: `${accessionNumber}:S-1/A`,
+    formType: "S-1/A" as const,
+    registrationIdentity:
+      `${registrationPrefix}${"r".repeat(128 - registrationPrefix.length)}`,
+    source: maxSources[index % maxSources.length]!,
   };
 });
 const maxOutcome = await stageWorkspaceFinding({
@@ -408,15 +441,27 @@ const maxOutcome = await stageWorkspaceFinding({
   envelope: maxEnvelope,
   finding: {
     ...finding,
+    artifactRefs: Array.from({ length: 8 }, (_, index) => {
+      const prefix = `artifact.maximum.${index}.`;
+      return `${prefix}${"a".repeat(160 - prefix.length)}`;
+    }),
     factIdentities: maxFacts.map((fact) => fact.filingIdentity),
     facts: maxFacts,
-    summary: "40 new SEC S-1 filings were observed in the configured window.",
+    provenance: maxSources,
+    summary: "概".repeat(2_000),
   },
   now,
   scope,
 }, findingClient);
 assert.equal(maxOutcome.finding?.facts?.length, 40);
-assert.ok(Buffer.byteLength(JSON.stringify(maxOutcome), "utf8") > 32 * 1_024);
+const maxOutcomeBytes = Buffer.byteLength(JSON.stringify(maxOutcome), "utf8");
+assert.ok(maxOutcomeBytes > 128 * 1_024);
+assert.ok(maxOutcomeBytes < 512 * 1_024);
+assert.deepEqual(
+  await readWorkspaceRunOutcome(scope, maxOccurrenceKey, findingClient),
+  maxOutcome,
+);
+console.info(`Schema-maximum 40-fact outcome: ${maxOutcomeBytes} bytes.`);
 const storedOutcomeReader = (candidate: WorkspaceRunOutcome) => ({
   get: async () => JSON.stringify(candidate),
 }) as WorkspaceFindingStoreClient;

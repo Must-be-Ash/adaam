@@ -16,6 +16,7 @@ import { getCurrentPhotonApprovalActivity } from "../lib/photon-approval-store";
 import { PHOTON_WORKSPACE_APP_PATH } from "../lib/photon-mini-app";
 import { workspaceMonitorManagerSourcesSchema } from "../lib/workspace-monitor-input";
 import {
+  formatWorkspacePaidMicros,
   readWorkspaceBudgetLedger,
   summarizeWorkspaceBudgetUsage,
 } from "../lib/workspace-budget-ledger";
@@ -233,17 +234,28 @@ async function publicManagerState(
       const [monitors, budget, budgetLedger] = await Promise.all([
         listWorkspaceMonitors(scope),
         readWorkspaceDocument("budget", scope),
-        readWorkspaceBudgetLedger(scope),
+        readWorkspaceBudgetLedger(scope).catch(() => null),
       ]);
+      const budgetUsage = budget && budgetLedger
+        ? summarizeWorkspaceBudgetUsage(
+            budgetLedger,
+            new Date(),
+            budget.value.ownerTimezone,
+          )
+        : null;
       return {
         ...workspace,
         budget,
-        budgetUsage: budget
-          ? summarizeWorkspaceBudgetUsage(
-              budgetLedger,
-              new Date(),
-              budget.value.ownerTimezone,
-            )
+        budgetUsage: budgetUsage
+          ? {
+              ...budgetUsage,
+              paidDisplayThisMonth: formatWorkspacePaidMicros(
+                budgetUsage.paidMicrosThisMonth,
+              ),
+              paidDisplayToday: formatWorkspacePaidMicros(
+                budgetUsage.paidMicrosToday,
+              ),
+            }
           : null,
         monitors: monitors.map((monitor) => ({
           configurationRevision: monitor.configurationRevision,
@@ -571,7 +583,6 @@ function workspaceHtml(nonce: string, origin: string): string {
       };
 
       const paidLimit = (value) => value === null ? "deployment cap" : "$" + value;
-      const paidUsage = (micros) => "$" + (Number(micros) / 1000000).toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
 
       const render = () => {
         list.replaceChildren();
@@ -596,7 +607,8 @@ function workspaceHtml(nonce: string, origin: string): string {
             (monitor) => monitor.lifecycleState === "enabled",
           ).length;
           const pausedMonitors = workspaceMonitors.filter(
-            (monitor) => monitor.lifecycleState === "paused",
+            (monitor) => monitor.lifecycleState !== "enabled" &&
+              monitor.lifecycleState !== "retired",
           ).length;
           const errorMonitors = workspaceMonitors.filter(
             (monitor) => monitor.lastErrorCode !== null,
@@ -673,8 +685,8 @@ function workspaceHtml(nonce: string, origin: string): string {
                 workspace.budgetUsage.outputTokensToday + " output · " +
                 workspace.budgetUsage.activeWorkers + "/" +
                 workspace.budget.value.maximumConcurrentWorkers + " active workers · " +
-                paidUsage(workspace.budgetUsage.paidMicrosToday) + " paid today · " +
-                paidUsage(workspace.budgetUsage.paidMicrosThisMonth) + " paid this month · " +
+                workspace.budgetUsage.paidDisplayToday + " paid today · " +
+                workspace.budgetUsage.paidDisplayThisMonth + " paid this month · " +
                 workspace.budget.value.ownerTimezone
               : "Usage unavailable";
             const budgetActions = document.createElement("div");

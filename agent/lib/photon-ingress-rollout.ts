@@ -28,6 +28,12 @@ function configured(value: string | undefined): boolean {
   return (value?.trim().length ?? 0) > 0;
 }
 
+function ownerPartConfigured(value: string | undefined): boolean {
+  if (value === undefined || value === "") return false;
+  if (value.trim().length === 0) throw new PhotonIngressRolloutError();
+  return true;
+}
+
 function flag(value: string | undefined): boolean {
   if (value === undefined || value === "" || value === "0") return false;
   if (value === "1") return true;
@@ -52,7 +58,7 @@ export function resolvePhotonIngressRolloutMode(
   const [state, ...nested] = flags;
   if (!state && nested.some(Boolean)) throw new PhotonIngressRolloutError();
 
-  const ownerParts = OWNER_CONFIG_NAMES.map((name) => configured(environment[name]));
+  const ownerParts = OWNER_CONFIG_NAMES.map((name) => ownerPartConfigured(environment[name]));
   const ownerConfigured = ownerParts.every(Boolean);
   if (ownerParts.some(Boolean) && !ownerConfigured) {
     throw new PhotonIngressRolloutError();
