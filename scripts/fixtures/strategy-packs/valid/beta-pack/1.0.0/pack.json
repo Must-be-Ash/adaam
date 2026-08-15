@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "id": "beta-pack",
+  "version": "1.0.0",
+  "displayName": "Beta Pack",
+  "description": "A distinct test pack proving catalog generation is strategy-neutral.",
+  "maturity": "experimental",
+  "compatibility": {
+    "coreSchemaVersion": 1,
+    "workspaceSchemaVersion": 1,
+    "strategyPackSchemaVersion": 1
+  },
+  "workspaceInstructionPath": "workspace.md",
+  "configuration": [
+    {
+      "key": "timezone",
+      "kind": "iana_timezone",
+      "label": "Timezone",
+      "description": "Timezone used for beta checks.",
+      "required": true,
+      "default": "America/Vancouver",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "key": "dailyTimes",
+      "kind": "daily_local_times",
+      "label": "Daily check times",
+      "description": "Unique local times when beta checks may run.",
+      "required": true,
+      "default": ["12:00"],
+      "minimumItems": 1,
+      "maximumItems": 2,
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
+    }
+  ],
+  "skills": [
+    {
+      "id": "beta-playbook",
+      "version": "1.0.0",
+      "description": "Analyze beta notices from the declared source.",
+      "instructionPath": "playbook.md"
+    }
+  ],
+  "capabilities": {
+    "required": ["skill.beta-playbook", "tool.beta.fetch"],
+    "hardDenied": ["broker.mutation", "filesystem", "shell"]
+  },
+  "sources": [
+    {
+      "sourceId": "source.beta",
+      "contractVersion": "1.0.0",
+      "contractDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "canonicalUrl": "https://beta.example.gov/notices.atom",
+      "allowedOrigins": ["https://beta.example.gov"],
+      "accessClassification": "public"
+    }
+  ],
+  "monitors": [
+    {
+      "resourceId": "detect-beta",
+      "displayName": "Detect beta notices",
+      "instructionPath": "monitors/detect-beta.md",
+      "timezoneConfigurationKey": "timezone",
+      "dailyTimesConfigurationKey": "dailyTimes",
+      "sourceIds": ["source.beta"],
+      "requiredCapabilityIds": ["tool.beta.fetch"],
+      "findingSchemaId": "finding.beta/v1",
+      "alertPresentationId": "alert.beta/v1",
+      "suggestedBudget": {
+        "maximumInputTokensPerRun": 8000,
+        "maximumOutputTokensPerRun": 1000,
+        "maximumRunsPerDay": 2
+      },
+      "activationDefault": "draft",
+      "overridableFields": ["schedule"]
+    }
+  ],
+  "evaluationsPath": "evals.json"
+}

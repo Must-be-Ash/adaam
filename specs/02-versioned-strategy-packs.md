@@ -70,21 +70,21 @@ The completed feature must support this experience:
 
 ## Agreed product decisions
 
-- [ ] A strategy pack is a declarative, versioned repository package, not a
+- [x] A strategy pack is a declarative, versioned repository package, not a
   permanently running model, remote agent, or independent user identity.
 - [ ] A workspace may have zero or one installed strategy pack. A workspace
   with no pack remains a general-purpose Eve research session.
 - [ ] The workspace owns its conversation, configuration overrides, monitors,
   findings, and budgets. The reusable pack never owns or receives that data.
-- [ ] Packs are pinned to an exact semantic version and immutable content
+- [x] Packs are pinned to an exact semantic version and immutable content
   digest. Configuration and removal are explicit control-plane actions.
 - [ ] Pack content can request capabilities but cannot grant them. Effective
   access remains the intersection of deployment policy, owner authorization,
   workspace policy, pack requirements, monitor scope, and runtime hard denials.
 - [ ] Packs may tighten shared safety and budget limits but never loosen them.
-- [ ] A pack definition contains no credentials, owner data, executable scripts,
+- [x] A pack definition contains no credentials, owner data, executable scripts,
   provider tokens, or arbitrary remote code.
-- [ ] Source adapters, tools, schemas, and migrations are reviewed application
+- [x] Source adapters, tools, schemas, and migrations are reviewed application
   code referenced by stable IDs. A pack manifest cannot execute code by itself.
 - [ ] Installing a pack does not silently activate preset monitors. Background
   work starts only when the owner's request or manager action explicitly enables
@@ -95,11 +95,11 @@ The completed feature must support this experience:
   generation so old instructions and capabilities cannot remain active.
 - [ ] User-facing copy continues to say **session**. **Strategy pack** is the
   user-facing term for the reusable recipe installed in a session.
-- [ ] The first catalog is local and repository-owned. Do not build a public
+- [x] The first catalog is local and repository-owned. Do not build a public
   marketplace, remote download service, or automatic update service.
 - [ ] The reference pack uses public SEC data only. No owner-private artifact
   system is needed or introduced by this specification.
-- [ ] No pack can enable live broker mutations. Trading remains governed by a
+- [x] No pack can enable live broker mutations. Trading remains governed by a
   later workspace-aware financial control-plane specification.
 
 ## Vocabulary
@@ -197,7 +197,7 @@ must promote the smallest necessary prerequisite into its own sprint.
 - [ ] A pack manifest is configuration, never authority. Every tool, skill,
   source, provider, budget, and data class is revalidated against authoritative
   deployment and workspace policy before exposure or execution.
-- [ ] Pack versions are immutable. The same pack ID and version cannot resolve
+- [x] Pack versions are immutable. The same pack ID and version cannot resolve
   to different bytes or a different digest across builds.
 - [ ] A workspace binds to exactly one version and digest at a time. There is no
   floating `latest`, version range, or silent production upgrade.
@@ -219,7 +219,7 @@ must promote the smallest necessary prerequisite into its own sprint.
   changes no durable key and creates no duplicate monitor or repeated paid work.
 - [ ] A missing, invalid, blocked, or digest-mismatched pack fails closed. Its
   pack-managed monitors pause before another worker starts.
-- [ ] Pack configuration and instruction sizes remain bounded. Raw research
+- [x] Pack configuration and instruction sizes remain bounded. Raw research
   documents never become durable conversation state or default prompt content.
 - [ ] Logs and metrics contain no message text, instructions, configuration
   values, owner IDs, workspace IDs, source URLs, watchlists, or high-cardinality
@@ -269,26 +269,26 @@ strategy-packs/
 
 The exact filenames may change, but these rules do not:
 
-- [ ] `pack.json` is data validated by one authoritative application schema. It
+- [x] `pack.json` is data validated by one authoritative application schema. It
   cannot import modules or contain executable expressions.
-- [ ] `workspace.md` is a short, bounded always-on mission and interpretation
+- [x] `workspace.md` is a short, bounded always-on mission and interpretation
   contract for an interactive workspace using the pack.
-- [ ] `playbook.md` is a load-on-demand Eve skill containing the detailed
+- [x] `playbook.md` is a load-on-demand Eve skill containing the detailed
   research procedure. Its description is a bounded routing hint.
-- [ ] Each monitor instruction is a separate bounded file so a worker receives
+- [x] Each monitor instruction is a separate bounded file so a worker receives
   only the instructions for its claimed monitor, not the complete pack.
 - [ ] The pack references the application-owned SEC eval-suite ID. It does not
   copy the existing fixture corpus into the version directory or expose fixture
   bodies to production model sessions.
-- [ ] All referenced paths stay inside the exact version directory, reject path
+- [x] All referenced paths stay inside the exact version directory, reject path
   traversal and symlink escape, and have per-file and aggregate byte ceilings.
 - [ ] Pack files contain no secret placeholders that encourage credentials in
   tracked configuration. Provider connections are referenced by stable IDs and
   configured outside the pack.
-- [ ] Reject credential fields and credential-bearing URLs in the bounded v1
+- [x] Reject credential fields and credential-bearing URLs in the bounded v1
   schema. Broader corpus scanning is deferred until packs accept more varied
   content or a publication boundary makes it necessary.
-- [ ] Generate a typed catalog module during repository preparation/build. Do
+- [x] Generate a typed catalog module during repository preparation/build. Do
   not depend on runtime filesystem discovery in Vercel functions.
 
 ## Strategy-pack definition contract
@@ -306,11 +306,11 @@ The exact filenames may change, but these rules do not:
 - explicit supported core/workspace/pack-schema versions; and
 - repository-relative references to the bounded instruction files.
 
-- [ ] Reject mutable aliases such as `latest`, URL-based pack IDs, build
+- [x] Reject mutable aliases such as `latest`, URL-based pack IDs, build
   timestamps as versions, and duplicate ID/version pairs.
-- [ ] Canonicalize and hash the manifest plus every referenced instruction and
+- [x] Canonicalize and hash the manifest plus every referenced instruction and
   schema file in a deterministic order.
-- [ ] Reject a pack whose explicit supported versions exclude the deployed
+- [x] Reject a pack whose explicit supported versions exclude the deployed
   core, workspace, or strategy-pack schema. A generalized semver-range engine
   and release-history ledger wait for a real second version or publication.
 
@@ -325,12 +325,12 @@ Each field declares its key, label, description, type, required/default state,
 bounds, whether it may be changed after installation, and whether changing it
 requires monitor pause or session-generation rollover.
 
-- [ ] Reject unknown configuration fields and values outside declared bounds.
-- [ ] Treat defaults as suggested configuration, not permission to activate a
+- [x] Reject unknown configuration fields and values outside declared bounds.
+- [x] Treat defaults as suggested configuration, not permission to activate a
   monitor or spend money.
 - [ ] Keep owner overrides separate from pack defaults so configuration changes
   never rewrite the immutable definition.
-- [ ] Never permit credential, free-form executable instruction, URL template,
+- [x] Never permit credential, free-form executable instruction, URL template,
   arbitrary JSON Schema, or arbitrary code fields in owner configuration.
 
 ### Capability and source requirements
@@ -353,16 +353,16 @@ The definition lists stable references to:
   degraded-mode behavior waits until a real pack requires it.
 - [ ] Run provider tool-inventory/schema drift checks before declaring a pack
   healthy. Newly discovered tools remain disabled.
-- [ ] Reject credentials, signed URLs, mutable redirectors, and unrestricted web
+- [x] Reject credentials, signed URLs, mutable redirectors, and unrestricted web
   origins in source definitions.
-- [ ] Pin every source reference as `{sourceId, contractVersion,
+- [x] Pin every source reference as `{sourceId, contractVersion,
   contractDigest, allowedOrigins}`. Spec 3 owns the generalized source-adapter
   implementation; this specification only establishes the minimum stable
   reference needed by the IPO pack.
 - [ ] Before a pack-managed source can activate, the exact-fenced fetch path
   rejects redirects before a second request and covers private and undeclared
   redirect targets with deterministic fixtures.
-- [ ] Reject every broker mutation, transfer, withdrawal, leverage, credential,
+- [x] Reject every broker mutation, transfer, withdrawal, leverage, credential,
   shell, and unrestricted filesystem capability from this specification's pack
   schema.
 
@@ -379,7 +379,7 @@ Each template includes:
 - suggested budget limits that only tighten workspace policy; and
 - activation default, which must always be `paused` or `draft`.
 
-- [ ] Validate template schedules against Spec 1 cadence, timezone, source-count,
+- [x] Validate template schedules against Spec 1 cadence, timezone, source-count,
   concurrency, and run-budget limits.
 - [ ] Materialize templates as ordinary Spec 1 workspace monitors with immutable
   workspace identity plus pack ID, version, resource ID, and binding revision.
@@ -394,15 +394,15 @@ The pack references application-owned, versioned schemas for structured
 findings and alert projections. It also declares the deterministic eval suite
 required for that exact version.
 
-- [ ] Require every production pack to declare at least one fixture-backed
+- [x] Require every production pack to declare at least one fixture-backed
   positive case, no-match case, replay/idempotency case, malformed-input case,
   and forbidden-capability case.
 - [ ] Require provenance, source identity, observed/as-of time, producing
   workspace, pack version, monitor/run identity, and schema version on every
   pack-produced finding.
-- [ ] Keep scoring and interpretation rules pack-specific. Do not add one shared
+- [x] Keep scoring and interpretation rules pack-specific. Do not add one shared
   universal investment score to the core schema.
-- [ ] Keep wording-quality judges optional and non-authoritative. Isolation,
+- [x] Keep wording-quality judges optional and non-authoritative. Isolation,
   schema, source, capability, and idempotency gates are deterministic.
 
 ## Compiled pack catalog
@@ -410,19 +410,19 @@ required for that exact version.
 `StrategyPackCatalog` is the immutable deployment view of validated definitions.
 It is not a mutable database and does not contain workspace installations.
 
-- [ ] Add a generator that validates all pack versions, resolves files, computes
+- [x] Add a generator that validates all pack versions, resolves files, computes
   digests, and emits one typed imported catalog module.
-- [ ] Sort catalog entries deterministically by pack ID and semantic version.
-- [ ] Detect duplicate resource IDs, missing references, path escape, oversize
+- [x] Sort catalog entries deterministically by pack ID and semantic version.
+- [x] Detect duplicate resource IDs, missing references, path escape, oversize
   instructions, incompatible schemas, capability conflicts, and missing evals.
-- [ ] Generate a compact model-safe catalog projection containing only pack ID,
+- [x] Generate a compact model-safe catalog projection containing only pack ID,
   display name, version, description, maturity, configuration summary, and
   availability. Do not expose every instruction or schema while listing packs.
-- [ ] Let reviewed application configuration mark a vulnerable or incorrect
+- [x] Let reviewed application configuration mark a vulnerable or incorrect
   version `blocked` without editing historical pack bytes.
-- [ ] Keep installed historical versions in the build until no durable binding
+- [x] Keep installed historical versions in the build until no durable binding
   references them or an explicit migration has completed.
-- [ ] Add `verify:strategy-packs` and run it in `prebuild` and CI.
+- [x] Add `verify:strategy-packs` and run it in `prebuild` and CI.
 
 ## Durable workspace pack binding
 
@@ -523,7 +523,7 @@ dynamically composing capabilities from the authenticated workspace binding.
   Eve's inline-function requirement so replayed steps retain the executor.
 - [ ] Pack install, configuration, and removal create a new workspace session
   generation rather than altering an already-running generation's identity.
-- [ ] Keep pack catalog browsing a compact control-plane operation; it must not
+- [x] Keep pack catalog browsing a compact control-plane operation; it must not
   load all pack instructions into the model prompt.
 
 ### Scheduled workspace workers
@@ -613,7 +613,7 @@ plus the immutable receipt or bounded error.
 
 - [ ] Preserve the manager's accepted grayscale visual language and user-facing
   **session** terminology.
-- [ ] Keep catalog list responses compact and paginate or bound them even though
+- [x] Keep catalog list responses compact and paginate or bound them even though
   the first catalog is small.
 - [ ] Bind every mutation to owner, conversation, workspace, generation,
   expected binding revision, mutation ID, and one-time request ID.
@@ -692,12 +692,12 @@ and source provenance.
 
 ## Failure contracts
 
-- [ ] Invalid pack at build: fail catalog generation with bounded file and error
+- [x] Invalid pack at build: fail catalog generation with bounded file and error
   code; do not emit a partial production catalog.
 - [ ] Missing installed version after deployment: mark the binding unavailable,
   pause its managed monitors, preserve workspace data, and allow only inspection
   or non-destructive removal.
-- [ ] Same version/different digest: treat as an integrity failure, never an
+- [x] Same version/different digest: treat as an integrity failure, never an
   allowed mutation.
 - [ ] Missing required capability: keep the binding inactive or unavailable and
   report the precise unavailable-capability reason.
@@ -761,7 +761,7 @@ inventory.
 - [ ] Add operator reports for installed version counts, unavailable/blocked
   bindings, failed mutations, and retired resources without private
   workspace content.
-- [ ] Add kill switches for pack installation/mutation, dynamic pack composition,
+- [x] Add kill switches for pack installation/mutation, dynamic pack composition,
   and pack-managed monitor dispatch independently.
 - [ ] Define retention for mutation receipts and retired-resource metadata.
 - [ ] Document how to block a faulty pack version, inspect affected bindings,
@@ -776,7 +776,7 @@ inventory.
   pack feature flags are disabled.
 - [ ] Feature rollback may stop new pack mutations and pack-managed dispatch
   while preserving bindings, monitors, findings, and receipts.
-- [ ] Do not remove a compiled pack version while a durable active binding still
+- [x] Do not remove a compiled pack version while a durable active binding still
   references it.
 - [ ] Record the deployed commit, catalog digest, reference-pack digest, feature
   flag state, smoke result, and rollback verification without owner data.

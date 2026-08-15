@@ -1,0 +1,352 @@
+import { z } from "zod";
+
+export const STRATEGY_PACK_SCHEMA_VERSION = 1;
+export const STRATEGY_PACK_CORE_SCHEMA_VERSION = 1;
+export const STRATEGY_PACK_WORKSPACE_SCHEMA_VERSION = 1;
+export const STRATEGY_PACK_CATALOG_ENTRY_LIMIT = 128;
+
+export const STRATEGY_PACK_FILE_LIMITS = Object.freeze({
+  aggregate: 128 * 1_024,
+  evaluations: 32 * 1_024,
+  manifest: 64 * 1_024,
+  monitorInstruction: 8 * 1_024,
+  playbookInstruction: 32 * 1_024,
+  workspaceInstruction: 8 * 1_024,
+});
+
+export function compareStrategyPackVersions(left: string, right: string): number {
+  const leftParts = left.split(".").map(Number);
+  const rightParts = right.split(".").map(Number);
+  for (let index = 0; index < 3; index += 1) {
+    const difference = leftParts[index]! - rightParts[index]!;
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+export function compareStrategyPackText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+const semverSchema = z
+  .string()
+  .regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u);
+const digestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+const packIdSchema = z
+  .string()
+  .min(2)
+  .max(64)
+  .regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u);
+const stableIdSchema = z
+  .string()
+  .min(2)
+  .max(160)
+  .regex(/^[A-Za-z][A-Za-z0-9_./:@-]+$/u);
+const relativePathSchema = z
+  .string()
+  .min(1)
+  .max(240)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u);
+const localTimeSchema = z
+  .string()
+  .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u);
+
+function sortedUnique(values: readonly string[]): boolean {
+  return (
+    new Set(values).size === values.length &&
+    values.every((value, index) => index === 0 || values[index - 1]! < value)
+  );
+}
+
+function exactHttpsOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      url.username === "" &&
+      url.password === "" &&
+      url.pathname === "/" &&
+      url.search === "" &&
+      url.hash === "" &&
+      url.origin === value
+    );
+  } catch {
+    return false;
+  }
+}
+
+function safeCanonicalUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.hash !== "" ||
+      url.toString() !== value
+    ) {
+      return false;
+    }
+    for (const key of url.searchParams.keys()) {
+      if (/(?:api[-_]?key|credential|password|secret|signature|token)/iu.test(key)) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const configurationFieldBase = {
+  description: z.string().trim().min(1).max(400),
+  key: z
+    .string()
+    .min(2)
+    .max(80)
+    .regex(/^[a-z][A-Za-z0-9]*$/u),
+  label: z.string().trim().min(1).max(120),
+  mutableAfterInstall: z.boolean(),
+  pauseManagedMonitorsOnChange: z.boolean(),
+  required: z.boolean(),
+  rolloverGenerationOnChange: z.boolean(),
+};
+
+const timezoneConfigurationSchema = z
+  .object({
+    ...configurationFieldBase,
+    default: z
+      .string()
+      .min(1)
+      .max(80)
+      .refine((value) => {
+        try {
+          new Intl.DateTimeFormat("en", { timeZone: value });
+          return true;
+        } catch {
+          return false;
+        }
+      }),
+    kind: z.literal("iana_timezone"),
+  })
+  .strict();
+
+const dailyTimesConfigurationSchema = z
+  .object({
+    ...configurationFieldBase,
+    default: z.array(localTimeSchema).min(1).max(16),
+    kind: z.literal("daily_local_times"),
+    maximumItems: z.number().int().positive().max(16),
+    minimumItems: z.number().int().positive().max(16),
+  })
+  .strict()
+  .superRefine((field, context) => {
+    if (
+      field.minimumItems > field.maximumItems ||
+      field.default.length < field.minimumItems ||
+      field.default.length > field.maximumItems ||
+      !sortedUnique(field.default)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "strategy_pack_daily_times_invalid",
+      });
+    }
+  });
+
+export const strategyPackConfigurationFieldSchema = z.discriminatedUnion(
+  "kind",
+  [timezoneConfigurationSchema, dailyTimesConfigurationSchema],
+);
+
+const skillSchema = z
+  .object({
+    description: z.string().trim().min(1).max(300),
+    id: stableIdSchema,
+    instructionPath: relativePathSchema,
+    version: semverSchema,
+  })
+  .strict();
+
+const sourceSchema = z
+  .object({
+    accessClassification: z.literal("public"),
+    allowedOrigins: z
+      .array(z.string().max(500).refine(exactHttpsOrigin))
+      .min(1)
+      .max(4),
+    canonicalUrl: z.string().max(2_048).refine(safeCanonicalUrl),
+    contractDigest: digestSchema,
+    contractVersion: semverSchema,
+    sourceId: stableIdSchema,
+  })
+  .strict()
+  .superRefine((source, context) => {
+    let canonicalOrigin: string | null = null;
+    try {
+      canonicalOrigin = new URL(source.canonicalUrl).origin;
+    } catch {
+      // The field refinement owns the URL-shape issue.
+    }
+    if (
+      !sortedUnique(source.allowedOrigins) ||
+      !canonicalOrigin ||
+      !source.allowedOrigins.includes(canonicalOrigin)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "strategy_pack_source_origin_invalid",
+      });
+    }
+  });
+
+const monitorSchema = z
+  .object({
+    activationDefault: z.enum(["draft", "paused"]),
+    alertPresentationId: stableIdSchema,
+    dailyTimesConfigurationKey: z.string().min(2).max(80),
+    displayName: z.string().trim().min(1).max(160),
+    findingSchemaId: stableIdSchema,
+    instructionPath: relativePathSchema,
+    overridableFields: z.array(z.enum(["schedule"])).max(1),
+    requiredCapabilityIds: z.array(stableIdSchema).min(1).max(32),
+    resourceId: z
+      .string()
+      .min(2)
+      .max(80)
+      .regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u),
+    sourceIds: z.array(stableIdSchema).min(1).max(8),
+    suggestedBudget: z
+      .object({
+        maximumInputTokensPerRun: z.number().int().positive().max(10_000_000),
+        maximumOutputTokensPerRun: z.number().int().positive().max(100_000),
+        maximumRunsPerDay: z.number().int().positive().max(32),
+      })
+      .strict(),
+    timezoneConfigurationKey: z.string().min(2).max(80),
+  })
+  .strict()
+  .superRefine((monitor, context) => {
+    if (
+      !sortedUnique(monitor.requiredCapabilityIds) ||
+      !sortedUnique(monitor.sourceIds) ||
+      !sortedUnique(monitor.overridableFields)
+    ) {
+      context.addIssue({ code: "custom", message: "strategy_pack_monitor_duplicate" });
+    }
+  });
+
+export const strategyPackManifestSchema = z
+  .object({
+    capabilities: z
+      .object({
+        hardDenied: z.array(stableIdSchema).min(1).max(64),
+        required: z.array(stableIdSchema).min(1).max(64),
+      })
+      .strict(),
+    compatibility: z
+      .object({
+        coreSchemaVersion: z.number().int().positive(),
+        strategyPackSchemaVersion: z.number().int().positive(),
+        workspaceSchemaVersion: z.number().int().positive(),
+      })
+      .strict(),
+    configuration: z.array(strategyPackConfigurationFieldSchema).max(16),
+    description: z.string().trim().min(1).max(500),
+    displayName: z.string().trim().min(1).max(120),
+    evaluationsPath: relativePathSchema,
+    id: packIdSchema,
+    maturity: z.enum(["deprecated", "experimental", "reference", "stable"]),
+    monitors: z.array(monitorSchema).min(1).max(16),
+    schemaVersion: z.literal(STRATEGY_PACK_SCHEMA_VERSION),
+    skills: z.array(skillSchema).min(1).max(16),
+    sources: z.array(sourceSchema).min(1).max(8),
+    version: semverSchema,
+    workspaceInstructionPath: relativePathSchema,
+  })
+  .strict();
+
+export const strategyPackEvaluationsSchema = z
+  .object({
+    cases: z
+      .array(
+        z
+          .object({
+            fixtureId: stableIdSchema,
+            id: stableIdSchema,
+            kind: z.enum([
+              "forbidden_capability",
+              "malformed_input",
+              "no_match",
+              "positive",
+              "replay",
+            ]),
+          })
+          .strict(),
+      )
+      .min(5)
+      .max(64),
+    schemaVersion: z.literal(1),
+    suiteId: stableIdSchema,
+  })
+  .strict()
+  .superRefine((evaluations, context) => {
+    const kinds = new Set(evaluations.cases.map((entry) => entry.kind));
+    const ids = evaluations.cases.map((entry) => entry.id);
+    if (new Set(ids).size !== ids.length) {
+      context.addIssue({ code: "custom", message: "strategy_pack_eval_duplicate" });
+    }
+    for (const kind of [
+      "forbidden_capability",
+      "malformed_input",
+      "no_match",
+      "positive",
+      "replay",
+    ] as const) {
+      if (!kinds.has(kind)) {
+        context.addIssue({ code: "custom", message: `strategy_pack_eval_missing_${kind}` });
+      }
+    }
+  });
+
+export type StrategyPackManifest = z.infer<typeof strategyPackManifestSchema>;
+export type StrategyPackEvaluations = z.infer<typeof strategyPackEvaluationsSchema>;
+
+export interface StrategyPackDefinition
+  extends Omit<StrategyPackManifest, "monitors" | "skills"> {
+  readonly contentDigest: string;
+  readonly evaluations: StrategyPackEvaluations;
+  readonly monitors: readonly (StrategyPackManifest["monitors"][number] & {
+    readonly instruction: string;
+  })[];
+  readonly skills: readonly (StrategyPackManifest["skills"][number] & {
+    readonly instruction: string;
+  })[];
+  readonly workspaceInstruction: string;
+}
+
+export interface StrategyPackReferenceCatalog {
+  readonly alertPresentationIds: readonly string[];
+  readonly capabilityIds: readonly string[];
+  readonly evalSuites: Readonly<Record<string, readonly string[]>>;
+  readonly findingSchemaIds: readonly string[];
+  readonly sourceContracts: Readonly<
+    Record<
+      string,
+      {
+        readonly allowedOrigins: readonly string[];
+        readonly canonicalUrl: string;
+        readonly contractDigest: string;
+        readonly contractVersion: string;
+      }
+    >
+  >;
+}
+
+export const EMPTY_STRATEGY_PACK_REFERENCE_CATALOG = Object.freeze({
+  alertPresentationIds: Object.freeze([]),
+  capabilityIds: Object.freeze([]),
+  evalSuites: Object.freeze({}),
+  findingSchemaIds: Object.freeze([]),
+  sourceContracts: Object.freeze({}),
+}) satisfies StrategyPackReferenceCatalog;
