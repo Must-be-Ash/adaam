@@ -34,6 +34,29 @@ production mutation.
 - Redis is installed at `/opt/homebrew/bin/redis-server`.
 - No Spec 1 production deployment or real Photon acceptance has been performed.
 
+## Required local worktree cleanup
+
+These directories are temporary Git worktrees, not separate projects. The next
+agent must not create additional worktrees: use at most one active Spec 1
+worktree alongside the canonical `/Users/ashnouruzi/dev/adaam` checkout, with
+the pushed remote branches preserving work between phases.
+
+- Remove `/private/tmp/adaam-spec01-review.SRTq3I/repo`; it is an obsolete
+  detached review worktree.
+- Remove `/Users/ashnouruzi/dev/adaam-spec-01-remediation-r1`; R1 is already
+  integrated into `codex/spec-01-independent-workspaces`.
+- Remove `/Users/ashnouruzi/dev/adaam-spec-roadmap-r2-learnings`; its work is
+  already merged into `codex/spec-01-remediation-r2` and pushed.
+- Keep `/Users/ashnouruzi/dev/adaam-spec-01-remediation-r2` only until R2 is
+  accepted and merged into `codex/spec-01-independent-workspaces`, then remove
+  it immediately.
+- Keep `/Users/ashnouruzi/dev/adaam-spec-01` as the sole Spec 1 integration
+  worktree. After reviewed Spec 1 is merged and pushed to `main`, remove it too.
+
+Handoff is not complete while obsolete Spec 1 worktrees remain registered or on
+disk. Preserve the remote branches and commits; the cleanup target is the local
+worktree directories and registrations.
+
 ## Implemented work that must not be rebuilt
 
 The following foundation already exists. Retest it when a remediation touches
@@ -212,4 +235,5 @@ time they are performed.
 The next agent is finished managing Spec 1 only when all remaining sections
 above are implemented, verified, independently reviewed, committed, merged into
 the integration branch, reflected accurately in the product and review
-checklists, and pushed. A production rollout is a separate owner-authorized act.
+checklists, pushed, and the temporary worktrees listed above are cleaned up. A
+production rollout is a separate owner-authorized act.
