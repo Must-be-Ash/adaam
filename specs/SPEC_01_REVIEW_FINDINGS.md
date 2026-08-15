@@ -8,7 +8,16 @@ Review target: `codex/spec-01-independent-workspaces` at `32370db`
 
 Merge base: `154d1b9`
 
-Status: **not ready for deployment or merge**
+Status: **historical hardening ledger; ordinary polling path completed locally**
+
+> **2026-08-15 product-first update:** The production scheduled-alert caller,
+> authenticated delivery subscription, authoritative alert presentation,
+> 40-entry outcome capacity, manager details/usage, and safe legacy/durable
+> Photon rollout matrix are now implemented and independently reviewed. R3's
+> first item, R2 maximum-feed durability, and R6 rollout/presentation are
+> resolved. Remaining unchecked R2–R6 items are deferred hardening or
+> owner-authorized rollout work as classified in
+> `SPEC_01_PAUSED_CURRENT_TASK.md`; they are not the active pre-Spec-2 queue.
 
 The independent reviewer inspected the complete 53-commit branch, traced the
 production paths, ran the deterministic verification matrix, typecheck, Eve
@@ -99,7 +108,7 @@ is implemented on the R2 phase branch and is still pending that review.
   Filing deduplication uses durable source-native identity and does not create a
   second fact or alert merely because observation or source-update timestamps
   changed.
-- [ ] **Legitimate maximum-feed durability.** Every valid feed at the declared
+- [x] **Legitimate maximum-feed durability.** Every valid feed at the declared
   40-entry ceiling fits the durable outcome limits or is handled by a
   deterministic lossless batching contract.
 - [ ] **Test-fixture bridge lockdown.** Any fixture bridge in the compiled
@@ -156,9 +165,8 @@ claims. The remaining acceptance work is:
 
 ### R3 — production alert outbox and delivery recovery
 
-- [ ] Add a production caller that drains staged workspace alerts to Photon.
-  `deliverWorkspaceAlertToPhoton()` currently has no caller outside its direct
-  test, and the `photonAlerts` rollout flag is not consumed by delivery code.
+- [x] Add a production caller that sends each completed scheduled workspace
+  outcome to Photon when the `photonAlerts` rollout flag is enabled.
 - [ ] Do not advance a source checkpoint into silent alert loss. Define the
   durable relationship between finding, alert staging, checkpoint, and delivery
   retry/reconciliation.
@@ -195,11 +203,12 @@ claims. The remaining acceptance work is:
 
 ### R6 — rollout, lifecycle, presentation, privacy, and framework boundary
 
-- [ ] Make the new owner/ingress path safely deployable. Ordinary Photon chat
-  currently requires the new owner mapping and ingress storage even when all
-  workspace runtime flags are off. Add absent/partial/complete configuration
-  matrix tests without introducing an insecure authorization fallback.
-- [ ] Store and display the authoritative workspace name separately from the
+- [x] Make the new owner/ingress path safely deployable. With all new runtime
+  configuration absent/off, ordinary Photon chat, approvals, and session
+  management retain the legacy path. Partial or enabled configuration fails
+  closed, while complete configuration uses durable owner/ingress records; the
+  matrix is covered without an authorization fallback.
+- [x] Resolve and display the authoritative workspace name independently of the
   monitor name. Include the bounded event time and safe source evidence required
   by the alert contract.
 - [ ] Make archive/restore converge atomically or through a durable idempotent

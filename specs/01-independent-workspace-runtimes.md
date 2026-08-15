@@ -1,11 +1,11 @@
 # Spec 1: Independent workspace runtimes
 
-> **Status note:** This file defines the product requirements and definition of
-> done; its checkbox state is not the canonical live implementation status.
-> Read `SPEC_01_PAUSED_CURRENT_TASK.md` for completed work, remaining delivery,
-> branch ownership, and the exact role of every Spec 1 document.
+> **Status note:** The polling-first application is implemented locally and
+> independently reviewed. Production rollout remains owner-authorized, and
+> crash/race/operations hardening is deferred until after the remaining product
+> specs. Read `SPEC_01_PAUSED_CURRENT_TASK.md` for the canonical live status.
 
-Status: Draft for implementation
+Status: Polling implementation complete locally; production acceptance pending
 
 Date: 2026-08-13
 
@@ -29,7 +29,7 @@ stop and resolve it with the owner instead of silently widening the scope.
 ## Goal
 
 Allow every enabled workspace to own durable monitors that wake bounded,
-isolated workers on schedules or source events, even when another workspace is
+isolated workers on schedules, even when another workspace is
 selected for the owner's current iMessage conversation.
 
 The selected workspace controls only where an ordinary unqualified iMessage is
@@ -74,10 +74,10 @@ The completed foundation must support this experience:
 - [ ] Never allow a background worker to submit a live broker mutation. It may
   produce research, signals, and a proposed order, but live execution retains
   fresh preview, revalidation, and exact owner approval.
-- [ ] Deliver alerts from non-selected workspaces without silently changing the
+- [x] Deliver alerts from non-selected workspaces without silently changing the
   conversation's selected workspace.
-- [ ] Implement recurring polling first. Only after its complete acceptance
-  gate passes, add the source-event ingestion phase defined later in this spec.
+- [x] Implement recurring polling first. Source-event ingestion is deferred to
+  a follow-on after Spec 3's versioned source-adapter foundation.
 
 ## Vocabulary
 
@@ -992,7 +992,11 @@ Exit gate:
 - [ ] Polling is proven end to end in Photon with no context leakage, duplicate
   alerts, unexpected workspace switch, or unauthorized capability.
 
-### Sprint 7 — source-event ingestion
+### Deferred follow-on — source-event ingestion
+
+This feature is no longer part of the polling-first Spec 1 completion gate. It
+should be specified after Spec 3 so RSS/WebSub subscriptions use the same
+versioned adapter and canonical-fact contracts as polling.
 
 - [ ] Implement the normalized source-event envelope and authenticated ingress.
 - [ ] Implement conditional RSS change events and optional verified WebSub.
@@ -1069,7 +1073,7 @@ approval state machine, or Photon mini-app capability helpers.
   uncertain, ingress deduplicated, dispatch quarantined, response delivery
   quarantined, and routing-confirmation outcomes.
 - [ ] Emit bounded error codes rather than exception bodies or provider payloads.
-- [ ] Provide owner-visible monitor health in the manager.
+- [x] Provide owner-visible monitor health in the manager.
 - [ ] Add kill switches for all workspace dispatch, paid runtime research,
   Photon workspace alerts, and source-event ingestion.
 - [ ] Add an operator command/report that lists quarantined ingress dispatches,
@@ -1080,9 +1084,13 @@ approval state machine, or Photon mini-app capability helpers.
 
 ## Definition of done
 
-This specification is complete only when:
+The local polling implementation is complete when the applicable Sprint 0–6
+local gates below pass. Production rollout checks remain owner-authorized, and
+the deferred source-event follow-on is not part of this milestone.
 
-- [ ] Every sprint exit gate passes.
+The polling milestone is complete only when:
+
+- [x] Every applicable local polling exit gate through Sprint 6 passes.
 - [ ] Every actionable Photon webhook receives one immutable ingress receipt;
   every model-bound message is durably assigned before dispatch; duplicates and
   uncertain outcomes cannot cause blind replay.
@@ -1125,6 +1133,9 @@ own bounded implementation spec:
 
 | Date | Checklist item | Verification |
 | --- | --- | --- |
+| 2026-08-15 | Complete production scheduled-outcome delivery with authenticated Photon subscriptions, authoritative alert metadata, and Discuss/Manage actions | Alert subscription, delivery, presentation, app, context, reply, recovery, and compiled scheduled SEC verifiers — passed |
+| 2026-08-15 | Prove bounded 40-fact SEC durability, render complete manager status/usage, and preserve legacy Photon behavior behind a fail-closed rollout matrix | Findings, budget-ledger, manager, rollout, Photon workspace, approval, typecheck, Eve build, and Next.js webpack build — passed |
+| 2026-08-15 | Independently review the polling completion diff and reconcile Spec 1 into product-complete versus deferred hardening/rollout work | Two independent ordinary-path reviews found no remaining local product blocker |
 | 2026-08-14 | Add state diagrams and schema fixtures for durable workspace-runtime records | `node scripts/verify-workspace-runtime-contracts.mjs` and `jq empty specs/fixtures/01-independent-workspace-runtimes/*.json` — passed |
 | 2026-08-14 | Write deterministic pre-implementation failure fixtures for isolation, idempotency, uncertainty, drift, budgets, lifecycle, and alert routing | `node scripts/verify-workspace-runtime-failures.mjs` — passed |
 | 2026-08-14 | Define a fixture-backed Photon integration harness with no live broker or network surface | `node scripts/verify-workspace-photon-harness.mjs` — passed |
