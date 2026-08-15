@@ -115,6 +115,19 @@ const checkpointSchema = z.object({
   watermark: timestampSchema,
 }).strict();
 
+export function workspaceRunAttemptForOccurrence(
+  occurrenceKey: string,
+  runId: string,
+): number | null {
+  if (!/^[a-f0-9]{64}$/u.test(occurrenceKey)) return null;
+  const prefix = `${occurrenceKey}:attempt:`;
+  if (!runId.startsWith(prefix)) return null;
+  const rawAttempt = runId.slice(prefix.length);
+  if (!/^[1-9]\d*$/u.test(rawAttempt)) return null;
+  const attempt = Number(rawAttempt);
+  return Number.isSafeInteger(attempt) && attempt > 0 ? attempt : null;
+}
+
 const outcomeSchema = z.object({
   checkpoint: checkpointSchema,
   configurationRevision: z.number().int().positive(),
@@ -131,6 +144,18 @@ const outcomeSchema = z.object({
 }).strict().superRefine((value, context) => {
   if ((value.outcome === "finding_staged") !== (value.finding !== null)) {
     context.addIssue({ code: "custom", message: "finding_outcome_invalid" });
+  }
+  if (workspaceRunAttemptForOccurrence(value.occurrenceKey, value.runId) === null) {
+    context.addIssue({ code: "custom", message: "finding_run_id_invalid" });
+  }
+  if (
+    value.finding &&
+    (value.finding.ownerId !== value.ownerId ||
+      value.finding.workspaceId !== value.workspaceId ||
+      value.finding.monitorId !== value.monitorId ||
+      value.finding.runId !== value.runId)
+  ) {
+    context.addIssue({ code: "custom", message: "finding_parent_mismatch" });
   }
 });
 

@@ -33,6 +33,7 @@ import {
 export interface EventTriggerScheduleDependencies {
   readonly claimEventTriggers: typeof eventTriggerStore.claimDue;
   readonly claimWorkspaceMonitors: typeof claimDueWorkspaceMonitors;
+  readonly executeEventTrigger: typeof executeEventTriggerJob;
   readonly finishWorkspaceBudget: typeof finishWorkspaceMonitorDispatchBudget;
   readonly getWorkspaceMonitor: typeof getWorkspaceMonitor;
   readonly inspectWorkspaceLease: typeof inspectWorkspaceMonitorOccurrenceLease;
@@ -52,6 +53,7 @@ const productionDependencies: EventTriggerScheduleDependencies = Object.freeze({
   claimEventTriggers: (...args: Parameters<typeof eventTriggerStore.claimDue>) =>
     eventTriggerStore.claimDue(...args),
   claimWorkspaceMonitors: claimDueWorkspaceMonitors,
+  executeEventTrigger: executeEventTriggerJob,
   finishWorkspaceBudget: finishWorkspaceMonitorDispatchBudget,
   getWorkspaceMonitor,
   inspectWorkspaceLease: inspectWorkspaceMonitorOccurrenceLease,
@@ -164,11 +166,13 @@ async function quarantineWorkspaceRecoveryFailure(
 async function executeWorkspaceRecovery(
   job: ClaimedWorkspaceMonitor,
   dependencies: EventTriggerScheduleDependencies,
+  expectedRunId?: string,
 ): Promise<void> {
   let failureCode = "worker_recovery_failed";
   try {
     const prepared = await dependencies.prepareWorkspaceRecovery({
       claimed: job,
+      ...(expectedRunId ? { expectedRunId } : {}),
     });
     const result = await dependencies.recoverWorkspaceOutcome({ prepared });
     if (result.status === "recovered" || result.status === "already_completed") {
@@ -196,7 +200,7 @@ async function executeWorkspaceJob(
     // A settled reservation proves the model work is terminal, but a crash may
     // still have happened after the durable outcome and before alert/checkpoint
     // finalization. Recover that deterministic tail without another model turn.
-    await executeWorkspaceRecovery(job, dependencies);
+    await executeWorkspaceRecovery(job, dependencies, budget.runId);
     return;
   }
   if (
@@ -284,6 +288,62 @@ async function deliver(
   }).send(prompt, { auth });
 }
 
+async function executeEventTriggerJob(input: {
+  appAuth: SessionAuthContext;
+  job: ClaimedEventTrigger;
+  to: ScheduleToFn;
+}): Promise<void> {
+  try {
+    const prepared = await eventTriggerStore.prepareDispatch(input.job);
+    if (!prepared) return;
+    if (!(await eventTriggerStore.reserveDailyBudget(prepared))) {
+      const now = new Date();
+      const nextBudgetWindow =
+        Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate() + 1,
+        ) +
+        5 * 60_000 +
+        Math.floor(Math.random() * 30 * 60_000);
+      await eventTriggerStore.defer(prepared, new Date(nextBudgetWindow));
+      return;
+    }
+    await deliver(input.to, prepared, input.appAuth);
+  } catch {
+    await eventTriggerStore.release(input.job, {
+      code: "channel_handoff_failed",
+    });
+  }
+}
+
+function scheduleFailureCode(error: unknown): string {
+  const candidate =
+    typeof error === "object" && error !== null && "code" in error
+      ? Reflect.get(error, "code")
+      : error instanceof Error
+        ? error.message
+        : null;
+  return typeof candidate === "string" && /^[a-z][a-z0-9_]{0,63}$/u.test(candidate)
+    ? candidate
+    : "schedule_job_failed";
+}
+
+function collectScheduleFailures(
+  failures: unknown[],
+  jobKind: "event_trigger" | "workspace_first_attempt" | "workspace_recovery",
+  results: readonly PromiseSettledResult<unknown>[],
+): void {
+  for (const result of results) {
+    if (result.status !== "rejected") continue;
+    failures.push(result.reason);
+    console.warn("[schedule] Claimed job failed after isolation", {
+      code: scheduleFailureCode(result.reason),
+      job_kind: jobKind,
+    });
+  }
+}
+
 export function createEventTriggerSchedule(
   overrides: Partial<EventTriggerScheduleDependencies> = {},
 ) {
@@ -324,8 +384,15 @@ export function createEventTriggerSchedule(
         const firstAttemptJobs = workspaceJobs.filter(
           (job) => job.occurrence.attempt === 1,
         );
-        await Promise.all(
-          recoveryJobs.map((job) => executeWorkspaceRecovery(job, dependencies)),
+        const scheduleFailures: unknown[] = [];
+        collectScheduleFailures(
+          scheduleFailures,
+          "workspace_recovery",
+          await Promise.allSettled(
+            recoveryJobs.map((job) =>
+              executeWorkspaceRecovery(job, dependencies)
+            ),
+          ),
         );
 
         const admittedWorkspaceJobs = [];
@@ -336,13 +403,21 @@ export function createEventTriggerSchedule(
             });
             admittedWorkspaceJobs.push({ budget, job });
           } catch (error) {
-            await dependencies.releaseWorkspaceLease({
-              leaseToken: job.leaseToken,
-              monitorId: job.monitor.monitorId,
-              scope: job.scope,
-            });
+            try {
+              await dependencies.releaseWorkspaceLease({
+                leaseToken: job.leaseToken,
+                monitorId: job.monitor.monitorId,
+                scope: job.scope,
+              });
+            } catch (releaseError) {
+              scheduleFailures.push(releaseError);
+              console.warn("[schedule] Claimed job failed after isolation", {
+                code: scheduleFailureCode(releaseError),
+                job_kind: "workspace_first_attempt",
+              });
+            }
             console.warn("[workspace.monitor] Dispatch admission denied", {
-              code: error instanceof Error ? error.message : "budget_admission_failed",
+              code: scheduleFailureCode(error),
               monitor_id: job.monitor.monitorId,
               workspace_id: job.monitor.workspaceId,
             });
@@ -354,41 +429,31 @@ export function createEventTriggerSchedule(
           });
         }
 
-        await Promise.all(
-          admittedWorkspaceJobs.map(({ budget, job }) =>
-            executeWorkspaceJob(job, budget, dependencies),
+        collectScheduleFailures(
+          scheduleFailures,
+          "workspace_first_attempt",
+          await Promise.allSettled(
+            admittedWorkspaceJobs.map(({ budget, job }) =>
+              executeWorkspaceJob(job, budget, dependencies)
+            ),
           ),
         );
 
-        await Promise.all(
-          jobs.map(async (job) => {
-            try {
-              const prepared = await eventTriggerStore.prepareDispatch(job);
-              if (!prepared) return;
-              if (!(await eventTriggerStore.reserveDailyBudget(prepared))) {
-                const now = new Date();
-                const nextBudgetWindow =
-                  Date.UTC(
-                    now.getUTCFullYear(),
-                    now.getUTCMonth(),
-                    now.getUTCDate() + 1,
-                  ) +
-                  5 * 60_000 +
-                  Math.floor(Math.random() * 30 * 60_000);
-                await eventTriggerStore.defer(
-                  prepared,
-                  new Date(nextBudgetWindow),
-                );
-                return;
-              }
-              await deliver(to, prepared, appAuth);
-            } catch {
-              await eventTriggerStore.release(job, {
-                code: "channel_handoff_failed",
-              });
-            }
-          }),
+        collectScheduleFailures(
+          scheduleFailures,
+          "event_trigger",
+          await Promise.allSettled(
+            jobs.map((job) =>
+              dependencies.executeEventTrigger({ appAuth, job, to })
+            ),
+          ),
         );
+        if (scheduleFailures.length > 0) {
+          throw new AggregateError(
+            scheduleFailures,
+            "event_trigger_schedule_partial_failure",
+          );
+        }
         })(),
       );
     },

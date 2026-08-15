@@ -3,6 +3,7 @@ import type { SessionContext } from "eve/context";
 import {
   completeWorkspaceRunNoMatch,
   stageWorkspaceFinding,
+  workspaceRunAttemptForOccurrence,
   type WorkspaceFindingCandidate,
   type WorkspaceFindingStoreClient,
   type WorkspaceRunOutcome,
@@ -55,6 +56,33 @@ export class WorkspaceWorkerCommitError extends Error {
     this.code = code;
     this.name = "WorkspaceWorkerCommitError";
   }
+}
+
+export function isPriorWorkspaceRunForRecovery(input: {
+  claimedAttempt: number;
+  claimedOccurrenceKey: string;
+  outcomeOccurrenceKey: string;
+  outcomeRunId: string;
+}): boolean {
+  const priorAttempt = workspaceRunAttemptForOccurrence(
+    input.outcomeOccurrenceKey,
+    input.outcomeRunId,
+  );
+  return (
+    input.outcomeOccurrenceKey === input.claimedOccurrenceKey &&
+    priorAttempt !== null &&
+    priorAttempt < input.claimedAttempt
+  );
+}
+
+function findingMatchesOutcome(outcome: WorkspaceRunOutcome): boolean {
+  return (
+    outcome.finding === null ||
+    (outcome.finding.ownerId === outcome.ownerId &&
+      outcome.finding.workspaceId === outcome.workspaceId &&
+      outcome.finding.monitorId === outcome.monitorId &&
+      outcome.finding.runId === outcome.runId)
+  );
 }
 
 function sameSources(
@@ -250,6 +278,7 @@ export async function finalizeExistingWorkspaceRunOutcomeForWorker(input: {
     input.outcome.monitorId !== prepared.envelope.monitorId ||
     input.outcome.runId !== prepared.envelope.runId ||
     input.outcome.occurrenceKey !== prepared.envelope.occurrenceKey ||
+    !findingMatchesOutcome(input.outcome) ||
     input.outcome.configurationRevision !==
       prepared.envelope.configurationRevision
   ) {
@@ -299,7 +328,23 @@ export async function finalizePriorWorkspaceRunOutcomeForControlPlane(input: {
     input.outcome.workspaceId !== scope.workspaceId ||
     input.outcome.monitorId !== envelope.monitorId ||
     input.outcome.occurrenceKey !== envelope.occurrenceKey ||
+    !findingMatchesOutcome(input.outcome) ||
     input.outcome.configurationRevision !== envelope.configurationRevision
+  ) {
+    throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
+  }
+  if (
+    input.prepared.expectedRunId === null
+      ? !isPriorWorkspaceRunForRecovery({
+          claimedAttempt: claimed.occurrence.attempt,
+          claimedOccurrenceKey: claimed.occurrence.occurrenceKey,
+          outcomeOccurrenceKey: input.outcome.occurrenceKey,
+          outcomeRunId: input.outcome.runId,
+        })
+      : input.outcome.runId !== input.prepared.expectedRunId ||
+        claimed.occurrence.attempt !== 1 ||
+        input.prepared.expectedRunId !==
+          `${claimed.occurrence.occurrenceKey}:attempt:1`
   ) {
     throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
   }

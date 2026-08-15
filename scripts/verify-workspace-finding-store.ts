@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import {
   readWorkspaceRunOutcome,
   selectUnseenWorkspaceFindingIdentities,
+  workspaceRunAttemptForOccurrence,
   WorkspaceFindingError,
   type WorkspaceFindingStoreClient,
+  type WorkspaceRunOutcome,
 } from "../agent/lib/workspace-finding-store";
 import { createWorkspaceMonitor, type WorkspaceMonitorStoreClient } from "../agent/lib/workspace-monitor-store";
 import {
@@ -19,6 +21,7 @@ import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-
 import {
   COMPLETE_WORKSPACE_RUN_TOOL_ID,
   completeWorkspaceRunForWorker,
+  isPriorWorkspaceRunForRecovery,
   WRITE_WORKSPACE_FINDING_TOOL_ID,
   writeWorkspaceFindingForWorker,
   WorkspaceWorkerCommitError,
@@ -335,6 +338,98 @@ assert.equal(outcome.runId, runId);
 assert.equal(outcome.finding?.summary, finding.summary);
 assert.deepEqual(outcome.finding?.facts, finding.facts);
 assert.match(outcome.finding?.findingId ?? "", /^finding_[a-f0-9]{64}$/u);
+assert.ok(outcome.finding);
+const storedOutcomeReader = (candidate: WorkspaceRunOutcome) => ({
+  get: async () => JSON.stringify(candidate),
+}) as WorkspaceFindingStoreClient;
+for (const mismatchedFinding of [
+  { ...outcome.finding, ownerId: "other_owner" },
+  {
+    ...outcome.finding,
+    workspaceId: "223e4567-e89b-42d3-a456-426614174000",
+  },
+  {
+    ...outcome.finding,
+    monitorId: "423e4567-e89b-42d3-a456-426614174000",
+  },
+  { ...outcome.finding, runId: `${outcome.occurrenceKey}:attempt:2` },
+]) {
+  await assert.rejects(
+    readWorkspaceRunOutcome(
+      scope,
+      outcome.occurrenceKey,
+      storedOutcomeReader({ ...outcome, finding: mismatchedFinding }),
+    ),
+    (error) =>
+      error instanceof WorkspaceFindingError && error.code === "finding_invalid",
+  );
+}
+for (const invalidRunId of [
+  `${"d".repeat(64)}:attempt:1`,
+  `${outcome.occurrenceKey}:attempt:0`,
+  `${outcome.occurrenceKey}:attempt:01`,
+  `${outcome.occurrenceKey}:attempt:1.5`,
+  `${outcome.occurrenceKey}:attempt:9007199254740992`,
+  `${outcome.occurrenceKey}:other:1`,
+]) {
+  await assert.rejects(
+    readWorkspaceRunOutcome(
+      scope,
+      outcome.occurrenceKey,
+      storedOutcomeReader({
+        ...outcome,
+        finding: { ...outcome.finding, runId: invalidRunId },
+        runId: invalidRunId,
+      }),
+    ),
+    (error) =>
+      error instanceof WorkspaceFindingError && error.code === "finding_invalid",
+  );
+}
+assert.equal(
+  workspaceRunAttemptForOccurrence(
+    outcome.occurrenceKey,
+    `${outcome.occurrenceKey}:attempt:1`,
+  ),
+  1,
+);
+assert.equal(
+  isPriorWorkspaceRunForRecovery({
+    claimedAttempt: 2,
+    claimedOccurrenceKey: outcome.occurrenceKey,
+    outcomeOccurrenceKey: outcome.occurrenceKey,
+    outcomeRunId: `${outcome.occurrenceKey}:attempt:1`,
+  }),
+  true,
+);
+for (const rejectedPrior of [
+  {
+    claimedAttempt: 2,
+    claimedOccurrenceKey: outcome.occurrenceKey,
+    outcomeOccurrenceKey: outcome.occurrenceKey,
+    outcomeRunId: `${outcome.occurrenceKey}:attempt:2`,
+  },
+  {
+    claimedAttempt: 2,
+    claimedOccurrenceKey: outcome.occurrenceKey,
+    outcomeOccurrenceKey: outcome.occurrenceKey,
+    outcomeRunId: `${outcome.occurrenceKey}:attempt:3`,
+  },
+  {
+    claimedAttempt: 2,
+    claimedOccurrenceKey: outcome.occurrenceKey,
+    outcomeOccurrenceKey: "d".repeat(64),
+    outcomeRunId: `${"d".repeat(64)}:attempt:1`,
+  },
+  {
+    claimedAttempt: 2,
+    claimedOccurrenceKey: outcome.occurrenceKey,
+    outcomeOccurrenceKey: outcome.occurrenceKey,
+    outcomeRunId: `${outcome.occurrenceKey}:attempt:not-an-integer`,
+  },
+]) {
+  assert.equal(isPriorWorkspaceRunForRecovery(rejectedPrior), false);
+}
 assert.deepEqual(
   await selectUnseenWorkspaceFindingIdentities({
     factIdentities: finding.factIdentities,

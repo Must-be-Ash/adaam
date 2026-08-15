@@ -62,6 +62,7 @@ export interface PreparedWorkspaceWorkerRun {
 export interface PreparedWorkspaceWorkerRecovery {
   readonly capabilityRevision: number;
   readonly claimed: ClaimedWorkspaceMonitor;
+  readonly expectedRunId: string | null;
   readonly monitor: WorkspaceMonitor;
   readonly scope: AuthorizedWorkspaceStoreScope;
 }
@@ -101,6 +102,7 @@ function sameSources(
 export async function prepareWorkspaceWorkerRecovery(input: {
   claimed: ClaimedWorkspaceMonitor;
   clients?: WorkspaceWorkerRecoveryClients;
+  expectedRunId?: string;
 }): Promise<PreparedWorkspaceWorkerRecovery> {
   const expectedOccurrenceKey = workspaceMonitorOccurrenceKey({
     configurationRevision: input.claimed.monitor.configurationRevision,
@@ -116,7 +118,10 @@ export async function prepareWorkspaceWorkerRecovery(input: {
       input.claimed.monitor.configurationRevision ||
     input.claimed.occurrence.occurrenceKey !== expectedOccurrenceKey ||
     createHash("sha256").update(input.claimed.leaseToken).digest("hex") !==
-      input.claimed.occurrence.leaseTokenDigest
+      input.claimed.occurrence.leaseTokenDigest ||
+    (input.expectedRunId !== undefined &&
+      (input.claimed.occurrence.attempt !== 1 ||
+        input.expectedRunId !== `${expectedOccurrenceKey}:attempt:1`))
   ) {
     throw new WorkspaceWorkerRunnerError("workspace_worker_state_stale");
   }
@@ -162,6 +167,7 @@ export async function prepareWorkspaceWorkerRecovery(input: {
   return Object.freeze({
     capabilityRevision: capabilities.revision,
     claimed: input.claimed,
+    expectedRunId: input.expectedRunId ?? null,
     monitor: currentMonitor,
     scope: input.claimed.scope,
   });

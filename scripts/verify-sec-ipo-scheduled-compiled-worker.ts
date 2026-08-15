@@ -1217,8 +1217,35 @@ try {
       corruptRecoveryMonitor.monitorId,
     );
     assert.equal(corruptAttemptTwo.occurrence.attempt, 2);
-    findings.nextGetValue = "{corrupt-outcome";
+    const semanticOutcomeTemplate = storedRecords(
+      findings,
+      "workspace_run_outcome",
+    ).find((record) => record.finding && typeof record.finding === "object");
+    assert.ok(semanticOutcomeTemplate);
+    const semanticRunId =
+      `${corruptAttemptOne.occurrence.occurrenceKey}:attempt:1`;
+    findings.nextGetValue = JSON.stringify({
+      ...semanticOutcomeTemplate,
+      configurationRevision: corruptAttemptOne.monitor.configurationRevision,
+      finding: {
+        ...(semanticOutcomeTemplate.finding as Record<string, unknown>),
+        monitorId: corruptAttemptOne.monitor.monitorId,
+        ownerId: "other_owner",
+        runId: semanticRunId,
+        workspaceId: corruptRecoveryWorkspace.scope.workspaceId,
+      },
+      monitorId: corruptAttemptOne.monitor.monitorId,
+      occurrenceKey: corruptAttemptOne.occurrence.occurrenceKey,
+      ownerId: corruptRecoveryWorkspace.scope.ownerId,
+      runId: semanticRunId,
+      workspaceId: corruptRecoveryWorkspace.scope.workspaceId,
+    });
     const startsBeforeCorruptRecovery = workspaceWorkerStarts;
+    const alertsBeforeCorruptRecovery = storedRecords(
+      alerts,
+      "workspace_alert",
+    ).length;
+    const completionsBeforeCorruptRecovery = monitors.completeCalls;
     const corruptRecovery = await dispatch(
       corruptAttemptTwo,
       async () => {
@@ -1228,6 +1255,11 @@ try {
     assert.equal(corruptRecovery.fetches, 0);
     assert.deepEqual(corruptRecovery.events, []);
     assert.equal(workspaceWorkerStarts, startsBeforeCorruptRecovery);
+    assert.equal(
+      storedRecords(alerts, "workspace_alert").length,
+      alertsBeforeCorruptRecovery,
+    );
+    assert.equal(monitors.completeCalls, completionsBeforeCorruptRecovery);
     const corruptFailedMonitor = (await getWorkspaceMonitor(
       corruptRecoveryWorkspace.scope,
       corruptRecoveryMonitor.monitorId,

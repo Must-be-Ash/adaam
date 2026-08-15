@@ -4,6 +4,9 @@ import { createHash } from "node:crypto";
 import type { ScheduleToFn } from "eve/schedules";
 
 import { createEventTriggerSchedule, type EventTriggerScheduleDependencies } from "../agent/schedules/event-triggers";
+import type { ClaimedEventTrigger } from "../agent/lib/event-trigger-store";
+import type { WorkspaceDispatchReservation } from "../agent/lib/workspace-dispatch-budget";
+import type { WorkspaceRunOutcome } from "../agent/lib/workspace-finding-store";
 import {
   workspaceMonitorOccurrenceKey,
   type ClaimedWorkspaceMonitor,
@@ -23,6 +26,7 @@ import {
 import {
   prepareWorkspaceWorkerRecovery,
   type PreparedWorkspaceWorkerRecovery,
+  type PreparedWorkspaceWorkerRun,
 } from "../agent/lib/workspace-worker-runner";
 
 const now = new Date("2026-08-14T20:00:00.000Z");
@@ -104,6 +108,7 @@ const job: ClaimedWorkspaceMonitor = {
 const prepared: PreparedWorkspaceWorkerRecovery = {
   capabilityRevision: 1,
   claimed: job,
+  expectedRunId: null,
   monitor,
   scope,
 };
@@ -114,6 +119,12 @@ interface ScenarioEvidence {
   readonly releases: number;
   readonly reservations: number;
   readonly starts: number;
+}
+
+function aggregateContains(error: unknown, message: string): boolean {
+  return error instanceof AggregateError && error.errors.some(
+    (nested) => nested instanceof Error && nested.message === message,
+  );
 }
 
 async function runScenario(overrides: Partial<EventTriggerScheduleDependencies>): Promise<ScenarioEvidence> {
@@ -248,7 +259,7 @@ await assert.rejects(
       throw new Error("quarantine_write_failed");
     },
   }),
-  /quarantine_write_failed/u,
+  (error) => aggregateContains(error, "quarantine_write_failed"),
 );
 
 const supersededQuarantine = await runScenario({
@@ -270,7 +281,7 @@ await assert.rejects(
     inspectWorkspaceLease: async () => "current",
     releaseWorkspaceLease: async () => false,
   }),
-  /worker_recovery_lease_release_failed/u,
+  (error) => aggregateContains(error, "worker_recovery_lease_release_failed"),
 );
 await assert.rejects(
   runScenario({
@@ -279,7 +290,7 @@ await assert.rejects(
       throw new Error("lease_release_failed");
     },
   }),
-  /lease_release_failed/u,
+  (error) => aggregateContains(error, "lease_release_failed"),
 );
 await runScenario({
   inspectWorkspaceLease: async () => "stale",
@@ -287,6 +298,196 @@ await runScenario({
     throw new Error("concurrent_lease_change");
   },
 });
+
+function workspaceJob(input: {
+  attempt: number;
+  monitorId: string;
+}): ClaimedWorkspaceMonitor {
+  const selectedMonitor = { ...monitor, monitorId: input.monitorId };
+  const selectedOccurrenceKey = workspaceMonitorOccurrenceKey({
+    configurationRevision: selectedMonitor.configurationRevision,
+    monitorId: input.monitorId,
+    occurrenceIdentity,
+    scope,
+  });
+  const selectedLeaseToken = `lease-${input.monitorId}`;
+  return {
+    ...job,
+    leaseToken: selectedLeaseToken,
+    monitor: selectedMonitor,
+    occurrence: {
+      ...job.occurrence,
+      attempt: input.attempt,
+      leaseTokenDigest: createHash("sha256")
+        .update(selectedLeaseToken)
+        .digest("hex"),
+      monitorId: input.monitorId,
+      occurrenceKey: selectedOccurrenceKey,
+    },
+  };
+}
+
+const failingRecoveryJob = workspaceJob({
+  attempt: 2,
+  monitorId: "523e4567-e89b-42d3-a456-426614174000",
+});
+const successfulRecoveryJob = workspaceJob({
+  attempt: 2,
+  monitorId: "623e4567-e89b-42d3-a456-426614174000",
+});
+const firstAttemptJob = workspaceJob({
+  attempt: 1,
+  monitorId: "723e4567-e89b-42d3-a456-426614174000",
+});
+const firstAttemptRunId =
+  `${firstAttemptJob.occurrence.occurrenceKey}:attempt:1`;
+const firstAttemptReservation: WorkspaceDispatchReservation = {
+  global: {
+    calendarDay: now.toISOString().slice(0, 10),
+    createdAt: now.toISOString(),
+    runId: firstAttemptRunId,
+    state: "reserved",
+    updatedAt: now.toISOString(),
+  },
+  runId: firstAttemptRunId,
+  workspace: {
+    calendarDay: now.toISOString().slice(0, 10),
+    calendarMonth: now.toISOString().slice(0, 7),
+    createdAt: now.toISOString(),
+    inputTokens: 1_000,
+    outputTokens: 200,
+    paidMicros: "0",
+    policyRevision: 1,
+    reconciledInputTokens: null,
+    reconciledOutputTokens: null,
+    reconciledPaidMicros: null,
+    runId: firstAttemptRunId,
+    state: "reserved",
+    updatedAt: now.toISOString(),
+  },
+};
+const firstAttemptOutcome: WorkspaceRunOutcome = {
+  checkpoint: {
+    completedAt: now.toISOString(),
+    contentDigest: "a".repeat(64),
+    watermark: now.toISOString(),
+  },
+  configurationRevision: firstAttemptJob.monitor.configurationRevision,
+  createdAt: now.toISOString(),
+  finding: null,
+  monitorId: firstAttemptJob.monitor.monitorId,
+  occurrenceKey: firstAttemptJob.occurrence.occurrenceKey,
+  outcome: "no_match",
+  ownerId: scope.ownerId,
+  recordType: "workspace_run_outcome",
+  runId: firstAttemptRunId,
+  schemaVersion: 1,
+  workspaceId: scope.workspaceId,
+};
+const legacyJob = { id: "legacy.fixture" } as ClaimedEventTrigger;
+let successfulRecoveryRuns = 0;
+let recoveryCleanupAttempts = 0;
+let recoveryQuarantineWrites = 0;
+let firstAttemptWorkerRuns = 0;
+let firstAttemptFinishes = 0;
+let legacyRuns = 0;
+let mixedClaimed = false;
+const mixedSchedule = createEventTriggerSchedule({
+  claimEventTriggers: async () => mixedClaimed ? [] : [legacyJob],
+  claimWorkspaceMonitors: async () => {
+    if (mixedClaimed) return [];
+    mixedClaimed = true;
+    return [failingRecoveryJob, successfulRecoveryJob, firstAttemptJob];
+  },
+  executeEventTrigger: async () => {
+    legacyRuns += 1;
+  },
+  finishWorkspaceBudget: async () => {
+    firstAttemptFinishes += 1;
+  },
+  getWorkspaceMonitor: async () => failingRecoveryJob.monitor,
+  inspectWorkspaceLease: async () => "current",
+  now: () => now,
+  prepareWorkspaceRecovery: async ({ claimed }) => ({
+    capabilityRevision: 1,
+    claimed,
+    expectedRunId: null,
+    monitor: claimed.monitor,
+    scope: claimed.scope,
+  }),
+  prepareWorkspaceWorker: async () => ({
+    envelope: {} as PreparedWorkspaceWorkerRun["envelope"],
+    prompt: "fixture",
+    request: {} as PreparedWorkspaceWorkerRun["request"],
+    scope,
+  }),
+  recordWorkspaceFailure: async () => {
+    recoveryQuarantineWrites += 1;
+    throw new Error("quarantine_write_failed");
+  },
+  recoverWorkspaceOutcome: async ({ prepared }) => {
+    if (prepared.monitor.monitorId === failingRecoveryJob.monitor.monitorId) {
+      throw new Error("recovery_failed");
+    }
+    successfulRecoveryRuns += 1;
+    return { outcome: firstAttemptOutcome, status: "recovered" };
+  },
+  releaseWorkspaceLease: async () => {
+    recoveryCleanupAttempts += 1;
+    throw new Error("lease_release_failed");
+  },
+  requireWorkspaceOutcome: async () => firstAttemptOutcome,
+  reserveWorkspaceBudget: async () => firstAttemptReservation,
+  resolveRuntimeFlags: () => ({
+    dispatch: true,
+    legacyTriggerCreation: false,
+    monitorWrites: true,
+    paidResearch: false,
+    photonAlerts: false,
+    sourceEvents: false,
+    state: true,
+  }),
+  startWorkspaceWorker: async () => {
+    firstAttemptWorkerRuns += 1;
+    return {
+      events: (async function* () {
+        return;
+      })(),
+    } as Awaited<ReturnType<EventTriggerScheduleDependencies["startWorkspaceWorker"]>>;
+  },
+});
+assert.ok("run" in mixedSchedule && mixedSchedule.run);
+const mixedWaiters: Promise<unknown>[] = [];
+mixedSchedule.run({
+  appAuth: {
+    attributes: {},
+    authenticator: "app",
+    principalId: "eve:app",
+    principalType: "runtime",
+  },
+  to: (() => {
+    throw new Error("legacy_to_not_expected");
+  }) as ScheduleToFn,
+  waitUntil(task) {
+    mixedWaiters.push(task);
+  },
+});
+assert.equal(mixedWaiters.length, 1);
+let mixedRejected = false;
+try {
+  await Promise.all(mixedWaiters);
+} catch (error) {
+  mixedRejected = true;
+  assert.ok(error instanceof AggregateError);
+  assert.equal(error.message, "event_trigger_schedule_partial_failure");
+  assert.equal(successfulRecoveryRuns, 1);
+  assert.equal(recoveryQuarantineWrites, 1);
+  assert.equal(recoveryCleanupAttempts, 1);
+  assert.equal(firstAttemptWorkerRuns, 1);
+  assert.equal(firstAttemptFinishes, 1);
+  assert.equal(legacyRuns, 1);
+}
+assert.equal(mixedRejected, true);
 
 const mismatchedClaims: ClaimedWorkspaceMonitor[] = [
   { ...job, monitor: { ...monitor, ownerId: "other_owner" } },
@@ -316,6 +517,13 @@ for (const mismatched of mismatchedClaims) {
     /workspace_worker_state_stale/u,
   );
 }
+await assert.rejects(
+  prepareWorkspaceWorkerRecovery({
+    claimed: job,
+    expectedRunId: `${job.occurrence.occurrenceKey}:attempt:2`,
+  }),
+  /workspace_worker_state_stale/u,
+);
 
 class MemoryStateStore implements WorkspaceStateStoreClient {
   readonly values = new Map<string, string>();
