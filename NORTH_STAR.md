@@ -203,10 +203,10 @@ the workspace or strategy contracts.
 ## Current implementation gap
 
 This document describes the target architecture. Spec 1 implements the Photon
-polling/runtime foundation, and Spec 2 now implements the local versioned-pack
-framework and IPO Filings reference workflow. Production pack rollout, later
-strategy behavior, source adapters, cross-channel support, private artifacts,
-and financial layers remain incomplete.
+polling/runtime foundation, and Spec 2 implements and production-accepts the
+versioned-pack framework and IPO Filings reference workflow. Later strategy
+behavior, source adapters, cross-channel support, private artifacts, and
+financial layers remain incomplete.
 
 - Photon has a durable conversation workspace registry, one active-workspace
   pointer, isolated continuation addresses, session-generation rollover,
@@ -241,9 +241,10 @@ and financial layers remain incomplete.
   `IPO Filings@1.0.0` reuses the accepted SEC normalizer, worker, finding,
   alert, and delivery path. Install-only is paused, scheduled work receives an
   exact pack/resource snapshot, and independent pack/workspace/alert switches
-  preserve durable evidence when disabled. The complete local acceptance gate
-  passed; no pack flag has been activated and no real Photon pack smoke has
-  been performed.
+  preserve durable evidence when disabled. The complete local gate and staged
+  production SEC, Photon delivery, Discuss, exact pack-managed worker, cleanup,
+  and rollback acceptance passed on 2026-08-15. Interactive pack surfaces remain
+  on; global dispatch, pack-managed dispatch, and Photon alerts are off.
 - Exact previews currently protect order creation only. Edit/cancel use generic
   approval, market-order collars are not yet enforced by the approval protocol,
   and uncertain operations do not yet block subsequent mutations. All mutation
@@ -345,26 +346,23 @@ directories so a fork contains its own north-star sources.
 
 ## Near-term sequence
 
-1. Obtain explicit owner authorization for the staged Spec 2 deployment,
-   Photon pack smoke, evidence capture, and rollback; keep all pack flags off
-   until then.
-2. Build Spec 3's versioned public-source adapters and canonical facts, including
+1. Build Spec 3's versioned public-source adapters and canonical facts, including
    the deferred source-event/RSS/WebSub integration in Sprint 4.
-3. Implement Specs 4 and 5 strategy behavior, then Spec 6's typed shared-signal
+2. Implement Specs 4 and 5 strategy behavior, then Spec 6's typed shared-signal
    plane without weakening workspace isolation.
-4. Extend the deployment-owner boundary and workspace broker to Telegram and
+3. Extend the deployment-owner boundary and workspace broker to Telegram and
    authenticated HTTP before enabling workspace access there.
-5. Add owner-private artifact retention and pre-normalization capture for paid
+4. Add owner-private artifact retention and pre-normalization capture for paid
    or temporary provider output.
-6. Disable out-of-scope Coinbase mutations, then make order-create/edit/cancel
+5. Disable out-of-scope Coinbase mutations, then make order-create/edit/cancel
    risk reservations, previews, collars, approvals, revalidation, uncertainty
    gates, and audit records workspace-aware before enabling multi-workspace live
    trading.
-7. Add high-confidence general topic-change detection and held-message crash
+6. Add high-confidence general topic-change detection and held-message crash
    recovery.
-8. Return to the explicit Spec 1 deferred-hardening phase after Specs 2–6 unless
+7. Return to the explicit Spec 1 deferred-hardening phase after Specs 2–6 unless
    an item becomes an observed ordinary-path failure sooner.
-9. Introduce cheaper bounded worker models only where evals show no quality or
+8. Introduce cheaper bounded worker models only where evals show no quality or
    safety regression.
 
 Owner-authorized Spec 1 production rollout completed on 2026-08-15 at commit

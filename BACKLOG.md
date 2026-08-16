@@ -1,8 +1,8 @@
 # Eve backlog and parked work
 
 Snapshot date: 2026-08-15
-Application baseline: Spec 1 production acceptance on `main`; Spec 2 local
-implementation is complete on `codex/spec-02` and remains unmerged/unactivated.
+Application baseline: Specs 1 and 2 are production accepted on `main`; global
+workspace dispatch, pack-managed dispatch, and Photon alerts are rolled back off.
 
 This is the inventory of work that was explicitly postponed, remains incomplete,
 or is known to be needed before Eve can satisfy the full product direction.
@@ -21,8 +21,9 @@ No user-tested core path was reported broken at handoff. These were working:
 - the merged Spec 1 polling path: workspace-bound monitors, isolated compiled
   workers, deterministic SEC findings, durable Photon alerts with Discuss and
   Manage actions, manager status/budgets, and legacy/durable rollout gating;
-- the locally verified Spec 2 strategy-pack framework and `IPO Filings@1.0.0`
-  reference pack, with production pack flags still disabled.
+- the production-accepted Spec 2 strategy-pack framework and
+  `IPO Filings@1.0.0` reference pack, with interactive pack surfaces on and
+  scheduled/alert dispatch rolled back off.
 
 The items below are product, safety, testing, and operational gaps around that
 working baseline.
@@ -362,8 +363,8 @@ Current state: the repository generates a deterministic owner-only catalog,
 pins one authoritative binding per session, provides replay-safe create,
 configure, and non-destructive remove services shared by Eve and Spectrum, and
 composes exact pack snapshots into interactive and scheduled runtimes. The full
-local gate passed for `IPO Filings@1.0.0`; production rollout and a real Photon
-pack smoke still require explicit owner authorization. Generalized upgrades,
+local gate and owner-authorized staged production SEC/Photon/managed-worker
+acceptance passed for `IPO Filings@1.0.0`. Generalized upgrades,
 downgrades, replacements, and second-pack abstractions remain deferred until a
 real second pack or version establishes their requirements.
 
