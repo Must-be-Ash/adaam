@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "fixtureId": "fixture.contract.adapter.generic-format",
+      "schema": "adapter",
+      "patch": { "adapterId": "generic-rss" },
+      "expectedIssueCode": "invalid_value"
+    },
+    {
+      "fixtureId": "fixture.contract.source.arbitrary-url",
+      "schema": "source_instance",
+      "patch": { "configuration": { "kind": "house_financial_disclosures_year", "year": 2026, "canonicalUrl": "https://example.com/2026FD.zip" } },
+      "expectedIssueCode": "custom"
+    },
+    {
+      "fixtureId": "fixture.contract.acquisition.partial-cursor",
+      "schema": "acquisition_result",
+      "patch": { "status": "partial", "coverage": "partial", "errorCode": "parser_incomplete" },
+      "expectedIssueCode": "custom"
+    },
+    {
+      "fixtureId": "fixture.contract.fact.workspace-field",
+      "schema": "fact",
+      "patch": { "workspaceId": "123e4567-e89b-42d3-a456-426614174000" },
+      "expectedIssueCode": "unrecognized_keys"
+    },
+    {
+      "fixtureId": "fixture.contract.fact.exact-amount",
+      "schema": "fact_payload",
+      "patch": { "amountRange": { "label": "$1,001 - $15,000", "lower": "1001", "upper": "15000", "exact": "8000" } },
+      "expectedIssueCode": "unrecognized_keys"
+    },
+    {
+      "fixtureId": "fixture.contract.log.high-cardinality-field",
+      "schema": "log_event",
+      "patch": { "sourceUrl": "https://www.sec.gov/private-fixture" },
+      "expectedIssueCode": "unrecognized_keys"
+    }
+  ]
+}

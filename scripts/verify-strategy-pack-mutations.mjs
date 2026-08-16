@@ -31,9 +31,14 @@ import {
 import {
   listWorkspaceMonitors,
   prepareWorkspaceMonitorCreate,
+  workspaceMonitorRecordStorageKey,
 } from "../agent/lib/workspace-monitor-store.ts";
-import { readWorkspaceDocument } from "../agent/lib/workspace-state-store.ts";
+import {
+  readWorkspaceDocument,
+  workspaceDocumentStorageKey,
+} from "../agent/lib/workspace-state-store.ts";
 import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization.ts";
+import { migrateSecPublicSourceWorkspace } from "../agent/lib/sec-public-source-migration.ts";
 import { generateStrategyPackCatalog } from "./generate-strategy-pack-catalog.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -924,11 +929,63 @@ try {
   assert.equal(ipoStrategy?.value.pack?.version, "1.0.0");
   assert.equal(ipoMonitors.length, 1);
   assert.equal(ipoMonitors[0]?.lifecycleState, "enabled");
+  assert.equal(
+    ipoStrategy?.value.managedResources["detect-new-s1"]
+      ?.publicSourceSubscriptions?.[0]?.sourceInstanceId,
+    "source.sec-latest-s1-filings",
+  );
+  assert.equal(
+    ipoMonitors[0]?.publicSourceSubscriptions?.[0]?.subscriptionId,
+    ipoStrategy?.value.managedResources["detect-new-s1"]
+      ?.publicSourceSubscriptions?.[0]?.subscriptionId,
+  );
   assert.deepEqual(ipoMonitors[0]?.schedule, {
     kind: "daily_local",
     times: ["09:00", "16:00"],
     timezone: "America/Vancouver",
   });
+  const strategyKey = workspaceDocumentStorageKey("strategy", ipoScope);
+  const monitorKey = workspaceMonitorRecordStorageKey(
+    ipoScope,
+    ipoMonitors[0].monitorId,
+  );
+  const legacyStrategy = JSON.parse(ipoClient.values.get(strategyKey));
+  const legacyMonitor = JSON.parse(ipoClient.values.get(monitorKey));
+  delete legacyStrategy.value.managedResources["detect-new-s1"]
+    .publicSourceSubscriptions;
+  delete legacyMonitor.publicSourceSubscriptions;
+  ipoClient.values.set(strategyKey, JSON.stringify(legacyStrategy));
+  ipoClient.values.set(monitorKey, JSON.stringify(legacyMonitor));
+  const subscriptionClient = {
+    compareAndSet: async (key, expected, next) =>
+      (await ipoClient.compareAndSet(key, expected, next)) === "swapped",
+    get: (key) => ipoClient.get(key),
+  };
+  const monitorClient = {
+    get: (key) => ipoClient.get(key),
+    update: async ({ expected, next, recordKey }) => {
+      if (ipoClient.values.get(recordKey) !== expected) return false;
+      ipoClient.values.set(recordKey, next);
+      return true;
+    },
+  };
+  const migrated = await migrateSecPublicSourceWorkspace({
+    monitorId: ipoMonitors[0].monitorId,
+    now: new Date("2026-08-15T18:01:00.000Z"),
+    scope: ipoScope,
+  }, {
+    monitor: monitorClient,
+    state: subscriptionClient,
+    subscription: subscriptionClient,
+  });
+  assert.equal(migrated.monitor.configurationRevision, 1);
+  assert.equal(migrated.strategy?.value.bindingRevision, 1);
+  assert.equal(
+    migrated.strategy?.value.managedResources["detect-new-s1"]
+      ?.publicSourceSubscriptions?.[0]?.subscriptionId,
+    migrated.subscription.subscriptionId,
+  );
+  assert.equal(migrated.subscription.deliveryCursor.revision, 0);
   const ipoInstallOnly = await createStrategyPackWorkspaceFromSelection({
     activateMonitorResourceIds: [],
     expectedRegistryRevision: ipoState.revision,

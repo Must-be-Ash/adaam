@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "adapterId": "sec-latest-filings",
+  "adapterVersion": "1.0.0",
+  "sourceInstanceId": "source.sec-latest-s1-filings",
+  "sourceFixtureRoot": "../../../sec-ipo/",
+  "cases": [
+    {
+      "fixtureId": "fixture.sec.baseline",
+      "input": "initial.atom",
+      "expectedStatus": "complete",
+      "expectedCoverage": "complete",
+      "expectedBaseline": true,
+      "expectedFacts": [
+        { "sourceNativeId": "0001000001-26-000001:S-1", "schemaVersion": "sec-filing/v1", "stableRowId": "filing", "publishedAt": "2026-08-14T15:59:00.000Z", "updatedAt": "2026-08-14T16:00:00.000Z" },
+        { "sourceNativeId": "0001000002-26-000001:S-1", "schemaVersion": "sec-filing/v1", "stableRowId": "filing", "publishedAt": "2026-08-14T16:59:00.000Z", "updatedAt": "2026-08-14T17:00:00.000Z" }
+      ]
+    },
+    {
+      "fixtureId": "fixture.sec.no-change",
+      "input": "initial.atom",
+      "expectedStatus": "no_change",
+      "expectedCoverage": "complete",
+      "expectedBaseline": false,
+      "expectedFacts": []
+    },
+    {
+      "fixtureId": "fixture.sec.one-new-registration",
+      "input": "later-s1.atom",
+      "expectedStatus": "complete",
+      "expectedCoverage": "complete",
+      "expectedBaseline": false,
+      "expectedFacts": [
+        { "sourceNativeId": "0001000003-26-000001:S-1", "schemaVersion": "sec-filing/v1", "stableRowId": "filing", "publishedAt": "2026-08-14T17:59:00.000Z", "updatedAt": "2026-08-14T18:00:00.000Z" }
+      ]
+    },
+    {
+      "fixtureId": "fixture.sec.amendment",
+      "input": "amendment.atom",
+      "expectedStatus": "complete",
+      "expectedCoverage": "complete",
+      "expectedBaseline": false,
+      "expectedFacts": [
+        { "sourceNativeId": "0001000003-26-000002:S-1/A", "schemaVersion": "sec-filing/v1", "stableRowId": "filing", "publishedAt": null, "updatedAt": "2026-08-14T19:00:00.000Z" }
+      ]
+    },
+    { "fixtureId": "fixture.sec.malformed", "input": "malformed.atom", "expectedStatus": "terminal_failure", "expectedCoverage": "partial", "expectedErrorCode": "xml_invalid", "expectedFacts": [] },
+    { "fixtureId": "fixture.sec.incomplete", "input": "incomplete.atom", "expectedStatus": "partial", "expectedCoverage": "partial", "expectedErrorCode": "parser_incomplete", "expectedFacts": [] }
+  ]
+}

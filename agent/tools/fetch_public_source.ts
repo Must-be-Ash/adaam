@@ -108,6 +108,22 @@ async function fetchOfficialSource(
   throw new Error("The public source exceeded the redirect limit.");
 }
 
+function resolveOfficialSourceRequest(
+  requestedUrl: string,
+  source?: Pick<WorkspaceSourceDefinition, "origin">,
+): { readonly declaredOrigin: string | undefined; readonly initialUrl: URL } {
+  const initialUrl = publicGovernmentUrl(requestedUrl);
+  const declaredOrigin = source
+    ? publicGovernmentUrl(source.origin).origin
+    : undefined;
+  if (declaredOrigin && initialUrl.origin !== declaredOrigin) {
+    throw new Error(
+      "A workspace source URL crossed the exact configured origin fence.",
+    );
+  }
+  return { declaredOrigin, initialUrl };
+}
+
 async function readLimitedText(response: Response): Promise<string> {
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
@@ -133,6 +149,45 @@ async function readLimitedText(response: Response): Promise<string> {
   return text + decoder.decode();
 }
 
+async function readLimitedBytes(
+  response: Response,
+  maximumBytes: number,
+): Promise<Uint8Array> {
+  if (
+    !Number.isSafeInteger(maximumBytes) ||
+    maximumBytes <= 0 ||
+    maximumBytes > 16 * 1024 * 1024
+  ) {
+    throw new Error("The public source byte limit is invalid.");
+  }
+  const contentLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maximumBytes) {
+    throw new Error("The public source response is too large.");
+  }
+  if (!response.body) return new Uint8Array();
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maximumBytes) {
+      await reader.cancel();
+      throw new Error("The public source response is too large.");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 export interface OfficialPublicSourceResponse {
   readonly body: string;
   readonly contentType: string;
@@ -142,19 +197,35 @@ export interface OfficialPublicSourceResponse {
   readonly truncated?: boolean;
 }
 
+export interface OfficialPublicSourceBinaryResponse {
+  readonly body: Uint8Array;
+  readonly contentType: string;
+  readonly finalUrl: string;
+  readonly requestedUrl: string;
+  readonly status: number;
+}
+
+export async function fetchOfficialPublicSourceBytes(
+  requestedUrl: string,
+  maximumBytes: number,
+  source?: Pick<WorkspaceSourceDefinition, "origin">,
+): Promise<OfficialPublicSourceBinaryResponse> {
+  const { declaredOrigin, initialUrl } = resolveOfficialSourceRequest(requestedUrl, source);
+  const { response, finalUrl } = await fetchOfficialSource(initialUrl, declaredOrigin);
+  return Object.freeze({
+    body: await readLimitedBytes(response, maximumBytes),
+    contentType: response.headers.get("content-type") ?? "",
+    finalUrl: finalUrl.toString(),
+    requestedUrl: initialUrl.toString(),
+    status: response.status,
+  });
+}
+
 export async function fetchOfficialPublicSourceText(
   requestedUrl: string,
   source?: Pick<WorkspaceSourceDefinition, "origin">,
 ): Promise<OfficialPublicSourceResponse> {
-  const initialUrl = publicGovernmentUrl(requestedUrl);
-  const declaredOrigin = source
-    ? publicGovernmentUrl(source.origin).origin
-    : undefined;
-  if (declaredOrigin && initialUrl.origin !== declaredOrigin) {
-    throw new Error(
-      "A workspace source URL crossed the exact configured origin fence.",
-    );
-  }
+  const { declaredOrigin, initialUrl } = resolveOfficialSourceRequest(requestedUrl, source);
   const { response, finalUrl } = await fetchOfficialSource(
     initialUrl,
     declaredOrigin,

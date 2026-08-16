@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "layoutBasis": "sanitized derivatives of the official House Clerk PTR form and yearly index",
+  "cases": [
+    { "fixtureId": "fixture.house.index-yearly-zip", "kind": "index_zip", "input": "2026FD.zip", "expectedXmlFilename": "2026FD.xml", "expectedStatus": "complete" },
+    { "fixtureId": "fixture.house.ptr-single-row", "kind": "ptr_pdf", "input": "ptr-single-row.pdf", "expectedStatus": "complete", "expectedLayout": "single_row", "expectedPages": 1, "expectedRows": 1 },
+    { "fixtureId": "fixture.house.ptr-multi-page-amended", "kind": "ptr_pdf", "input": "ptr-multi-page-amended.pdf", "expectedStatus": "complete", "expectedLayout": "amended", "expectedPages": 2, "expectedRows": 2 },
+    { "fixtureId": "fixture.house.ptr-multi-page-amended-corrected", "kind": "ptr_pdf", "input": "ptr-multi-page-amended-corrected.pdf", "expectedStatus": "complete", "expectedLayout": "amended", "expectedPages": 2, "expectedRows": 2 },
+    { "fixtureId": "fixture.house.ptr-no-transactions", "kind": "ptr_pdf", "input": "ptr-no-transactions.pdf", "expectedStatus": "complete", "expectedLayout": "no_transactions", "expectedPages": 1, "expectedRows": 0 },
+    { "fixtureId": "fixture.house.ptr-ambiguous", "kind": "ptr_pdf", "input": "ptr-ambiguous.pdf", "expectedStatus": "partial", "expectedLayout": "unknown", "expectedPages": 1, "expectedRows": 0, "expectedErrorCode": "pdf_layout_ambiguous" },
+    { "fixtureId": "fixture.house.ptr-scanned", "kind": "ptr_pdf", "input": "ptr-scanned.pdf", "expectedStatus": "unsupported", "expectedLayout": "unknown", "expectedPages": 1, "expectedRows": 0, "expectedErrorCode": "pdf_scanned_unsupported" },
+    { "fixtureId": "fixture.house.ptr-malformed", "kind": "ptr_pdf", "input": "malformed.pdf", "expectedStatus": "terminal_failure", "expectedErrorCode": "pdf_invalid" }
+  ]
+}

@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import type {
+  PublicSourceAdapterDefinition,
+  PublicSourceInstance,
+} from "./public-source-adapter-schema";
+
 export const STRATEGY_PACK_SCHEMA_VERSION = 1;
 export const STRATEGY_PACK_CORE_SCHEMA_VERSION = 1;
 export const STRATEGY_PACK_WORKSPACE_SCHEMA_VERSION = 1;
@@ -338,6 +343,10 @@ export interface StrategyPackReferenceCatalog {
         readonly canonicalUrl: string;
         readonly contractDigest: string;
         readonly contractVersion: string;
+        readonly publicSource?: {
+          readonly adapterDefinition: PublicSourceAdapterDefinition;
+          readonly sourceInstance: PublicSourceInstance;
+        };
       }
     >
   >;

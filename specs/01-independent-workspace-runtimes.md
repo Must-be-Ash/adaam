@@ -3,8 +3,8 @@
 > **Status note:** The polling-first application is implemented, independently
 > reviewed, merged, and pushed to `main`. Owner-authorized production rollout
 > remains in Sprint 6. Deferred crash/race/framework hardening is recorded in
-> this specification's deferred-hardening phase; source-event ingestion is owned
-> by Spec 3 Sprint 4.
+> this specification's deferred-hardening phase; source-event ingestion remains
+> deferred until a reviewed adapter has a real production push contract.
 
 Status: Complete — production accepted on 2026-08-15
 
@@ -125,7 +125,7 @@ The completed foundation must support this experience:
 - Explicit migration of existing owner/conversation event triggers.
 - A polling-first `IPO Filings` reference implementation and deterministic SEC
   Atom fixtures.
-- A handoff requirement that Spec 3 source events reuse the same monitor queue,
+- A handoff requirement that future source events reuse the same monitor queue,
   worker, budget, finding, alert, and delivery contracts as polling.
 
 ### Out of scope
@@ -152,7 +152,7 @@ The completed foundation must support this experience:
   public source files are referenced by canonical URL.
 - Permanent model processes, model-managed queues, or model-owned scheduling.
 - Source-event HTTP ingress, conditional RSS/WebSub ingestion, and adapter
-  fan-out; these are implemented in Spec 3 Sprint 4 after the adapter foundation.
+  fan-out; these remain deferred until a reviewed adapter needs a real push path.
 
 ## Non-negotiable invariants
 
@@ -186,7 +186,8 @@ The completed foundation must support this experience:
   deferred below.
 - [x] Every implemented polling-path ingress, assignment, dispatch, run,
   finding, alert, delivery, and control action has a durable idempotency key.
-  Spec 3 owns source-event receipts.
+  Future source-event receipts remain deferred and must reuse Spec 1 runtime
+  contracts plus Spec 3 adapter/fact contracts.
 - [x] At-least-once Eve delivery does not create duplicate alerts or duplicate
   paid calls in the implemented ordinary path.
 - [x] Alerts do not silently switch the selected workspace.
@@ -794,13 +795,10 @@ Coinbase, private history, shell, and filesystem.
 
 ## Source-event contract handoff
 
-Source-event ingestion is not part of the completed polling milestone. The
-normalized envelope, conditional RSS, optional verified WebSub, authenticated
-ingress, subscription fan-out, shared-public-fact boundary, replay tests, and
-independent kill switch are owned by
-[`Spec 3 Sprint 4`](03-public-source-adapters.md#sprint-4--spec-1-polling-and-source-event-integration).
-Spec 1 remains the owner of occurrence, lease, worker, budget, finding, alert,
-and delivery contracts that Spec 3 reuses.
+Source-event ingestion is not part of the completed polling milestone or the
+blocking Spec 3 path. When a reviewed production adapter has a real push
+contract, its ingress must reuse Spec 1 occurrence, lease, worker, budget,
+finding, alert, and delivery contracts plus Spec 3 source/fact contracts.
 
 ## Migration and compatibility
 
@@ -994,9 +992,8 @@ becomes an observed ordinary-path failure.
   until then pin/guard the compatible Eve version and keep the compiled-worker
   upgrade gate.
 
-Source-event/RSS/WebSub implementation moved to
-[`Spec 3 Sprint 4`](03-public-source-adapters.md#sprint-4--spec-1-polling-and-source-event-integration),
-where it can share versioned adapter and canonical-fact contracts.
+Source-event/RSS/WebSub implementation is deferred until a reviewed production
+adapter requires it; the future path must share Spec 3 adapter and fact contracts.
 
 ## Verification matrix
 

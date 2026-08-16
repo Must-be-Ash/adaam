@@ -114,7 +114,7 @@ export function normalizeSecIpoFetch(input: {
   return normalizeSecIpoAtom(input.body, { observedAt: input.observedAt });
 }
 
-function digestId(
+export function deriveSecIpoSignalId(
   kind: "alert" | "finding",
   filing: SecIpoFiling,
   identityScope: { ownerId: string; workspaceId: string },
@@ -201,14 +201,14 @@ export function evaluateSecIpoPage(
   );
   const findings = Object.freeze(newFilings.map((filing) => Object.freeze({
     fact: typedFact(filing, page),
-    findingId: digestId("finding", filing, identityScope),
+    findingId: deriveSecIpoSignalId("finding", filing, identityScope),
     filing,
     summary: filing.classification === "new_registration"
       ? `${filing.companyName} filed Form S-1, a potential IPO registration; this does not prove an IPO will occur.`
       : `${filing.companyName} filed Form S-1/A, an update to registration ${filing.fileNumber ?? filing.accessionNumber}.`,
   })));
   const alerts = Object.freeze(findings.map((finding) => Object.freeze({
-    alertId: digestId("alert", finding.filing, identityScope),
+    alertId: deriveSecIpoSignalId("alert", finding.filing, identityScope),
     findingId: finding.findingId,
     title: finding.filing.classification === "new_registration"
       ? "New SEC S-1 registration"

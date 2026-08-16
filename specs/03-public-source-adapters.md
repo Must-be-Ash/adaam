@@ -1,755 +1,509 @@
-# Spec 3: Versioned public-source adapters and canonical facts
+# Spec 3: Public-source adapters and canonical facts
 
-Status: Draft for implementation after Specs 1 and 2
+Status: Complete (2026-08-16)
 
-Date: 2026-08-14
+Current implementation base: `44128c6581296c7efebc1f8b37d783bcc407ecf2`
+
+Production rollout source: `9b6e01f0c908f9e24c2409369ec5d9882fd0ab0f`
 
 Product target: `NORTH_STAR.md`
 
 Dependencies:
 
+- `HANDOFF.md`
 - `specs/01-independent-workspace-runtimes.md`
 - `specs/02-versioned-strategy-packs.md`
 
-Reference adapters:
+First consumer: `specs/04-congressional-signals-house.md`
 
-- SEC EDGAR latest-filings Atom
-- House Clerk financial-disclosure index and PTR documents
+## Objective
 
-## Plain-language objective
+Give Eve one channel-neutral way to acquire approved public sources, normalize
+them into durable canonical facts, and deliver those facts independently to
+subscribed workspaces.
 
-Give Eve one safe, repeatable way to turn different public sources into bounded,
-structured facts that strategy agents can monitor.
+This spec proves the architecture with two real adapters:
 
-Spec 1 decides **when** a workspace runs and how it receives alerts. Spec 2
-defines **which strategy recipe** a workspace installs. This specification
-defines **how public evidence is fetched, validated, deduplicated, normalized,
-checkpointed, and delivered** regardless of whether the source is an Atom feed,
-JSON API, ZIP/XML index, public PDF, or verified webhook.
+- the existing SEC latest S-1 Atom feed, migrated without user-visible
+  regression; and
+- House financial disclosures, from the official yearly index through selected
+  PTR documents to canonical filing and transaction facts used by Spec 4.
 
-A source adapter does not decide whether a fact is a good investment signal. It
-only establishes what the source published, when Eve observed it, how it was
-parsed, and how the same public item can be reused safely without mixing
-workspace state.
+Build the smallest production design that makes those two vertical paths work.
+This is not a general scraping platform, webhook framework, document-AI system,
+or exhaustive recovery project.
 
-## How to use this specification
+## Implementation workflow
 
-Implement only after Spec 1's polling/runtime contracts and Spec 2's
-pack/source-reference contracts pass. Reuse their monitors, runs, budgets,
-capabilities, source fencing, worker isolation, and pack catalog. This spec owns
-the deferred source-event envelope and ingress implementation.
+This file is the authoritative progress ledger. Only the sprint checklists below
+track completion; requirements elsewhere are intentionally not duplicated as
+checkboxes.
 
-Every implementation task is a checklist item. Complete the sprints in order.
-Do not treat a successful HTTP response as a complete source check until the
-adapter proves coverage and commits a durable fact/checkpoint transaction.
+For each sprint:
 
-## Goal and acceptance experience
+1. Read only the relevant current code and installed Eve/Next.js documentation.
+2. Inspect the Eve registry before implementing an integration or parser.
+3. Implement only that sprint.
+4. Run its focused tests plus typecheck and the affected build when production
+   code changed.
+5. Update the sprint checklist with evidence, commit the sprint, and report the
+   next sprint. Continue only when the owner says to continue.
 
-The completed platform must support this scenario:
+Do not repeat whole-repository orientation or independent review between
+sprints. Run one independent review and the broad regression suite at the final
+exit gate. Production reads, deployment, flags, and external messages always
+remain owner-authorized.
 
-1. A `Congressional Signals` workspace and another authorized workspace both
-   subscribe to the official House financial-disclosure source.
-2. Spec 1's scheduler creates a due occurrence. The source layer downloads the
-   current House yearly ZIP once, within strict public-origin and byte limits.
-3. The House adapter safely extracts the XML index, compares DocIDs with its
-   durable checkpoint, and discovers one new Periodic Transaction Report.
-4. It downloads that exact public PTR PDF, validates and parses it into one
-   canonical filing fact and bounded transaction facts with source provenance.
-5. The source is not fetched or parsed twice merely because two workspaces
-   subscribe. Each authorized monitor receives only the fact IDs it subscribed
-   to, then performs its own isolated strategy evaluation.
-6. Replaying the poll, webhook, worker, or delivery produces no duplicate facts,
-   strategy calls, alerts, or checkpoint advancement.
-7. A malformed ZIP, unsafe archive entry, incomplete XML, invalid PDF, ambiguous
-   table, or uncertain fetch is quarantined or retried without claiming complete
-   coverage or losing the discovered document.
+## Acceptance experience
 
-## Agreed product decisions
+When this spec is complete:
 
-- [ ] Source scheduling, leases, worker dispatch, budgets, findings, alerts, and
-  delivery remain Spec 1 responsibilities; source-event ingress and adapter
-  normalization are Spec 3 responsibilities built on those contracts.
-- [ ] Pack installation and source-adapter references remain Spec 2
-  responsibilities.
-- [ ] Source adapters are reviewed application code registered by stable ID and
-  version. A strategy pack may reference an adapter but cannot supply executable
-  adapter code.
-- [ ] Adapters produce public facts, not investment signals, scores, alerts,
-  orders, or workspace prose.
-- [ ] Prefer direct authoritative sources. Derived providers are explicit
-  enrichment or fallback sources and never silently replace a primary source.
-- [ ] A public source may be fetched once and reused across subscriptions only
-  when its fact is source-global and contains no workspace or owner data.
-- [ ] Canonical fact reuse does not grant cross-workspace access. Each monitor
-  receives only facts matching its declared adapter, source, filter, and access
-  policy.
-- [ ] The raw public document may be processed ephemerally. This specification
-  does not introduce owner-private artifacts or require permanent raw-document
-  storage.
-- [ ] Facts remain bounded structured records with canonical public URLs,
-  hashes, extraction metadata, and correction lineage.
-- [ ] Polling and push normalize through the same adapter/fact contract. A
-  webhook is another observation path, not a second fact model.
-- [ ] Do not build a generic crawler or unrestricted browser. Every adapter has
-  reviewed origins, paths, request shapes, rate limits, and response formats.
-- [ ] Model-assisted public-document extraction, if needed after deterministic
-  parsing, runs as a bounded typed worker with fixtures and never determines
-  authorization, checkpoint completeness, or source identity.
-- [ ] House coverage is the first complex reference. Senate ingestion remains
-  outside this specification.
-
-## Vocabulary
-
-| Term | Meaning |
-| --- | --- |
-| Source adapter | Reviewed application code that fetches or accepts one source family and emits canonical public facts. |
-| Adapter version | Immutable version of the adapter's configuration, transport, parsing, and fact-output contract. |
-| Source instance | One validated adapter configuration, such as the House Clerk 2026 financial-disclosure index. |
-| Observation | One bounded attempt to inspect a source through polling or an authenticated source event. |
-| Fetch receipt | Durable record of request identity, coverage, response metadata, stage outcome, and retry safety without response bodies. |
-| Canonical public fact | Bounded source-global structured evidence with immutable identity, provenance, timing, schema, and content hash. |
-| Fact projection | A subscription-filtered bounded view delivered to one workspace monitor. |
-| Checkpoint | Adapter-owned durable cursor/watermark proving which source state has been safely captured. |
-| Coverage | Explicit status showing whether every required stage/source in the evaluation window completed. |
-| Extraction | Deterministic or bounded typed conversion of a public document into structured source fields. |
+1. An approved source binding resolves to an immutable adapter version and
+   validated source instance.
+2. A Spec 1 monitor occurrence requests acquisition through the shared source
+   coordinator rather than fetching inside strategy code.
+3. The coordinator safely polls the source, commits an idempotent acquisition,
+   and stores canonical facts before advancing the source cursor.
+4. Two subscribed workspaces reuse the same acquisition and facts while
+   receiving independent projections and delivery cursors.
+5. SEC IPO monitoring still detects the same S-1 and S-1/A facts and produces
+   the existing finding/alert behavior.
+6. The House adapter observes the official index, retrieves a newly selected
+   PTR, and emits sourced filing and transaction facts without inventing fields
+   from unreadable content.
+7. Spec 4 can consume House facts without downloading source documents,
+   importing Photon code, or accessing another workspace.
 
 ## Scope
 
 ### In scope
 
-- A versioned source-adapter definition and registry.
-- Adapter-specific configuration schemas and exact origin/path policies.
-- Guarded HTTP fetching, conditional requests, redirects, timeouts, byte limits,
-  content signatures, compression limits, and respectful rate limiting.
-- Polling and Spec 3 `SourceEventEnvelope` normalization through one contract.
-- Durable observations, stage receipts, checkpoints, facts, corrections, and
-  subscription delivery receipts.
-- Bounded RSS, Atom, JSON, XML, ZIP, and public-PDF processing contracts.
-- Safe multi-stage acquisition such as ZIP → XML index → exact PTR PDF → facts.
-- Source-global fetch coalescing and fact deduplication where safe.
-- Per-monitor fact filtering and isolated projection.
-- SEC Atom as the simple reference and House Clerk disclosures as the complex
-  public-document reference.
-- Deterministic fixtures, Redis race tests, and read-only live smoke tests.
+- A small versioned adapter registry for reviewed production adapters.
+- Validated source instances referenced by Spec 2 pack bindings and Spec 1
+  monitors.
+- Reuse of the existing guarded public-source transport, extended only where
+  SEC and House require it.
+- One source-global acquisition cursor and independent per-subscription delivery
+  cursors.
+- Idempotent acquisition commits, immutable canonical fact revisions, explicit
+  correction lineage, and workspace-isolated fact projections.
+- Migration of the existing SEC IPO path to the shared acquisition contract.
+- Official House index ZIP/XML and selected PTR PDF ingestion.
+- A bounded, representative House corpus that determines supported extraction
+  behavior before the House fact schema is frozen.
+- Low-cardinality health and failure state for operator and workspace-manager
+  visibility.
 
-### Out of scope
+### Out of scope for Spec 3
 
-- Strategy thesis, signal scoring, recommendations, portfolio sizing, or order
-  proposals.
-- Congressional member tiers, committee relevance, disclosure-lag scoring, or
-  clustering.
-- Insider routine/opportunistic classification or cluster detection.
-- General web crawling, arbitrary URL fetching, search-engine monitoring, or
-  social-media scraping.
-- Senate eFD ingestion, Capitol Trades scraping, or paid congressional APIs.
-- Production use of paid source providers.
-- Private files, authenticated owner documents, private artifacts, or private
-  broker/provider results.
-- Permanent storage of every raw ZIP, XML, PDF, feed, or HTTP body.
-- OCR/model extraction as an unverified source of truth.
-- Cross-workspace promoted strategy signals; Spec 6 owns that layer.
-- A remote source-adapter marketplace or pack-supplied executable integrations.
-- Additional schedulers, cron systems, webhooks, or alert protocols beyond Spec 1.
+- Authenticated source-event/webhook ingress, WebSub, and push/poll parity. Keep
+  the adapter boundary compatible with a future event trigger, but implement it
+  only when a selected production source has a real push contract.
+- Model or OCR extraction. Non-text or ambiguous PDFs return bounded partial or
+  unsupported results; they never become confident facts.
+- Generic RSS, JSON, HTML, CSV, XML, ZIP, or PDF features not used by the SEC or
+  House reference adapters.
+- Arbitrary URLs, user-authored adapters, general crawling, browser automation,
+  or third-party congressional providers.
+- Strategy scoring, signal ranking, alert wording, or channel-specific UI and
+  delivery. Specs 1 and 4 own those concerns.
+- Paid sources, account-linked sources, credentials, broker access, orders, or
+  trade actions.
+- Exhaustive crash matrices, every Redis race, DNS pinning/rebinding defense,
+  long-term archive replay, and generalized quarantine/operator reports. Track
+  these as deferred hardening after the ordinary vertical paths work.
 
-## Non-negotiable invariants
-
-- [ ] An adapter ID or source URL supplied by a model never grants network
-  access. The runtime resolves reviewed source configuration from authenticated
-  monitor and pack state.
-- [ ] Every outbound request is constrained by adapter-owned scheme, host, port,
-  path, method, headers, redirect policy, response types, and byte limits.
-- [ ] DNS/private-network and redirect checks remain in force for every request
-  hop. Source configuration cannot weaken the shared SSRF boundary.
-- [ ] Every observation, fetch stage, fact, checkpoint, subscription projection,
-  and delivery has a durable idempotency key.
-- [ ] A checkpoint advances only after required facts and stage receipts are
-  durably committed or responsibility for later stages is durably transferred to
-  an idempotent child record.
-- [ ] A successful status code does not prove complete coverage. Truncation,
-  parser ambiguity, schema mismatch, missing pages, or failed child documents
-  remain explicit incomplete outcomes.
-- [ ] Duplicate polling, webhooks, workflow replay, and concurrent subscribers
-  cannot create duplicate canonical facts or repeated paid/model extraction.
-- [ ] Shared facts contain public source data only. Workspace instructions,
-  findings, notes, budgets, private results, and identities never enter the fact
-  store.
-- [ ] Facts are immutable except through explicit correction/supersession
-  records. Updated source data never rewrites the historical observation.
-- [ ] Published, updated, effective, transaction, filing, and observed times are
-  kept distinct. Missing source times are never replaced silently with fetch
-  time.
-- [ ] Exact monetary values are never inferred from disclosed ranges. Unknown,
-  illegible, or ambiguous fields remain typed unknowns with extraction status.
-- [ ] Model extraction receives only the one bounded public document and target
-  schema. It cannot access workspace histories, unrelated tools, or other facts.
-- [ ] Logs and metrics never contain source URLs, query values, fact payloads,
-  public-person names, document IDs, content hashes, workspace IDs, or owner IDs.
-
-## Target architecture
+## Architectural boundary
 
 ```mermaid
 flowchart LR
-    M["Spec 1 monitor occurrence"] --> O["Source observation coordinator"]
-    E["Spec 3 source-event envelope"] --> O
-    O --> R["Versioned adapter registry"]
-    R --> F["Guarded fetch and staged parser"]
-    F --> C["Canonical public fact store"]
-    F --> K["Fetch receipts and checkpoints"]
-    C --> P["Subscription-filtered fact projections"]
-    P --> W1["Workspace worker A"]
-    P --> W2["Workspace worker B"]
+    M["Spec 1 monitor occurrence"] --> C["Source acquisition coordinator"]
+    C --> A["Versioned SEC or House adapter"]
+    A --> O["Idempotent acquisition commit"]
+    O --> F["Canonical public facts"]
+    F --> P1["Workspace A projection"]
+    F --> P2["Workspace B projection"]
+    P1 --> S1["Workspace A strategy"]
+    P2 --> S2["Workspace B strategy"]
 ```
 
-Spec 1 owns occurrences and workers. Spec 3 may coalesce the public fetch, but
-each workspace worker remains isolated and evaluates the resulting fact under
-its own pack, brief, capabilities, and budget.
+The adapter, acquisition, fact, and projection layers must not import Photon,
+chat-session state, alert presentation, or channel destinations. A future web,
+Telegram, or other channel uses the same workspace facts through its own
+adapter; source ingestion is not rebuilt.
 
-## Source-adapter definition
+Spec 1 remains authoritative for monitor schedules, occurrences, isolated
+workers, budgets, findings, and alerts. Spec 2 remains authoritative for pack
+catalog, pack versions, bindings, and source contracts. Spec 3 adds only the
+source acquisition and fact plane they need.
 
-`PublicSourceAdapterDefinition` includes:
+## Production contracts
 
-- stable adapter ID and exact semantic version;
-- immutable implementation/configuration/fact-schema digest;
-- source classification and authority level;
-- bounded source-instance configuration schema;
-- allowed request origins, paths, methods, content types, and redirect policy;
-- minimum cadence, rate/concurrency limits, timeout, response-byte limit, and
-  optional conditional-request support;
-- polling stages and/or supported source-event types;
-- checkpoint and canonical-fact schema versions;
-- deterministic parser/extractor IDs and versions;
-- correction/retraction behavior; and
-- required deterministic fixture suite.
+### Adapter definition and source instance
 
-- [ ] Register adapters through an application-owned typed registry. Packs and
-  models reference IDs only.
-- [ ] Make an existing adapter version immutable. Behavior or schema changes
-  require a new version plus an explicit compatibility/migration decision.
-- [ ] Validate every source instance before it can be saved in a pack or monitor.
-- [ ] Reject arbitrary headers, cookies, credentials, query templates, methods,
-  URL fragments, and origins unless the adapter explicitly owns them.
-- [ ] Distinguish primary, derived, enrichment, and fallback authority. Preserve
-  that classification on every fact.
-- [ ] Require at least positive, no-change, malformed, oversized, partial,
-  replay, correction, and forbidden-origin fixtures for every production adapter.
+Each registered adapter has an `adapterId`, semantic `adapterVersion`, immutable
+definition digest, supported source-instance schema, acquisition method, output
+fact schemas, and bounded limits. Only reviewed registry entries can execute.
 
-## Adapter execution contract
+A source instance contains the adapter identity and digest, validated immutable
+configuration, exact authority/origin, cadence bounds, current acquisition
+cursor revision, and lifecycle state. Pack and monitor records store a resolved
+source-instance reference and configuration digest rather than an arbitrary URL.
 
-The runtime calls a reviewed adapter with a typed observation request containing
-only source-instance ID, adapter version, observation ID, evaluation window,
-prior checkpoint revision, conditional metadata, and bounded runtime auth.
+Routine parser fixes that preserve canonical behavior may increment an internal
+implementation revision. Changes to source configuration, fact identity,
+payload meaning, or correction behavior require a new adapter or fact-schema
+version and an explicit migration.
 
-The adapter returns a typed `SourceObservationResult`:
+### Acquisition result
 
-- `complete`, `no_change`, `partial`, `retryable_failure`, or
-  `terminal_failure` status;
-- every attempted stage and its receipt ID;
-- candidate facts and correction/retraction relationships;
-- next checkpoint proposal and coverage evidence;
-- conditional response metadata safe to retain; and
-- bounded error codes and retry hints.
+One acquisition returns a typed result with:
 
-- [ ] Keep adapter network and parsing code outside model-visible tools. Workers
-  receive facts, not arbitrary fetch authority.
-- [ ] Make every stage abortable and propagate Spec 1 run cancellation without
-  treating cancellation as complete coverage.
-- [ ] Retry only explicitly retryable, idempotent stages and preserve backoff,
-  rate-limit, and `Retry-After` semantics.
-- [ ] Never automatically switch to a derived provider after a primary-source
-  failure. Fallback use is explicit in source configuration and provenance.
-- [ ] Bound arrays, strings, nesting, record counts, child fetch counts, and
-  total bytes across the entire observation, not only each response.
-- [ ] Make every declared maximum feed/page count fit the serialized durable
-  record limits, or use deterministic lossless batching whose replay cannot
-  skip or duplicate a record.
-- [ ] Require child-stage fan-out to reserve run capacity before starting so one
-  unusually large index cannot create unbounded fetch work.
+- `complete`, `no_change`, `partial`, `retryable_failure`,
+  `terminal_failure`, or `uncertain` status;
+- source instance, adapter version/digest, acquisition ID, observed time, and
+  bounded stage receipts;
+- candidate fact revision IDs and correction IDs;
+- complete/partial coverage state with a fixed error code when applicable; and
+- a proposed next source cursor only when coverage is complete enough to prove
+  that advancing cannot skip facts.
 
-## Guarded transport and format rules
+Partial, retryable, terminal, and uncertain outcomes do not advance the source
+cursor. Empty is a valid complete result; malformed input is not empty.
 
-### HTTP
+### Minimal commit protocol
 
-- [ ] Permit HTTPS only except explicitly fixture-owned local test transports.
-- [ ] Revalidate DNS and destination policy for every redirect and connection.
-- [ ] When an adapter declares an exact URL fence, reject every redirect response
-  before following it or making a second outbound request.
-- [ ] Send a reviewed identifying user agent where the source requests one.
-- [ ] Support `ETag` and `Last-Modified` only as optimization metadata; a `304`
-  maps to no-change only for the exact same source instance/checkpoint.
-- [ ] Read response bytes through a streaming cap before decompression, decoding,
-  or parsing.
-- [ ] Validate declared content type and file signature where available.
+The source-global acquisition journal is the recovery authority. It records
+`prepared` then `committed` for one source instance, expected cursor revision,
+adapter digest, window, fact revision IDs, correction IDs, and proposed cursor.
 
-### ZIP and compressed input
+The production commit order is:
 
-- [ ] Limit compressed bytes, total uncompressed bytes, file count, per-entry
-  bytes, nesting, and compression ratio.
-- [ ] Reject encrypted archives, nested archives unless explicitly required,
-  absolute paths, `..`, symlinks, devices, and unexpected entry names/types.
-- [ ] Extract in memory or an isolated temporary directory with deterministic
-  cleanup; never into the repository or a workspace sandbox.
-- [ ] Parse only adapter-declared entries and treat missing/duplicate expected
-  entries as incomplete coverage.
+1. create or replay the deterministic `prepared` journal;
+2. idempotently write immutable fact revisions and correction links;
+3. mark the journal `committed` and compare-and-set the source cursor; and
+4. make the committed acquisition discoverable to subscriptions.
 
-### XML, JSON, and feeds
+A replay of a prepared journal completes the same writes. A cursor conflict
+reloads committed state and either reuses the matching acquisition or starts a
+new one; it never overwrites a newer cursor. Prove the normal retry boundary and
+one interrupted-before-cursor recovery case. Exhaustive crash/race coverage is
+deferred.
 
-- [ ] Disable DTDs, external entities, XInclude, and network resolution.
-- [ ] Bound tokens, depth, attributes, text, entries, and total parsed records.
-- [ ] Reject duplicate keys where their interpretation would be ambiguous.
-- [ ] Preserve source identifiers and timestamps as strings until validated by
-  schema-specific parsers.
+### Canonical facts and corrections
 
-### Public PDF
+Each canonical fact has:
 
-- [ ] Require HTTPS, adapter-approved paths, PDF signature, bounded bytes/pages,
-  and timeout before extraction.
-- [ ] Prefer deterministic text/table extraction with layout-specific fixtures.
-- [ ] Mark scanned, password-protected, corrupt, truncated, or ambiguous tables
-  as explicit extraction states.
-- [ ] If bounded model extraction is enabled, validate its structured output
-  against the same schema and require confidence/coverage fields; never accept
-  invented rows or silently fill illegible values.
-- [ ] Keep the canonical public URL and document hash. Raw PDF retention is not
-  required by this specification.
+- a stable logical key derived from adapter, source instance, source-native ID,
+  fact schema, and stable row identity;
+- an immutable revision ID derived from the logical key and canonical payload
+  digest;
+- schema version, normalized payload, public provenance, source event times,
+  extraction state, and fixed creation observation; and
+- no workspace, owner, monitor, channel, strategy score, or alert fields.
 
-## Durable source records
+Changing observation metadata stays on acquisition/lineage records rather than
+mutating the fact. A changed payload creates a new revision connected by an
+explicit correction or supersession record. Re-observing identical content
+reuses the existing revision.
 
-### Source instance
+### Reuse and workspace delivery
 
-`PublicSourceInstance` contains adapter ID/version/digest, validated public
-configuration, authority, active status, checkpoint revision, cadence bounds,
-and created/updated revisions. Credentials and workspace subscriptions are not
-embedded.
+The acquisition cursor belongs to the source instance. Each subscription has an
+independent delivery cursor scoped to the workspace, monitor, pack binding,
+source instance, adapter/fact-schema version, and optional validated filter.
 
-### Observation and stage receipts
+One due monitor may trigger acquisition; other due monitors join or reuse the
+same committed acquisition. Coalesce only an identical source instance, adapter
+digest, acquisition window, access class, and expected cursor revision. Another
+acquisition is allowed when those differ.
 
-`SourceObservation` and `SourceFetchReceipt` contain:
+Projection writes are idempotent per subscription and fact revision. A
+subscription cursor advances only after all matching projections are durable.
+Workspace workers receive only authorized projections and cannot enumerate
+global facts, source documents, or another workspace's subscriptions.
 
-- deterministic observation and stage IDs;
-- source instance and adapter version;
-- occurrence/event and evaluation window;
-- conditional metadata revision;
-- request policy identifier, response status/type/byte count, and timing;
-- parser/extractor ID/version and coverage counts;
-- outcome, bounded error code, retry eligibility, and uncertainty state; and
-- proposed/committed checkpoint and fact IDs.
+Existing SEC pack bindings and monitors require a compatibility migration from
+their current source/checkpoint fields to resolved source-instance and
+subscription records. Until verified, the current SEC path is the rollback path
+and the new acquisition flag remains off.
 
-They do not contain response bodies, full URLs, request headers, public-person
-names, or extracted fact payloads.
+## Transport and parsing rules
 
-### Canonical public fact
+- Adapter execution accepts only registry-resolved HTTPS public-government
+  source instances; model output and workspace input cannot supply destinations.
+- Reuse Spec 1's timeouts, body bounds, SEC user-agent policy, exact-origin
+  redirect fence, and sanitized errors. Do not build a second HTTP client.
+- For House binary responses, stream with byte limits before buffering and
+  validate expected content type/magic where available.
+- ZIP handling rejects path traversal, duplicate expected entries, excessive
+  entry counts/expanded bytes, and unreasonable compression ratios.
+- XML parsing disables DTD/external entities and applies nesting, node, and text
+  bounds.
+- PDF processing applies byte, page, text, and execution-time bounds. Temporary
+  files, if required, are isolated and removed after the attempt.
+- Raw response bodies and extracted document text are ephemeral. Durable records
+  retain digests, bounded stage metadata, safe public provenance, canonical
+  facts, and extraction state.
+- Logs and metrics use fixed codes and never include response bodies, extracted
+  text, member names, document IDs, tickers, URLs, workspace IDs, owner IDs, or
+  credentials.
 
-`CanonicalPublicFact` contains:
+## Reference adapter: SEC latest S-1 filings
 
-- immutable fact ID and schema version;
-- adapter ID/version/digest and source-instance ID;
-- source-native stable ID plus canonical public URL reference;
-- authority classification;
-- published, updated, effective, filed, transaction, and observed times when
-  present, without conflating them;
-- bounded typed payload and normalized entity references where deterministically
-  known;
-- source/document content hash and extraction method/version/status;
-- correction, supersession, or retraction lineage; and
-- first/last observation metadata and revision.
+The SEC adapter preserves the reviewed current behavior:
 
-- [ ] Derive fact identity from source authority, source-native identity, fact
-  schema, and stable row/subdocument identity—not model prose or array order.
-- [ ] Keep observation, publication, update, and other source-version timestamps
-  out of canonical fact identity unless the reviewed source contract defines one
-  as part of its source-native identity.
-- [ ] Validate semantic relationships among canonical IDs, source-native IDs,
-  parent/child or amendment lineage, and canonical URL paths; field-shape
-  validation alone is insufficient.
-- [ ] Store a new revision/lineage record for materially changed source content.
-- [ ] Keep unverified entity/ticker matches explicit. A strategy may decline to
-  score an unresolved fact.
-- [ ] Enforce strict serialized byte and field-count ceilings per fact schema.
+- official latest-filings Atom URL and SEC fair-access user agent;
+- S-1 and S-1/A normalization, accession/CIK identity, amendment linkage,
+  timestamps, and canonical public filing URL;
+- baseline without retroactive alerts, then new/amended filing detection; and
+- existing finding and Photon alert presentation through Spec 1, outside the
+  adapter.
 
-### Checkpoint
+The new adapter must produce the same canonical SEC facts from current fixtures
+before its live flag can replace the existing worker fetch/evaluator path.
 
-`PublicSourceCheckpoint` contains adapter/source identity, schema version,
-opaque bounded cursor/watermark state, conditional request metadata, complete
-coverage window, committed fact IDs/counts, and revision.
+## Reference adapter: House financial disclosures
 
-- [ ] Commit checkpoint and required fact/child-stage responsibility atomically.
-- [ ] Claim fact identity and commit its outcome/checkpoint through one atomic or
-  explicitly recoverable protocol so a crash cannot strand the identity,
-  duplicate the fact, or skip checkpoint advancement.
-- [ ] Do not treat an in-memory seen set as authoritative.
-- [ ] Support initial baseline without alerting on the complete historical source.
-- [ ] Detect checkpoint schema/version mismatch and require an explicit adapter
-  migration or safe rebaseline plan.
+### Feasibility and corpus gate
 
-## Public fact reuse and subscription isolation
+Before freezing the House schema, select Node/Eve-compatible ZIP and PDF
+libraries or a deployed runtime already available to the project. Prove the
+chosen stack in the compiled Eve build against a bounded checked-in corpus based
+on real public House layouts, including:
 
-`SourceFactSubscription` maps an exact adapter/source/filter contract to one
-workspace monitor. It does not copy workspace identity into canonical facts.
+- yearly index ZIP/XML;
+- text PDFs with one and multiple transaction rows;
+- multi-page and amended filings;
+- a no-transaction filing; and
+- scanned, malformed, or ambiguous documents that must produce partial or
+  unsupported states without invented rows.
 
-- [ ] Coalesce an observation only when adapter version, source instance,
-  evaluation window, checkpoint revision, and access classification are
-  identical and source-global.
-- [ ] Create one canonical fact and separate idempotent projection receipts for
-  each matching subscription.
-- [ ] Apply deterministic adapter-owned filters before projection; never invoke a
-  model to decide which workspaces may see a fact.
-- [ ] Include only fact IDs and bounded projections in worker envelopes. Workers
-  fetch the exact authorized fact through scoped runtime auth.
-- [ ] A workspace cannot enumerate subscribers, facts outside its filters, or
-  other workspaces' consumption/checkpoint state.
-- [ ] Strategy findings remain workspace-owned and never flow backward into the
-  canonical source store.
-
-## Polling and source-event integration
-
-### Durable `SourceEventEnvelope`
-
-Spec 3 owns the durable source-event record used by Sprint 4. Each envelope must
-carry:
-
-- the exact adapter and source-instance identities;
-- a stable provider event ID, or a deterministic content-derived ID when the
-  provider supplies none;
-- distinct observed, published, and updated timestamps where the source exposes
-  them;
-- the canonical public origin and URL plus a content hash;
-- the envelope schema version and access classification;
-- a bounded durable payload or artifact reference rather than an unbounded
-  inline body; and
-- authentication and provenance metadata that is available to reviewed ingress
-  code but excluded from model projections.
-
-Sprint 4 ingress, replay, normalization, and recovery tests must use this record.
-
-- [ ] Spec 1's dispatcher remains the only recurring schedule trigger. Adapters
-  do not create their own cron jobs or timers.
-- [ ] A polling occurrence resolves exact source instances and calls the
-  observation coordinator through the Spec 1 run/idempotency contract.
-- [ ] Spec 3's authenticated `SourceEventEnvelope` resolves an exact adapter and
-  source instance before adapter-specific signature/payload normalization.
-- [ ] The adapter converts polling and source events into the same fact identity,
-  so observing one through both paths remains a duplicate observation.
-- [ ] Source-event HTTP handling validates/authenticates/bounds/enqueues only; it
-  never runs parsing models or strategy logic synchronously.
-- [ ] A source event with missing order guarantees relies on source-native IDs,
-  update times, and correction lineage rather than arrival order.
-- [ ] Keep polling enabled as fallback until each push adapter has proven
-  signature, replay, outage, renewal, and delivery behavior.
-
-## Reference adapter A: SEC latest-filings Atom
-
-Reuse the Spec 1 `IPO Filings` behavior as the simple reference:
-
-- exact SEC official origin and identifying user agent;
-- bounded Atom/XML response and disabled external entities;
-- accession/form identity, published/updated/observed times, CIK, company name,
-  file number, canonical filing URL, and content hash;
-- initial baseline, new S-1, S-1/A update, malformed, oversized, stale,
-  redirected, incomplete, duplicate, and live-read fixtures.
-
-- [ ] Move source acquisition/normalization behind the adapter interface without
-  changing Spec 1 or Spec 2 reference behavior.
-- [ ] Prove the same accession observed through poll and fixture source event
-  produces one fact.
-
-## Reference adapter B: House financial disclosures
-
-The authoritative House Clerk source is a polling-only, two-stage public source.
+Record the observed support matrix and chosen v1 boundary. OCR/model extraction
+is not required to turn unsupported layouts into complete ones.
 
 ### Index stage
 
-- URL family:
-  `https://disclosures-clerk.house.gov/public_disc/financial-pdfs/{YEAR}FD.zip`
-- poll default: every six hours, owner-configurable only within reviewed cadence
-  and budget bounds;
-- archive content: one expected year-specific XML index plus optional text form;
-- relevant record: `FilingType=P` Periodic Transaction Report; and
-- source-native identity: filing year plus House `DocID`.
+The source instance resolves the official yearly House disclosure index. Safely
+extract the expected XML, normalize PTR index rows, and ignore non-PTR filing
+types for transaction ingestion.
 
-- [ ] Validate requested year, exact path, ZIP signature, archive bounds, expected
-  entry name, and safe XML before record parsing.
-- [ ] Preserve member name components, state/district, filing date, filing type,
-  year, and DocID exactly as source fields.
-- [ ] Initial setup stores the current PTR DocID baseline without treating all
-  historical reports as new signals.
-- [ ] A new DocID durably creates a document-stage job before the index checkpoint
-  can advance past responsibility for that filing.
+A filing logical key uses year plus official DocID. A baseline records existing
+rows without downstream live signals. Later acquisitions select only newly
+observed or corrected PTR documents. Historical year transitions are explicit
+source-instance changes, not arbitrary URL mutation.
 
 ### PTR document stage
 
-- URL family:
-  `https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{YEAR}/{DOC_ID}.pdf`;
-- one canonical filing fact per DocID; and
-- zero or more bounded transaction facts per parsed table row.
+Derive the exact official PTR URL from the validated index row, fetch the bounded
+PDF, and emit:
 
-Each transaction fact preserves:
+- `house-ptr-filing/v1`: DocID/year, filer identity as disclosed,
+  district/state, filing/amendment metadata, filing date, public document
+  provenance, and extraction state; and
+- `house-ptr-transaction/v1`: stable row identity, disclosed owner code, asset
+  description, reported ticker when present, transaction type/date,
+  notification date, disclosed amount bracket, capital-gains indicator, public
+  provenance, and extraction state.
 
-- owner code and normalized known meaning when present;
-- asset description, reported ticker, and asset-type code without guessing;
-- reported transaction type;
-- transaction date and notification/filing date;
-- amount-range label plus exact lower/upper bounds when the bracket is known;
-- capital-gains disclosure when present;
-- row identity, extraction status, document URL, document hash, and provenance.
+Amounts remain ranges, not exact values. Missing, illegible, or ambiguous fields
+remain `unknown`; deterministic extraction never guesses. Transaction facts are
+linked to their filing fact and retain stable row evidence for replay
+deduplication and amendment correction.
 
-- [ ] Never convert a range midpoint into a reported exact amount.
-- [ ] Do not infer that a ticker-like string is the correct listed security when
-  the source text is ambiguous.
-- [ ] If some rows parse and others are ambiguous, retain a `partial` filing fact
-  and do not present the filing as completely normalized.
-- [ ] A document parse failure remains a durable retryable/terminal child state;
-  it does not cause repeated index discovery or silent loss.
-- [ ] Corrections or changed PDFs create explicit fact revisions linked to the
-  original DocID/row facts.
+## Sprint ledger
 
-### House adapter fixtures
+### Sprint 0 — reconcile WIP, contracts, and House feasibility
 
-- [ ] Baseline ZIP with non-PTR and PTR records.
-- [ ] One newly added PTR DocID.
-- [ ] Duplicate index poll and concurrent observation.
-- [ ] ZIP bomb, path traversal, duplicate XML, wrong year, malformed XML, and
-  oversized index.
-- [ ] Valid text PDF, multi-page/multi-row PDF, no-transaction PDF, amended PDF,
-  scanned PDF, corrupt PDF, ambiguous ticker, unknown amount bracket, and partial
-  table extraction.
-- [ ] Child PDF transient failure followed by safe retry without index replay.
-- [ ] Two subscribed workspaces receive isolated projections from one fetch/fact.
-- [ ] Read-only live smoke downloads the current index and one explicitly selected
-  public PTR without generating a strategy signal or alert.
+- [x] Inspect existing uncommitted Spec 3 WIP against this revised scope; keep
+  only aligned fixtures/contracts and report discarded or deferred pieces before
+  changing them. Retained the package verification entry, SEC corpus, and House
+  XML/text seeds; replaced the missing contract implementation and deferred the
+  old crash/concurrency/overlap, generic-format/DNS, and model-extraction work.
+- [x] Choose and prove the minimal ZIP/PDF stack in the compiled Eve environment
+  using the House corpus and document the v1 support boundary. The Node 24 stack
+  uses `@zip.js/zip.js` and `pdfjs-dist`; the sanitized official-layout corpus
+  covers yearly ZIP/XML, text, multi-page amendment, no-transaction, ambiguous,
+  scanned, and malformed cases.
+- [x] Define only the adapter, source-instance, acquisition journal/result,
+  canonical fact revision/correction, subscription, and projection schemas used
+  by the SEC and House verticals. `agent/lib/public-source-adapter-schema.ts`
+  contains no generic provider or document-format contract.
+- [x] Add deterministic positive and negative contract fixtures; the default
+  suite remains green and negative fixtures pass by producing expected failures.
+- [x] Verify channel neutrality and the fixed error/log catalog. The focused
+  gate rejects channel imports, high-cardinality log fields, arbitrary URLs,
+  workspace fields in facts, and exact House amounts.
+- [x] Run focused contract/feasibility tests, typecheck, affected build, update
+  this ledger, and commit Sprint 0. Passed the Sprint 0 verifier, `npm run
+  typecheck`, and `REDIS_URL=redis://fixture.invalid:6379 npm run build:agent` on
+  2026-08-15 without a source read or production mutation.
 
-## Failure and recovery contracts
+Exit: the deployed stack can read representative House inputs, and the minimum
+contracts needed by both real adapters are executable. No production acquisition
+path is required yet.
 
-- [ ] Uncertain HTTP completion before bytes: record uncertainty and retry only
-  when the adapter proves the request is read-only and idempotent.
-- [ ] Truncated/oversized body: abort before parse, record incomplete coverage,
-  and never advance checkpoint.
-- [ ] Parser/extractor crash: preserve fetch receipt/document hash and retry the
-  bounded parser without refetch when safe within the active run; otherwise
-  restart idempotently.
-- [ ] Fact commit succeeds but checkpoint commit is uncertain: reconcile by fact
-  and observation IDs before refetching or projecting.
-- [ ] Projection delivery is uncertain: quarantine the projection receipt; do not
-  duplicate strategy work blindly.
-- [ ] Adapter version removed/blocked: stop new observations and projections,
-  preserve facts/checkpoints, and require explicit migration or rollback.
-- [ ] Source schema drift: mark adapter degraded, retain raw response metadata but
-  not body, and fail closed until fixtures/parser are updated.
-- [ ] Primary source unavailable: report degraded coverage. Never manufacture a
-  no-change result or silently substitute a derived source.
+### Sprint 1 — acquisition kernel and SEC vertical
 
-## Implementation sprints
+- [x] Extend existing Spec 1/2 source contracts with reviewed registry and
+  source-instance resolution rather than creating a parallel catalog.
+- [x] Implement the acquisition journal, idempotent fact revision/correction
+  writes, source cursor compare-and-set, and interrupted-before-cursor replay.
+- [x] Implement the SEC adapter and prove parity for baseline, new S-1,
+  amendment, no-change, malformed, and partial input.
+- [x] Keep the old SEC runtime path available behind the rollback flag.
+- [x] Run focused SEC/kernel tests, typecheck, Eve build, update this ledger, and
+  commit Sprint 1. The fixture-backed caller, legacy SEC parity suites,
+  strategy-pack contract, typecheck, and compiled Eve build passed on
+  2026-08-15 with both public-source flags left off.
 
-### Sprint 0 — contracts and failing fixtures
+Exit: the production caller completes one fixture-backed SEC acquisition and
+persists equivalent canonical behavior without enabling production traffic.
 
-- [ ] Define versioned schemas/state diagrams for adapter, source instance,
-  observation, stage receipt, fact, checkpoint, subscription, projection, and
-  correction lineage.
-- [ ] Define complete/no-change/partial/retryable/terminal/uncertain semantics.
-- [ ] Add failing tests for origin escape, redirect/DNS escape, response limits,
-  archive attacks, XML entities, parser ambiguity, duplicate observation,
-  checkpoint uncertainty, schema drift, and cross-workspace fact access.
-- [ ] Add a failing exact-URL-fence fixture that observes whether a redirect
-  causes a second outbound request.
-- [ ] Add a failing fixture proving source observation/version timestamps cannot
-  create a second canonical fact identity.
-- [ ] Add a failing fixture at every declared maximum feed/page count and durable
-  serialized-byte boundary.
-- [ ] Add failing crash-boundary fixtures for fact identity claim, outcome, and
-  checkpoint recovery.
-- [ ] Add a barrier-backed failing fixture whose production-path observations
-  actually overlap; a sequential isolation fixture is insufficient.
-- [ ] Add SEC and House fixture corpora with exact expected facts and coverage.
-- [ ] Define low-cardinality error codes, retention, feature flags, and rollback.
+### Sprint 2 — subscriptions, isolation, and SEC migration
 
-Exit gate:
+- [x] Extend pack bindings and monitors with resolved source-instance and
+  subscription references, including migration for existing SEC records.
+- [x] Implement source-global acquisition reuse and independent per-subscription
+  projections/delivery cursors.
+- [x] Prove two overlapping workspaces perform one eligible SEC acquisition,
+  receive their own projections exactly once, and cannot read each other's data.
+- [x] Route the SEC workspace evaluator through authorized projections while
+  preserving Spec 1 finding, alert, Discuss, and checkpoint behavior.
+- [x] Prove rollback, run focused integration tests, typecheck, affected builds,
+  update this ledger, and commit Sprint 2.
 
-- [ ] Every allowed/forbidden transition and transport/parser failure is captured
-  by a deterministic failing test before runtime implementation.
+Exit: SEC is a complete shared-acquisition-to-isolated-workspace vertical path.
 
-### Sprint 1 — adapter registry and guarded execution
+### Sprint 3 — House index and PTR vertical
 
-- [ ] Implement adapter/source-instance schemas, registry, immutable versions,
-  digest checks, and configuration validation.
-- [ ] Implement the shared guarded HTTP executor and aggregate observation limits.
-- [ ] Implement exact-URL no-follow transport and prove through the production
-  observation caller that a redirect is rejected before a second outbound
-  request.
-- [ ] Implement bounded RSS/Atom, JSON, XML, ZIP, and PDF input primitives.
-- [ ] Add respectful rate/concurrency limits, conditional requests, cancellation,
-  retry classification, and source authority metadata.
-- [ ] Expose no model-facing arbitrary fetch surface.
+- [x] Implement bounded House ZIP/XML index acquisition and
+  baseline/new/corrected filing selection. The reviewed 2026 source now uses
+  strict archive/XML bounds and durable logical-key heads for correction lookup.
+- [x] Implement exact PTR retrieval and deterministic PDF extraction for the
+  supported v1 corpus. The caller derives only the validated official DocID URL,
+  cross-checks the disclosed filing identity, and uses bounded text-layer parsing.
+- [x] Emit immutable House filing and transaction fact revisions with public
+  provenance, range-preserving amounts, unknown/partial states, and corrections.
+  Partial and scanned documents emit only explicit filing states and never
+  invented transaction rows.
+- [x] Prove baseline, one new filing, multi-row, amendment, no-transaction,
+  replay, partial/scanned, malformed ZIP/XML/PDF, and resource bounds. The
+  checked-in real-layout corpus plus bounded synthetic index variants cover the
+  production caller and correction lineage.
+- [x] Run focused House tests, typecheck, Eve build, update this ledger, and
+  commit Sprint 3. House/contracts, SEC/kernel regression, guarded transport,
+  strategy-pack/monitor checks, TypeScript, and the compiled Eve build passed on
+  2026-08-15 without a live source read or production flag change.
 
-Exit gate:
+Exit: a representative checked-in House PTR travels through the production
+caller from index to canonical facts that meet Spec 4's input contract.
 
-- [ ] Only a reviewed adapter/source instance can perform a request, and every
-  format/transport attack fixture fails before unsafe parsing or network escape.
+### Sprint 4 — runtime integration and operator visibility
 
-### Sprint 2 — canonical facts, checkpoints, and reuse
+- [x] Route Spec 1 occurrences for SEC and House through the coordinator without
+  adding a scheduler or channel dependency. The SEC worker delegates its flagged
+  path to the channel-neutral coordinator, whose reviewed occurrence contract
+  also runs the House vertical and reuses one acquisition across workspaces.
+- [x] Expose bounded adapter/source health, last complete acquisition, cursor
+  state, partial/unsupported state, and subscription lag in the workspace
+  manager without exposing global or private records. The authorized health DTO
+  omits acquisition IDs, URLs, facts, payloads, and workspace identities and
+  degrades to a bounded unavailable state when storage cannot be read.
+- [x] Add fixed counters for acquisition outcomes, fact revisions/corrections,
+  reused acquisitions, projections, and fixed failure stages/codes. Strict
+  observation schemas reject dynamic identifiers and arbitrary labels.
+- [x] Prove disabled and partial flag configurations fail safely and do not
+  regress ordinary Spec 1/2 behavior. Disabled SEC retains the legacy worker;
+  an enabled adapter with incomplete shared flags stops before acquisition,
+  projection, or fetch.
+- [x] Run focused runtime/manager tests, typecheck, affected builds, update this
+  ledger, and commit Sprint 4. Coordinator/health, SEC/House adapters, SEC
+  worker, manager, monitor-store, strategy-pack catalog/runtime, TypeScript,
+  compiled Eve, and Next.js builds passed fixture-backed on 2026-08-15 with no
+  live source read or production flag change.
 
-- [ ] Implement observation/stage receipts, fact and checkpoint stores, indexes,
-  correction lineage, and compare-and-set commits.
-- [ ] Implement initial baseline plus atomic or explicitly recoverable fact-
-  identity claim, outcome, checkpoint, and child-stage responsibility; cover
-  each crash boundary through the production fact/checkpoint caller with replay
-  tests.
-- [ ] Implement safe observation coalescing and source-global fact deduplication
-  whose identity is independent of observation and source-version timestamps;
-  prove timestamp-change replay through the production observation caller.
-- [ ] Make every declared maximum feed/page count fit the serialized durable
-  record limits or deterministic lossless batching, and test every declared
-  ceiling through the production durable-commit path.
-- [ ] Implement subscription filtering, scoped fact retrieval, and projection
-  receipts.
-- [ ] Complete production-caller replay, checkpoint uncertainty, isolation, and
-  barrier-backed actually overlapping concurrency tests, plus Redis races.
+Exit: both adapters participate in the normal runtime and can be diagnosed
+without inspecting payloads or channel logs.
 
-Exit gate:
+### Sprint 5 — final verification and controlled rollout
 
-- [ ] Concurrent subscribers and replay produce one canonical fact/checkpoint and
-  one isolated projection per matching subscription without data loss.
+- [x] Run one independent diff-scoped review of Sprints 0–4 and resolve only
+  validated Spec 3 blockers; defer nonblocking hardening explicitly. The review
+  fixed SEC legacy-checkpoint migration, occurrence-window filtering, standalone
+  amendments, transport outcome persistence, House index/document bounds,
+  explicit unknown amendment lineage, and the normal cursor-conflict boundary.
+  Concurrency tuning, exhaustive races, parser fuzzing, broader manager tests,
+  and agent-visible health remain deferred in `BACKLOG.md`.
+- [x] Run focused adapter suites, Spec 1/2 regression suites, typecheck, Eve
+  build, application build, and `git diff --check`. On 2026-08-16 the five
+  focused Spec 3 suites and the affected Spec 1/2 regression matrix passed,
+  TypeScript passed with `--noEmit`, the compiled Eve build passed with a
+  fixture-only Redis URL, the Next 16 webpack production build passed, and the
+  final diff check was clean.
+- [x] With owner authorization, run one read-only live SEC observation and one
+  current House index plus explicitly selected PTR observation. On 2026-08-16
+  SEC returned three normalized S-1/S-1/A filings without emitting findings or
+  alerts. The current House archive passed the bounded feasibility parser with
+  1,547 members and 351 PTR rows. The deterministically selected latest row,
+  DocID `9116292` filed `8/13/2026`, produced a bounded two-page image-only PDF
+  and the reviewed `pdf_scanned_unsupported` classification. The observation
+  also exposed official non-zero-padded index dates; the adapter now normalizes
+  them with strict calendar validation. No strategy signal, alert, Photon
+  message, paid call, deployment write, or feature-flag change occurred.
+- [x] With owner authorization, enable the new SEC path first, verify parity and
+  rollback, then enable House acquisition. Production moved through all-off
+  (`dpl_EwzsXYB4PRpufQZqKCv5DZCKcmBM`), SEC-only
+  (`dpl_4zj1yZfQEkzPR4QtdXJxvCNMwttq`), a real promotion rollback to all-off,
+  restored SEC-only, and final SEC-plus-House
+  (`dpl_CkAobXMjsDraBwnAJntNTfgSh4kB`). The production alias and `/skill`
+  returned HTTP 200 at every promoted stage, deployment error queries were
+  empty, and an exact before/after audit proved unrelated environment entries
+  unchanged. Global workspace dispatch and Photon workspace alerts remained
+  off, so rollout performed no acquisition or delivery.
+- [x] Record production evidence and rollback state in `HANDOFF.md`, mark this
+  spec complete, and commit the exit gate. `HANDOFF.md` names the retained
+  all-off rollback deployment, final deployment and flag state, accepted live
+  source evidence, and deliberately disabled dispatch/delivery controls.
 
-### Sprint 3 — multi-stage public documents
+Exit: the acceptance experience is proven, Spec 4 has a stable House fact input,
+and production can return to the pre-Spec path without data loss.
 
-- [ ] Implement bounded child-stage job/responsibility records.
-- [ ] Implement safe ZIP extraction, XML index parsing, exact PDF retrieval, and
-  deterministic PDF table extraction primitives.
-- [ ] Add typed partial/ambiguous extraction and optional bounded model-extractor
-  interface behind a disabled-by-default capability.
-- [ ] Ensure child-stage retries do not redetect or duplicate parent records.
-- [ ] Complete archive/document attack, partial, retry, correction, and resource
-  budget tests.
+## Feature flags and rollout
 
-Exit gate:
+Use the smallest flag set that supports rollback:
 
-- [ ] A multi-stage source can safely advance its index while retaining durable
-  responsibility for every discovered child, and ambiguous documents never look
-  complete.
+- shared adapter execution;
+- source-global fact reuse/projection;
+- SEC adapter live path; and
+- House adapter live path.
 
-### Sprint 4 — Spec 1 polling and source-event integration
+All flags default off. An adapter requires shared execution/facts and complete
+reviewed configuration. Partial or invalid configuration fails closed for that
+adapter and cannot fall back to arbitrary fetch behavior. The old SEC path may
+remain temporarily as an explicit rollback route, not an automatic error
+fallback after a new-path acquisition starts.
 
-- [ ] Route due source observations through Spec 1 occurrence, lease, run, and
-  budget contracts.
-- [ ] Add an authenticated source-event ingress that bounds the body before
-  parsing, verifies adapter-specific signatures before enqueueing, and
-  deduplicates before fan-out without running model or strategy logic.
-- [ ] Implement conditional RSS/Atom observations with ETag/Last-Modified and
-  optional WebSub only for sources that advertise and successfully verify a
-  hub; otherwise retain conditional polling.
-- [ ] Route authenticated Spec 3 source events through adapter normalization and
-  the same canonical fact identity.
-- [ ] Resolve exact subscriptions without a model in the HTTP request, reuse one
-  shared public fact when safe, and prevent private or workspace-scoped findings
-  from entering shared source storage.
-- [ ] Add polling/event duplicate, reordering, correction, fan-out, cancellation,
-  invalid-signature, replay-window, oversized-payload, update, and quarantine
-  tests across two isolated workspaces.
-- [ ] Add source health and projection status to Spec 1 monitor management.
-- [ ] Preserve polling fallback and independent source-event/adapter kill
-  switches until push delivery has production evidence.
+## Completion contract
 
-Exit gate:
+Spec 3 is complete only when every Sprint 0–5 item is checked with evidence and:
 
-- [ ] Polling and source events create identical facts and wake exact subscribed
-  workspaces through one idempotent path without strategy logic in ingress.
+- SEC behavior is migrated without regression;
+- House produces validated facts from the official source within the documented
+  v1 extraction boundary;
+- two workspaces reuse acquisition while remaining isolated;
+- no channel-specific code exists in the source/fact plane;
+- ordinary malformed, partial, replay, correction, and rollback paths work; and
+- deferred hardening is filed in the appropriate later spec or `BACKLOG.md`
+  before this spec is marked complete.
 
-### Sprint 5 — reference adapters and production hardening
+## Deferred follow-on work
 
-- [ ] Move SEC Atom behavior behind the versioned adapter without regression.
-- [ ] Implement the House index/PTR adapter and every fixture above.
-- [ ] Verify two workspaces reuse one House observation while remaining isolated.
-- [ ] Run deterministic suites, Redis races, typecheck, Eve build, application
-  build, SEC live read, and House index/PTR read-only smoke.
-- [ ] Deploy behind adapter, fact-reuse, multi-stage, and live-source flags with
-  rollback evidence.
-- [ ] Update `HANDOFF.md`, `NORTH_STAR.md`, and `BACKLOG.md` only with implemented
-  facts and completing commits.
-
-Exit gate:
-
-- [ ] SEC Atom and House ZIP/XML/PDF sources produce correct bounded canonical
-  facts under replay, concurrency, failure, and live-read conditions without
-  emitting strategy signals.
-
-## Planned code areas
-
-- `agent/lib/public-source-adapter-schema.ts`: adapter/source/result contracts.
-- `agent/lib/public-source-adapters.ts`: reviewed immutable adapter registry.
-- `agent/lib/public-source-http.ts`: origin-fenced bounded HTTP execution.
-- `agent/lib/public-source-formats.ts`: bounded feed/JSON/XML/ZIP/PDF primitives.
-- `agent/lib/public-source-observation-store.ts`: observations and stage receipts.
-- `agent/lib/canonical-public-fact-store.ts`: facts, revisions, and lineage.
-- `agent/lib/public-source-checkpoint-store.ts`: atomic checkpoints.
-- `agent/lib/source-fact-subscriptions.ts`: filtering and scoped projections.
-- `agent/lib/source-adapters/sec-latest-filings.ts`: SEC Atom reference.
-- `agent/lib/source-adapters/house-financial-disclosures.ts`: House reference.
-- `agent/channels/public-source-observer.ts`: Spec 1 run integration.
-- `scripts/verify-public-source-adapters.mjs`: deterministic and attack fixtures.
-- `evals/public-sources/`: runtime behavior and isolation evals.
-
-Do not duplicate Spec 1's scheduler/monitor/worker/alert stores or Spec 2's pack
-catalog/binding. Do not use model history as a source checkpoint or fact store.
-
-## Verification matrix
-
-| Boundary | Required proof |
-| --- | --- |
-| Registry | Unknown, changed, blocked, or incompatible adapters cannot execute. |
-| Network | Exact origin/path/method and every redirect/DNS hop remain public and reviewed. |
-| Bounds | Aggregate bytes, records, child requests, decompression, parsing, and extraction are capped before unsafe work. |
-| Formats | Archive traversal/bombs, XML entities, malformed feeds/JSON, and invalid PDFs fail closed. |
-| Coverage | Success, no-change, partial, failure, and uncertainty cannot be confused. |
-| Checkpoints | Facts or durable child responsibility commit before advancement; replay cannot skip or duplicate. |
-| Fact identity | Poll, push, replay, and concurrent subscribers converge on one canonical fact and correction lineage. |
-| Isolation | A workspace can retrieve only subscribed fact projections and cannot enumerate other consumption. |
-| Provenance | Authority, source identity, canonical URL, times, adapter/extractor versions, hashes, and status survive. |
-| SEC reference | Spec 1 IPO behavior remains unchanged behind the adapter. |
-| House reference | ZIP/XML/PTR discovery, parsing, ranges, partials, corrections, and retries match fixtures. |
-| Live smoke | Read-only SEC and House fetches observe limits and create no strategy signal or broker action. |
-
-## Observability and operations
-
-- [ ] Emit low-cardinality counts for observations, no-change, complete, partial,
-  retryable, terminal, uncertain, fact created/revised, checkpoint committed,
-  projection created/quarantined, schema drift, and adapter blocked.
-- [ ] Never use source instance, URL, DocID, accession, ticker, public-person name,
-  fact ID, hash, workspace ID, or owner ID as metric tags.
-- [ ] Add owner-visible source health, last complete observation, next poll,
-  checkpoint status, degraded reason, and pending child counts.
-- [ ] Add operator reports for degraded adapters, uncertain observations,
-  checkpoint mismatches, failed child documents, and quarantined projections
-  without payload contents.
-- [ ] Add independent kill switches for adapter execution, fact reuse,
-  multi-stage documents, model extraction, source events, and each live adapter.
-- [ ] Document how to rebaseline safely without alerting on all historical items
-  and how to migrate/rollback an adapter version.
-
-## Definition of done
-
-- [ ] Every sprint exit gate passes.
-- [ ] Packs can reference stable adapter/source IDs without gaining arbitrary
-  network access.
-- [ ] Polling, source events, workflow replay, and concurrent subscriptions
-  produce canonical facts exactly once.
-- [ ] Facts remain public, bounded, provenance-bearing, correction-aware, and
-  independent of workspace state.
-- [ ] Each workspace receives only its authorized subscription projection.
-- [ ] SEC Atom passes all existing Spec 1 reference behavior after migration.
-- [ ] House ZIP/XML/PTR ingestion passes deterministic, attack, partial, retry,
-  correction, concurrency, and read-only live-smoke coverage.
-- [ ] A malformed or uncertain child document cannot be lost or presented as a
-  complete normalized filing.
-- [ ] No strategy score, alert, recommendation, or broker action is produced by
-  the source layer.
-- [ ] All Specs 1 and 2 regressions, typecheck, Eve build, and application build
-  remain green.
-- [ ] Rollback stops new observations/projections without deleting facts,
-  checkpoints, subscriptions, or recovery state.
-
-## Follow-on specifications
-
-1. [`Spec 4: Congressional Signals v1 — House PTRs`](04-congressional-signals-house.md).
-2. [`Spec 5: Insider Clusters`](05-insider-clusters.md).
-3. [`Spec 6: Typed shared-signal plane`](06-shared-signal-plane.md).
-4. Cramer Inverse source acquisition and strategy pack.
-5. Additional reviewed source adapters only when a selected strategy requires
-   them.
+- Spec 4 consumes House facts and owns congressional scoring and alerts.
+- A later adapter with a documented push protocol may introduce authenticated
+  source-event ingress and WebSub.
+- Post-functional hardening may add exhaustive crash/race matrices, stale-claim
+  recovery, DNS destination pinning, broader parser fuzzing, long-term archive
+  replay, and generalized quarantine/operator tooling.
+- Additional public-source formats or providers require a real product consumer
+  and a separate reviewed adapter version.

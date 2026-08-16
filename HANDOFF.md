@@ -6,22 +6,28 @@ tracing the implementation, checking the installed Eve and Next.js semantics,
 and reviewing the regression coverage. Use it to form the initial system model;
 then verify task-specific details against current code before making a change.
 
-> **Specification status:** Specs 1 and 2 are implemented, production accepted,
-> and on `main`. Spec 2's versioned strategy-pack framework and
+> **Specification status:** Specs 1–3 are implemented and production accepted.
+> Specs 1 and 2 are on `main`; Spec 3 was deployed from the exact reviewed
+> source commit `9b6e01f` on `codex/spec-03` without pushing or merging it.
+> Spec 2's versioned strategy-pack framework and
 > `IPO Filings@1.0.0` passed staged production scheduling, real SEC/Photon,
-> Discuss, managed-worker, cleanup, and rollback acceptance on 2026-08-15. The
-> two spec files remain the authoritative split between production evidence and
+> Discuss, managed-worker, cleanup, and rollback acceptance on 2026-08-15.
+> Spec 3's shared SEC/House acquisition, canonical facts, isolated projections,
+> and rollback controls passed staged production acceptance on 2026-08-16. The
+> spec files remain the authoritative split between production evidence and
 > deliberately deferred work.
 
-Snapshot date: 2026-08-15
+Snapshot date: 2026-08-16
 
-Repository branch: `main`
+Repository branch: `codex/spec-03`
 
 Production alias: <https://adaam.vercel.app>
 
-Production follows Git-backed `main`, but the alias and local checkout can
-diverge. Inspect both before diagnosing or deploying. Never commit, push,
-deploy, or mutate an external service unless the owner asks.
+Production currently runs the exact local Spec 3 source commit `9b6e01f`; that
+commit has not been pushed or merged into Git-backed `main`. The alias, branch,
+and local checkout can therefore diverge. Inspect all three before diagnosing
+or deploying. Never commit, push, deploy, or mutate an external service unless
+the owner asks.
 
 ## Executive summary
 
@@ -39,7 +45,7 @@ architecture. Keep them distinct:
 | Research | Direct sources, public feeds, FMP/SEC-oriented skills, and guarded Masterkey fallback | Durable private ingestion of every paid or temporary result |
 | Trading | Allowlisted Coinbase reads and preview-bound spot-order approval | A generally safe live-trading surface or account-wide reconciliation |
 | Deliverables | Public-data reports and media on stable Eve URLs | Owner-private artifacts for portfolio, account, or personal data |
-| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, and real Specs 1–2 Photon production acceptance | Spec 3 source events and deferred crash/operations hardening |
+| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, source-global SEC/House adapters, immutable canonical facts, isolated workspace projections, and real Specs 1–3 production acceptance | Push source events and crash/operations hardening remain deferred |
 | Authorization | Fail-closed deployment-owner mapping for Photon workspace paths plus a separate Coinbase allowlist | Owner-global enforcement across Telegram, HTTP, and every remaining private capability |
 
 `NORTH_STAR.md` describes the intended strategy-workspace architecture; it is
@@ -247,6 +253,48 @@ state, and monitor writes remain on. Disposable bindings were removed, their
 workspaces archived, all disposable monitors retired, and `Main` restored.
 Two post-rollback scheduler ticks claimed no workspace monitor and started no
 worker.
+
+### Public-source adapters and canonical facts
+
+Spec 3 adds a versioned approved-source registry and validated source instances,
+an idempotent acquisition journal, immutable canonical fact revisions with
+explicit correction heads, and workspace-isolated subscriptions, projections,
+and delivery cursors. Acquisition and facts are source-global; one workspace
+cannot read another workspace's subscription or projection state.
+
+The SEC adapter preserves the reviewed S-1/S-1/A behavior while moving flagged
+execution through the shared coordinator. Turning its adapter flag off selects
+the explicit legacy workspace-worker rollback path. The House adapter reads the
+official bounded yearly ZIP/XML index and only the exact selected PTR PDFs.
+Reviewed text layouts produce filing and range-preserving transaction facts;
+ambiguous, partial, malformed, or image-only documents remain explicitly
+partial or unsupported and never produce invented fields.
+
+Production rollout used exact source commit `9b6e01f`. It promoted all-off
+deployment `dpl_EwzsXYB4PRpufQZqKCv5DZCKcmBM`, SEC-only deployment
+`dpl_4zj1yZfQEkzPR4QtdXJxvCNMwttq`, the all-off deployment again as a real
+rollback, SEC-only again, and finally SEC-plus-House deployment
+`dpl_CkAobXMjsDraBwnAJntNTfgSh4kB`. The production alias and `/skill` returned
+HTTP 200 at each promoted stage, and bounded error-log queries were empty. The
+all-off deployment remains the direct rollback target and does not require data
+deletion or fact reversal.
+
+The final production values are exactly `1` for
+`EVE_PUBLIC_SOURCE_ACQUISITION_ENABLED`,
+`EVE_PUBLIC_SOURCE_PROJECTIONS_ENABLED`,
+`EVE_SEC_PUBLIC_SOURCE_ADAPTER_ENABLED`, and
+`EVE_HOUSE_PUBLIC_SOURCE_ADAPTER_ENABLED`. An exact before/after environment
+audit showed all unrelated entries unchanged. Global workspace dispatch and
+Photon workspace alerts remain off and were never mutated, so no scheduled
+acquisition, projection delivery, alert, or message ran during the flag
+rollout.
+
+The separately authorized read-only live gate observed three normalized SEC
+S-1/S-1/A filings without findings or alerts. The current House index contained
+1,547 members and 351 PTR rows; the deterministic latest selection, DocID
+`9116292` filed `8/13/2026`, was a bounded two-page image-only PDF and correctly
+returned `pdf_scanned_unsupported`. No signal, alert, message, paid call, or
+state mutation was produced by that observation.
 
 ### Approval state machine
 
@@ -477,10 +525,10 @@ The most important differences between the working app and `NORTH_STAR.md` are:
 1. **Owner and workspace parity is Photon-only.** Durable owner mapping,
    assignment, runtimes, monitors, alerts, and manager controls exist for
    Photon's durable mode. Telegram and HTTP do not use that broker.
-2. **Source adapters and later strategy packs remain.** The versioned pack
-   framework and IPO reference pack are production accepted. Canonical public
-   adapters, Congressional Signals, Insider Clusters, and shared signals remain
-   Specs 3–6.
+2. **Later strategy packs remain.** The versioned pack framework, IPO reference
+   pack, and canonical SEC/House public-source adapters are production accepted.
+   Congressional Signals, Insider Clusters, and shared signals remain Specs
+   4–6.
 3. **Artifacts are public-only.** Private portfolio/account deliverables and
    safe recovery of paid temporary outputs require owner-private storage.
 4. **MCP ingestion is incomplete.** Normalized model context is safe and
@@ -553,17 +601,22 @@ Focused regression scripts map to the important boundaries:
 | `eval:coinbase` | fixture-backed model/tool behavior with no real Coinbase call |
 | `verify:strategy-packs` and `verify:strategy-pack-*` | deterministic catalog, atomic mutations, runtime isolation, owner-surface parity, privacy-safe observability, and Spectrum behavior |
 | `verify:strategy-packs:acceptance` | empty-state local vertical path through pack creation, scheduler, worker evaluation, durable alert, Photon adapter, Discuss, next ingress, and rollback switches |
+| `verify:public-source-adapters:contracts` | minimal SEC/House contracts, representative House layout feasibility, channel neutrality, and fixed observation catalogs |
+| `verify:public-source-adapters:sec` | acquisition journal, immutable SEC facts, parity, correction/replay, and explicit legacy rollback behavior |
+| `verify:public-source-adapters:house` | bounded official index/PTR parsing, filing and transaction facts, corrections, partial/scanned handling, and resource limits |
+| `verify:public-source-adapters:runtime` | source-global acquisition reuse, workspace-isolated projections, coordinator flags, source health, and manager privacy |
 
 The Redis checks require exported environment variables and do not load
 `.env.local`. Model evals do not exercise the Photon webhook, Redis delivery,
 Spectrum UI, or iMessage response path.
 
-At this snapshot, the Specs 1–2 deterministic matrices, Redis races, TypeScript, the
-compiled Eve build, the Next.js webpack production build, and a read-only live
-SEC smoke have passed. Production acceptance additionally proved real SEC
-polling, Photon alert delivery, Discuss routing/context, exact pack-managed
-worker composition, manager state, and kill-switch rollback paths described
-above. Earlier real-channel smokes validated
+At this snapshot, the Specs 1–3 deterministic matrices, Redis races, TypeScript,
+the compiled Eve build, the Next.js webpack production build, and read-only live
+SEC and House observations have passed. Production acceptance additionally
+proved real SEC polling, Photon alert delivery, Discuss routing/context, exact
+pack-managed worker composition, manager state, the Spec 3 SEC/House staged
+cutovers, and kill-switch rollback paths described above. Earlier real-channel
+smokes validated
 named-session operations and isolation, Coinbase balance and spot-order flows,
 Spectrum order approval, guarded Masterkey research, public report publication,
 and natural-language artifact-card delivery. These establish a baseline, not a

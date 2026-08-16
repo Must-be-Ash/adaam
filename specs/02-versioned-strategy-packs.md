@@ -873,8 +873,9 @@ itself. Focused follow-on specifications may use it for:
   are genuinely reusable before adding generalized update, downgrade,
   replacement, rollback, or automatic-adoption workflows.
 
-1. [`Spec 3: Versioned public-source adapters and canonical facts`](03-public-source-adapters.md)
-   for reviewed fetch, parse, normalize, checkpoint, and source-event plumbing.
+1. [`Spec 3: Public-source adapters and canonical facts`](03-public-source-adapters.md)
+   for reviewed polling, parsing, normalization, checkpoints, and isolated fact
+   subscriptions. Push source events remain deferred until a real adapter needs them.
 2. [`Spec 4: Congressional Signals v1 — House PTRs`](04-congressional-signals-house.md)
    for House disclosure analysis, member history, clusters, and local scoring.
 3. [`Spec 5: Insider Clusters`](05-insider-clusters.md) for official Form 4

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   evaluateSecIpoPage,
+  deriveSecIpoSignalId,
   normalizeSecIpoFetch,
   type SecIpoCheckpoint,
   type SecIpoEvaluation,
@@ -11,6 +12,7 @@ import {
   EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
   SEC_IPO_SOURCE_ID,
   SEC_IPO_SOURCE_URL,
+  type SecIpoFiling,
 } from "./sec-ipo-reference";
 import {
   readWorkspaceRunOutcome,
@@ -37,7 +39,18 @@ import {
   finalizePriorWorkspaceRunOutcomeForControlPlane,
   type WorkspaceWorkerControlPlaneClients,
 } from "./workspace-worker-control-plane";
-import type { SecIpoFilingFact } from "./workspace-finding-facts";
+import {
+  SEC_IPO_NORMALIZER_VERSION,
+  type SecIpoFilingFact,
+} from "./workspace-finding-facts";
+import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
+import { resolveSecPublicSourceRuntimePath } from "./public-source-flags";
+import { coordinatePublicSourceOccurrence } from "./public-source-coordinator";
+import { migrateSecPublicSourceWorkspace } from "./sec-public-source-migration";
+import {
+  type AuthorizedPublicSourceProjection,
+  type PublicSourceSubscriptionStoreClient,
+} from "./public-source-subscription-store";
 import {
   fetchOfficialPublicSourceText,
   type OfficialPublicSourceResponse,
@@ -50,9 +63,11 @@ type WorkerContext = Parameters<typeof requireWorkspaceWorkerAuth>[0];
 
 export interface SecIpoWorkspaceWorkerClients
   extends WorkspaceWorkerControlPlaneClients {
+  readonly acquisition?: PublicSourceAcquisitionStoreClient;
   readonly fetchSource?: (
     requestedUrl: string,
   ) => Promise<OfficialPublicSourceResponse>;
+  readonly subscription?: PublicSourceSubscriptionStoreClient;
 }
 
 export interface SecIpoWorkspaceWorkerResult {
@@ -67,7 +82,8 @@ export class SecIpoWorkspaceWorkerError extends Error {
   readonly code:
     | "sec_ipo_capability_denied"
     | "sec_ipo_monitor_invalid"
-    | "sec_ipo_monitor_not_found";
+    | "sec_ipo_monitor_not_found"
+    | "sec_ipo_public_source_misconfigured";
 
   constructor(code: SecIpoWorkspaceWorkerError["code"]) {
     super(code);
@@ -189,6 +205,110 @@ function alertPresentation(evaluation: SecIpoEvaluation) {
   );
 }
 
+function evaluationFromProjections(input: {
+  checkpoint: SecIpoCheckpoint;
+  previousCheckpoint: SecIpoCheckpoint | null;
+  projections: readonly AuthorizedPublicSourceProjection[];
+  scope: { ownerId: string; workspaceId: string };
+  sourceBaselineEstablished: boolean;
+}): SecIpoEvaluation {
+  const baselineEstablished = input.previousCheckpoint === null &&
+    input.sourceBaselineEstablished;
+  const eligibleProjections = input.previousCheckpoint === null
+    ? input.projections
+    : input.projections.filter(({ fact }) =>
+        fact.payload.schemaVersion === "sec-filing/v1" &&
+        fact.payload.updatedAt > input.previousCheckpoint!.watermark
+      );
+  const findings = baselineEstablished
+    ? []
+    : eligibleProjections.map(({ fact }) => {
+        if (fact.payload.schemaVersion !== "sec-filing/v1") {
+          throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
+        }
+        const payload = fact.payload;
+        const filingIdentity = `${payload.accessionNumber}:${payload.formType}`;
+        const registrationIdentity = `${payload.cik}:${payload.fileNumber ?? payload.accessionNumber}`;
+        const normalizedFilingHash = fact.provenance.rowEvidenceDigest;
+        if (normalizedFilingHash === null) {
+          throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
+        }
+        const classification = payload.formType === "S-1"
+          ? "new_registration" as const
+          : "amendment" as const;
+        const typedFact: SecIpoFilingFact = {
+          accessionNumber: payload.accessionNumber,
+          amendmentIdentity: classification === "amendment"
+            ? `${registrationIdentity}:${filingIdentity}`
+            : null,
+          canonicalFilingUrl: payload.filingUrl,
+          cik: payload.cik,
+          classification,
+          companyName: payload.companyName,
+          contentEvidence: {
+            feedContentHash: input.checkpoint.contentDigest,
+            normalizedFilingHash,
+          },
+          fileNumber: payload.fileNumber,
+          filedAt: payload.publishedAt,
+          filingIdentity,
+          formType: payload.formType,
+          kind: "sec_ipo_filing",
+          normalizerVersion: SEC_IPO_NORMALIZER_VERSION,
+          observedAt: fact.createdObservedAt,
+          registrationIdentity,
+          schemaVersion: 1,
+          source: {
+            accessClassification: "public",
+            canonicalUrl: SEC_IPO_SOURCE_URL,
+            origin: "https://www.sec.gov",
+            sourceId: SEC_IPO_SOURCE_ID,
+          },
+          updatedAt: payload.updatedAt,
+        };
+        const filing: SecIpoFiling = {
+          accessionNumber: payload.accessionNumber,
+          canonicalFilingUrl: payload.filingUrl,
+          cik: payload.cik,
+          classification,
+          companyName: payload.companyName,
+          contentHash: normalizedFilingHash,
+          dedupeKey: filingIdentity,
+          fileNumber: payload.fileNumber,
+          formType: payload.formType,
+          normalizerVersion: SEC_IPO_NORMALIZER_VERSION,
+          observedAt: fact.createdObservedAt,
+          publishedAt: payload.publishedAt,
+          registrationKey: registrationIdentity,
+          updatedAt: payload.updatedAt,
+        };
+        const findingId = deriveSecIpoSignalId("finding", filing, input.scope);
+        return Object.freeze({
+          fact: typedFact,
+          findingId,
+          filing,
+          summary: classification === "new_registration"
+            ? `${payload.companyName} filed Form S-1, a potential IPO registration; this does not prove an IPO will occur.`
+            : `${payload.companyName} filed Form S-1/A, an update to registration ${payload.fileNumber ?? payload.accessionNumber}.`,
+        });
+      });
+  return Object.freeze({
+    alerts: Object.freeze(findings.map((finding) => Object.freeze({
+      alertId: deriveSecIpoSignalId("alert", finding.filing, input.scope),
+      findingId: finding.findingId,
+      title: finding.fact.classification === "new_registration"
+        ? "New SEC S-1 registration"
+        : "SEC S-1 registration update",
+      whyMatched: finding.fact.classification === "new_registration"
+        ? "A newly observed S-1 is a potential IPO registration, not confirmation of an IPO."
+        : "A newly observed S-1/A amends an existing registration and is not a new IPO candidate.",
+    }))),
+    baselineEstablished,
+    checkpoint: input.checkpoint,
+    findings: Object.freeze(findings),
+  });
+}
+
 export async function evaluateSecIpoSourceForWorker(input: {
   clients?: SecIpoWorkspaceWorkerClients;
   ctx: WorkerContext;
@@ -253,6 +373,10 @@ export async function evaluateSecIpoSourceForWorker(input: {
     input.clients?.monitor,
   );
   assertIpoMonitor(monitor, envelope);
+  const publicSourcePath = resolveSecPublicSourceRuntimePath(input.environment);
+  if (publicSourcePath === "public_source_misconfigured") {
+    throw new SecIpoWorkspaceWorkerError("sec_ipo_public_source_misconfigured");
+  }
   const source = await authorizeWorkspaceSourceFetch({
     runId: envelope.runId,
     scope,
@@ -265,21 +389,71 @@ export async function evaluateSecIpoSourceForWorker(input: {
     scope,
     sourceId: source.sourceId,
   }, input.clients?.sourceCoverage);
-  const fetched = input.clients?.fetchSource
-    ? await input.clients.fetchSource(SEC_IPO_SOURCE_URL)
-    : await fetchOfficialPublicSourceText(SEC_IPO_SOURCE_URL, source);
-  const page = normalizeSecIpoFetch({
-    ...fetched,
-    observedAt: now.toISOString(),
-  });
-  const evaluated = evaluateSecIpoPage(
-    page,
-    currentCheckpoint(monitor),
-    scope,
-    { windowEndAt: envelope.window.endAt },
-  );
+  let evaluated: SecIpoEvaluation;
+  if (publicSourcePath === "public_source_adapter") {
+    const migrated = await migrateSecPublicSourceWorkspace({
+      monitor,
+      monitorId: monitor.monitorId,
+      now,
+      scope,
+    }, {
+      monitor: input.clients?.monitor,
+      state: input.clients?.state,
+      subscription: input.clients?.subscription,
+    });
+    const previousCheckpoint = currentCheckpoint(migrated.monitor);
+    const coordinated = await coordinatePublicSourceOccurrence({
+      clients: {
+        acquisition: input.clients?.acquisition,
+        subscription: input.clients?.subscription,
+      },
+      environment: input.environment,
+      fetch: {
+        adapterId: "sec-latest-filings",
+        fetchResponse: async () => ({
+          ...(input.clients?.fetchSource
+            ? await input.clients.fetchSource(SEC_IPO_SOURCE_URL)
+            : await fetchOfficialPublicSourceText(SEC_IPO_SOURCE_URL, source)),
+          observedAt: now.toISOString(),
+        }),
+      },
+      monitor: migrated.monitor,
+      observedAt: now,
+      scope,
+      sourceId: SEC_IPO_SOURCE_ID,
+      window: envelope.window,
+    });
+    const nextCursor = coordinated.acquisition.proposedNextCursor;
+    if (!coordinated.projection || nextCursor === null) {
+      throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
+    }
+    evaluated = evaluationFromProjections({
+      checkpoint: {
+        contentDigest: nextCursor.contentDigest,
+        watermark: nextCursor.watermark,
+      },
+      previousCheckpoint,
+      projections: coordinated.projection.projections,
+      scope,
+      sourceBaselineEstablished: coordinated.baselineEstablished,
+    });
+  } else {
+    const fetched = input.clients?.fetchSource
+      ? await input.clients.fetchSource(SEC_IPO_SOURCE_URL)
+      : await fetchOfficialPublicSourceText(SEC_IPO_SOURCE_URL, source);
+    const page = normalizeSecIpoFetch({
+      ...fetched,
+      observedAt: now.toISOString(),
+    });
+    evaluated = evaluateSecIpoPage(
+      page,
+      currentCheckpoint(monitor),
+      scope,
+      { windowEndAt: envelope.window.endAt },
+    );
+  }
   await markWorkspaceSourceSuccess({
-    contentDigest: page.contentHash,
+    contentDigest: evaluated.checkpoint.contentDigest,
     now,
     runId: envelope.runId,
     scope,

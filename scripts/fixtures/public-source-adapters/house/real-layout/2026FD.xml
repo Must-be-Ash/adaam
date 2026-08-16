@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FinancialDisclosure>
+  <Member>
+    <Prefix>Hon.</Prefix>
+    <Last>Fixture</Last>
+    <First>Alex</First>
+    <Suffix></Suffix>
+    <FilingType>A</FilingType>
+    <StateDst>WA01</StateDst>
+    <Year>2026</Year>
+    <FilingDate>01/05/2026</FilingDate>
+    <DocID>20000010</DocID>
+  </Member>
+  <Member>
+    <Prefix>Hon.</Prefix>
+    <Last>Sample</Last>
+    <First>Jordan</First>
+    <Suffix>Jr.</Suffix>
+    <FilingType>P</FilingType>
+    <StateDst>OR03</StateDst>
+    <Year>2026</Year>
+    <FilingDate>03/04/2026</FilingDate>
+    <DocID>20000011</DocID>
+  </Member>
+</FinancialDisclosure>

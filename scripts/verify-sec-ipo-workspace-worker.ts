@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import type { OfficialPublicSourceResponse } from "../agent/tools/fetch_public_source";
+import {
+  readPublicSourceAcquisitionResult,
+  type PublicSourceAcquisitionStoreClient,
+} from "../agent/lib/public-source-acquisition-store";
 import type { WorkspaceAlertStoreClient } from "../agent/lib/workspace-alert-store";
 import type { WorkspaceDispatchReservation } from "../agent/lib/workspace-dispatch-budget";
 import type { WorkspaceFindingStoreClient } from "../agent/lib/workspace-finding-store";
@@ -21,6 +25,12 @@ import {
 import {
   evaluateSecIpoSourceForWorker,
 } from "../agent/lib/sec-ipo-workspace-worker";
+import {
+  projectPublicSourceAcquisition,
+  readAuthorizedPublicSourceProjection,
+  readPublicSourceSubscription,
+  type PublicSourceSubscriptionStoreClient,
+} from "../agent/lib/public-source-subscription-store";
 import type { WorkspaceSourceCoverageClient } from "../agent/lib/workspace-source-coverage";
 import {
   writeWorkspaceDocument,
@@ -30,7 +40,11 @@ import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-
 import { prepareWorkspaceWorkerRun } from "../agent/lib/workspace-worker-runner";
 
 class MemoryCasStore
-  implements WorkspaceSourceCoverageClient, WorkspaceStateStoreClient {
+  implements
+    PublicSourceAcquisitionStoreClient,
+    PublicSourceSubscriptionStoreClient,
+    WorkspaceSourceCoverageClient,
+    WorkspaceStateStoreClient {
   readonly values = new Map<string, string>();
 
   async compareAndSet(key: string, expected: string | null, next: string) {
@@ -155,12 +169,16 @@ const coverage = new MemoryCasStore();
 const findings = new MemoryCreateStore();
 const alerts = new MemoryCreateStore();
 const monitors = new MemoryMonitorStore();
+const acquisitions = new MemoryCasStore();
+const subscriptions = new MemoryCasStore();
 const clients = {
+  acquisition: acquisitions,
   alert: alerts,
   finding: findings,
   monitor: monitors,
   sourceCoverage: coverage,
   state,
+  subscription: subscriptions,
 };
 const verificationNow = new Date();
 
@@ -341,11 +359,12 @@ async function execute(
   now: Date,
   fetchSource: SecIpoFetch,
   overrides: Partial<typeof clients> = {},
+  runtimeEnvironment: NodeJS.ProcessEnv = environment,
 ) {
   return evaluateSecIpoSourceForWorker({
     clients: { ...clients, ...overrides, fetchSource },
     ctx: { session: { auth: { current: prepared.request.auth } } },
-    environment,
+    environment: runtimeEnvironment,
     now,
   });
 }
@@ -676,5 +695,169 @@ for (const [name, response] of [
     name,
   );
 }
+
+const publicSourceEnvironment = {
+  ...environment,
+  EVE_PUBLIC_SOURCE_ACQUISITION_ENABLED: "1",
+  EVE_PUBLIC_SOURCE_PROJECTIONS_ENABLED: "1",
+  EVE_SEC_PUBLIC_SOURCE_ADAPTER_ENABLED: "1",
+};
+const publicWorkspaceA = await setupWorkspace(
+  "623e4567-e89b-42d3-a456-426614174000",
+);
+const publicWorkspaceB = await setupWorkspace(
+  "723e4567-e89b-42d3-a456-426614174000",
+);
+let publicFetches = 0;
+const countedFetch = (body: string): SecIpoFetch => async (requestedUrl) => {
+  publicFetches += 1;
+  await Promise.resolve();
+  return fetchResponse(body)(requestedUrl);
+};
+const [publicBaselineA, publicBaselineB] = await Promise.all([
+  execute(
+    await prepare({ ...publicWorkspaceA, now: baselineNow }),
+    baselineNow,
+    countedFetch(fixtureBodies.initial),
+    {},
+    publicSourceEnvironment,
+  ),
+  execute(
+    await prepare({ ...publicWorkspaceB, now: baselineNow }),
+    baselineNow,
+    countedFetch(fixtureBodies.initial),
+    {},
+    publicSourceEnvironment,
+  ),
+]);
+assert.equal(publicFetches, 1);
+assert.equal(publicBaselineA.baselineEstablished, true);
+assert.equal(publicBaselineB.baselineEstablished, true);
+assert.equal(publicBaselineA.outcome.outcome, "no_match");
+assert.equal(publicBaselineB.outcome.outcome, "no_match");
+
+const [publicMonitorA, publicMonitorB] = await Promise.all([
+  getWorkspaceMonitor(
+    publicWorkspaceA.scope,
+    publicWorkspaceA.monitor.monitorId,
+    monitors,
+  ),
+  getWorkspaceMonitor(
+    publicWorkspaceB.scope,
+    publicWorkspaceB.monitor.monitorId,
+    monitors,
+  ),
+]);
+assert.ok(publicMonitorA);
+assert.ok(publicMonitorB);
+assert.equal(publicMonitorA.publicSourceSubscriptions?.length, 1);
+assert.equal(publicMonitorB.publicSourceSubscriptions?.length, 1);
+const [publicLaterA, publicLaterB] = await Promise.all([
+  execute(
+    await prepare({ monitor: publicMonitorA, now: laterNow, scope: publicWorkspaceA.scope }),
+    laterNow,
+    countedFetch(fixtureBodies.later),
+    {},
+    publicSourceEnvironment,
+  ),
+  execute(
+    await prepare({ monitor: publicMonitorB, now: laterNow, scope: publicWorkspaceB.scope }),
+    laterNow,
+    countedFetch(fixtureBodies.later),
+    {},
+    publicSourceEnvironment,
+  ),
+]);
+assert.equal(publicFetches, 2);
+assert.equal(publicLaterA.factCount, 1);
+assert.equal(publicLaterB.factCount, 1);
+assert.notEqual(
+  publicLaterA.outcome.finding?.findingId,
+  publicLaterB.outcome.finding?.findingId,
+);
+
+const subscriptionIdA = publicMonitorA.publicSourceSubscriptions![0]!.subscriptionId;
+const subscriptionIdB = publicMonitorB.publicSourceSubscriptions![0]!.subscriptionId;
+const [subscriptionA, subscriptionB] = await Promise.all([
+  readPublicSourceSubscription(publicWorkspaceA.scope, subscriptionIdA, subscriptions),
+  readPublicSourceSubscription(publicWorkspaceB.scope, subscriptionIdB, subscriptions),
+]);
+assert.ok(subscriptionA);
+assert.ok(subscriptionB);
+assert.equal(subscriptionA.deliveryCursor.revision, 2);
+assert.equal(subscriptionB.deliveryCursor.revision, 2);
+
+// The first flagged run keeps an existing workspace checkpoint authoritative:
+// global source baselining must not suppress filings newer than that checkpoint.
+const migratingWorkspace = await setupWorkspace(
+  "823e4567-e89b-42d3-a456-426614174000",
+);
+const migratingLegacyBaseline = await execute(
+  await prepare({ ...migratingWorkspace, now: baselineNow }),
+  baselineNow,
+  fetchResponse(fixtureBodies.initial),
+);
+assert.equal(migratingLegacyBaseline.baselineEstablished, true);
+const migratingMonitor = await getWorkspaceMonitor(
+  migratingWorkspace.scope,
+  migratingWorkspace.monitor.monitorId,
+  monitors,
+);
+assert.ok(migratingMonitor);
+const migratingAcquisitions = new MemoryCasStore();
+const migratingSubscriptions = new MemoryCasStore();
+const migratingFirstAdapterRun = await execute(
+  await prepare({
+    monitor: migratingMonitor,
+    now: laterNow,
+    scope: migratingWorkspace.scope,
+  }),
+  laterNow,
+  fetchResponse(fixtureBodies.later),
+  {
+    acquisition: migratingAcquisitions,
+    subscription: migratingSubscriptions,
+  },
+  publicSourceEnvironment,
+);
+assert.equal(migratingFirstAdapterRun.baselineEstablished, false);
+assert.equal(migratingFirstAdapterRun.factCount, 1);
+assert.equal(migratingFirstAdapterRun.outcome.outcome, "finding_staged");
+assert.equal(
+  subscriptionA.deliveryCursor.lastAcquisitionId,
+  subscriptionB.deliveryCursor.lastAcquisitionId,
+);
+assert.equal(
+  await readPublicSourceSubscription(publicWorkspaceA.scope, subscriptionIdB, subscriptions),
+  null,
+);
+assert.equal(
+  await readPublicSourceSubscription(publicWorkspaceB.scope, subscriptionIdA, subscriptions),
+  null,
+);
+const sharedAcquisition = await readPublicSourceAcquisitionResult(
+  subscriptionA.deliveryCursor.lastAcquisitionId!,
+  acquisitions,
+);
+assert.ok(sharedAcquisition);
+const factRevisionId = sharedAcquisition.candidateFactRevisionIds[0]!;
+assert.equal(
+  await readAuthorizedPublicSourceProjection({
+    factRevisionId,
+    scope: publicWorkspaceA.scope,
+    subscriptionId: subscriptionIdB,
+  }, { acquisition: acquisitions, subscription: subscriptions }),
+  null,
+);
+const projectionReplay = await projectPublicSourceAcquisition({
+  acquisition: sharedAcquisition,
+  projectedAt: laterNow,
+  scope: publicWorkspaceA.scope,
+  subscriptionId: subscriptionIdA,
+}, { acquisition: acquisitions, subscription: subscriptions });
+assert.equal(projectionReplay.replayed, true);
+assert.equal(projectionReplay.projectionsCreated, 0);
+assert.equal(projectionReplay.projectionsReused, 1);
+assert.equal(projectionReplay.subscription.deliveryCursor.revision, 2);
 
 console.info("Deterministic SEC IPO workspace-worker verification passed.");

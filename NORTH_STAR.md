@@ -234,7 +234,7 @@ financial layers remain incomplete.
   Owner-authorized production rollout and the real iMessage alert, Discuss,
   next-turn, manager, and rollback acceptance passed on 2026-08-15. Dispatch and
   Photon workspace alerts returned to off afterward; source-event/RSS/WebSub
-  ingestion moves to Spec 3 Sprint 4.
+  ingestion remains deferred until a reviewed adapter has a real push contract.
 - A generated repository catalog now validates and pins immutable strategy-pack
   definitions. Sessions remain general purpose or bind to one exact version and
   digest; Eve and Spectrum use the same atomic create/configure/remove services.
@@ -346,8 +346,9 @@ directories so a fork contains its own north-star sources.
 
 ## Near-term sequence
 
-1. Build Spec 3's versioned public-source adapters and canonical facts, including
-   the deferred source-event/RSS/WebSub integration in Sprint 4.
+1. Build Spec 3's versioned polling adapters and canonical facts for SEC and
+   House. Add source-event/RSS/WebSub ingress only when a selected adapter has a
+   real production push contract.
 2. Implement Specs 4 and 5 strategy behavior, then Spec 6's typed shared-signal
    plane without weakening workspace isolation.
 3. Extend the deployment-owner boundary and workspace broker to Telegram and

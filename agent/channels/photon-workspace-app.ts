@@ -35,6 +35,10 @@ import {
 } from "../lib/workspace-budget-ledger";
 import { nextWorkspaceMonitorOccurrence } from "../lib/workspace-monitor-schedule";
 import {
+  readPublicSourceWorkspaceHealth,
+  unavailablePublicSourceWorkspaceHealth,
+} from "../lib/public-source-health";
+import {
   getWorkspaceMonitor,
   listWorkspaceMonitors,
   pauseWorkspaceMonitorsAfterRestore,
@@ -333,6 +337,24 @@ async function publicManagerState(
             budget.value.ownerTimezone,
           )
         : null;
+      const publicMonitors = await Promise.all(monitors.map(async (monitor) => ({
+        configurationRevision: monitor.configurationRevision,
+        lastCompletedAt: monitor.lastCompletedAt,
+        lastErrorCode: monitor.lastErrorCode,
+        lastRunAt: monitor.lastRunAt,
+        lifecycleState: monitor.lifecycleState,
+        monitorId: monitor.monitorId,
+        name: monitor.name,
+        nextOccurrenceAt: monitor.nextOccurrenceAt,
+        publicSourceHealth: await Promise.all(
+          (monitor.publicSourceSubscriptions ?? []).map((reference) =>
+            readPublicSourceWorkspaceHealth({ reference, scope }).catch(() =>
+              unavailablePublicSourceWorkspaceHealth(reference)),
+          ),
+        ),
+        schedule: monitor.schedule,
+        sources: monitor.sources,
+      })));
       return {
         ...workspace,
         budget,
@@ -348,18 +370,7 @@ async function publicManagerState(
             }
           : null,
         strategyPack,
-        monitors: monitors.map((monitor) => ({
-          configurationRevision: monitor.configurationRevision,
-          lastCompletedAt: monitor.lastCompletedAt,
-          lastErrorCode: monitor.lastErrorCode,
-          lastRunAt: monitor.lastRunAt,
-          lifecycleState: monitor.lifecycleState,
-          monitorId: monitor.monitorId,
-          name: monitor.name,
-          nextOccurrenceAt: monitor.nextOccurrenceAt,
-          schedule: monitor.schedule,
-          sources: monitor.sources,
-        })),
+        monitors: publicMonitors,
       };
     })),
   };
@@ -951,6 +962,27 @@ export function workspaceHtml(nonce: string, origin: string): string {
             monitorSources.textContent = "Sources · " + monitor.sources.map(
               (source) => source.sourceId + ": " + source.canonicalUrl,
             ).join(" · ");
+            const publicSourceHealth = (monitor.publicSourceHealth || []).map((health) => {
+              const detail = document.createElement("p");
+              detail.className = "runtime-detail";
+              const lastComplete = health.lastCompleteAcquisition
+                ? health.lastCompleteAcquisition.status + " at " + health.lastCompleteAcquisition.observedAt
+                : "never";
+              const lastOutcome = health.lastOutcome
+                ? health.lastOutcome.status + " / " + health.lastOutcome.coverage +
+                  (health.lastOutcome.failureStage
+                    ? " / " + health.lastOutcome.failureStage + ":" + health.lastOutcome.errorCode
+                    : "")
+                : "none";
+              detail.textContent = "Adapter health · " + health.sourceId + " · " + health.runtimeState +
+                " · " + health.healthState + " · cursor " + health.cursor.revision +
+                " · last complete " + lastComplete + " · last outcome " + lastOutcome +
+                " · extraction " + health.extraction.state + " (" + health.extraction.complete +
+                " complete, " + health.extraction.partial + " partial, " + health.extraction.unsupported +
+                " unsupported) · subscription " + health.subscription.state +
+                " / lag " + health.subscription.lag;
+              return detail;
+            });
             const monitorActions = document.createElement("div");
             monitorActions.className = "actions";
             monitorActions.append(
@@ -958,7 +990,8 @@ export function workspaceHtml(nonce: string, origin: string): string {
                 monitor.lifecycleState === "enabled" ? "monitor-pause" : "monitor-resume", workspace, monitor),
               runtimeButton("Edit schedule", "monitor-schedule", workspace, monitor),
             );
-            row.append(monitorName, monitorMeta, monitorSchedule, monitorSources, monitorActions);
+            row.append(monitorName, monitorMeta, monitorSchedule, monitorSources,
+              ...publicSourceHealth, monitorActions);
             runtime.append(row);
           }
           const packSummary = strategyPackSummary(workspace.strategyPack);
