@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "id": "alpha-pack",
+  "version": "1.0.0",
+  "displayName": "Alpha Pack",
+  "description": "Tracks reviewed alpha events from an official public source.",
+  "maturity": "reference",
+  "compatibility": {
+    "coreSchemaVersion": 1,
+    "workspaceSchemaVersion": 1,
+    "strategyPackSchemaVersion": 1
+  },
+  "workspaceInstructionPath": "workspace.md",
+  "configuration": [
+    {
+      "key": "timezone",
+      "kind": "iana_timezone",
+      "label": "Timezone",
+      "description": "Timezone used for local monitor schedules.",
+      "required": true,
+      "default": "UTC",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "key": "dailyTimes",
+      "kind": "daily_local_times",
+      "label": "Daily check times",
+      "description": "Unique local times when the monitor may run.",
+      "required": true,
+      "default": ["09:00", "16:00"],
+      "minimumItems": 1,
+      "maximumItems": 4,
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
+    }
+  ],
+  "skills": [
+    {
+      "id": "alpha-playbook",
+      "version": "1.0.0",
+      "description": "Analyze alpha events from the declared source.",
+      "instructionPath": "playbook.md"
+    }
+  ],
+  "capabilities": {
+    "required": ["skill.alpha-playbook", "tool.alpha.fetch"],
+    "hardDenied": ["broker.mutation", "filesystem", "shell"]
+  },
+  "sources": [
+    {
+      "sourceId": "source.alpha",
+      "contractVersion": "1.0.0",
+      "contractDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "canonicalUrl": "https://alpha.example.gov/events.json",
+      "allowedOrigins": ["https://alpha.example.gov"],
+      "accessClassification": "public"
+    }
+  ],
+  "monitors": [
+    {
+      "resourceId": "detect-alpha",
+      "displayName": "Detect alpha events",
+      "instructionPath": "monitors/detect-alpha.md",
+      "timezoneConfigurationKey": "timezone",
+      "dailyTimesConfigurationKey": "dailyTimes",
+      "sourceIds": ["source.alpha"],
+      "requiredCapabilityIds": ["tool.alpha.fetch"],
+      "findingSchemaId": "finding.alpha/v1",
+      "alertPresentationId": "alert.public-event/v1",
+      "suggestedBudget": {
+        "maximumInputTokensPerRun": 10000,
+        "maximumOutputTokensPerRun": 2000,
+        "maximumRunsPerDay": 4
+      },
+      "activationDefault": "paused",
+      "overridableFields": ["schedule"]
+    }
+  ],
+  "evaluationsPath": "evals.json"
+}

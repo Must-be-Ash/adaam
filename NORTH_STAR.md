@@ -202,9 +202,11 @@ the workspace or strategy contracts.
 
 ## Current implementation gap
 
-This document describes the target architecture. Spec 1 now implements the
-Photon polling/runtime foundation, but later strategy, source, cross-channel,
-private-artifact, and financial layers remain incomplete.
+This document describes the target architecture. Spec 1 implements the Photon
+polling/runtime foundation, and Spec 2 now implements the local versioned-pack
+framework and IPO Filings reference workflow. Production pack rollout, later
+strategy behavior, source adapters, cross-channel support, private artifacts,
+and financial layers remain incomplete.
 
 - Photon has a durable conversation workspace registry, one active-workspace
   pointer, isolated continuation addresses, session-generation rollover,
@@ -233,6 +235,15 @@ private-artifact, and financial layers remain incomplete.
   next-turn, manager, and rollback acceptance passed on 2026-08-15. Dispatch and
   Photon workspace alerts returned to off afterward; source-event/RSS/WebSub
   ingestion moves to Spec 3 Sprint 4.
+- A generated repository catalog now validates and pins immutable strategy-pack
+  definitions. Sessions remain general purpose or bind to one exact version and
+  digest; Eve and Spectrum use the same atomic create/configure/remove services.
+  `IPO Filings@1.0.0` reuses the accepted SEC normalizer, worker, finding,
+  alert, and delivery path. Install-only is paused, scheduled work receives an
+  exact pack/resource snapshot, and independent pack/workspace/alert switches
+  preserve durable evidence when disabled. The complete local acceptance gate
+  passed; no pack flag has been activated and no real Photon pack smoke has
+  been performed.
 - Exact previews currently protect order creation only. Edit/cancel use generic
   approval, market-order collars are not yet enforced by the approval protocol,
   and uncertain operations do not yet block subsequent mutations. All mutation
@@ -334,8 +345,9 @@ directories so a fork contains its own north-star sources.
 
 ## Near-term sequence
 
-1. Build Spec 2's versioned strategy-pack contracts and the installable IPO
-   reference pack on the completed Spec 1 runtime.
+1. Obtain explicit owner authorization for the staged Spec 2 deployment,
+   Photon pack smoke, evidence capture, and rollback; keep all pack flags off
+   until then.
 2. Build Spec 3's versioned public-source adapters and canonical facts, including
    the deferred source-event/RSS/WebSub integration in Sprint 4.
 3. Implement Specs 4 and 5 strategy behavior, then Spec 6's typed shared-signal

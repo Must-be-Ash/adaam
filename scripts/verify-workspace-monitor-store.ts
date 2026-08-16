@@ -5,18 +5,22 @@ import {
   claimDueWorkspaceMonitors,
   claimWorkspaceMonitorOccurrence,
   completeWorkspaceMonitorCheckpoint,
+  createPausedWorkspaceAcceptanceMonitor,
   createWorkspaceMonitor,
   getWorkspaceMonitor,
   inspectWorkspaceMonitorOccurrenceLease,
   listWorkspaceMonitors,
   pauseWorkspaceMonitorsAfterRestore,
   releaseWorkspaceMonitorLease,
+  resolveWorkspaceStrategyManagedMonitors,
   suspendWorkspaceMonitorsForArchive,
   updateWorkspaceMonitor,
+  validateWorkspaceMonitorValue,
   workspaceMonitorOccurrenceKey,
   WorkspaceMonitorError,
   type WorkspaceMonitorStoreClient,
 } from "../agent/lib/workspace-monitor-store";
+import type { WorkspaceStrategyBindingValue } from "../agent/lib/workspace-state-store";
 import { authorizePhotonWorkspaceControlPlaneStore } from "../agent/lib/workspace-store-authorization";
 
 class MemoryStore implements WorkspaceMonitorStoreClient {
@@ -221,11 +225,102 @@ const monitor = await createWorkspaceMonitor(
 assert.equal(monitor.schemaVersion, 1);
 assert.equal(monitor.configurationRevision, 1);
 assert.equal(monitor.workspaceBindingImmutable, true);
+assert.equal(monitor.managedBy, null);
+const legacyMonitorValue = { ...monitor } as Partial<typeof monitor>;
+delete legacyMonitorValue.managedBy;
+assert.equal(validateWorkspaceMonitorValue(legacyMonitorValue, scope).managedBy, null);
 assert.equal(monitor.sources.length, 8);
 assert.equal(client.due.size, 1);
 assert.deepEqual(await getWorkspaceMonitor(scope, monitor.monitorId, client), monitor);
 assert.deepEqual(await listWorkspaceMonitors(scope, client), [monitor]);
 assert.deepEqual(await listWorkspaceMonitors(otherScope, client), []);
+
+const managedClient = new MemoryStore();
+const packDigest = "d".repeat(64);
+const managedMonitor = await createWorkspaceMonitor(
+  {
+    deliverySubscriptionId: "delivery.managed",
+    idempotencyKey: "strategy-pack:fixture:fixture-monitor",
+    instruction: "Remain paused until the owner explicitly enables this schedule.",
+    managedBy: {
+      bindingRevision: 1,
+      kind: "strategy_pack",
+      packContentDigest: packDigest,
+      packId: "fixture-strategy",
+      packVersion: "1.0.0",
+      resourceId: "fixture-monitor",
+    },
+    name: "Pack-managed fixture monitor",
+    nextOccurrenceAt: scheduledFor,
+    now,
+    schedule: { at: scheduledFor, kind: "one_time" },
+    scope,
+    sources: [source(0)],
+  },
+  managedClient,
+);
+assert.equal(managedMonitor.lifecycleState, "paused");
+assert.equal(managedMonitor.pauseReason, "strategy_pack_install_only");
+assert.equal(managedMonitor.nextOccurrenceAt, scheduledFor);
+assert.equal(managedClient.due.size, 0);
+const binding = {
+  bindingRevision: 1,
+  configuration: { dailyTimes: ["12:05"], timezone: "UTC" },
+  effectiveCapabilityManifestRevision: 1,
+  health: { checkedAt: now.toISOString(), code: null, status: "healthy" },
+  lastActiveSnapshot: {
+    bindingRevision: 1,
+    capabilityManifestRevision: 1,
+    packContentDigest: packDigest,
+    packId: "fixture-strategy",
+    packVersion: "1.0.0",
+    workspaceGeneration: 1,
+  },
+  lifecycleState: "active",
+  managedResources: {
+    "fixture-monitor": {
+      monitorId: managedMonitor.monitorId,
+      sourceIds: ["source.0"],
+    },
+  },
+  ownerOverrides: {},
+  pack: {
+    contentDigest: packDigest,
+    id: "fixture-strategy",
+    version: "1.0.0",
+  },
+  pendingSnapshot: null,
+  timestamps: {
+    activatedAt: now.toISOString(),
+    configuredAt: null,
+    generationRolloverAt: now.toISOString(),
+    installedAt: now.toISOString(),
+  },
+} satisfies WorkspaceStrategyBindingValue;
+assert.deepEqual(
+  resolveWorkspaceStrategyManagedMonitors(binding, [monitor, managedMonitor]),
+  [managedMonitor],
+);
+assert.throws(
+  () => resolveWorkspaceStrategyManagedMonitors(binding, [
+    monitor,
+    { ...managedMonitor, managedBy: { ...managedMonitor.managedBy!, resourceId: "wrong-resource" } },
+  ]),
+  (error) => error instanceof WorkspaceMonitorError && error.code === "monitor_invalid",
+);
+await assert.rejects(
+  updateWorkspaceMonitor(
+    {
+      expectedRevision: managedMonitor.configurationRevision,
+      monitorId: managedMonitor.monitorId,
+      now,
+      patch: { managedBy: null } as never,
+      scope,
+    },
+    managedClient,
+  ),
+  (error) => error instanceof WorkspaceMonitorError && error.code === "monitor_invalid",
+);
 
 const idempotentInput = {
   deliverySubscriptionId: "delivery.idempotent",
@@ -708,6 +803,42 @@ const restored = await pauseWorkspaceMonitorsAfterRestore({
 assert.equal(restored[0]?.lifecycleState, "paused");
 assert.equal(restored[0]?.pauseReason, "workspace_restored_manual_resume_required");
 assert.equal(restored[0]?.nextOccurrenceAt, null);
+
+const acceptanceClient = new MemoryStore();
+const acceptanceCheckpoint = {
+  contentDigest: "a".repeat(64),
+  watermark: "2026-08-14T17:00:00.000Z",
+};
+const acceptanceMonitor = await createPausedWorkspaceAcceptanceMonitor({
+  deliverySubscriptionId: "delivery.acceptance",
+  idempotencyKey: "acceptance.replay.fixture",
+  instruction: "Evaluate the selected public SEC replay once enabled.",
+  name: "Acceptance replay",
+  nextOccurrenceAt: "2026-08-14T18:00:00.000Z",
+  now,
+  requiredCapabilityIds: ["evaluate_sec_ipo_source"],
+  schedule: { at: "2026-08-14T18:00:00.000Z", kind: "one_time" },
+  scope,
+  sourceCheckpoint: acceptanceCheckpoint,
+  sources: [source(0)],
+}, acceptanceClient);
+assert.equal(acceptanceMonitor.lifecycleState, "paused");
+assert.equal(acceptanceMonitor.pauseReason, "acceptance_replay_initialized");
+assert.deepEqual(acceptanceMonitor.sourceCheckpoint, acceptanceCheckpoint);
+assert.equal(acceptanceClient.due.size, 0);
+assert.deepEqual(await createPausedWorkspaceAcceptanceMonitor({
+  deliverySubscriptionId: "delivery.acceptance",
+  idempotencyKey: "acceptance.replay.fixture",
+  instruction: "Evaluate the selected public SEC replay once enabled.",
+  name: "Acceptance replay",
+  nextOccurrenceAt: "2026-08-14T18:00:00.000Z",
+  now: new Date(now.getTime() + 1_000),
+  requiredCapabilityIds: ["evaluate_sec_ipo_source"],
+  schedule: { at: "2026-08-14T18:00:00.000Z", kind: "one_time" },
+  scope,
+  sourceCheckpoint: acceptanceCheckpoint,
+  sources: [source(0)],
+}, acceptanceClient), acceptanceMonitor);
 
 const minuteSchedule = await readFile(
   new URL("../agent/schedules/event-triggers.ts", import.meta.url),

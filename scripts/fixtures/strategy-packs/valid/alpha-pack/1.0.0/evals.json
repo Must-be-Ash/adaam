@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "eval.alpha/v1",
+  "cases": [
+    { "id": "alpha-positive", "kind": "positive", "fixtureId": "fixture.alpha.positive" },
+    { "id": "alpha-no-match", "kind": "no_match", "fixtureId": "fixture.alpha.no-match" },
+    { "id": "alpha-replay", "kind": "replay", "fixtureId": "fixture.alpha.replay" },
+    { "id": "alpha-malformed", "kind": "malformed_input", "fixtureId": "fixture.alpha.malformed" },
+    { "id": "alpha-forbidden", "kind": "forbidden_capability", "fixtureId": "fixture.alpha.forbidden" }
+  ]
+}

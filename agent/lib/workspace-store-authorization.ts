@@ -48,7 +48,7 @@ function mint(input: {
 }
 
 export function authorizePhotonWorkspaceToolStore(
-  ctx: Pick<SessionContext, "session">,
+  ctx: { readonly session: { readonly auth: SessionContext["session"]["auth"] } },
   expected: Partial<WorkspaceRuntimeScope> = {},
   environment: NodeJS.ProcessEnv = process.env,
 ): AuthorizedWorkspaceStoreScope {

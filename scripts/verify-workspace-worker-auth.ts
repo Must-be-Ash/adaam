@@ -108,6 +108,7 @@ const envelope = createWorkspaceWorkerEnvelope({
   expiresAt,
   issuedAt,
   stateRevision: { brief: 7, strategy: 2 },
+  strategyPack: null,
   window: {
     endAt: issuedAt.toISOString(),
     startAt: new Date(issuedAt.getTime() - 60 * 60_000).toISOString(),
@@ -168,6 +169,7 @@ assert.throws(
     expiresAt: new Date(issuedAt.getTime() + 3 * 60 * 60_000),
     issuedAt,
     stateRevision: { brief: 7, strategy: 2 },
+    strategyPack: null,
     window: { endAt: issuedAt.toISOString(), startAt: new Date(issuedAt.getTime() - 1).toISOString() },
   }),
   WorkspaceWorkerAuthError,

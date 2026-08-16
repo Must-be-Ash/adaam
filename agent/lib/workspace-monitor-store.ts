@@ -17,6 +17,7 @@ import {
   WORKSPACE_MONITOR_SOURCE_LIMIT_CODE,
   workspaceMonitorSourcesSchema,
 } from "./workspace-monitor-input";
+import type { WorkspaceStrategyBindingValue } from "./workspace-state-store";
 
 const KEY_PREFIX = "eve:workspace-runtime:v1:monitor:";
 const DUE_KEY = `${KEY_PREFIX}due`;
@@ -198,6 +199,16 @@ export const workspaceMonitorScheduleSchema = z.discriminatedUnion("kind", [
     })
     .strict(),
 ]);
+export const workspaceMonitorManagedBySchema = z
+  .object({
+    bindingRevision: z.number().int().positive(),
+    kind: z.literal("strategy_pack"),
+    packContentDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+    packId: idSchema,
+    packVersion: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u),
+    resourceId: idSchema,
+  })
+  .strict();
 const monitorSchema = z
   .object({
     configurationRevision: z.number().int().positive(),
@@ -216,6 +227,7 @@ const monitorSchema = z
       "paused_failure",
       "retired",
     ]),
+    managedBy: workspaceMonitorManagedBySchema.nullable().default(null),
     monitorId: z.string().uuid(),
     name: z.string().trim().min(1).max(160),
     nextOccurrenceAt: timestampSchema.nullable(),
@@ -280,6 +292,7 @@ const occurrenceSchema = z
 
 export type WorkspaceMonitor = z.infer<typeof monitorSchema>;
 export type WorkspaceMonitorSchedule = z.infer<typeof workspaceMonitorScheduleSchema>;
+export type WorkspaceMonitorManagedBy = z.infer<typeof workspaceMonitorManagedBySchema>;
 export type WorkspaceMonitorOccurrence = z.infer<typeof occurrenceSchema>;
 
 export interface ClaimedWorkspaceMonitor {
@@ -496,17 +509,26 @@ function store(): WorkspaceMonitorStoreClient {
   return defaultClient;
 }
 
+export function workspaceMonitorStoreClient(): WorkspaceMonitorStoreClient {
+  return store();
+}
+
 function scopeDigest(scope: AuthorizedWorkspaceStoreScope): string {
   return createHash("sha256")
     .update(`workspace-monitor\0${scope.ownerId}\0${scope.workspaceId}`)
     .digest("hex");
 }
 
-function recordKey(scope: AuthorizedWorkspaceStoreScope, monitorId: string): string {
+export function workspaceMonitorRecordStorageKey(
+  scope: AuthorizedWorkspaceStoreScope,
+  monitorId: string,
+): string {
   return `${RECORD_PREFIX}${scopeDigest(scope)}:${monitorId}`;
 }
 
-function workspaceIndexKey(scope: AuthorizedWorkspaceStoreScope): string {
+export function workspaceMonitorIndexStorageKey(
+  scope: AuthorizedWorkspaceStoreScope,
+): string {
   return `${WORKSPACE_INDEX_PREFIX}${scopeDigest(scope)}`;
 }
 
@@ -619,7 +641,7 @@ export async function claimDueWorkspaceMonitors(
     if (raw === null) continue;
     const monitor = parseUnscopedMonitor(raw);
     const scope = { ownerId: monitor.ownerId, workspaceId: monitor.workspaceId };
-    if (recordKey(scope, monitor.monitorId) !== entry.recordKey || !monitor.nextOccurrenceAt) {
+    if (workspaceMonitorRecordStorageKey(scope, monitor.monitorId) !== entry.recordKey || !monitor.nextOccurrenceAt) {
       continue;
     }
     if (monitor.endAt && new Date(monitor.endAt).getTime() <= input.now.getTime()) {
@@ -731,12 +753,13 @@ export async function claimDueWorkspaceMonitors(
   return claims;
 }
 
-export async function createWorkspaceMonitor(
-  input: {
+export interface WorkspaceMonitorCreateInput {
     deliverySubscriptionId: string;
+    activateManagedMonitor?: boolean;
     endAt?: string | null;
     idempotencyKey?: string;
     instruction: string;
+    managedBy?: z.input<typeof workspaceMonitorManagedBySchema> | null;
     name: string;
     nextOccurrenceAt: string | null;
     now?: Date;
@@ -745,12 +768,83 @@ export async function createWorkspaceMonitor(
     scope: AuthorizedWorkspaceStoreScope;
     sources: z.input<typeof workspaceMonitorSourcesSchema>;
     tighteningLimits?: z.input<typeof monitorSchema>["tighteningLimits"];
-  },
-  client: WorkspaceMonitorStoreClient = store(),
-): Promise<WorkspaceMonitor> {
+}
+
+export interface PreparedWorkspaceMonitorCreate {
+  readonly dueAtMs: number | null;
+  readonly dueKey: string;
+  readonly monitor: WorkspaceMonitor;
+  readonly raw: string;
+  readonly recordKey: string;
+  readonly workspaceIndexKey: string;
+}
+
+export interface PreparedWorkspaceMonitorUpdate {
+  readonly dueAtMs: number | null;
+  readonly dueKey: string;
+  readonly expectedRaw: string;
+  readonly monitor: WorkspaceMonitor;
+  readonly nextRaw: string;
+  readonly recordKey: string;
+}
+
+export function prepareWorkspaceManagedMonitorUpdate(input: {
+  current: WorkspaceMonitor;
+  lifecycleState: "paused" | "retired";
+  managedBy?: WorkspaceMonitorManagedBy;
+  now: Date;
+  pauseReason: "strategy_pack_configuration" | "strategy_pack_removed";
+  schedule?: WorkspaceMonitorSchedule;
+  scope: AuthorizedWorkspaceStoreScope;
+}): PreparedWorkspaceMonitorUpdate {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  const current = validateWorkspaceMonitorValue(input.current, input.scope);
+  if (!current.managedBy || current.lifecycleState === "retired") {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  const now = input.now.toISOString();
+  const candidate = monitorSchema.safeParse({
+    ...current,
+    configurationRevision: current.configurationRevision + 1,
+    lifecycleState: input.lifecycleState,
+    managedBy: input.managedBy ?? current.managedBy,
+    nextOccurrenceAt: null,
+    pauseReason: input.pauseReason,
+    pausedAt: now,
+    schedule: input.schedule ?? current.schedule,
+    updatedAt: now,
+  });
+  if (
+    !candidate.success ||
+    candidate.data.ownerId !== current.ownerId ||
+    candidate.data.workspaceId !== current.workspaceId ||
+    candidate.data.monitorId !== current.monitorId
+  ) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  const nextRaw = JSON.stringify(candidate.data);
+  if (Buffer.byteLength(nextRaw, "utf8") > MAX_RECORD_BYTES) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  return Object.freeze({
+    dueAtMs: null,
+    dueKey: DUE_KEY,
+    expectedRaw: JSON.stringify(current),
+    monitor: candidate.data,
+    nextRaw,
+    recordKey: workspaceMonitorRecordStorageKey(input.scope, current.monitorId),
+  });
+}
+
+export function prepareWorkspaceMonitorCreate(
+  input: WorkspaceMonitorCreateInput,
+): PreparedWorkspaceMonitorCreate {
   assertAuthorizedWorkspaceStoreScope(input.scope);
   if (input.sources.length > WORKSPACE_MONITOR_SOURCE_LIMIT) {
     throw new WorkspaceMonitorError(WORKSPACE_MONITOR_SOURCE_LIMIT_CODE);
+  }
+  if (input.activateManagedMonitor && !input.managedBy) {
+    throw new WorkspaceMonitorError("monitor_invalid");
   }
   const now = (input.now ?? new Date()).toISOString();
   const monitorId = input.idempotencyKey
@@ -765,6 +859,7 @@ export async function createWorkspaceMonitor(
         return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
       })()
     : randomUUID();
+  const enabled = !input.managedBy || input.activateManagedMonitor === true;
   const candidate = monitorSchema.safeParse({
     configurationRevision: 1,
     consecutiveFailures: 0,
@@ -775,13 +870,14 @@ export async function createWorkspaceMonitor(
     lastCompletedAt: null,
     lastErrorCode: null,
     lastRunAt: null,
-    lifecycleState: "enabled",
+    lifecycleState: enabled ? "enabled" : "paused",
+    managedBy: input.managedBy ?? null,
     monitorId,
     name: input.name,
     nextOccurrenceAt: input.nextOccurrenceAt,
     ownerId: input.scope.ownerId,
-    pauseReason: null,
-    pausedAt: null,
+    pauseReason: enabled ? null : "strategy_pack_install_only",
+    pausedAt: enabled ? null : now,
     requiredCapabilityIds: input.requiredCapabilityIds ?? [],
     schedule: input.schedule,
     schemaVersion: 1,
@@ -798,33 +894,149 @@ export async function createWorkspaceMonitor(
   });
   if (!candidate.success) throw new WorkspaceMonitorError("monitor_invalid");
   const raw = JSON.stringify(candidate.data);
-  if (Buffer.byteLength(raw, "utf8") > MAX_RECORD_BYTES) throw new WorkspaceMonitorError("monitor_invalid");
-  const created = await client.create({
+  if (Buffer.byteLength(raw, "utf8") > MAX_RECORD_BYTES) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  return Object.freeze({
     dueAtMs: dueAt(candidate.data),
     dueKey: DUE_KEY,
+    monitor: candidate.data,
     raw,
-    recordKey: recordKey(input.scope, candidate.data.monitorId),
-    workspaceIndexKey: workspaceIndexKey(input.scope),
+    recordKey: workspaceMonitorRecordStorageKey(input.scope, candidate.data.monitorId),
+    workspaceIndexKey: workspaceMonitorIndexStorageKey(input.scope),
+  });
+}
+
+export async function createWorkspaceMonitor(
+  input: WorkspaceMonitorCreateInput,
+  client: WorkspaceMonitorStoreClient = store(),
+): Promise<WorkspaceMonitor> {
+  const candidate = prepareWorkspaceMonitorCreate(input);
+  const created = await client.create({
+    dueAtMs: candidate.dueAtMs,
+    dueKey: candidate.dueKey,
+    raw: candidate.raw,
+    recordKey: candidate.recordKey,
+    workspaceIndexKey: candidate.workspaceIndexKey,
   });
   if (!created) {
     if (!input.idempotencyKey) throw new WorkspaceMonitorError("monitor_conflict");
-    const existing = await getWorkspaceMonitor(input.scope, monitorId, client);
+    const existing = await getWorkspaceMonitor(input.scope, candidate.monitor.monitorId, client);
     if (
       existing &&
-      existing.deliverySubscriptionId === candidate.data.deliverySubscriptionId &&
-      existing.endAt === candidate.data.endAt &&
-      existing.instruction === candidate.data.instruction &&
-      existing.name === candidate.data.name &&
-      JSON.stringify(existing.requiredCapabilityIds) === JSON.stringify(candidate.data.requiredCapabilityIds) &&
-      JSON.stringify(existing.schedule) === JSON.stringify(candidate.data.schedule) &&
-      JSON.stringify(existing.sources) === JSON.stringify(candidate.data.sources) &&
-      JSON.stringify(existing.tighteningLimits) === JSON.stringify(candidate.data.tighteningLimits)
+      existing.deliverySubscriptionId === candidate.monitor.deliverySubscriptionId &&
+      existing.endAt === candidate.monitor.endAt &&
+      existing.instruction === candidate.monitor.instruction &&
+      existing.lifecycleState === candidate.monitor.lifecycleState &&
+      JSON.stringify(existing.managedBy) === JSON.stringify(candidate.monitor.managedBy) &&
+      existing.name === candidate.monitor.name &&
+      JSON.stringify(existing.requiredCapabilityIds) === JSON.stringify(candidate.monitor.requiredCapabilityIds) &&
+      JSON.stringify(existing.schedule) === JSON.stringify(candidate.monitor.schedule) &&
+      JSON.stringify(existing.sources) === JSON.stringify(candidate.monitor.sources) &&
+      JSON.stringify(existing.tighteningLimits) === JSON.stringify(candidate.monitor.tighteningLimits)
     ) {
       return existing;
     }
     throw new WorkspaceMonitorError("monitor_conflict");
   }
-  return candidate.data;
+  return candidate.monitor;
+}
+
+export async function createPausedWorkspaceAcceptanceMonitor(
+  input: Omit<WorkspaceMonitorCreateInput, "activateManagedMonitor" | "managedBy"> & {
+    idempotencyKey: string;
+    sourceCheckpoint: WorkspaceMonitor["sourceCheckpoint"];
+  },
+  client: WorkspaceMonitorStoreClient = store(),
+): Promise<WorkspaceMonitor> {
+  const prepared = prepareWorkspaceMonitorCreate(input);
+  const timestamp = (input.now ?? new Date()).toISOString();
+  const monitor = monitorSchema.parse({
+    ...prepared.monitor,
+    lifecycleState: "paused",
+    pauseReason: "acceptance_replay_initialized",
+    pausedAt: timestamp,
+    sourceCheckpoint: input.sourceCheckpoint,
+    updatedAt: timestamp,
+  });
+  const raw = JSON.stringify(monitor);
+  if (Buffer.byteLength(raw, "utf8") > MAX_RECORD_BYTES) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  const created = await client.create({
+    dueAtMs: null,
+    dueKey: prepared.dueKey,
+    raw,
+    recordKey: prepared.recordKey,
+    workspaceIndexKey: prepared.workspaceIndexKey,
+  });
+  if (created) return monitor;
+  const existing = await getWorkspaceMonitor(
+    input.scope,
+    monitor.monitorId,
+    client,
+  );
+  if (
+    existing?.lifecycleState === "paused" &&
+    existing.pauseReason === "acceptance_replay_initialized" &&
+    existing.deliverySubscriptionId === monitor.deliverySubscriptionId &&
+    existing.instruction === monitor.instruction &&
+    existing.name === monitor.name &&
+    existing.nextOccurrenceAt === monitor.nextOccurrenceAt &&
+    JSON.stringify(existing.requiredCapabilityIds) ===
+      JSON.stringify(monitor.requiredCapabilityIds) &&
+    JSON.stringify(existing.schedule) === JSON.stringify(monitor.schedule) &&
+    JSON.stringify(existing.sourceCheckpoint) ===
+      JSON.stringify(monitor.sourceCheckpoint) &&
+    JSON.stringify(existing.sources) === JSON.stringify(monitor.sources) &&
+    JSON.stringify(existing.tighteningLimits) ===
+      JSON.stringify(monitor.tighteningLimits)
+  ) return existing;
+  throw new WorkspaceMonitorError("monitor_conflict");
+}
+
+export function resolveWorkspaceStrategyManagedMonitors(
+  binding: WorkspaceStrategyBindingValue,
+  monitors: readonly WorkspaceMonitor[],
+): WorkspaceMonitor[] {
+  if (!binding.pack?.contentDigest) {
+    if (Object.keys(binding.managedResources).length === 0) return [];
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  const byId = new Map(monitors.map((monitor) => [monitor.monitorId, monitor]));
+  const resolved: WorkspaceMonitor[] = [];
+  for (const [resourceId, resource] of Object.entries(binding.managedResources)) {
+    const monitor = byId.get(resource.monitorId);
+    if (
+      !monitor ||
+      !monitor.managedBy ||
+      monitor.managedBy.kind !== "strategy_pack" ||
+      monitor.managedBy.bindingRevision !== binding.bindingRevision ||
+      monitor.managedBy.packContentDigest !== binding.pack.contentDigest ||
+      monitor.managedBy.packId !== binding.pack.id ||
+      monitor.managedBy.packVersion !== binding.pack.version ||
+      monitor.managedBy.resourceId !== resourceId ||
+      JSON.stringify(monitor.sources.map(({ sourceId }) => sourceId).sort()) !==
+        JSON.stringify(resource.sourceIds)
+    ) {
+      throw new WorkspaceMonitorError("monitor_invalid");
+    }
+    resolved.push(monitor);
+  }
+  for (const monitor of monitors) {
+    const provenance = monitor.managedBy;
+    if (
+      provenance?.kind === "strategy_pack" &&
+      provenance.bindingRevision === binding.bindingRevision &&
+      provenance.packContentDigest === binding.pack.contentDigest &&
+      provenance.packId === binding.pack.id &&
+      provenance.packVersion === binding.pack.version &&
+      binding.managedResources[provenance.resourceId]?.monitorId !== monitor.monitorId
+    ) {
+      throw new WorkspaceMonitorError("monitor_invalid");
+    }
+  }
+  return resolved.sort((left, right) => left.monitorId.localeCompare(right.monitorId));
 }
 
 export async function getWorkspaceMonitor(
@@ -833,7 +1045,7 @@ export async function getWorkspaceMonitor(
   client: WorkspaceMonitorStoreClient = store(),
 ): Promise<WorkspaceMonitor | null> {
   assertAuthorizedWorkspaceStoreScope(scope);
-  const raw = rawValue(await client.get(recordKey(scope, monitorId)));
+  const raw = rawValue(await client.get(workspaceMonitorRecordStorageKey(scope, monitorId)));
   return raw === null ? null : parseMonitor(raw, scope);
 }
 
@@ -842,7 +1054,7 @@ export async function listWorkspaceMonitors(
   client: WorkspaceMonitorStoreClient = store(),
 ): Promise<WorkspaceMonitor[]> {
   assertAuthorizedWorkspaceStoreScope(scope);
-  return (await client.list(workspaceIndexKey(scope)))
+  return (await client.list(workspaceMonitorIndexStorageKey(scope)))
     .flatMap((value) => {
       const raw = rawValue(value);
       return raw === null ? [] : [parseMonitor(raw, scope)];
@@ -867,7 +1079,7 @@ export async function updateWorkspaceMonitor(
   ) {
     throw new WorkspaceMonitorError(WORKSPACE_MONITOR_SOURCE_LIMIT_CODE);
   }
-  const key = recordKey(input.scope, input.monitorId);
+  const key = workspaceMonitorRecordStorageKey(input.scope, input.monitorId);
   const currentRaw = rawValue(await client.get(key));
   if (currentRaw === null) throw new WorkspaceMonitorError("monitor_not_found");
   const current = parseMonitor(currentRaw, input.scope);
@@ -889,7 +1101,12 @@ export async function updateWorkspaceMonitor(
     configurationRevision: current.configurationRevision + 1,
     updatedAt: (input.now ?? new Date()).toISOString(),
   });
-  if (!next.success || next.data.workspaceId !== current.workspaceId || next.data.ownerId !== current.ownerId) {
+  if (
+    !next.success ||
+    next.data.workspaceId !== current.workspaceId ||
+    next.data.ownerId !== current.ownerId ||
+    JSON.stringify(next.data.managedBy) !== JSON.stringify(current.managedBy)
+  ) {
     throw new WorkspaceMonitorError("monitor_invalid");
   }
   const nextRaw = JSON.stringify(next.data);
@@ -1000,7 +1217,7 @@ export async function claimWorkspaceMonitorOccurrence(
     occurrenceKey,
     occurrenceRecordKey: `${OCCURRENCE_PREFIX}${occurrenceKey}`,
     inflightKey: INFLIGHT_KEY,
-    recordKey: recordKey(input.scope, input.monitorId),
+    recordKey: workspaceMonitorRecordStorageKey(input.scope, input.monitorId),
     scheduledFor: input.scheduledFor,
     updatedAt,
   });
@@ -1130,7 +1347,7 @@ export async function releaseWorkspaceMonitorLease(
     inflightKey: INFLIGHT_KEY,
     leaseKey: leaseKey(input.scope, input.monitorId),
     leaseToken: input.leaseToken,
-    recordKey: recordKey(input.scope, input.monitorId),
+    recordKey: workspaceMonitorRecordStorageKey(input.scope, input.monitorId),
   });
 }
 
@@ -1224,7 +1441,7 @@ export async function completeWorkspaceMonitorCheckpoint(
   }
   const next = nextWorkspaceMonitorOccurrence(monitor.schedule, afterOccurrence);
   const completedAt = (input.completedAt ?? new Date()).toISOString();
-  const expectedRaw = rawValue(await client.get(recordKey(input.scope, input.monitorId)));
+  const expectedRaw = rawValue(await client.get(workspaceMonitorRecordStorageKey(input.scope, input.monitorId)));
   if (expectedRaw === null) throw new WorkspaceMonitorError("monitor_not_found");
   const expectedMonitor = parseMonitor(expectedRaw, input.scope);
   if (expectedMonitor.configurationRevision !== monitor.configurationRevision) {
@@ -1254,7 +1471,7 @@ export async function completeWorkspaceMonitorCheckpoint(
     nextDueAtMs: next ? Date.parse(next.scheduledAt) : null,
     nextRaw: JSON.stringify(nextMonitor),
     occurrenceRecordKey: `${OCCURRENCE_PREFIX}${input.occurrenceKey}`,
-    recordKey: recordKey(input.scope, input.monitorId),
+    recordKey: workspaceMonitorRecordStorageKey(input.scope, input.monitorId),
   });
   if (status !== "completed" && status !== "already_completed") {
     throw new WorkspaceMonitorError(

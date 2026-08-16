@@ -213,6 +213,7 @@ for (const [index, run] of prepared.entries()) {
   assert.equal(run.request.requestInput, false);
   assert.deepEqual(run.request.input.context, []);
   assert.equal(run.request.continuationToken, run.envelope.runId);
+  assert.equal(run.envelope.strategyPack, null);
   assert.deepEqual(Object.keys(run.request).sort(), [
     "auth", "continuationToken", "input", "limits", "mode", "nodeId", "requestInput",
   ]);

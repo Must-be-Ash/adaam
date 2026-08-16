@@ -1012,7 +1012,10 @@ async function dispatchPhotonWorkspaceTurn(input: {
           input.senderId,
           input.thread.id,
           runtimeScope,
-          photonIngressAuthAttributes(input.ingress),
+          {
+            ...photonIngressAuthAttributes(input.ingress),
+            photon_routing_revision: String(input.workspaceState.revision),
+          },
         ),
         thread: photonWorkspaceThread(input.thread, activeWorkspace),
         turnPolicy: "steer",

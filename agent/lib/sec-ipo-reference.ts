@@ -9,6 +9,19 @@ export const EVALUATE_SEC_IPO_SOURCE_TOOL_ID = "evaluate_sec_ipo_source";
 export const SEC_IPO_SOURCE_ID = "sec-latest-s1-filings";
 export const SEC_IPO_SOURCE_URL =
   "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=S-1&owner=include&count=40&output=atom";
+export const SEC_IPO_SOURCE_CONTRACT_VERSION = "1.0.0";
+export const SEC_IPO_SOURCE_ALLOWED_ORIGINS = Object.freeze(["https://www.sec.gov"]);
+export const SEC_IPO_SOURCE_CONTRACT_DIGEST = createHash("sha256")
+  .update(
+    [
+      "sec-ipo-source-contract",
+      SEC_IPO_SOURCE_ID,
+      SEC_IPO_SOURCE_CONTRACT_VERSION,
+      SEC_IPO_SOURCE_URL,
+      ...SEC_IPO_SOURCE_ALLOWED_ORIGINS,
+    ].join(String.fromCharCode(0)),
+  )
+  .digest("hex");
 export const STAGE_WORKSPACE_ALERT_TOOL_ID = "stage_workspace_alert";
 export { SEC_IPO_NORMALIZER_VERSION } from "./workspace-finding-facts";
 
@@ -282,7 +295,13 @@ export const IPO_FILINGS_CAPABILITY_MANIFEST = Object.freeze({
   providerTools: [],
   researchToolIds: [],
   skills: [{ id: "public-event-monitoring", version: "1.0.0" }],
-  sources: [{ origin: "https://www.sec.gov", sourceId: SEC_IPO_SOURCE_ID }],
+  sources: [{
+    allowedOrigins: [...SEC_IPO_SOURCE_ALLOWED_ORIGINS],
+    contractDigest: SEC_IPO_SOURCE_CONTRACT_DIGEST,
+    contractVersion: SEC_IPO_SOURCE_CONTRACT_VERSION,
+    origin: "https://www.sec.gov",
+    sourceId: SEC_IPO_SOURCE_ID,
+  }],
   workerModelPolicy: {
     allowedModelIds: ["google/gemini-3.6-flash"],
     maximumOutputTokens: 2_000,

@@ -9,6 +9,14 @@ import {
 import { readWorkspaceDocument, type WorkspaceStateStoreClient } from "./workspace-state-store";
 import { authorizeWorkspaceWorkerStore, type AuthorizedWorkspaceStoreScope } from "./workspace-store-authorization";
 import { requireWorkspaceWorkerAuth, type WorkspaceWorkerEnvelope } from "./workspace-worker-auth";
+import {
+  getWorkspaceMonitor,
+  type WorkspaceMonitorStoreClient,
+} from "./workspace-monitor-store";
+import {
+  requireWorkspaceWorkerStrategyPackRuntime,
+  type ActiveWorkspaceWorkerStrategyPackRuntime,
+} from "./strategy-pack-runtime";
 
 export interface WorkspaceWorkerToolRegistration<T> {
   readonly definition: T;
@@ -19,6 +27,7 @@ export interface WorkspaceWorkerCapabilitySet<T> {
   readonly maximumDataAccessClassification: "owner_private" | "public";
   readonly resolved: WorkspaceRuntimeCapabilities;
   readonly skillIds: readonly string[];
+  readonly strategyPackRuntime?: ActiveWorkspaceWorkerStrategyPackRuntime | null;
   readonly tools: Readonly<Record<string, T>>;
 }
 
@@ -71,6 +80,7 @@ export async function resolveWorkspaceWorkerStepCapabilities<T>(input: {
   ctx: { readonly session: { readonly auth: SessionContext["session"]["auth"] } };
   deploymentHardDeniedIds?: readonly string[];
   environment?: NodeJS.ProcessEnv;
+  monitorClient?: WorkspaceMonitorStoreClient;
   registry: readonly WorkspaceWorkerToolRegistration<T>[];
   stateClient?: WorkspaceStateStoreClient;
 }): Promise<WorkspaceWorkerCapabilitySet<T>> {
@@ -84,11 +94,40 @@ export async function resolveWorkspaceWorkerStepCapabilities<T>(input: {
     ? undefined
     : (await import("./workspace-worker-test-fixtures"))
         .resolveSecIpoWorkspaceWorkerFixtureClients();
-  return resolveWorkspaceWorkerCapabilitySnapshot({
+  const stateClient = input.stateClient ?? fixtureClients?.state;
+  const capabilities = await resolveWorkspaceWorkerCapabilitySnapshot({
     deploymentHardDeniedIds: input.deploymentHardDeniedIds,
     envelope,
     registry: input.registry,
     scope,
-    stateClient: input.stateClient ?? fixtureClients?.state,
+    stateClient,
   });
+  const monitor = await getWorkspaceMonitor(
+    scope,
+    envelope.monitorId,
+    input.monitorClient ?? fixtureClients?.monitor,
+  );
+  if (!monitor) {
+    throw new WorkspaceRuntimeCapabilityError("capability_scope_mismatch");
+  }
+  if (
+    input.registry.length > 0 &&
+    monitor.requiredCapabilityIds.some(
+      (capabilityId) => !capabilities.resolved.toolIds.includes(capabilityId),
+    )
+  ) {
+    throw new WorkspaceRuntimeCapabilityError("capability_scope_mismatch");
+  }
+  try {
+    const strategyPackRuntime = await requireWorkspaceWorkerStrategyPackRuntime({
+      envelope,
+      environment: input.environment,
+      monitor,
+      scope,
+      stateClient,
+    });
+    return Object.freeze({ ...capabilities, strategyPackRuntime });
+  } catch {
+    throw new WorkspaceRuntimeCapabilityError("capability_scope_mismatch");
+  }
 }

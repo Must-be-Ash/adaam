@@ -23,6 +23,16 @@ complete owner configuration; disabling dispatch alone does not do that.
 | `EVE_WORKSPACE_SOURCE_EVENTS_ENABLED` | Allows authenticated source-event ingestion. Polling remains the fallback and has a separate dispatch gate. |
 | `EVE_LEGACY_TRIGGER_CREATION_ENABLED` | Defaults enabled while workspace-monitor writes are off. Set to `0` to stop legacy creation earlier; it can never override enabled workspace-monitor writes. |
 
+Strategy packs add four nested, independently failing-closed switches. They do
+not change the durable-ingress boundary above.
+
+| Environment variable | Effective behavior when enabled |
+| --- | --- |
+| `EVE_STRATEGY_PACK_CATALOG_ENABLED` | Exposes the compiled repository catalog to the configured deployment owner while workspace state is enabled. Disabling it preserves bindings and records. |
+| `EVE_STRATEGY_PACK_MUTATIONS_ENABLED` | Allows create/configure/remove through the shared service while catalog, workspace state, and monitor writes are enabled. |
+| `EVE_STRATEGY_PACK_RUNTIME_ENABLED` | Composes an exact active binding into interactive and worker runtimes. Disabling it makes bound sessions unavailable rather than general purpose. |
+| `EVE_STRATEGY_PACK_MANAGED_DISPATCH_ENABLED` | Allows pack-managed monitors to pass worker preparation only while pack runtime and workspace dispatch are enabled. |
+
 ## Rollout order
 
 1. Configure and verify the complete owner mapping plus Redis pair. This is the
@@ -37,6 +47,12 @@ complete owner configuration; disabling dispatch alone does not do that.
    authorization exist.
 7. Enable source events last, under their independent kill switch, while polling
    remains available.
+
+For strategy packs, deploy the dual-reader release with all four pack switches
+off. Verify mixed unbound/v1/v2 reads before enabling catalog inspection,
+mutations in fixture/dev, runtime composition, Spectrum controls, managed
+dispatch, and finally an owner-authorized Photon smoke. Treat every flag change
+as a deployment/propagation event and capture the resolved values.
 
 ## Rollback behavior
 
@@ -63,3 +79,14 @@ This worker rollback preserves durable Photon ingress. Return to legacy ingress
 only as a separate, deliberate compatibility rollback after every runtime flag
 is off and the complete owner mapping is removed. Never remove owner mapping as
 the first response to an in-flight dispatch or alert incident.
+
+Pack rollback is additive to those controls: disable managed dispatch first,
+then runtime composition, mutations, and catalog exposure as needed. Keep the
+reader-compatible binary and every compiled version still referenced by a
+durable binding. Bindings, managed monitors, mutation receipts, findings,
+alerts, checkpoints, and retired-resource provenance remain readable. To block
+a faulty version, mark that exact catalog entry blocked, disable managed
+dispatch during propagation, inspect bound sessions through the owner-only
+manager/service, and verify the scheduler starts no managed worker before
+re-enabling unaffected versions. Failure must never select a different version
+or turn a bound session into a general-purpose session.

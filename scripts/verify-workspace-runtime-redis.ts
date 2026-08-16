@@ -29,6 +29,7 @@ import {
   pauseWorkspaceMonitorAfterUncertainAlert,
   recordWorkspaceMonitorFailure,
   releaseWorkspaceMonitorLease,
+  resolveWorkspaceStrategyManagedMonitors,
   updateWorkspaceMonitor,
   WORKSPACE_MONITOR_REDIS_SCRIPTS,
   type WorkspaceMonitorStoreClient,
@@ -41,6 +42,8 @@ import {
   type WorkspaceSourceCoverageClient,
 } from "../agent/lib/workspace-source-coverage";
 import {
+  migrateWorkspaceStrategyDocument,
+  readWorkspaceDocument,
   writeWorkspaceDocument,
   type WorkspaceStateStoreClient,
 } from "../agent/lib/workspace-state-store";
@@ -219,6 +222,60 @@ const policy = {
 
 try {
   await start();
+  await writeWorkspaceDocument("strategy", {
+    expectedRevision: 0,
+    now,
+    scope: scopeA,
+    value: {
+      configuration: { legacyThreshold: 2 },
+      strategyPack: { id: "legacy-redis-pack", version: "1.0.0" },
+    },
+  }, casClient);
+  const migratedLegacy = await migrateWorkspaceStrategyDocument(
+    { expectedRevision: 1, now, scope: scopeA },
+    casClient,
+  );
+  assert.equal(migratedLegacy?.value.lifecycleState, "unavailable");
+  assert.equal(migratedLegacy?.value.health.code, "legacy_unverified");
+  assert.equal((await readWorkspaceDocument("strategy", scopeA, casClient))?.schemaVersion, 2);
+
+  await writeWorkspaceDocument("strategy", {
+    expectedRevision: 0,
+    now,
+    scope: scopeB,
+    value: { configuration: {}, strategyPack: null },
+  }, casClient);
+  let barrierReads = 0;
+  let releaseBarrier!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    releaseBarrier = resolve;
+  });
+  const migrationRaceClient: WorkspaceStateStoreClient = {
+    compareAndSet: (key, expected, next) => casClient.compareAndSet(key, expected, next),
+    async get(key) {
+      const value = await casClient.get(key);
+      barrierReads += 1;
+      if (barrierReads === 2) releaseBarrier();
+      await barrier;
+      return value;
+    },
+  };
+  const migrationRace = await Promise.allSettled([
+    migrateWorkspaceStrategyDocument(
+      { expectedRevision: 1, now, scope: scopeB },
+      migrationRaceClient,
+    ),
+    migrateWorkspaceStrategyDocument(
+      { expectedRevision: 1, now, scope: scopeB },
+      migrationRaceClient,
+    ),
+  ]);
+  assert.equal(migrationRace.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(migrationRace.filter((result) => result.status === "rejected").length, 1);
+  const migratedNull = await readWorkspaceDocument("strategy", scopeB, casClient);
+  assert.equal(migratedNull?.schemaVersion, 2);
+  assert.equal(migratedNull?.value.lifecycleState, "unbound");
+
   const monitor = await createWorkspaceMonitor({
     deliverySubscriptionId: "delivery.redis", instruction: "Check the source.",
     name: "Redis monitor", nextOccurrenceAt: now.toISOString(), now,
@@ -229,6 +286,65 @@ try {
       origin: "https://example.gov", sourceId: "source.redis",
     }],
   }, monitorClient);
+  assert.equal(monitor.managedBy, null);
+
+  const managedDigest = "e".repeat(64);
+  const managedMonitor = await createWorkspaceMonitor({
+    deliverySubscriptionId: "delivery.redis",
+    idempotencyKey: "redis-managed-monitor",
+    instruction: "Stay paused until an explicit owner activation.",
+    managedBy: {
+      bindingRevision: 1,
+      kind: "strategy_pack",
+      packContentDigest: managedDigest,
+      packId: "redis-pack",
+      packVersion: "1.0.0",
+      resourceId: "redis-monitor",
+    },
+    name: "Redis managed monitor",
+    nextOccurrenceAt: now.toISOString(),
+    now,
+    schedule: { at: now.toISOString(), kind: "one_time" },
+    scope: scopeB,
+    sources: [{
+      accessClassification: "public",
+      canonicalUrl: "https://example.gov/managed",
+      origin: "https://example.gov",
+      sourceId: "source.managed",
+    }],
+  }, monitorClient);
+  assert.equal(managedMonitor.lifecycleState, "paused");
+  assert.equal(managedMonitor.pauseReason, "strategy_pack_install_only");
+  assert.deepEqual(resolveWorkspaceStrategyManagedMonitors({
+    bindingRevision: 1,
+    configuration: {},
+    effectiveCapabilityManifestRevision: 1,
+    health: { checkedAt: now.toISOString(), code: null, status: "healthy" },
+    lastActiveSnapshot: {
+      bindingRevision: 1,
+      capabilityManifestRevision: 1,
+      packContentDigest: managedDigest,
+      packId: "redis-pack",
+      packVersion: "1.0.0",
+      workspaceGeneration: 1,
+    },
+    lifecycleState: "active",
+    managedResources: {
+      "redis-monitor": {
+        monitorId: managedMonitor.monitorId,
+        sourceIds: ["source.managed"],
+      },
+    },
+    ownerOverrides: {},
+    pack: { contentDigest: managedDigest, id: "redis-pack", version: "1.0.0" },
+    pendingSnapshot: null,
+    timestamps: {
+      activatedAt: now.toISOString(),
+      configuredAt: null,
+      generationRolloverAt: now.toISOString(),
+      installedAt: now.toISOString(),
+    },
+  }, [monitor, managedMonitor]), [managedMonitor]);
   const claims = await Promise.allSettled([
     claimWorkspaceMonitorOccurrence({
       configurationRevision: 1, leaseForMs: 1_000, monitorId: monitor.monitorId,

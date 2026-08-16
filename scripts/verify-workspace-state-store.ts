@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 
 import {
+  migrateWorkspaceStrategyDocument,
   readWorkspaceDocument,
+  validateWorkspaceCapabilitySourceContract,
+  workspaceStrategyBindingValueSchema,
   WORKSPACE_DOCUMENT_BYTE_LIMITS,
   WorkspaceStateConflictError,
   WorkspaceStateValidationError,
   writeWorkspaceDocument,
+  writeWorkspaceStrategyBinding,
   type WorkspaceStateStoreClient,
 } from "../agent/lib/workspace-state-store";
 import {
@@ -18,11 +22,16 @@ import { projectPhotonWorkspaceRuntimeScope } from "../agent/lib/workspace-runti
 
 class MemoryStore implements WorkspaceStateStoreClient {
   compareAndSetCalls = 0;
+  rejectNextCompareAndSet = false;
   getCalls = 0;
   readonly values = new Map<string, string>();
 
   async compareAndSet(key: string, expected: string | null, next: string) {
     this.compareAndSetCalls += 1;
+    if (this.rejectNextCompareAndSet) {
+      this.rejectNextCompareAndSet = false;
+      return false;
+    }
     const current = this.values.get(key) ?? null;
     if (current !== expected) return false;
     this.values.set(key, next);
@@ -191,6 +200,132 @@ const strategy = await writeWorkspaceDocument(
 );
 assert.equal(strategy.recordType, "workspace_strategy_configuration");
 assert.equal(strategy.revision, 1);
+const readsBeforeMigration = client.compareAndSetCalls;
+assert.equal((await readWorkspaceDocument("strategy", scope, client))?.schemaVersion, 1);
+assert.equal(client.compareAndSetCalls, readsBeforeMigration);
+
+const migratedLegacyStrategy = await migrateWorkspaceStrategyDocument(
+  { expectedRevision: 1, now: new Date("2026-08-14T12:00:30.000Z"), scope },
+  client,
+);
+assert.equal(migratedLegacyStrategy?.schemaVersion, 2);
+assert.equal(migratedLegacyStrategy?.revision, 2);
+assert.equal(migratedLegacyStrategy?.value.lifecycleState, "unavailable");
+assert.equal(migratedLegacyStrategy?.value.health.code, "legacy_unverified");
+assert.equal(migratedLegacyStrategy?.value.pack?.contentDigest, null);
+assert.deepEqual(migratedLegacyStrategy?.value.managedResources, {});
+const callsAfterMigration = client.compareAndSetCalls;
+assert.deepEqual(
+  await migrateWorkspaceStrategyDocument({ scope }, client),
+  migratedLegacyStrategy,
+);
+assert.equal(client.compareAndSetCalls, callsAfterMigration);
+
+const exactDigest = "c".repeat(64);
+const activeStrategy = await writeWorkspaceStrategyBinding(
+  {
+    expectedRevision: 2,
+    now: new Date("2026-08-14T12:00:40.000Z"),
+    scope,
+    value: {
+      bindingRevision: 2,
+      configuration: {
+        minimumEvidenceCount: 2,
+        watchlists: ["primary", "secondary"],
+      },
+      effectiveCapabilityManifestRevision: 1,
+      health: {
+        checkedAt: "2026-08-14T12:00:40.000Z",
+        code: null,
+        status: "healthy",
+      },
+      lastActiveSnapshot: {
+        bindingRevision: 2,
+        capabilityManifestRevision: 1,
+        packContentDigest: exactDigest,
+        packId: "fixture-strategy",
+        packVersion: "1.0.0",
+        workspaceGeneration: 2,
+      },
+      lifecycleState: "active",
+      managedResources: {
+        "fixture-monitor": {
+          monitorId: "323e4567-e89b-42d3-a456-426614174000",
+          sourceIds: ["source.sec"],
+        },
+      },
+      ownerOverrides: { minimumEvidenceCount: 2 },
+      pack: {
+        contentDigest: exactDigest,
+        id: "fixture-strategy",
+        version: "1.0.0",
+      },
+      pendingSnapshot: null,
+      timestamps: {
+        activatedAt: "2026-08-14T12:00:40.000Z",
+        configuredAt: null,
+        generationRolloverAt: "2026-08-14T12:00:40.000Z",
+        installedAt: "2026-08-14T12:00:40.000Z",
+      },
+    },
+  },
+  client,
+);
+assert.equal(activeStrategy.schemaVersion, 2);
+assert.equal(activeStrategy.recordType, "workspace_strategy_binding");
+assert.equal(activeStrategy.value.pack.id, "fixture-strategy");
+assert.ok(
+  Buffer.byteLength(JSON.stringify(activeStrategy), "utf8") <
+    WORKSPACE_DOCUMENT_BYTE_LIMITS.strategy,
+);
+assert.deepEqual(await readWorkspaceDocument("strategy", scope, client), activeStrategy);
+assert.equal(workspaceStrategyBindingValueSchema.safeParse({
+  ...activeStrategy.value,
+  bindingRevision: 3,
+  pendingSnapshot: {
+    bindingRevision: 3,
+    capabilityManifestRevision: 1,
+    packContentDigest: exactDigest,
+    packId: "fixture-strategy",
+    packVersion: "1.0.0",
+    workspaceGeneration: 3,
+  },
+}).success, true);
+assert.equal(workspaceStrategyBindingValueSchema.safeParse({
+  bindingRevision: 3,
+  configuration: {},
+  effectiveCapabilityManifestRevision: null,
+  health: {
+    checkedAt: "2026-08-14T12:00:40.000Z",
+    code: null,
+    status: "unbound",
+  },
+  lastActiveSnapshot: activeStrategy.value.lastActiveSnapshot,
+  lifecycleState: "unbound",
+  managedResources: {},
+  ownerOverrides: {},
+  pack: null,
+  pendingSnapshot: null,
+  timestamps: {
+    activatedAt: null,
+    configuredAt: null,
+    generationRolloverAt: "2026-08-14T12:00:40.000Z",
+    installedAt: null,
+  },
+}).success, true);
+await assert.rejects(
+  writeWorkspaceDocument(
+    "strategy",
+    {
+      expectedRevision: activeStrategy.revision,
+      now,
+      scope,
+      value: { configuration: {}, strategyPack: null },
+    },
+    client,
+  ),
+  WorkspaceStateValidationError,
+);
 
 const capabilities = await writeWorkspaceDocument(
   "capabilities",
@@ -215,7 +350,13 @@ const capabilities = await writeWorkspaceDocument(
       ],
       researchToolIds: ["sec.get_filing"],
       skills: [{ id: "filing-review", version: "1.0.0" }],
-      sources: [{ origin: "https://www.sec.gov", sourceId: "source.sec" }],
+      sources: [{
+        allowedOrigins: ["https://www.sec.gov"],
+        contractDigest: "a".repeat(64),
+        contractVersion: "1.0.0",
+        origin: "https://www.sec.gov",
+        sourceId: "source.sec",
+      }],
       workerModelPolicy: {
         allowedModelIds: ["openai/gpt-5.5"],
         maximumOutputTokens: 8_000,
@@ -228,6 +369,32 @@ assert.equal(capabilities.recordType, "workspace_capability_manifest");
 assert.equal(capabilities.value.paidResearchAllowed, false);
 assert.equal(capabilities.value.financialToolIds.length, 0);
 assert.equal(capabilities.value.researchToolIds.includes("web.search"), false);
+const exactSource = capabilities.value.sources[0]!;
+assert.deepEqual(
+  validateWorkspaceCapabilitySourceContract(exactSource, {
+    allowedOrigins: ["https://www.sec.gov"],
+    contractDigest: "a".repeat(64),
+    contractVersion: "1.0.0",
+    sourceId: "source.sec",
+  }),
+  exactSource,
+);
+assert.throws(
+  () => validateWorkspaceCapabilitySourceContract(exactSource, {
+    allowedOrigins: ["https://www.sec.gov"],
+    contractDigest: "b".repeat(64),
+    contractVersion: "1.0.0",
+    sourceId: "source.sec",
+  }),
+  WorkspaceStateValidationError,
+);
+assert.throws(
+  () => validateWorkspaceCapabilitySourceContract({
+    origin: "https://www.sec.gov",
+    sourceId: "source.sec",
+  }),
+  WorkspaceStateValidationError,
+);
 
 const budget = await writeWorkspaceDocument(
   "budget",
@@ -374,6 +541,59 @@ await assert.rejects(
 );
 assert.equal(oversizeClient.values.size, 0);
 
+const oversizeStrategyScope = authorizePhotonWorkspaceControlPlaneStore(
+  {
+    principalId: "imessage:fixture-owner",
+    resource: "manager",
+    workspaceId: "623e4567-e89b-42d3-a456-426614174000",
+  },
+  environment,
+);
+const oversizeStrategyClient = new MemoryStore();
+await assert.rejects(
+  writeWorkspaceStrategyBinding(
+    {
+      expectedRevision: 0,
+      now,
+      scope: oversizeStrategyScope,
+      value: {
+        bindingRevision: 1,
+        configuration: Object.fromEntries(
+          Array.from({ length: 10 }, (_, index) => [`field${index}`, "x".repeat(2_000)]),
+        ),
+        effectiveCapabilityManifestRevision: 1,
+        health: { checkedAt: now.toISOString(), code: null, status: "healthy" },
+        lastActiveSnapshot: {
+          bindingRevision: 1,
+          capabilityManifestRevision: 1,
+          packContentDigest: "f".repeat(64),
+          packId: "oversize-pack",
+          packVersion: "1.0.0",
+          workspaceGeneration: 1,
+        },
+        lifecycleState: "active",
+        managedResources: {},
+        ownerOverrides: {},
+        pack: {
+          contentDigest: "f".repeat(64),
+          id: "oversize-pack",
+          version: "1.0.0",
+        },
+        pendingSnapshot: null,
+        timestamps: {
+          activatedAt: now.toISOString(),
+          configuredAt: null,
+          generationRolloverAt: now.toISOString(),
+          installedAt: now.toISOString(),
+        },
+      },
+    },
+    oversizeStrategyClient,
+  ),
+  WorkspaceStateValidationError,
+);
+assert.equal(oversizeStrategyClient.values.size, 0);
+
 const corruptClient = new MemoryStore();
 await writeWorkspaceDocument(
   "brief",
@@ -388,6 +608,87 @@ await assert.rejects(
   (error) =>
     error instanceof WorkspaceStateValidationError &&
     error.code === "workspace_state_corrupt",
+);
+
+const nullBindingScope = authorizePhotonWorkspaceControlPlaneStore(
+  {
+    principalId: "imessage:fixture-owner",
+    resource: "manager",
+    workspaceId: "423e4567-e89b-42d3-a456-426614174000",
+  },
+  environment,
+);
+const nullBindingClient = new MemoryStore();
+const legacyNull = await writeWorkspaceDocument(
+  "strategy",
+  {
+    expectedRevision: 0,
+    now,
+    scope: nullBindingScope,
+    value: { configuration: {}, strategyPack: null },
+  },
+  nullBindingClient,
+);
+const writesBeforeNullRead = nullBindingClient.compareAndSetCalls;
+assert.equal(
+  (await readWorkspaceDocument("strategy", nullBindingScope, nullBindingClient))?.schemaVersion,
+  1,
+);
+assert.equal(nullBindingClient.compareAndSetCalls, writesBeforeNullRead);
+const migratedNull = await migrateWorkspaceStrategyDocument(
+  { expectedRevision: legacyNull.revision, now, scope: nullBindingScope },
+  nullBindingClient,
+);
+assert.equal(migratedNull?.value.lifecycleState, "unbound");
+assert.equal(migratedNull?.value.pack, null);
+assert.deepEqual(migratedNull?.value.configuration, {});
+
+const interruptedScope = authorizePhotonWorkspaceControlPlaneStore(
+  {
+    principalId: "imessage:fixture-owner",
+    resource: "manager",
+    workspaceId: "523e4567-e89b-42d3-a456-426614174000",
+  },
+  environment,
+);
+const interruptedClient = new MemoryStore();
+await writeWorkspaceDocument(
+  "strategy",
+  {
+    expectedRevision: 0,
+    now,
+    scope: interruptedScope,
+    value: { configuration: {}, strategyPack: null },
+  },
+  interruptedClient,
+);
+interruptedClient.rejectNextCompareAndSet = true;
+await assert.rejects(
+  migrateWorkspaceStrategyDocument(
+    { expectedRevision: 1, now, scope: interruptedScope },
+    interruptedClient,
+  ),
+  WorkspaceStateConflictError,
+);
+// Mixed deployments retain readable v1 and v2 records without read-time writes.
+assert.equal(
+  (await readWorkspaceDocument("strategy", interruptedScope, interruptedClient))?.schemaVersion,
+  1,
+);
+assert.equal(
+  (await readWorkspaceDocument("strategy", scope, client))?.schemaVersion,
+  2,
+);
+assert.equal(
+  (await migrateWorkspaceStrategyDocument(
+    { expectedRevision: 1, now, scope: interruptedScope },
+    interruptedClient,
+  ))?.schemaVersion,
+  2,
+);
+assert.equal(
+  (await readWorkspaceDocument("strategy", interruptedScope, interruptedClient))?.schemaVersion,
+  2,
 );
 
 console.log("Bounded workspace state store verification passed.");

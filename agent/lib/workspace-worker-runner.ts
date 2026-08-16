@@ -26,6 +26,11 @@ import {
 } from "./workspace-state-store";
 import type { AuthorizedWorkspaceStoreScope } from "./workspace-store-authorization";
 import {
+  prepareWorkspaceWorkerStrategyPackRuntime,
+  type StrategyPackRuntimeCatalog,
+  type StrategyPackWorkerSnapshot,
+} from "./strategy-pack-runtime";
+import {
   createWorkspaceWorkerEnvelope,
   signWorkspaceWorkerEnvelope,
   workspaceWorkerExecutionAuth,
@@ -64,17 +69,20 @@ export interface PreparedWorkspaceWorkerRecovery {
   readonly claimed: ClaimedWorkspaceMonitor;
   readonly expectedRunId: string | null;
   readonly monitor: WorkspaceMonitor;
+  readonly strategyPack: StrategyPackWorkerSnapshot | null;
   readonly scope: AuthorizedWorkspaceStoreScope;
 }
 
 export interface WorkspaceWorkerRunnerClients {
   readonly sourceCoverage?: WorkspaceSourceCoverageClient;
   readonly state?: WorkspaceStateStoreClient;
+  readonly strategyPackCatalog?: StrategyPackRuntimeCatalog;
 }
 
 export interface WorkspaceWorkerRecoveryClients {
   readonly monitor?: WorkspaceMonitorStoreClient;
   readonly state?: WorkspaceStateStoreClient;
+  readonly strategyPackCatalog?: StrategyPackRuntimeCatalog;
 }
 
 export class WorkspaceWorkerRunnerError extends Error {
@@ -164,12 +172,19 @@ export async function prepareWorkspaceWorkerRecovery(input: {
   ) {
     throw new WorkspaceWorkerRunnerError("workspace_worker_state_stale");
   }
+  const strategyPack = await prepareWorkspaceWorkerStrategyPackRuntime({
+    catalog: input.clients?.strategyPackCatalog,
+    monitor: currentMonitor,
+    scope: input.claimed.scope,
+    stateClient: input.clients?.state,
+  });
   return Object.freeze({
     capabilityRevision: capabilities.revision,
     claimed: input.claimed,
     expectedRunId: input.expectedRunId ?? null,
     monitor: currentMonitor,
     scope: input.claimed.scope,
+    strategyPack: strategyPack?.snapshot ?? null,
   });
 }
 
@@ -186,7 +201,9 @@ export async function requireWorkspaceWorkerOutcome(
     !outcome ||
     outcome.runId !== prepared.envelope.runId ||
     outcome.monitorId !== prepared.envelope.monitorId ||
-    outcome.configurationRevision !== prepared.envelope.configurationRevision
+    outcome.configurationRevision !== prepared.envelope.configurationRevision ||
+    JSON.stringify(outcome.strategyPack) !==
+      JSON.stringify(prepared.envelope.strategyPack)
   ) {
     throw new WorkspaceWorkerRunnerError(
       "workspace_worker_required_outcome_missing",
@@ -215,6 +232,7 @@ function typedPrompt(input: {
   requiredCapabilityIds: readonly string[];
   sourceFence: string;
   strategy: unknown;
+  strategyPack: StrategyPackWorkerSnapshot | null;
   window: { endAt: string; startAt: string };
 }): string {
   return [
@@ -238,6 +256,9 @@ function typedPrompt(input: {
     "<workspace-strategy-record-v1>",
     JSON.stringify(input.strategy),
     "</workspace-strategy-record-v1>",
+    "<workspace-strategy-pack-snapshot-v1>",
+    JSON.stringify(input.strategyPack),
+    "</workspace-strategy-pack-snapshot-v1>",
     "<workspace-prior-findings-v1>",
     "[]",
     "</workspace-prior-findings-v1>",
@@ -271,6 +292,13 @@ export async function prepareWorkspaceWorkerRun(input: {
   ) {
     throw new WorkspaceWorkerRunnerError("workspace_worker_model_denied");
   }
+  const strategyPack = await prepareWorkspaceWorkerStrategyPackRuntime({
+    catalog: input.clients?.strategyPackCatalog,
+    environment: input.environment,
+    monitor: input.claimed.monitor,
+    scope: input.claimed.scope,
+    stateClient: input.clients?.state,
+  });
   const window = evaluationWindow(input.claimed);
   const coverage = await createWorkspaceSourceCoverage(
     {
@@ -300,6 +328,7 @@ export async function prepareWorkspaceWorkerRun(input: {
     expiresAt,
     issuedAt: now,
     stateRevision: { brief: brief.revision, strategy: strategy.revision },
+    strategyPack: strategyPack?.snapshot ?? null,
     window,
   });
   const prompt = typedPrompt({
@@ -309,7 +338,14 @@ export async function prepareWorkspaceWorkerRun(input: {
     monitorId: input.claimed.monitor.monitorId,
     requiredCapabilityIds: input.claimed.monitor.requiredCapabilityIds,
     sourceFence: buildWorkspaceSourcePrompt(coverage),
-    strategy: strategy.value,
+    strategy: strategyPack
+      ? {
+          configuration: strategy.value.configuration,
+          pack: strategyPack.pack,
+          resourceId: strategyPack.resource.resourceId,
+        }
+      : strategy.value,
+    strategyPack: strategyPack?.snapshot ?? null,
     window,
   });
   if (Buffer.byteLength(prompt, "utf8") > MAX_WORKER_PROMPT_BYTES) {

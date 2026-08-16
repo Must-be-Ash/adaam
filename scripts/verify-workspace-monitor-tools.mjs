@@ -66,7 +66,7 @@ assert.equal(updateWorkspaceBudgetInputSchema.safeParse({
   ownerTimezone: "America/Vancouver",
 }).success, true);
 assert.equal(updateWorkspaceBudgetInputSchema.safeParse({ expectedRevision: 1 }).success, false);
-const instructions = await readFile(new URL("../agent/instructions.md", import.meta.url), "utf8");
+const instructions = await readFile(new URL("../agent/instructions/00-shared.md", import.meta.url), "utf8");
 assert.match(instructions, /preserve existing daily times when the owner says/u);
 assert.match(instructions, /compatibility-only/u);
 
