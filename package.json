@@ -48,6 +48,7 @@
     "verify:public-source-adapters:house": "jiti scripts/verify-public-source-house-acquisition.ts",
     "verify:public-source-adapters:runtime": "jiti scripts/verify-public-source-runtime-integration.ts",
     "verify:public-source-adapters:sec": "jiti scripts/verify-public-source-sec-acquisition.ts",
+    "verify:congressional-signals:sprint-0": "jiti scripts/verify-congressional-signals-sprint-0.ts",
     "verify:workspace-runtime:contracts": "node scripts/verify-workspace-runtime-contracts.mjs",
     "verify:workspace-runtime:failures": "node scripts/verify-workspace-runtime-failures.mjs",
     "verify:workspace-runtime:photon-harness": "node scripts/verify-workspace-photon-harness.mjs",

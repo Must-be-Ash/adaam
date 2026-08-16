@@ -20,6 +20,8 @@ import {
   publicSourceInstanceSchema,
   publicSourceLogEventSchema,
   publicSourceProjectionSchema,
+  publicSourceRetractionProjectionSchema,
+  publicSourceRetractionSchema,
   publicSourceSubscriptionSchema,
 } from "../agent/lib/public-source-adapter-schema";
 import {
@@ -129,6 +131,7 @@ const acquisitionResult = publicSourceAcquisitionResultSchema.parse({
   baselineEstablished: true,
   candidateFactRevisionIds: [],
   correctionIds: [],
+  retractionIds: [],
   coverage: "complete",
   errorCode: null,
   observedAt,
@@ -152,6 +155,7 @@ const journal = publicSourceAcquisitionJournalSchema.parse({
   adapterDefinitionDigest: digestA,
   committedAt: null,
   correctionIds: [],
+  retractionIds: [],
   expectedCursorRevision: 0,
   factRevisionIds: [],
   preparedAt: observedAt,
@@ -316,6 +320,24 @@ const correction = publicSourceCorrectionSchema.parse({
   schemaVersion: 1,
   toRevisionId: "fact-revision.corrected",
 });
+const retraction = publicSourceRetractionSchema.parse({
+  createdObservedAt: observedAt,
+  fromRevisionId: transactionFact.revisionId,
+  logicalKey: transactionFact.logicalKey,
+  reason: "source_amendment",
+  recordType: "public_source_fact_retraction",
+  retractionId: `retraction.${digestPublicSourceValue([
+    transactionFact.logicalKey,
+    transactionFact.revisionId,
+    "source_amendment",
+  ])}`,
+  schemaVersion: 1,
+  sourceInstanceId: houseSource.sourceInstanceId,
+});
+assert.equal(
+  publicSourceRetractionSchema.safeParse({ ...retraction, retractionId: "retraction.invalid" }).success,
+  false,
+);
 
 const subscription = publicSourceSubscriptionSchema.parse({
   adapterDefinitionDigest: digestB,
@@ -349,6 +371,30 @@ const projection = publicSourceProjectionSchema.parse({
   subscriptionId: subscription.subscriptionId,
   workspaceId: subscription.workspaceId,
 });
+const retractionProjection = publicSourceRetractionProjectionSchema.parse({
+  acquisitionId: "acquisition.fixture.house-amendment",
+  factRevisionId: transactionFact.revisionId,
+  factSchemaVersion: transactionFact.factSchemaVersion,
+  monitorId: subscription.monitorId,
+  projectedAt: observedAt,
+  projectionId: `projection.${digestPublicSourceValue([
+    subscription.subscriptionId,
+    retraction.retractionId,
+  ])}`,
+  recordType: "public_source_fact_retraction_projection",
+  retractionId: retraction.retractionId,
+  schemaVersion: 1,
+  sourceInstanceId: houseSource.sourceInstanceId,
+  subscriptionId: subscription.subscriptionId,
+  workspaceId: subscription.workspaceId,
+});
+assert.equal(
+  publicSourceRetractionProjectionSchema.safeParse({
+    ...retractionProjection,
+    projectionId: "projection.invalid",
+  }).success,
+  false,
+);
 
 const validRecords = [
   secDefinition,
@@ -361,8 +407,10 @@ const validRecords = [
   fact,
   transactionFact,
   correction,
+  retraction,
   subscription,
   projection,
+  retractionProjection,
 ];
 for (const record of validRecords) assert.deepEqual(parsePublicSourceRecord(record), record);
 

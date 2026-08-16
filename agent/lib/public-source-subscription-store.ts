@@ -5,16 +5,20 @@ import { Redis } from "@upstash/redis";
 import {
   readPublicSourceAcquisitionJournal,
   readPublicSourceFactRevision,
+  readPublicSourceRetraction,
   type PublicSourceAcquisitionStoreClient,
 } from "./public-source-acquisition-store";
 import {
   digestPublicSourceValue,
   publicSourceAcquisitionResultSchema,
   publicSourceProjectionSchema,
+  publicSourceRetractionProjectionSchema,
   publicSourceSubscriptionSchema,
   type CanonicalPublicFactRevision,
   type PublicSourceAcquisitionResult,
   type PublicSourceProjection,
+  type PublicSourceRetraction,
+  type PublicSourceRetractionProjection,
   type PublicSourceSubscription,
 } from "./public-source-adapter-schema";
 import {
@@ -45,10 +49,19 @@ export interface AuthorizedPublicSourceProjection {
   readonly projection: PublicSourceProjection;
 }
 
+export interface AuthorizedPublicSourceRetractionProjection {
+  readonly fact: CanonicalPublicFactRevision;
+  readonly projection: PublicSourceRetractionProjection;
+  readonly retraction: PublicSourceRetraction;
+}
+
 export interface PublicSourceProjectionCommit {
   readonly projections: readonly AuthorizedPublicSourceProjection[];
   readonly projectionsCreated: number;
   readonly projectionsReused: number;
+  readonly retractions: readonly AuthorizedPublicSourceRetractionProjection[];
+  readonly retractionsCreated: number;
+  readonly retractionsReused: number;
   readonly replayed: boolean;
   readonly subscription: PublicSourceSubscription;
 }
@@ -323,6 +336,7 @@ export async function projectPublicSourceAcquisition(input: {
     JSON.stringify(journal.factRevisionIds) !==
       JSON.stringify(acquisition.candidateFactRevisionIds) ||
     JSON.stringify(journal.correctionIds) !== JSON.stringify(acquisition.correctionIds)
+    || JSON.stringify(journal.retractionIds) !== JSON.stringify(acquisition.retractionIds)
   ) {
     throw new PublicSourceSubscriptionStoreError("projection_conflict");
   }
@@ -336,10 +350,32 @@ export async function projectPublicSourceAcquisition(input: {
     throw new PublicSourceSubscriptionStoreError("projection_conflict");
   }
   const matching = facts.filter((fact) => matchesFilter(initial, fact));
+  const retractions = (await Promise.all(acquisition.retractionIds.map(
+    (retractionId) => readPublicSourceRetraction(retractionId, clients.acquisition),
+  ))).filter((retraction): retraction is PublicSourceRetraction => retraction !== null);
+  if (
+    retractions.length !== acquisition.retractionIds.length ||
+    retractions.some((retraction) => retraction.sourceInstanceId !== initial.sourceInstanceId)
+  ) {
+    throw new PublicSourceSubscriptionStoreError("projection_conflict");
+  }
+  const retractedFacts = new Map(await Promise.all(retractions.map(async (retraction) => [
+    retraction.retractionId,
+    await readPublicSourceFactRevision(retraction.fromRevisionId, clients.acquisition),
+  ] as const)));
+  if (retractions.some((retraction) => {
+    const fact = retractedFacts.get(retraction.retractionId);
+    return !fact || fact.logicalKey !== retraction.logicalKey;
+  })) {
+    throw new PublicSourceSubscriptionStoreError("projection_conflict");
+  }
   const projectedAt = (input.projectedAt ?? new Date()).toISOString();
   let projectionsCreated = 0;
   let projectionsReused = 0;
   const projections: AuthorizedPublicSourceProjection[] = [];
+  let retractionsCreated = 0;
+  let retractionsReused = 0;
+  const retractionProjections: AuthorizedPublicSourceRetractionProjection[] = [];
   for (const fact of matching) {
     const projection = publicSourceProjectionSchema.parse({
       acquisitionId: acquisition.acquisitionId,
@@ -378,6 +414,48 @@ export async function projectPublicSourceAcquisition(input: {
     }
     projections.push(Object.freeze({ fact, projection: durable }));
   }
+  for (const retraction of retractions) {
+    const fact = retractedFacts.get(retraction.retractionId)!;
+    if (!matchesFilter(initial, fact)) continue;
+    const projection = publicSourceRetractionProjectionSchema.parse({
+      acquisitionId: acquisition.acquisitionId,
+      factRevisionId: fact.revisionId,
+      factSchemaVersion: fact.factSchemaVersion,
+      monitorId: initial.monitorId,
+      projectedAt,
+      projectionId: `projection.${digestPublicSourceValue([
+        initial.subscriptionId,
+        retraction.retractionId,
+      ])}`,
+      recordType: "public_source_fact_retraction_projection",
+      retractionId: retraction.retractionId,
+      schemaVersion: 1,
+      sourceInstanceId: initial.sourceInstanceId,
+      subscriptionId: initial.subscriptionId,
+      workspaceId: input.scope.workspaceId,
+    });
+    const projectionKey = recordKey("projection", projection.projectionId, input.scope);
+    const raw = serialize(projection);
+    let durable = projection;
+    if (await client.compareAndSet(projectionKey, null, raw)) {
+      retractionsCreated += 1;
+    } else {
+      const existingRaw = rawValue(await client.get(projectionKey));
+      if (existingRaw === null) {
+        throw new PublicSourceSubscriptionStoreError("projection_conflict");
+      }
+      const existing = parseRaw(existingRaw, (value) =>
+        publicSourceRetractionProjectionSchema.parse(value));
+      const { projectedAt: _existingAt, ...existingIdentity } = existing;
+      const { projectedAt: _candidateAt, ...candidateIdentity } = projection;
+      if (JSON.stringify(existingIdentity) !== JSON.stringify(candidateIdentity)) {
+        throw new PublicSourceSubscriptionStoreError("projection_conflict");
+      }
+      durable = existing;
+      retractionsReused += 1;
+    }
+    retractionProjections.push(Object.freeze({ fact, projection: durable, retraction }));
+  }
   const replayed = initial.deliveryCursor.lastAcquisitionId === acquisition.acquisitionId;
   let subscription = initial;
   if (!replayed) {
@@ -406,6 +484,9 @@ export async function projectPublicSourceAcquisition(input: {
     projections: Object.freeze(projections),
     projectionsCreated,
     projectionsReused,
+    retractions: Object.freeze(retractionProjections),
+    retractionsCreated,
+    retractionsReused,
     replayed,
     subscription,
   });

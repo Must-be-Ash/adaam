@@ -637,6 +637,20 @@
     "sourceUrl": "https://disclosures-clerk.house.gov/public_disc/financial-pdfs/2026FD.zip"
   },
   "observedAt": "2026-08-16T16:35:52.811Z",
+  "postExtensionViabilityGate": {
+    "coverage": 0.85,
+    "explicitUnsupportedZeroRowDocuments": [
+      "ptr-01.pdf",
+      "ptr-06.pdf",
+      "ptr-15.pdf"
+    ],
+    "minimumCoverage": 0.8,
+    "passed": true,
+    "productionTransactionBearingDocuments": 17,
+    "reviewedTransactionBearingDocuments": 20,
+    "verifiedAt": "2026-08-16T18:00:00.000Z",
+    "verifier": "scripts/verify-public-source-house-acquisition.ts"
+  },
   "schemaVersion": 1,
   "selection": {
     "distinctMemberCount": 18,

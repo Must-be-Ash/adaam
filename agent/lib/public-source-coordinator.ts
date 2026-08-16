@@ -115,6 +115,7 @@ function emitWriteCount(input: {
   readonly counter:
     | "public_source_fact_revision_total"
     | "public_source_correction_total"
+    | "public_source_retraction_total"
     | "public_source_projection_total";
   readonly count: number;
   readonly operation: "created" | "reused";
@@ -190,6 +191,8 @@ export async function coordinatePublicSourceOccurrence(input: {
     emitWriteCount({ counter: "public_source_fact_revision_total", count: shared.commit.factsReused, operation: "reused", sink: input.sink });
     emitWriteCount({ counter: "public_source_correction_total", count: shared.commit.correctionsCreated, operation: "created", sink: input.sink });
     emitWriteCount({ counter: "public_source_correction_total", count: shared.commit.correctionsReused, operation: "reused", sink: input.sink });
+    emitWriteCount({ counter: "public_source_retraction_total", count: shared.commit.retractionsCreated, operation: "created", sink: input.sink });
+    emitWriteCount({ counter: "public_source_retraction_total", count: shared.commit.retractionsReused, operation: "reused", sink: input.sink });
   }
 
   if (!shared.journal || (shared.acquisition.status !== "complete" && shared.acquisition.status !== "no_change")) {
@@ -207,8 +210,18 @@ export async function coordinatePublicSourceOccurrence(input: {
     scope: input.scope,
     subscriptionId: subscription.subscriptionId,
   }, input.clients);
-  emitWriteCount({ counter: "public_source_projection_total", count: projection.projectionsCreated, operation: "created", sink: input.sink });
-  emitWriteCount({ counter: "public_source_projection_total", count: projection.projectionsReused, operation: "reused", sink: input.sink });
+  emitWriteCount({
+    counter: "public_source_projection_total",
+    count: projection.projectionsCreated + projection.retractionsCreated,
+    operation: "created",
+    sink: input.sink,
+  });
+  emitWriteCount({
+    counter: "public_source_projection_total",
+    count: projection.projectionsReused + projection.retractionsReused,
+    operation: "reused",
+    sink: input.sink,
+  });
   return Object.freeze({
     acquisition: shared.acquisition,
     baselineEstablished: shared.baselineEstablished,

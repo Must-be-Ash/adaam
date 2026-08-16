@@ -183,6 +183,7 @@ function errorResult(input: {
     baselineEstablished: false,
     corrections: Object.freeze([]),
     facts: Object.freeze([]),
+    retractions: Object.freeze([]),
     result: publicSourceAcquisitionResultSchema.parse({
       acquisitionId: input.acquisitionId,
       adapterDefinitionDigest: input.sourceInstance.adapterDefinitionDigest,
@@ -191,6 +192,7 @@ function errorResult(input: {
       baselineEstablished: false,
       candidateFactRevisionIds: [],
       correctionIds: [],
+      retractionIds: [],
       coverage: "partial",
       errorCode: input.errorCode,
       observedAt: input.observedAt,
@@ -288,6 +290,7 @@ export function acquireSecPublicSource(input: {
       baselineEstablished: evaluation.baselineEstablished,
       corrections: Object.freeze([]),
       facts,
+      retractions: Object.freeze([]),
       result: publicSourceAcquisitionResultSchema.parse({
         acquisitionId: id,
         adapterDefinitionDigest: sourceInstance.adapterDefinitionDigest,
@@ -296,6 +299,7 @@ export function acquireSecPublicSource(input: {
         baselineEstablished: evaluation.baselineEstablished,
         candidateFactRevisionIds: facts.map((fact) => fact.revisionId),
         correctionIds: [],
+        retractionIds: [],
         coverage: "complete",
         errorCode: null,
         observedAt: input.response.observedAt,

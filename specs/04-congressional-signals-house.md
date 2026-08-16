@@ -1,6 +1,6 @@
 # Spec 4: Congressional Signals v1 — House disclosures
 
-Status: Sprint 0 blocked at the measured House extraction viability gate
+Status: Sprint 0 complete; awaiting owner direction for Sprint 1
 
 Date: 2026-08-16
 
@@ -371,18 +371,28 @@ shows evidence and caveats without exposing unrelated workspace history.
   two scanned legacy forms returned `pdf_scanned_unsupported`, and one 13-page
   scanned attached-schedule form returned `pdf_page_limit_exceeded`. The
   retained corpus and hashes are under
-  `scripts/fixtures/public-source-adapters/house/live-review-2026-08-16/`.
-  Stop here: measured coverage is 0%, below the required 80%.
-- [ ] If required, implement and verify the focused Spec 3 extraction extension,
-  without adding extraction to the strategy layer.
-- [ ] Add the Spec 3 transaction retraction/tombstone projection required for
-  amended filings that remove prior rows.
-- [ ] Freeze the minimal transaction, signal, reason-code, policy, and immutable
+  `scripts/fixtures/public-source-adapters/house/live-review-2026-08-16/`. After
+  the focused extension below, the same production regression produced
+  transaction facts from 17/20 documents (85%), above the required 80%; the two
+  image-only documents and one page-limit document remained explicit zero-row
+  unsupported outcomes.
+- [x] Implement and verify the focused Spec 3 extraction extension for the
+  measured current digital e-filing layout, without adding extraction to the
+  strategy layer. The production parser now shares bounded positioned-row
+  recognition between feasibility inspection and canonical fact parsing.
+- [x] Add the Spec 3 transaction retraction/tombstone projection required for
+  amended filings that remove prior rows. A checked-in amended-filing fixture
+  proves the removed row remains immutable evidence, its latest head is a
+  tombstone, and the authorized workspace receives the retraction projection.
+- [x] Freeze the minimal transaction, signal, reason-code, policy, and immutable
   catalog contracts required by the first vertical, with positive and negative
-  fixtures.
-- [ ] Prove one retained official transaction passes through the real Spec 3
-  projection into one normalized strategy record, while zero-row and unsupported
-  documents remain explicit non-transactions.
+  fixtures. Contracts use ordinal bands, fixed reason codes, deterministic IDs,
+  pinned digests, amount ranges, and fail-closed catalog immutability.
+- [x] Prove one retained official transaction passes through the real Spec 3
+  projection into one normalized strategy record, while checked-in zero-row and
+  unsupported documents remain explicit non-transactions. The normalized record
+  preserves the official URL, fact/projection lineage, disclosure lag, amount
+  range, unresolved catalog state, and fixed `record_only` reasons.
 
 Exit: the real source can supply non-empty trustworthy transactions, amendments
 can retract rows, and the smallest vertical contracts are executable.

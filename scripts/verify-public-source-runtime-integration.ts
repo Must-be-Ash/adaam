@@ -127,11 +127,12 @@ await assert.rejects(
 );
 assert.equal(disabledFetches, 0);
 
-assert.equal(new Set(PUBLIC_SOURCE_RUNTIME_COUNTERS).size, 6);
+assert.equal(new Set(PUBLIC_SOURCE_RUNTIME_COUNTERS).size, 7);
 for (const observation of [
   { counter: "public_source_acquisition_total", outcome: "complete" },
   { counter: "public_source_fact_revision_total", operation: "created", value: 2 },
   { counter: "public_source_correction_total", operation: "reused" },
+  { counter: "public_source_retraction_total", operation: "created" },
   { counter: "public_source_acquisition_reused_total" },
   { counter: "public_source_projection_total", operation: "created" },
   {

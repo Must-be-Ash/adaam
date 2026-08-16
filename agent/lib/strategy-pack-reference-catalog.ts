@@ -29,9 +29,9 @@ export const HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER = Object.freeze({
   adapterVersion: "1.0.0",
   authorityOrigin: "https://disclosures-clerk.house.gov",
   configurationSchemaVersion: 1,
-  definitionDigest: "12ba63f3b98ecdb0abeb29c82fadfc3c0972052b144bc296f0d1d6912d3ea994",
+  definitionDigest: "c887a0e75bab48019434a9da18f22fc11be4e1dc18b9e85e7b00d767dbdc9264",
   factSchemaVersions: ["house-ptr-filing/v1", "house-ptr-transaction/v1"],
-  implementationRevision: 1,
+  implementationRevision: 2,
   limits: {
     maximumArchiveBytes: 5 * 1_024 * 1_024,
     maximumFactsPerAcquisition: 500,
