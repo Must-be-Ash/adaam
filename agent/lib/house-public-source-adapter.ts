@@ -133,9 +133,9 @@ function exactDate(
   value: string,
   failure: HouseAdapterError = new HouseAdapterError("xml_invalid", "xml"),
 ): string {
-  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/u.exec(value);
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/u.exec(value);
   if (!match) throw failure;
-  const normalized = `${match[3]}-${match[1]}-${match[2]}`;
+  const normalized = `${match[3]}-${match[1]!.padStart(2, "0")}-${match[2]!.padStart(2, "0")}`;
   const parsed = new Date(`${normalized}T00:00:00.000Z`);
   if (Number.isNaN(parsed.valueOf()) || parsed.toISOString().slice(0, 10) !== normalized) {
     throw failure;

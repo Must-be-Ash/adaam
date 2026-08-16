@@ -190,7 +190,8 @@ assert.equal(JSON.stringify(baseline.acquisition.facts).includes("workspaceId"),
 // only the reviewed document budget and advances a durable baseline batch.
 const largeBaselineRows = Array.from({ length: 501 }, (_, index) => ({
   docId: String(21_000_000 + index),
-  filingDate: "03/04/2026",
+  // The official yearly index uses non-zero-padded month/day values.
+  filingDate: "3/4/2026",
   first: "Jordan",
   last: "Sample",
   stateDistrict: "OR03",
@@ -221,6 +222,13 @@ assert.equal(largeBaselineFirst.acquisition.baselineEstablished, true);
 assert.equal(
   largeBaselineFirst.acquisition.facts.length,
   PUBLIC_SOURCE_LIMITS.maximumHouseDocumentsPerAcquisition,
+);
+const normalizedLargeBaselineFiling = largeBaselineFirst.acquisition.facts[0]?.payload;
+assert.equal(
+  normalizedLargeBaselineFiling?.schemaVersion === "house-ptr-filing/v1"
+    ? normalizedLargeBaselineFiling.filingDate
+    : null,
+  "2026-03-04",
 );
 assert.equal(largeBaselineFetches, PUBLIC_SOURCE_LIMITS.maximumHouseDocumentsPerAcquisition);
 assert.match(largeBaselineFirst.commit?.sourceInstance.cursor.watermark ?? "", /^baseline:/u);
@@ -356,6 +364,13 @@ for (const [name, documentBytes, expectedState, expectedError] of [
 for (const [name, indexBody, documentBody, expectedError, expectedStatus] of [
   ["zip", new Uint8Array([0x50, 0x4b, 0x03, 0x04]), singlePdf, "archive_invalid", "terminal_failure"],
   ["xml", await zipXml("<FinancialDisclosure>"), singlePdf, "xml_invalid", "terminal_failure"],
+  ["invalid-date", await zipXml(indexXml([{
+    docId: "20000999",
+    filingDate: "2/29/2025",
+    first: "Jordan",
+    last: "Sample",
+    stateDistrict: "OR03",
+  }])), singlePdf, "xml_invalid", "terminal_failure"],
   ["pdf", representativeIndex, malformedPdf, "pdf_invalid", "terminal_failure"],
   ["identity", representativeIndex, noTransactionsPdf, "parser_incomplete", "partial"],
   ["archive-bounds", new Uint8Array(PUBLIC_SOURCE_LIMITS.maximumArchiveBytes + 1), singlePdf, "transport_response_oversized", "terminal_failure"],

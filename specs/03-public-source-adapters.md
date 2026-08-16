@@ -439,9 +439,16 @@ without inspecting payloads or channel logs.
   TypeScript passed with `--noEmit`, the compiled Eve build passed with a
   fixture-only Redis URL, the Next 16 webpack production build passed, and the
   final diff check was clean.
-- [ ] With owner authorization, run one read-only live SEC observation and one
-  current House index plus explicitly selected PTR observation. Do not create a
-  strategy signal, alert, Photon message, or paid call during source smokes.
+- [x] With owner authorization, run one read-only live SEC observation and one
+  current House index plus explicitly selected PTR observation. On 2026-08-16
+  SEC returned three normalized S-1/S-1/A filings without emitting findings or
+  alerts. The current House archive passed the bounded feasibility parser with
+  1,547 members and 351 PTR rows. The deterministically selected latest row,
+  DocID `9116292` filed `8/13/2026`, produced a bounded two-page image-only PDF
+  and the reviewed `pdf_scanned_unsupported` classification. The observation
+  also exposed official non-zero-padded index dates; the adapter now normalizes
+  them with strict calendar validation. No strategy signal, alert, Photon
+  message, paid call, deployment write, or feature-flag change occurred.
 - [ ] With owner authorization, enable the new SEC path first, verify parity and
   rollback, then enable House acquisition. Keep unrelated flags unchanged.
 - [ ] Record production evidence and rollback state in `HANDOFF.md`, mark this
