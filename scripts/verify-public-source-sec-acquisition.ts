@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import {
   commitPublicSourceAcquisition,
   ensurePublicSourceInstance,
+  readCommittedPublicSourceAcquisitionForWindow,
+  readLatestPublicSourceFactRevision,
   readPublicSourceAcquisitionJournal,
   readPublicSourceFactRevision,
   readPublicSourceInstance,
@@ -119,6 +121,86 @@ assert.equal(
 );
 
 const client = new MemoryStore();
+const transportFailureClient = new MemoryStore();
+const transportFailure = await runSharedSecPublicSourceAcquisition({
+  client: transportFailureClient,
+  fetchResponse: async () => {
+    throw new DOMException("fixture timed out", "AbortError");
+  },
+  sourceId: SEC_IPO_SOURCE_ID,
+  window: window("2026-08-14T16:05:00.000Z"),
+});
+assert.equal(transportFailure.acquisition.status, "retryable_failure");
+assert.equal(transportFailure.acquisition.errorCode, "transport_timeout");
+assert.equal(transportFailure.commit, null);
+assert.equal(transportFailure.journal, null);
+assert.equal(
+  (await readPublicSourceInstance(reviewed.sourceInstance.sourceInstanceId, transportFailureClient))?.cursor.revision,
+  0,
+);
+assert.ok(
+  [...transportFailureClient.records.values()].some((raw) => {
+    const record = JSON.parse(raw) as { errorCode?: unknown; recordType?: unknown };
+    return record.recordType === "public_source_acquisition_result" &&
+      record.errorCode === "transport_timeout";
+  }),
+);
+
+const conflictClient = new MemoryStore();
+const conflictSource = await ensurePublicSourceInstance(
+  reviewed.sourceInstance,
+  conflictClient,
+);
+const conflictObservedAt = "2026-08-14T19:05:00.000Z";
+const conflictWindow = window(conflictObservedAt);
+const conflictResponseA = await response("initial.atom", conflictObservedAt);
+const conflictResponseB = await response("later-s1.atom", conflictObservedAt);
+const conflictAcquisitions = [conflictResponseA, conflictResponseB].map((candidate) =>
+  acquireSecPublicSource({
+    response: candidate,
+    sourceInstance: conflictSource,
+    window: conflictWindow,
+  })
+);
+assert.notEqual(
+  conflictAcquisitions[0]!.result.acquisitionId,
+  conflictAcquisitions[1]!.result.acquisitionId,
+);
+const conflictCommits = await Promise.allSettled(
+  conflictAcquisitions.map((acquisition) =>
+    commitPublicSourceAcquisition({ acquisition, client: conflictClient })
+  ),
+);
+assert.equal(conflictCommits.filter((result) => result.status === "fulfilled").length, 1);
+const conflictRejection = conflictCommits.find((result) => result.status === "rejected");
+assert.ok(conflictRejection);
+if (!(conflictRejection.reason instanceof Error) || conflictRejection.reason.message !== "source_cursor_conflict") {
+  throw conflictRejection.reason;
+}
+const winnerIndex = conflictCommits.findIndex((result) => result.status === "fulfilled");
+const loserIndex = winnerIndex === 0 ? 1 : 0;
+const winnerLogicalKeys = new Set(
+  conflictAcquisitions[winnerIndex]!.facts.map((fact) => fact.logicalKey),
+);
+for (const fact of conflictAcquisitions[loserIndex]!.facts.filter(
+  (candidate) => !winnerLogicalKeys.has(candidate.logicalKey),
+)) {
+  assert.equal(
+    await readLatestPublicSourceFactRevision(fact.logicalKey, conflictClient),
+    null,
+    "A cursor-conflict loser must not advance fact heads.",
+  );
+}
+const conflictWinner = await readCommittedPublicSourceAcquisitionForWindow({
+  accessClassification: "public",
+  adapterDefinitionDigest: conflictSource.adapterDefinitionDigest,
+  sourceInstanceId: conflictSource.sourceInstanceId,
+  window: conflictWindow,
+}, conflictClient);
+assert.equal(
+  conflictWinner?.result.acquisitionId,
+  conflictAcquisitions[winnerIndex]!.result.acquisitionId,
+);
 const baselineResponse = await response("initial.atom", "2026-08-14T17:05:00.000Z");
 const baseline = await runSecPublicSourceAcquisition({
   client,
@@ -218,6 +300,62 @@ assert.equal(
     : null,
   "0001000003-26-000001",
 );
+
+const standaloneClient = new MemoryStore();
+await runSecPublicSourceAcquisition({
+  client: standaloneClient,
+  response: baselineResponse,
+  sourceId: SEC_IPO_SOURCE_ID,
+  window: window(baselineResponse.observedAt),
+});
+const standaloneAmendmentBody = (await fixture("amendment.atom")).replace(
+  /\s*<entry>[\s\S]*?<category term="S-1"[\s\S]*?<\/entry>/u,
+  "",
+);
+const standaloneAmendment = await runSecPublicSourceAcquisition({
+  client: standaloneClient,
+  response: {
+    ...amendmentResponse,
+    body: standaloneAmendmentBody,
+  },
+  sourceId: SEC_IPO_SOURCE_ID,
+  window: window(amendmentResponse.observedAt),
+});
+assert.equal(standaloneAmendment.acquisition.result.status, "complete");
+assert.equal(standaloneAmendment.acquisition.facts.length, 1);
+const standalonePayload = standaloneAmendment.acquisition.facts[0]?.payload;
+assert.equal(standalonePayload?.schemaVersion, "sec-filing/v1");
+assert.equal(
+  standalonePayload?.schemaVersion === "sec-filing/v1"
+    ? standalonePayload.amendmentOfAccessionNumber
+    : "invalid",
+  null,
+);
+
+const boundedWindowClient = new MemoryStore();
+const boundedBaseline = await runSecPublicSourceAcquisition({
+  client: boundedWindowClient,
+  response: laterResponse,
+  sourceId: SEC_IPO_SOURCE_ID,
+  window: {
+    endAt: "2026-08-14T17:30:00.000Z",
+    startAt: "2026-08-14T16:31:00.000Z",
+  },
+});
+assert.equal(boundedBaseline.acquisition.baselineEstablished, true);
+assert.equal(boundedBaseline.acquisition.facts.length, 2);
+const boundedWindow = await runSecPublicSourceAcquisition({
+  client: boundedWindowClient,
+  response: laterResponse,
+  sourceId: SEC_IPO_SOURCE_ID,
+  window: {
+    endAt: "2026-08-14T17:30:00.000Z",
+    startAt: "2026-08-14T16:30:00.000Z",
+  },
+});
+assert.equal(boundedWindow.acquisition.result.status, "no_change");
+assert.equal(boundedWindow.acquisition.facts.length, 0);
+assert.equal(boundedWindow.commit?.sourceInstance.cursor.watermark, "2026-08-14T17:00:00.000Z");
 
 const cursorBeforeFailures = amendment.commit.sourceInstance.cursor;
 const malformedResponse = await response("malformed.atom", "2026-08-14T20:05:00.000Z");

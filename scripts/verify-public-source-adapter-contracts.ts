@@ -126,6 +126,7 @@ const acquisitionResult = publicSourceAcquisitionResultSchema.parse({
   adapterDefinitionDigest: digestA,
   adapterId: "sec-latest-filings",
   adapterVersion: "1.0.0",
+  baselineEstablished: true,
   candidateFactRevisionIds: [],
   correctionIds: [],
   coverage: "complete",

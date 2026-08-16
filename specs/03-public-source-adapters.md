@@ -426,10 +426,19 @@ without inspecting payloads or channel logs.
 
 ### Sprint 5 — final verification and controlled rollout
 
-- [ ] Run one independent diff-scoped review of Sprints 0–4 and resolve only
-  validated Spec 3 blockers; defer nonblocking hardening explicitly.
-- [ ] Run focused adapter suites, Spec 1/2 regression suites, typecheck, Eve
-  build, application build, and `git diff --check`.
+- [x] Run one independent diff-scoped review of Sprints 0–4 and resolve only
+  validated Spec 3 blockers; defer nonblocking hardening explicitly. The review
+  fixed SEC legacy-checkpoint migration, occurrence-window filtering, standalone
+  amendments, transport outcome persistence, House index/document bounds,
+  explicit unknown amendment lineage, and the normal cursor-conflict boundary.
+  Concurrency tuning, exhaustive races, parser fuzzing, broader manager tests,
+  and agent-visible health remain deferred in `BACKLOG.md`.
+- [x] Run focused adapter suites, Spec 1/2 regression suites, typecheck, Eve
+  build, application build, and `git diff --check`. On 2026-08-16 the five
+  focused Spec 3 suites and the affected Spec 1/2 regression matrix passed,
+  TypeScript passed with `--noEmit`, the compiled Eve build passed with a
+  fixture-only Redis URL, the Next 16 webpack production build passed, and the
+  final diff check was clean.
 - [ ] With owner authorization, run one read-only live SEC observation and one
   current House index plus explicitly selected PTR observation. Do not create a
   strategy signal, alert, Photon message, or paid call during source smokes.

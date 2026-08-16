@@ -186,6 +186,52 @@ assert.equal(
 );
 assert.equal(JSON.stringify(baseline.acquisition.facts).includes("workspaceId"), false);
 
+// A representative-scale yearly index is accepted, but each occurrence reads
+// only the reviewed document budget and advances a durable baseline batch.
+const largeBaselineRows = Array.from({ length: 501 }, (_, index) => ({
+  docId: String(21_000_000 + index),
+  filingDate: "03/04/2026",
+  first: "Jordan",
+  last: "Sample",
+  stateDistrict: "OR03",
+  suffix: "Jr.",
+}));
+const largeBaselineArchive = await zipXml(indexXml(largeBaselineRows));
+const largeBaselineClient = new MemoryStore();
+let largeBaselineFetches = 0;
+const runLargeBaselineBatch = async (observedAt: string) =>
+  runHousePublicSourceAcquisition({
+    client: largeBaselineClient,
+    fetchDocument: async (url) => {
+      largeBaselineFetches += 1;
+      return response({ body: scannedPdf, contentType: "application/pdf", observedAt, url });
+    },
+    fetchIndex: async (url) => response({
+      body: largeBaselineArchive,
+      contentType: "application/zip",
+      observedAt,
+      url,
+    }),
+    sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+    window: window(observedAt),
+  });
+const largeBaselineFirst = await runLargeBaselineBatch("2026-08-15T19:00:00.000Z");
+assert.equal(largeBaselineFirst.acquisition.result.status, "complete");
+assert.equal(largeBaselineFirst.acquisition.baselineEstablished, true);
+assert.equal(
+  largeBaselineFirst.acquisition.facts.length,
+  PUBLIC_SOURCE_LIMITS.maximumHouseDocumentsPerAcquisition,
+);
+assert.equal(largeBaselineFetches, PUBLIC_SOURCE_LIMITS.maximumHouseDocumentsPerAcquisition);
+assert.match(largeBaselineFirst.commit?.sourceInstance.cursor.watermark ?? "", /^baseline:/u);
+const largeBaselineSecond = await runLargeBaselineBatch("2026-08-16T01:00:00.000Z");
+assert.equal(largeBaselineSecond.acquisition.baselineEstablished, true);
+assert.equal(
+  largeBaselineFetches,
+  PUBLIC_SOURCE_LIMITS.maximumHouseDocumentsPerAcquisition * 2,
+);
+assert.equal(largeBaselineSecond.commit?.sourceInstance.cursor.revision, 2);
+
 // Same-window replay is source-global and performs no second external read.
 let replayReads = 0;
 const replay = await runSharedHousePublicSourceAcquisition({
@@ -256,7 +302,8 @@ const amendment = await runHousePublicSourceAcquisition({
 });
 assert.equal(amendment.acquisition.facts.length, 3);
 const amendmentFiling = amendment.acquisition.facts.find((fact) => fact.factSchemaVersion === "house-ptr-filing/v1")!;
-assert.equal(amendmentFiling.payload.schemaVersion === "house-ptr-filing/v1" ? amendmentFiling.payload.amendedDocId : null, "20000020");
+assert.equal(amendmentFiling.payload.schemaVersion === "house-ptr-filing/v1" ? amendmentFiling.payload.amendedDocId : "invalid", null);
+assert.equal(amendmentFiling.payload.schemaVersion === "house-ptr-filing/v1" ? amendmentFiling.payload.isAmendment : false, true);
 const amendmentTransactions = amendment.acquisition.facts.filter((fact) => fact.factSchemaVersion === "house-ptr-transaction/v1");
 assert.deepEqual(amendmentTransactions.map((fact) => fact.stableRowIdentity), ["row:1", "row:2"]);
 assert.deepEqual(amendmentTransactions.map((fact) => fact.payload.schemaVersion === "house-ptr-transaction/v1" ? fact.payload.amountRange.label : null), [

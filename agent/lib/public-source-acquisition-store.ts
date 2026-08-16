@@ -750,6 +750,10 @@ export async function commitPublicSourceAcquisition(input: {
   ).length;
   const correctionsReused = correctionOutcomes.length - correctionsCreated;
 
+  const journal = await commitJournal(prepared, result.observedAt, client);
+  const currentSource = await readPublicSourceInstance(result.sourceInstanceId, client);
+  if (!currentSource) throw new PublicSourceAcquisitionStoreError("source_instance_conflict");
+  const sourceInstance = await advanceCursor(currentSource, result, client);
   const correctionsByRevision = new Map(
     corrections.map((correction) => [correction.toRevisionId, correction] as const),
   );
@@ -759,11 +763,6 @@ export async function commitPublicSourceAcquisition(input: {
       fact,
     }, client);
   }
-
-  const journal = await commitJournal(prepared, result.observedAt, client);
-  const currentSource = await readPublicSourceInstance(result.sourceInstanceId, client);
-  if (!currentSource) throw new PublicSourceAcquisitionStoreError("source_instance_conflict");
-  const sourceInstance = await advanceCursor(currentSource, result, client);
   await writeAcquisitionResult(result, client);
   await publishPublicSourceAcquisition({
     accessClassification: "public",

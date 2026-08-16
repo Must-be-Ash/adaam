@@ -11,6 +11,7 @@ import {
   readPublicSourceAcquisitionJournal,
   readReusablePublicSourceAcquisition,
   recordPublicSourceAcquisitionOutcome,
+  PublicSourceAcquisitionStoreError,
   type PublicSourceAcquisitionCommit,
   type PublicSourceAcquisitionStoreClient,
   type PublicSourcePreparedAcquisition,
@@ -106,6 +107,23 @@ const sharedAcquisitions = new Map<
   string,
   Promise<Omit<SharedHousePublicSourceAcquisitionResult, "reused">>
 >();
+
+async function readCursorConflictWinner(input: {
+  readonly client?: PublicSourceAcquisitionStoreClient;
+  readonly source: PublicSourceInstance;
+  readonly window: { readonly endAt: string; readonly startAt: string };
+}) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const committed = await readCommittedPublicSourceAcquisitionForWindow({
+      accessClassification: "public",
+      adapterDefinitionDigest: input.source.adapterDefinitionDigest,
+      sourceInstanceId: input.source.sourceInstanceId,
+      window: input.window,
+    }, input.client);
+    if (committed) return committed;
+  }
+  return null;
+}
 
 function digestBytes(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
@@ -274,18 +292,6 @@ function rowMatchesLatestIndex(latest: CanonicalPublicFactRevision, row: HouseIn
     JSON.stringify(latest.payload.filer) === JSON.stringify(row.filer);
 }
 
-function sameFiler(left: HouseIndexRow, right: HouseIndexRow): boolean {
-  return left.filer.firstName === right.filer.firstName &&
-    left.filer.lastName === right.filer.lastName &&
-    left.filer.stateDistrict === right.filer.stateDistrict;
-}
-
-function priorDocument(rows: readonly HouseIndexRow[], current: HouseIndexRow): string | null {
-  return rows
-    .filter((row) => row.docId !== current.docId && sameFiler(row, current) && row.filingDate < current.filingDate)
-    .at(-1)?.docId ?? null;
-}
-
 function parseAmount(label: string): HouseTransactionRow["amountRange"] {
   const closed = /^\$\s*([\d,]+)\s*-\s*\$\s*([\d,]+)$/u.exec(label);
   return Object.freeze({
@@ -441,6 +447,7 @@ function failureAcquisition(input: {
       adapterDefinitionDigest: input.source.adapterDefinitionDigest,
       adapterId: input.source.adapterId,
       adapterVersion: input.source.adapterVersion,
+      baselineEstablished: false,
       candidateFactRevisionIds: [],
       correctionIds: [],
       coverage: "partial",
@@ -517,8 +524,10 @@ async function acquireHouse(input: {
       source.configuration.year,
     );
     const rows = normalizeIndex(archive.xml, source.configuration.year);
-    const baselineEstablished = source.cursor.revision === 0;
-    if (!baselineEstablished && source.cursor.contentDigest === archive.xmlDigest) {
+    const pendingBatch = /^(?:baseline|incremental):/u.test(source.cursor.watermark ?? "");
+    const baselineEstablished = source.cursor.revision === 0 ||
+      source.cursor.watermark?.startsWith("baseline:") === true;
+    if (!pendingBatch && !baselineEstablished && source.cursor.contentDigest === archive.xmlDigest) {
       return successfulAcquisition({
         archiveDigest: archive.archiveDigest,
         baselineEstablished,
@@ -548,7 +557,11 @@ async function acquireHouse(input: {
       outputDigest: string;
       status: "complete" | "partial" | "unsupported";
     }> = [];
-    for (const row of selected) {
+    const selectedBatch = selected.slice(
+      0,
+      PUBLIC_SOURCE_LIMITS.maximumHouseDocumentsPerAcquisition,
+    );
+    for (const row of selectedBatch) {
       const publicUrl = exactPtrUrl(source, row);
       const documentResponse = await input.fetchDocument(publicUrl);
       validateResponse({ expectedUrl: publicUrl, kind: "pdf", response: documentResponse });
@@ -566,17 +579,14 @@ async function acquireHouse(input: {
       if (extraction.extractionState === "complete" && transactions.length !== extraction.transactionRowCount) {
         throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
       }
-      const amendedDocId = extraction.layout === "amended" ? priorDocument(rows, row) : null;
-      if (extraction.layout === "amended" && amendedDocId === null) {
-        throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
-      }
+      const amendedDocId = null;
       const filingPayload = {
         amendedDocId,
         docId: row.docId,
         extraction: extractionState,
         filer: row.filer,
         filingDate: row.filingDate,
-        isAmendment: amendedDocId !== null,
+        isAmendment: extraction.layout === "amended",
         publicDocumentUrl: publicUrl,
         schemaVersion: "house-ptr-filing/v1" as const,
         year: row.year,
@@ -648,6 +658,8 @@ async function acquireHouse(input: {
         throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
       }
     }
+    const hasMore = selectedBatch.length < selected.length;
+    const lastProcessed = selectedBatch.at(-1);
     return successfulAcquisition({
       archiveDigest: archive.archiveDigest,
       baselineEstablished,
@@ -656,10 +668,12 @@ async function acquireHouse(input: {
       observedAt: input.indexResponse.observedAt,
       pdfReceipts,
       source,
-      status: facts.length === 0 ? "no_change" : "complete",
-      watermark: rows.at(-1)
-        ? `${rows.at(-1)!.filingDate}:${rows.at(-1)!.docId}`
-        : `${source.configuration.year}:none`,
+      status: facts.length === 0 && !hasMore ? "no_change" : "complete",
+      watermark: hasMore && lastProcessed
+        ? `${baselineEstablished ? "baseline" : "incremental"}:${lastProcessed.filingDate}:${lastProcessed.docId}`
+        : rows.at(-1)
+          ? `${rows.at(-1)!.filingDate}:${rows.at(-1)!.docId}`
+          : `${source.configuration.year}:none`,
       window: input.window,
       xmlDigest: archive.xmlDigest,
     });
@@ -710,6 +724,7 @@ function successfulAcquisition(input: {
       adapterDefinitionDigest: input.source.adapterDefinitionDigest,
       adapterId: input.source.adapterId,
       adapterVersion: input.source.adapterVersion,
+      baselineEstablished: input.baselineEstablished,
       candidateFactRevisionIds: input.facts.map((fact) => fact.revisionId),
       correctionIds: input.corrections.map((item) => item.correctionId),
       coverage: "complete",
@@ -802,7 +817,7 @@ export async function runSharedHousePublicSourceAcquisition(input: {
   if (committedForWindow) {
     return Object.freeze({
       acquisition: committedForWindow.result,
-      baselineEstablished: committedForWindow.journal.expectedCursorRevision === 0,
+      baselineEstablished: committedForWindow.result.baselineEstablished,
       commit: null,
       journal: committedForWindow.journal,
       reused: true,
@@ -820,7 +835,7 @@ export async function runSharedHousePublicSourceAcquisition(input: {
   if (reusable) {
     return Object.freeze({
       acquisition: reusable.result,
-      baselineEstablished: reusable.journal.expectedCursorRevision === 0,
+      baselineEstablished: reusable.result.baselineEstablished,
       commit: null,
       journal: reusable.journal,
       reused: true,
@@ -835,12 +850,34 @@ export async function runSharedHousePublicSourceAcquisition(input: {
     if (raced) {
       return Object.freeze({
         acquisition: raced.result,
-        baselineEstablished: raced.journal.expectedCursorRevision === 0,
+        baselineEstablished: raced.result.baselineEstablished,
         commit: null,
         journal: raced.journal,
       });
     }
-    const completed = await runHousePublicSourceAcquisition(input);
+    let completed: Awaited<ReturnType<typeof runHousePublicSourceAcquisition>>;
+    try {
+      completed = await runHousePublicSourceAcquisition(input);
+    } catch (error) {
+      if (
+        !(error instanceof PublicSourceAcquisitionStoreError) ||
+        (error.code !== "source_cursor_conflict" && error.code !== "journal_conflict")
+      ) {
+        throw error;
+      }
+      const winner = await readCursorConflictWinner({
+        client: input.client,
+        source,
+        window: input.window,
+      });
+      if (!winner) throw error;
+      return Object.freeze({
+        acquisition: winner.result,
+        baselineEstablished: winner.result.baselineEstablished,
+        commit: null,
+        journal: winner.journal,
+      });
+    }
     const journal = completed.commit?.journal ?? await readPublicSourceAcquisitionJournal(
       completed.acquisition.result.acquisitionId,
       input.client,

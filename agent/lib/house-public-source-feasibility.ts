@@ -57,7 +57,7 @@ function safeArchivePath(filename: string): boolean {
 
 function assertBoundedHouseXmlShape(xml: string): void {
   const tags = xml.match(/<[^>]+>/gu) ?? [];
-  if (tags.length > PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition * 12 + 10) {
+  if (tags.length > PUBLIC_SOURCE_LIMITS.maximumHouseIndexRows * 12 + 10) {
     throw new HouseFeasibilityError("xml_bounds_exceeded");
   }
   let depth = 0;
@@ -156,7 +156,7 @@ export async function inspectHouseIndexArchive(
       : rawMembers === undefined
         ? []
         : [rawMembers];
-    if (members.length === 0 || members.length > PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition) {
+    if (members.length === 0 || members.length > PUBLIC_SOURCE_LIMITS.maximumHouseIndexRows) {
       throw new HouseFeasibilityError("xml_bounds_exceeded");
     }
     const ptrCount = members.filter((member) =>

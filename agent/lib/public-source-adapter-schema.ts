@@ -61,6 +61,8 @@ export const PUBLIC_SOURCE_LIMITS = Object.freeze({
   maximumArchiveRatio: 100,
   maximumCanonicalPayloadBytes: 64 * 1024,
   maximumFactsPerAcquisition: 500,
+  maximumHouseDocumentsPerAcquisition: 25,
+  maximumHouseIndexRows: 10_000,
   maximumPdfBytes: 10 * 1024 * 1024,
   maximumPdfExecutionMilliseconds: 5_000,
   maximumPdfPages: 8,
@@ -237,6 +239,7 @@ export const publicSourceAcquisitionResultSchema = z.object({
   adapterDefinitionDigest: digestSchema,
   adapterId: adapterIdSchema,
   adapterVersion: semverSchema,
+  baselineEstablished: z.boolean(),
   candidateFactRevisionIds: z.array(idSchema).max(PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition),
   correctionIds: z.array(idSchema).max(PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition),
   coverage: z.enum(["complete", "partial", "unsupported"]),
@@ -325,7 +328,7 @@ const secFilingPayloadSchema = z.object({
   schemaVersion: z.literal("sec-filing/v1"),
   updatedAt: timestampSchema,
 }).strict().superRefine((payload, context) => {
-  if ((payload.formType === "S-1/A") !== (payload.amendmentOfAccessionNumber !== null)) {
+  if (payload.formType === "S-1" && payload.amendmentOfAccessionNumber !== null) {
     context.addIssue({ code: "custom", message: "sec_filing_amendment_invalid" });
   }
 });
@@ -349,7 +352,7 @@ const housePtrFilingPayloadSchema = z.object({
   schemaVersion: z.literal("house-ptr-filing/v1"),
   year: z.number().int().min(2012).max(2100),
 }).strict().superRefine((payload, context) => {
-  if (payload.isAmendment !== (payload.amendedDocId !== null)) {
+  if (!payload.isAmendment && payload.amendedDocId !== null) {
     context.addIssue({ code: "custom", message: "house_filing_amendment_invalid" });
   }
 });

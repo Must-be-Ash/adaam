@@ -206,14 +206,23 @@ function alertPresentation(evaluation: SecIpoEvaluation) {
 }
 
 function evaluationFromProjections(input: {
-  baselineEstablished: boolean;
   checkpoint: SecIpoCheckpoint;
+  previousCheckpoint: SecIpoCheckpoint | null;
   projections: readonly AuthorizedPublicSourceProjection[];
   scope: { ownerId: string; workspaceId: string };
+  sourceBaselineEstablished: boolean;
 }): SecIpoEvaluation {
-  const findings = input.baselineEstablished
+  const baselineEstablished = input.previousCheckpoint === null &&
+    input.sourceBaselineEstablished;
+  const eligibleProjections = input.previousCheckpoint === null
+    ? input.projections
+    : input.projections.filter(({ fact }) =>
+        fact.payload.schemaVersion === "sec-filing/v1" &&
+        fact.payload.updatedAt > input.previousCheckpoint!.watermark
+      );
+  const findings = baselineEstablished
     ? []
-    : input.projections.map(({ fact }) => {
+    : eligibleProjections.map(({ fact }) => {
         if (fact.payload.schemaVersion !== "sec-filing/v1") {
           throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
         }
@@ -294,7 +303,7 @@ function evaluationFromProjections(input: {
         ? "A newly observed S-1 is a potential IPO registration, not confirmation of an IPO."
         : "A newly observed S-1/A amends an existing registration and is not a new IPO candidate.",
     }))),
-    baselineEstablished: input.baselineEstablished,
+    baselineEstablished,
     checkpoint: input.checkpoint,
     findings: Object.freeze(findings),
   });
@@ -392,6 +401,7 @@ export async function evaluateSecIpoSourceForWorker(input: {
       state: input.clients?.state,
       subscription: input.clients?.subscription,
     });
+    const previousCheckpoint = currentCheckpoint(migrated.monitor);
     const coordinated = await coordinatePublicSourceOccurrence({
       clients: {
         acquisition: input.clients?.acquisition,
@@ -418,13 +428,14 @@ export async function evaluateSecIpoSourceForWorker(input: {
       throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
     }
     evaluated = evaluationFromProjections({
-      baselineEstablished: coordinated.baselineEstablished,
       checkpoint: {
         contentDigest: nextCursor.contentDigest,
         watermark: nextCursor.watermark,
       },
+      previousCheckpoint,
       projections: coordinated.projection.projections,
       scope,
+      sourceBaselineEstablished: coordinated.baselineEstablished,
     });
   } else {
     const fetched = input.clients?.fetchSource

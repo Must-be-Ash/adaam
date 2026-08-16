@@ -334,6 +334,19 @@ ordinary-path failure:
   Spec 3 adapter/fact contracts, including identity-bound verification, replay
   windows, rate/concurrency limits, deduplication, fallback, and rollback.
 
+### Spec 3 deferred hardening
+
+- [ ] Add broader public-source stale-reference, manager health-fallback, late
+  subscriber lag, multi-owner key-isolation, and cross-process crash/race tests
+  after an observed ordinary-path failure or before adapter generalization.
+- [ ] Evaluate fixed-concurrency write/fetch tuning only with production latency
+  evidence; the current document, fact, and projection work is explicitly
+  bounded and remains sequential for deterministic failure behavior.
+- [ ] Expand House parser hardening with CPU-adversarial PDF/ZIP fuzzing,
+  reordered/removed transaction correction semantics, and long archive replay.
+- [ ] Expose bounded public-source health through Eve's workspace inspection
+  tools when interactive agent diagnosis becomes a product requirement.
+
 ## 3. Event-trigger work
 
 - [x] Bind each new workspace monitor and alert reply target to an immutable

@@ -786,6 +786,43 @@ assert.ok(subscriptionA);
 assert.ok(subscriptionB);
 assert.equal(subscriptionA.deliveryCursor.revision, 2);
 assert.equal(subscriptionB.deliveryCursor.revision, 2);
+
+// The first flagged run keeps an existing workspace checkpoint authoritative:
+// global source baselining must not suppress filings newer than that checkpoint.
+const migratingWorkspace = await setupWorkspace(
+  "823e4567-e89b-42d3-a456-426614174000",
+);
+const migratingLegacyBaseline = await execute(
+  await prepare({ ...migratingWorkspace, now: baselineNow }),
+  baselineNow,
+  fetchResponse(fixtureBodies.initial),
+);
+assert.equal(migratingLegacyBaseline.baselineEstablished, true);
+const migratingMonitor = await getWorkspaceMonitor(
+  migratingWorkspace.scope,
+  migratingWorkspace.monitor.monitorId,
+  monitors,
+);
+assert.ok(migratingMonitor);
+const migratingAcquisitions = new MemoryCasStore();
+const migratingSubscriptions = new MemoryCasStore();
+const migratingFirstAdapterRun = await execute(
+  await prepare({
+    monitor: migratingMonitor,
+    now: laterNow,
+    scope: migratingWorkspace.scope,
+  }),
+  laterNow,
+  fetchResponse(fixtureBodies.later),
+  {
+    acquisition: migratingAcquisitions,
+    subscription: migratingSubscriptions,
+  },
+  publicSourceEnvironment,
+);
+assert.equal(migratingFirstAdapterRun.baselineEstablished, false);
+assert.equal(migratingFirstAdapterRun.factCount, 1);
+assert.equal(migratingFirstAdapterRun.outcome.outcome, "finding_staged");
 assert.equal(
   subscriptionA.deliveryCursor.lastAcquisitionId,
   subscriptionB.deliveryCursor.lastAcquisitionId,

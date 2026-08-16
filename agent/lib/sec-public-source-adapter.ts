@@ -6,6 +6,7 @@ import {
   readPublicSourceAcquisitionJournal,
   readReusablePublicSourceAcquisition,
   recordPublicSourceAcquisitionOutcome,
+  PublicSourceAcquisitionStoreError,
   type PublicSourceAcquisitionCommit,
   type PublicSourceAcquisitionStoreClient,
   type PublicSourcePreparedAcquisition,
@@ -60,6 +61,23 @@ const sharedAcquisitions = new Map<
   string,
   Promise<Omit<SharedSecPublicSourceAcquisitionResult, "reused">>
 >();
+
+async function readCursorConflictWinner(input: {
+  readonly client?: PublicSourceAcquisitionStoreClient;
+  readonly sourceInstance: PublicSourceInstance;
+  readonly window: { readonly endAt: string; readonly startAt: string };
+}) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const committed = await readCommittedPublicSourceAcquisitionForWindow({
+      accessClassification: "public",
+      adapterDefinitionDigest: input.sourceInstance.adapterDefinitionDigest,
+      sourceInstanceId: input.sourceInstance.sourceInstanceId,
+      window: input.window,
+    }, input.client);
+    if (committed) return committed;
+  }
+  return null;
+}
 
 function acquisitionId(input: {
   bodyDigest: string;
@@ -153,10 +171,12 @@ function errorResult(input: {
     | "parser_incomplete"
     | "transport_redirect_forbidden"
     | "transport_response_oversized"
+    | "transport_timeout"
     | "xml_invalid";
   observedAt: string;
+  stage?: "normalize" | "transport";
   sourceInstance: PublicSourceInstance;
-  status: "partial" | "terminal_failure" | "uncertain";
+  status: "partial" | "retryable_failure" | "terminal_failure" | "uncertain";
   window: { endAt: string; startAt: string };
 }): SecPublicSourceAcquisition {
   return Object.freeze({
@@ -168,6 +188,7 @@ function errorResult(input: {
       adapterDefinitionDigest: input.sourceInstance.adapterDefinitionDigest,
       adapterId: input.sourceInstance.adapterId,
       adapterVersion: input.sourceInstance.adapterVersion,
+      baselineEstablished: false,
       candidateFactRevisionIds: [],
       correctionIds: [],
       coverage: "partial",
@@ -175,25 +196,33 @@ function errorResult(input: {
       observedAt: input.observedAt,
       proposedNextCursor: null,
       recordType: "public_source_acquisition_result",
-      retryAfterSeconds: null,
+      retryAfterSeconds: input.status === "retryable_failure" ? 60 : null,
       schemaVersion: 1,
       sourceInstanceId: input.sourceInstance.sourceInstanceId,
-      stageReceipts: [
-        {
-          errorCode: null,
-          inputDigest: input.bodyDigest,
-          outputDigest: input.bodyDigest,
-          stage: "transport",
-          status: "complete",
-        },
-        {
-          errorCode: input.errorCode,
-          inputDigest: input.bodyDigest,
-          outputDigest: null,
-          stage: "normalize",
-          status: "failed",
-        },
-      ],
+      stageReceipts: input.stage === "transport"
+        ? [{
+            errorCode: input.errorCode,
+            inputDigest: input.bodyDigest,
+            outputDigest: null,
+            stage: "transport",
+            status: "failed",
+          }]
+        : [
+            {
+              errorCode: null,
+              inputDigest: input.bodyDigest,
+              outputDigest: input.bodyDigest,
+              stage: "transport",
+              status: "complete",
+            },
+            {
+              errorCode: input.errorCode,
+              inputDigest: input.bodyDigest,
+              outputDigest: null,
+              stage: "normalize",
+              status: "failed",
+            },
+          ],
       status: input.status,
     }),
     window: input.window,
@@ -239,26 +268,15 @@ export function acquireSecPublicSource(input: {
       page,
       checkpoint(sourceInstance),
       { ownerId: "public_source", workspaceId: "00000000-0000-4000-8000-000000000000" },
+      { windowEndAt: input.window.endAt },
     );
     const selectedFilings = evaluation.baselineEstablished
-      ? page.filings
+      ? page.filings.filter((filing) => filing.updatedAt <= input.window.endAt)
       : evaluation.findings.map((finding) => finding.filing);
     const registrations = amendmentAccessions(page);
-    if (selectedFilings.some((filing) =>
-      filing.formType === "S-1/A" && !registrations.has(filing.registrationKey))) {
-      return errorResult({
-        acquisitionId: id,
-        bodyDigest,
-        errorCode: "parser_incomplete",
-        observedAt: input.response.observedAt,
-        sourceInstance,
-        status: "partial",
-        window: input.window,
-      });
-    }
     const facts = Object.freeze(selectedFilings.map((filing) => canonicalFact({
       amendmentOfAccessionNumber: filing.formType === "S-1/A"
-        ? registrations.get(filing.registrationKey)!
+        ? registrations.get(filing.registrationKey) ?? null
         : null,
       filing,
       sourceInstance,
@@ -275,6 +293,7 @@ export function acquireSecPublicSource(input: {
         adapterDefinitionDigest: sourceInstance.adapterDefinitionDigest,
         adapterId: sourceInstance.adapterId,
         adapterVersion: sourceInstance.adapterVersion,
+        baselineEstablished: evaluation.baselineEstablished,
         candidateFactRevisionIds: facts.map((fact) => fact.revisionId),
         correctionIds: [],
         coverage: "complete",
@@ -372,7 +391,7 @@ export async function runSharedSecPublicSourceAcquisition(input: {
   if (committedForWindow) {
     return Object.freeze({
       acquisition: committedForWindow.result,
-      baselineEstablished: committedForWindow.journal.expectedCursorRevision === 0,
+      baselineEstablished: committedForWindow.result.baselineEstablished,
       commit: null,
       journal: committedForWindow.journal,
       reused: true,
@@ -393,7 +412,7 @@ export async function runSharedSecPublicSourceAcquisition(input: {
   if (reusable) {
     return Object.freeze({
       acquisition: reusable.result,
-      baselineEstablished: reusable.journal.expectedCursorRevision === 0,
+      baselineEstablished: reusable.result.baselineEstablished,
       commit: null,
       journal: reusable.journal,
       reused: true,
@@ -410,18 +429,72 @@ export async function runSharedSecPublicSourceAcquisition(input: {
     if (raced) {
       return Object.freeze({
         acquisition: raced.result,
-        baselineEstablished: raced.journal.expectedCursorRevision === 0,
+        baselineEstablished: raced.result.baselineEstablished,
         commit: null,
         journal: raced.journal,
       });
     }
-    const response = await input.fetchResponse();
-    const completed = await runSecPublicSourceAcquisition({
-      client: input.client,
-      response,
-      sourceId: input.sourceId,
-      window: input.window,
-    });
+    let response: SecPublicSourceResponse;
+    try {
+      response = await input.fetchResponse();
+    } catch (error) {
+      const timedOut = error instanceof Error &&
+        (error.name === "AbortError" || /timed?\s*out|timeout/iu.test(error.message));
+      const errorCode = timedOut ? "transport_timeout" as const : "acquisition_uncertain" as const;
+      const failure = errorResult({
+        acquisitionId: acquisitionId({
+          bodyDigest: digestPublicSourceValue(errorCode),
+          sourceInstance,
+          window: input.window,
+        }),
+        bodyDigest: digestPublicSourceValue([
+          sourceInstance.sourceInstanceId,
+          input.window,
+          errorCode,
+        ]),
+        errorCode,
+        observedAt: input.window.endAt,
+        sourceInstance,
+        stage: "transport",
+        status: timedOut ? "retryable_failure" : "uncertain",
+        window: input.window,
+      });
+      await recordPublicSourceAcquisitionOutcome(failure.result, input.client);
+      return Object.freeze({
+        acquisition: failure.result,
+        baselineEstablished: false,
+        commit: null,
+        journal: null,
+      });
+    }
+    let completed: Awaited<ReturnType<typeof runSecPublicSourceAcquisition>>;
+    try {
+      completed = await runSecPublicSourceAcquisition({
+        client: input.client,
+        response,
+        sourceId: input.sourceId,
+        window: input.window,
+      });
+    } catch (error) {
+      if (
+        !(error instanceof PublicSourceAcquisitionStoreError) ||
+        (error.code !== "source_cursor_conflict" && error.code !== "journal_conflict")
+      ) {
+        throw error;
+      }
+      const winner = await readCursorConflictWinner({
+        client: input.client,
+        sourceInstance,
+        window: input.window,
+      });
+      if (!winner) throw error;
+      return Object.freeze({
+        acquisition: winner.result,
+        baselineEstablished: winner.result.baselineEstablished,
+        commit: null,
+        journal: winner.journal,
+      });
+    }
     const journal = completed.commit?.journal ?? await readPublicSourceAcquisitionJournal(
       completed.acquisition.result.acquisitionId,
       input.client,
