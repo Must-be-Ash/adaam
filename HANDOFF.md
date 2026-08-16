@@ -591,9 +591,12 @@ The most important differences between the working app and `NORTH_STAR.md` are:
 1. **Owner and workspace parity is Photon-only.** Durable owner mapping,
    assignment, runtimes, monitors, alerts, and manager controls exist for
    Photon's durable mode. Telegram and HTTP do not use that broker.
-2. **Later strategy packs remain.** The versioned pack framework, IPO reference
-   pack, canonical SEC/House public-source adapters, and Congressional Signals
-   are production accepted. Insider Clusters and shared signals remain Specs
+2. **Hybrid evidence reasoning and later strategies remain.** The versioned pack
+   framework, IPO reference pack, canonical SEC/House public-source adapters,
+   and Congressional Signals are production accepted.
+   [`Spec 4A`](specs/04a-hybrid-evidence-reasoning.md) now defines the shared
+   deterministic-first/model-recovery foundation; Specs 4B and 4C prove it with
+   two real consumers before Insider Clusters and shared signals resume in Specs
    5–6.
 3. **Artifacts are public-only.** Private portfolio/account deliverables and
    safe recovery of paid temporary outputs require owner-private storage.
