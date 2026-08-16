@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { STRATEGY_PACK_CATALOG_GENERATED } from "./strategy-pack-catalog.generated";
 import {
   compareStrategyPackVersions,
@@ -48,6 +50,7 @@ export function createStrategyPackCatalog(
     blockedVersions?: readonly { readonly id: string; readonly version: string }[];
   } = {},
 ): {
+  readonly catalogDigest: string;
   readonly entries: readonly StrategyPackCatalogEntry[];
   listModelSafe(): readonly ModelSafeStrategyPackSummary[];
   resolve(input: {
@@ -81,8 +84,12 @@ export function createStrategyPackCatalog(
   const byKey = new Map(
     frozenEntries.map((entry) => [catalogKey(entry.id, entry.version), entry]),
   );
+  const catalogDigest = createHash("sha256")
+    .update(JSON.stringify(frozenEntries))
+    .digest("hex");
 
   return Object.freeze({
+    catalogDigest,
     entries: frozenEntries,
     listModelSafe(): readonly ModelSafeStrategyPackSummary[] {
       return deepFreeze(

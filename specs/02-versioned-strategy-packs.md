@@ -217,7 +217,7 @@ must promote the smallest necessary prerequisite into its own sprint.
   workspaces.
 - [x] Every pack mutation is revision-checked, atomic, and idempotent. Failure
   changes no durable key and creates no duplicate monitor or repeated paid work.
-- [ ] A missing, invalid, blocked, or digest-mismatched pack fails closed. Its
+- [x] A missing, invalid, blocked, or digest-mismatched pack fails closed. Its
   pack-managed monitors pause before another worker starts.
 - [x] Pack configuration and instruction sizes remain bounded. Raw research
   documents never become durable conversation state or default prompt content.
@@ -351,7 +351,7 @@ The definition lists stable references to:
   typed reason from Spec 1.
 - [x] A missing required capability blocks activation. Optional-capability and
   degraded-mode behavior waits until a real pack requires it.
-- [ ] Run provider tool-inventory/schema drift checks before declaring a pack
+- [x] Run provider tool-inventory/schema drift checks before declaring a pack
   healthy. Newly discovered tools remain disabled.
 - [x] Reject credentials, signed URLs, mutable redirectors, and unrestricted web
   origins in source definitions.
@@ -383,7 +383,7 @@ Each template includes:
   concurrency, and run-budget limits.
 - [x] Materialize templates as ordinary Spec 1 workspace monitors with immutable
   workspace identity plus pack ID, version, resource ID, and binding revision.
-- [ ] Let the owner edit only template fields declared overridable. Record those
+- [x] Let the owner edit only template fields declared overridable. Record those
   values as workspace-owned overrides rather than altering the pack definition.
 - [x] Treat owner-created monitors as separate resources that pack
   mutations can never rewrite or remove.
@@ -618,7 +618,7 @@ plus the immutable receipt or bounded error.
 - [x] Bind every mutation to owner, conversation, workspace, generation,
   expected binding revision, mutation ID, and one-time request ID.
 - [x] Make stale, repeated, cross-workspace, and expired actions harmless.
-- [ ] Do not reuse financial approval copy or state for strategy-pack changes.
+- [x] Do not reuse financial approval copy or state for strategy-pack changes.
 - [x] Keep pack details progressively disclosed so monitor controls remain easy
   to reach on mobile.
 
@@ -684,7 +684,7 @@ and source provenance.
 
 - [x] Removal pauses or retires pack-managed resources without deleting their
   checkpoints, findings, alerts, or history.
-- [ ] A digest mismatch, missing version, or blocked version pauses managed
+- [x] A digest mismatch, missing version, or blocked version pauses managed
   monitors and fails closed before another worker executes.
 - [x] Replaying a removal returns the original receipt and creates no duplicate
   resource mutations.
@@ -694,12 +694,12 @@ and source provenance.
 
 - [x] Invalid pack at build: fail catalog generation with bounded file and error
   code; do not emit a partial production catalog.
-- [ ] Missing installed version after deployment: mark the binding unavailable,
+- [x] Missing installed version after deployment: mark the binding unavailable,
   pause its managed monitors, preserve workspace data, and allow only inspection
   or non-destructive removal.
 - [x] Same version/different digest: treat as an integrity failure, never an
   allowed mutation.
-- [ ] Missing required capability: keep the binding inactive or unavailable and
+- [x] Missing required capability: keep the binding inactive or unavailable and
   report the precise unavailable-capability reason.
 - [x] Duplicate install/configure/remove request: return the original mutation
   receipt and never create duplicate resources or generations.
@@ -710,7 +710,7 @@ and source provenance.
 - [ ] Deployment rollback: continue using the exact compiled historical version
   when present; otherwise fail closed as unavailable rather than substituting a
   different version.
-- [ ] Pack blocked after activation: prevent new runs immediately, pause managed
+- [x] Pack blocked after activation: prevent new runs immediately, pause managed
   monitors, show a bounded owner-visible reason, and preserve evidence.
 - [x] Instruction or tool resolution failure: fail the turn/run before model or
   source execution; do not fall back to all global instructions or tools.
@@ -748,9 +748,40 @@ inventory.
 | UX | Natural language and Spectrum display and mutate the same authoritative binding and mutation state. |
 | Regression | General workspaces and every accepted Spec 1 behavior continue to work without a strategy pack. |
 
+### Local acceptance evidence
+
+The complete local gate passed on 2026-08-15 without deployment, production
+configuration, real Photon messages, paid calls, or external mutation. The
+generated catalog digest was
+`23906ba142505adf2ddd083ba409112d3570ea53ca7e61d0efa1ff54f3d47849` and
+`IPO Filings@1.0.0` resolved to
+`509e1a06a7bf2d8de6cd216ff894f9353870cc8062fff0945cde4ba7ad2a0fce`.
+
+`verify:strategy-packs:acceptance` began from empty in-memory durable state and
+used the production pack service, scheduler, worker preparation and deterministic
+SEC evaluator, finding/alert stores, Photon delivery adapter, Discuss action,
+and ingress assignment. It proved install-only made zero fetches; an explicit
+9 AM/4 PM monitor produced the reference finding and one labeled delivery; the
+selected general session did not change until Discuss; the next ingress
+consumed the bounded alert context in the IPO session; duplicate ingress was
+inert; alert-off preserved staged records; dispatch-off preserved ordinary
+durable owner turns; and every pack kill switch left bindings and evidence
+intact while failing closed. The compiled-worker, local Redis mutation/runtime,
+Spectrum browser, TypeScript, Eve production build, and Next.js webpack build
+gates passed separately.
+
+Production pack acceptance remains incomplete. All pack flags remain disabled,
+and the required deployment ID/commit, resolved production flags, privacy-safe
+receipt chain, real Photon smoke, rollback deployment, and final feature state
+must be recorded only after the owner explicitly authorizes those actions. The
+operator initializer is read-only by default and requires both the dedicated
+authorization environment value and `--authorization=owner-approved` before it
+atomically creates a paused disposable monitor seeded immediately before a
+selected filing present in the current SEC feed.
+
 ## Observability and operations
 
-- [ ] Emit low-cardinality counters for catalog validation, install,
+- [x] Emit low-cardinality counters for catalog validation, install,
   configuration, removal, mutation conflict/failure, binding unavailable,
   pack run stale, and capability unavailable.
 - [x] Use pack ID only where its catalog cardinality is deliberately bounded;
@@ -764,7 +795,7 @@ inventory.
 - [x] Add kill switches for pack installation/mutation, dynamic pack composition,
   and pack-managed monitor dispatch independently.
 - [ ] Define retention for mutation receipts and retired-resource metadata.
-- [ ] Document how to block a faulty pack version, inspect affected bindings,
+- [x] Document how to block a faulty pack version, inspect affected bindings,
   disable the feature safely, and verify that no managed worker remains active.
 
 ## Rollout and rollback
@@ -772,9 +803,9 @@ inventory.
 - [x] Keep the pack catalog visible only to the configured deployment owner.
 - [ ] Enable catalog inspection first, then installation in fixture/dev, then
   runtime composition, then Spectrum controls, and finally the Photon live smoke.
-- [ ] Keep general-purpose sessions and Spec 1 monitor behavior available while
+- [x] Keep general-purpose sessions and Spec 1 monitor behavior available while
   pack feature flags are disabled.
-- [ ] Feature rollback may stop new pack mutations and pack-managed dispatch
+- [x] Feature rollback may stop new pack mutations and pack-managed dispatch
   while preserving bindings, monitors, findings, and receipts.
 - [x] Do not remove a compiled pack version while a durable active binding still
   references it.
@@ -801,7 +832,7 @@ This specification is complete only when:
   and owner-created resources.
 - [ ] Spec 1 regressions, builds, privacy and redirect gates, owner-authorized
   production acceptance, and feature rollback all pass before rollout.
-- [ ] `HANDOFF.md`, `NORTH_STAR.md`, and `BACKLOG.md` record only verified
+- [x] `HANDOFF.md`, `NORTH_STAR.md`, and `BACKLOG.md` record only verified
   implementation facts and remaining follow-ons.
 
 ## Follow-on specifications

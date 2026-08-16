@@ -5,6 +5,7 @@ import {
   claimDueWorkspaceMonitors,
   claimWorkspaceMonitorOccurrence,
   completeWorkspaceMonitorCheckpoint,
+  createPausedWorkspaceAcceptanceMonitor,
   createWorkspaceMonitor,
   getWorkspaceMonitor,
   inspectWorkspaceMonitorOccurrenceLease,
@@ -802,6 +803,42 @@ const restored = await pauseWorkspaceMonitorsAfterRestore({
 assert.equal(restored[0]?.lifecycleState, "paused");
 assert.equal(restored[0]?.pauseReason, "workspace_restored_manual_resume_required");
 assert.equal(restored[0]?.nextOccurrenceAt, null);
+
+const acceptanceClient = new MemoryStore();
+const acceptanceCheckpoint = {
+  contentDigest: "a".repeat(64),
+  watermark: "2026-08-14T17:00:00.000Z",
+};
+const acceptanceMonitor = await createPausedWorkspaceAcceptanceMonitor({
+  deliverySubscriptionId: "delivery.acceptance",
+  idempotencyKey: "acceptance.replay.fixture",
+  instruction: "Evaluate the selected public SEC replay once enabled.",
+  name: "Acceptance replay",
+  nextOccurrenceAt: "2026-08-14T18:00:00.000Z",
+  now,
+  requiredCapabilityIds: ["evaluate_sec_ipo_source"],
+  schedule: { at: "2026-08-14T18:00:00.000Z", kind: "one_time" },
+  scope,
+  sourceCheckpoint: acceptanceCheckpoint,
+  sources: [source(0)],
+}, acceptanceClient);
+assert.equal(acceptanceMonitor.lifecycleState, "paused");
+assert.equal(acceptanceMonitor.pauseReason, "acceptance_replay_initialized");
+assert.deepEqual(acceptanceMonitor.sourceCheckpoint, acceptanceCheckpoint);
+assert.equal(acceptanceClient.due.size, 0);
+assert.deepEqual(await createPausedWorkspaceAcceptanceMonitor({
+  deliverySubscriptionId: "delivery.acceptance",
+  idempotencyKey: "acceptance.replay.fixture",
+  instruction: "Evaluate the selected public SEC replay once enabled.",
+  name: "Acceptance replay",
+  nextOccurrenceAt: "2026-08-14T18:00:00.000Z",
+  now: new Date(now.getTime() + 1_000),
+  requiredCapabilityIds: ["evaluate_sec_ipo_source"],
+  schedule: { at: "2026-08-14T18:00:00.000Z", kind: "one_time" },
+  scope,
+  sourceCheckpoint: acceptanceCheckpoint,
+  sources: [source(0)],
+}, acceptanceClient), acceptanceMonitor);
 
 const minuteSchedule = await readFile(
   new URL("../agent/schedules/event-triggers.ts", import.meta.url),

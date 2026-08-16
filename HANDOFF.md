@@ -6,11 +6,12 @@ tracing the implementation, checking the installed Eve and Next.js semantics,
 and reviewing the regression coverage. Use it to form the initial system model;
 then verify task-specific details against current code before making a change.
 
-> **Spec 1 status:** The polling-first Independent Workspace Runtimes milestone
-> is implemented, independently reviewed, production accepted, and pushed to `main`.
-> `specs/01-independent-workspace-runtimes.md` is now the single authoritative
-> record for completed behavior, production evidence, and deferred
-> hardening. The next product specification is Spec 2.
+> **Specification status:** Spec 1 is implemented, production accepted, and on
+> `main`. Spec 2's versioned strategy-pack framework and `IPO Filings@1.0.0`
+> are implemented and fully verified locally on `codex/spec-02`; the branch has
+> not been pushed or merged, and no production pack flag or real Photon pack
+> smoke has been authorized. The two spec files remain the authoritative split
+> between local evidence, production evidence, and deferred work.
 
 Snapshot date: 2026-08-15
 
@@ -38,7 +39,7 @@ architecture. Keep them distinct:
 | Research | Direct sources, public feeds, FMP/SEC-oriented skills, and guarded Masterkey fallback | Durable private ingestion of every paid or temporary result |
 | Trading | Allowlisted Coinbase reads and preview-bound spot-order approval | A generally safe live-trading surface or account-wide reconciliation |
 | Deliverables | Public-data reports and media on stable Eve URLs | Owner-private artifacts for portfolio, account, or personal data |
-| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC findings, durable Photon alert delivery, manager controls, and real Photon production acceptance | Spec 3 source events and deferred crash/operations hardening |
+| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, and real Spec 1 Photon production acceptance | Spec 2 Photon pack acceptance, Spec 3 source events, and deferred crash/operations hardening |
 | Authorization | Fail-closed deployment-owner mapping for Photon workspace paths plus a separate Coinbase allowlist | Owner-global enforcement across Telegram, HTTP, and every remaining private capability |
 
 `NORTH_STAR.md` describes the intended strategy-workspace architecture; it is
@@ -93,7 +94,8 @@ backlog work without a request.
 
 `agent/agent.ts` configures `google/gemini-3.6-flash` with high reasoning, 75%
 context compaction, a seven-day session timeout, and no cumulative input/output
-caps. `agent/instructions.md` defines the model's source priority, tool rules,
+caps. `agent/instructions/00-shared.md` plus dynamic instruction modules define
+the model's source priority, tool rules,
 artifact behavior, monitoring contract, and financial boundaries.
 
 Eve's system identity is the owner's single personal investment and research
@@ -205,6 +207,33 @@ receipt, inert duplicate delivery, Discuss-bound next-turn assignment, a 200
 manager state read, and zero new worker runs across two post-rollback scheduler
 ticks. The disposable monitor is retired, its workspace is archived but
 retained, and `Main` is selected.
+
+### Versioned strategy packs
+
+Spec 2 adds a deterministic generated catalog, one authoritative versioned pack
+binding inside the existing strategy document, and atomic replay-safe
+create/configure/remove mutations across the existing registry, state,
+capability, monitor, and receipt records. Eve tools and Spectrum actions use the
+same owner-authorized application service. Configuration and removal advance
+the session generation; removal pauses or retires only managed resources and
+preserves findings, alerts, checkpoints, history, and owner-created monitors.
+
+Interactive sessions compose only the exact active pack's bounded mission and
+playbook. Scheduled preparation binds the exact workspace generation, binding
+revision, pack digest, capability revision, source contracts, and managed
+resource; mismatches fail before source access. Pack content never grants
+capabilities, and hard denials still exclude paid, private, and trading paths.
+
+`IPO Filings@1.0.0` is the first reference package and reuses the Spec 1 SEC
+normalizer, fixture corpus, worker, finding, alert, and delivery path. Local
+vertical acceptance proved inert install-only, an explicit 9 AM/4 PM schedule,
+production scheduler and worker preparation, deterministic findings and alerts,
+the Photon delivery adapter, Discuss selection/context, next-ingress routing,
+duplicate suppression, and independent rollback switches. The generated
+catalog digest is `23906ba142505adf2ddd083ba409112d3570ea53ca7e61d0efa1ff54f3d47849`;
+the reference pack digest is
+`509e1a06a7bf2d8de6cd216ff894f9353870cc8062fff0945cde4ba7ad2a0fce`.
+These are local evidence only. All production pack switches remain disabled.
 
 ### Approval state machine
 
@@ -435,10 +464,11 @@ The most important differences between the working app and `NORTH_STAR.md` are:
 1. **Owner and workspace parity is Photon-only.** Durable owner mapping,
    assignment, runtimes, monitors, alerts, and manager controls exist for
    Photon's durable mode. Telegram and HTTP do not use that broker.
-2. **Strategy packs and source adapters are not implemented.** Spec 1 supplies
-   the runtime foundation, but reusable versioned strategies, canonical public
-   facts, Congressional Signals, Insider Clusters, and shared signals remain
-   Specs 2–6.
+2. **Production pack acceptance and source adapters remain.** The versioned
+   pack framework and IPO reference pack are locally complete, but their staged
+   deployment/Photon acceptance is not authorized. Canonical public adapters,
+   Congressional Signals, Insider Clusters, and shared signals remain Specs
+   3–6.
 3. **Artifacts are public-only.** Private portfolio/account deliverables and
    safe recovery of paid temporary outputs require owner-private storage.
 4. **MCP ingestion is incomplete.** Normalized model context is safe and
@@ -509,6 +539,8 @@ Focused regression scripts map to the important boundaries:
 | `verify:workspace-runtime:photon-rollout` | explicit legacy/durable configuration and fail-closed authorization matrix |
 | `verify:workspace-runtime:redis` | workspace leases, budgets, checkpoints, lifecycle, migration, and alert uncertainty against Redis |
 | `eval:coinbase` | fixture-backed model/tool behavior with no real Coinbase call |
+| `verify:strategy-packs` and `verify:strategy-pack-*` | deterministic catalog, atomic mutations, runtime isolation, owner-surface parity, privacy-safe observability, and Spectrum behavior |
+| `verify:strategy-packs:acceptance` | empty-state local vertical path through pack creation, scheduler, worker evaluation, durable alert, Photon adapter, Discuss, next ingress, and rollback switches |
 
 The Redis checks require exported environment variables and do not load
 `.env.local`. Model evals do not exercise the Photon webhook, Redis delivery,
@@ -581,7 +613,8 @@ system is divided.
 - `BACKLOG.md`: incomplete, postponed, and parked work.
 - `MCP_ADAPTER_PATTERN.md`: required MCP design and review contract.
 - `agent/agent.ts`: model, context, session, and runtime configuration.
-- `agent/instructions.md`: model behavior and tool policy.
+- `agent/instructions/00-shared.md` and `agent/instructions/`: shared model
+  behavior plus dynamically composed pack policy.
 - `agent/skills/`: earnings, crypto, public-source, FMP, Exa, Masterkey, and
   monitoring workflows.
 - `idea/`: canonical candidate strategy, data-source, and watchlist research

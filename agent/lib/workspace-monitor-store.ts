@@ -942,6 +942,59 @@ export async function createWorkspaceMonitor(
   return candidate.monitor;
 }
 
+export async function createPausedWorkspaceAcceptanceMonitor(
+  input: Omit<WorkspaceMonitorCreateInput, "activateManagedMonitor" | "managedBy"> & {
+    idempotencyKey: string;
+    sourceCheckpoint: WorkspaceMonitor["sourceCheckpoint"];
+  },
+  client: WorkspaceMonitorStoreClient = store(),
+): Promise<WorkspaceMonitor> {
+  const prepared = prepareWorkspaceMonitorCreate(input);
+  const timestamp = (input.now ?? new Date()).toISOString();
+  const monitor = monitorSchema.parse({
+    ...prepared.monitor,
+    lifecycleState: "paused",
+    pauseReason: "acceptance_replay_initialized",
+    pausedAt: timestamp,
+    sourceCheckpoint: input.sourceCheckpoint,
+    updatedAt: timestamp,
+  });
+  const raw = JSON.stringify(monitor);
+  if (Buffer.byteLength(raw, "utf8") > MAX_RECORD_BYTES) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  const created = await client.create({
+    dueAtMs: null,
+    dueKey: prepared.dueKey,
+    raw,
+    recordKey: prepared.recordKey,
+    workspaceIndexKey: prepared.workspaceIndexKey,
+  });
+  if (created) return monitor;
+  const existing = await getWorkspaceMonitor(
+    input.scope,
+    monitor.monitorId,
+    client,
+  );
+  if (
+    existing?.lifecycleState === "paused" &&
+    existing.pauseReason === "acceptance_replay_initialized" &&
+    existing.deliverySubscriptionId === monitor.deliverySubscriptionId &&
+    existing.instruction === monitor.instruction &&
+    existing.name === monitor.name &&
+    existing.nextOccurrenceAt === monitor.nextOccurrenceAt &&
+    JSON.stringify(existing.requiredCapabilityIds) ===
+      JSON.stringify(monitor.requiredCapabilityIds) &&
+    JSON.stringify(existing.schedule) === JSON.stringify(monitor.schedule) &&
+    JSON.stringify(existing.sourceCheckpoint) ===
+      JSON.stringify(monitor.sourceCheckpoint) &&
+    JSON.stringify(existing.sources) === JSON.stringify(monitor.sources) &&
+    JSON.stringify(existing.tighteningLimits) ===
+      JSON.stringify(monitor.tighteningLimits)
+  ) return existing;
+  throw new WorkspaceMonitorError("monitor_conflict");
+}
+
 export function resolveWorkspaceStrategyManagedMonitors(
   binding: WorkspaceStrategyBindingValue,
   monitors: readonly WorkspaceMonitor[],
