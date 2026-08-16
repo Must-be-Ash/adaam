@@ -313,19 +313,29 @@ deduplication and amendment correction.
 
 ### Sprint 0 — reconcile WIP, contracts, and House feasibility
 
-- [ ] Inspect existing uncommitted Spec 3 WIP against this revised scope; keep
+- [x] Inspect existing uncommitted Spec 3 WIP against this revised scope; keep
   only aligned fixtures/contracts and report discarded or deferred pieces before
-  changing them.
-- [ ] Choose and prove the minimal ZIP/PDF stack in the compiled Eve environment
-  using the House corpus and document the v1 support boundary.
-- [ ] Define only the adapter, source-instance, acquisition journal/result,
+  changing them. Retained the package verification entry, SEC corpus, and House
+  XML/text seeds; replaced the missing contract implementation and deferred the
+  old crash/concurrency/overlap, generic-format/DNS, and model-extraction work.
+- [x] Choose and prove the minimal ZIP/PDF stack in the compiled Eve environment
+  using the House corpus and document the v1 support boundary. The Node 24 stack
+  uses `@zip.js/zip.js` and `pdfjs-dist`; the sanitized official-layout corpus
+  covers yearly ZIP/XML, text, multi-page amendment, no-transaction, ambiguous,
+  scanned, and malformed cases.
+- [x] Define only the adapter, source-instance, acquisition journal/result,
   canonical fact revision/correction, subscription, and projection schemas used
-  by the SEC and House verticals.
-- [ ] Add deterministic positive and negative contract fixtures; the default
+  by the SEC and House verticals. `agent/lib/public-source-adapter-schema.ts`
+  contains no generic provider or document-format contract.
+- [x] Add deterministic positive and negative contract fixtures; the default
   suite remains green and negative fixtures pass by producing expected failures.
-- [ ] Verify channel neutrality and the fixed error/log catalog.
-- [ ] Run focused contract/feasibility tests, typecheck, affected build, update
-  this ledger, and commit Sprint 0.
+- [x] Verify channel neutrality and the fixed error/log catalog. The focused
+  gate rejects channel imports, high-cardinality log fields, arbitrary URLs,
+  workspace fields in facts, and exact House amounts.
+- [x] Run focused contract/feasibility tests, typecheck, affected build, update
+  this ledger, and commit Sprint 0. Passed the Sprint 0 verifier, `npm run
+  typecheck`, and `REDIS_URL=redis://fixture.invalid:6379 npm run build:agent` on
+  2026-08-15 without a source read or production mutation.
 
 Exit: the deployed stack can read representative House inputs, and the minimum
 contracts needed by both real adapters are executable. No production acquisition
