@@ -8,11 +8,13 @@ import {
   publicSourceAcquisitionResultSchema,
   publicSourceCorrectionSchema,
   publicSourceInstanceSchema,
+  publicSourceRetractionSchema,
   type CanonicalPublicFactRevision,
   type PublicSourceAcquisitionJournal,
   type PublicSourceAcquisitionResult,
   type PublicSourceCorrection,
   type PublicSourceInstance,
+  type PublicSourceRetraction,
 } from "./public-source-adapter-schema";
 import {
   publicSourceHealthRecordSchema,
@@ -40,6 +42,7 @@ export interface PublicSourceAcquisitionStoreClient {
 export interface PublicSourcePreparedAcquisition {
   readonly corrections: readonly PublicSourceCorrection[];
   readonly facts: readonly CanonicalPublicFactRevision[];
+  readonly retractions: readonly PublicSourceRetraction[];
   readonly result: PublicSourceAcquisitionResult;
   readonly window: { readonly endAt: string; readonly startAt: string };
 }
@@ -49,6 +52,8 @@ export interface PublicSourceAcquisitionCommit {
   readonly correctionsReused: number;
   readonly factsCreated: number;
   readonly factsReused: number;
+  readonly retractionsCreated: number;
+  readonly retractionsReused: number;
   readonly journal: PublicSourceAcquisitionJournal;
   readonly sourceInstance: PublicSourceInstance;
 }
@@ -109,6 +114,7 @@ function recordKey(
     | "fact-head"
     | "source-health"
     | "journal"
+    | "retraction"
     | "source-instance",
   id: string,
 ): string {
@@ -335,24 +341,32 @@ export async function readPublicSourceFactRevision(
 
 interface PublicSourceFactHead {
   readonly logicalKey: string;
-  readonly revisionId: string;
+  readonly retractionId: string | null;
+  readonly revisionId: string | null;
   readonly schemaVersion: 1;
 }
 
 function parseFactHead(raw: string): PublicSourceFactHead {
   return parseRaw(raw, (value) => {
+    if (typeof value !== "object" || value === null) {
+      throw new PublicSourceAcquisitionStoreError("public_source_record_corrupt");
+    }
+    const revisionId = Reflect.get(value, "revisionId");
+    const retractionId = Reflect.get(value, "retractionId");
     if (
-      typeof value !== "object" ||
-      value === null ||
       Reflect.get(value, "schemaVersion") !== 1 ||
       typeof Reflect.get(value, "logicalKey") !== "string" ||
-      typeof Reflect.get(value, "revisionId") !== "string"
+      !(
+        (typeof revisionId === "string" && (retractionId === null || retractionId === undefined)) ||
+        (revisionId === null && typeof retractionId === "string")
+      )
     ) {
       throw new PublicSourceAcquisitionStoreError("public_source_record_corrupt");
     }
     return Object.freeze({
       logicalKey: Reflect.get(value, "logicalKey") as string,
-      revisionId: Reflect.get(value, "revisionId") as string,
+      retractionId: (retractionId as string | null | undefined) ?? null,
+      revisionId: revisionId as string | null,
       schemaVersion: 1 as const,
     });
   });
@@ -376,12 +390,22 @@ export async function readLatestPublicSourceFactRevision(
   client: PublicSourceAcquisitionStoreClient = store(),
 ): Promise<CanonicalPublicFactRevision | null> {
   const current = await readFactHead(logicalKey, client);
-  if (current === null) return null;
+  if (current === null || current.head.revisionId === null) return null;
   const fact = await readPublicSourceFactRevision(current.head.revisionId, client);
   if (!fact || fact.logicalKey !== logicalKey) {
     throw new PublicSourceAcquisitionStoreError("public_source_record_corrupt");
   }
   return fact;
+}
+
+export async function readPublicSourceRetraction(
+  retractionId: string,
+  client: PublicSourceAcquisitionStoreClient = store(),
+): Promise<PublicSourceRetraction | null> {
+  const raw = await readRaw(recordKey("retraction", retractionId), client);
+  return raw === null
+    ? null
+    : parseRaw(raw, (value) => publicSourceRetractionSchema.parse(value));
 }
 
 export async function readPublicSourceAcquisitionResult(
@@ -531,6 +555,25 @@ async function writeCorrection(
   return "reused";
 }
 
+async function writeRetraction(
+  candidate: PublicSourceRetraction,
+  client: PublicSourceAcquisitionStoreClient,
+): Promise<"created" | "reused"> {
+  const retraction = publicSourceRetractionSchema.parse(candidate);
+  const key = recordKey("retraction", retraction.retractionId);
+  const raw = serialize(retraction);
+  if (await client.compareAndSet(key, null, raw)) return "created";
+  const existingRaw = await readRaw(key, client);
+  if (existingRaw === null) throw new PublicSourceAcquisitionStoreError("fact_conflict");
+  const existing = parseRaw(existingRaw, (value) => publicSourceRetractionSchema.parse(value));
+  const { createdObservedAt: _existingObservedAt, ...existingIdentity } = existing;
+  const { createdObservedAt: _candidateObservedAt, ...candidateIdentity } = retraction;
+  if (JSON.stringify(existingIdentity) !== JSON.stringify(candidateIdentity)) {
+    throw new PublicSourceAcquisitionStoreError("fact_conflict");
+  }
+  return "reused";
+}
+
 async function advanceFactHead(input: {
   readonly correction: PublicSourceCorrection | null;
   readonly fact: CanonicalPublicFactRevision;
@@ -538,6 +581,7 @@ async function advanceFactHead(input: {
   const key = recordKey("fact-head", input.fact.logicalKey);
   const next = serialize({
     logicalKey: input.fact.logicalKey,
+    retractionId: null,
     revisionId: input.fact.revisionId,
     schemaVersion: 1,
   });
@@ -545,8 +589,10 @@ async function advanceFactHead(input: {
 
   if (input.correction === null) {
     if (current?.head.revisionId === input.fact.revisionId) return;
-    if (current !== null) throw new PublicSourceAcquisitionStoreError("fact_conflict");
-    if (await client.compareAndSet(key, null, next)) return;
+    if (current !== null && current.head.revisionId !== null) {
+      throw new PublicSourceAcquisitionStoreError("fact_conflict");
+    }
+    if (await client.compareAndSet(key, current?.raw ?? null, next)) return;
     const raced = await readFactHead(input.fact.logicalKey, client);
     if (raced?.head.revisionId === input.fact.revisionId) return;
     throw new PublicSourceAcquisitionStoreError("fact_conflict");
@@ -559,6 +605,31 @@ async function advanceFactHead(input: {
   if (await client.compareAndSet(key, current.raw, next)) return;
   const raced = await readFactHead(input.fact.logicalKey, client);
   if (raced?.head.revisionId === input.fact.revisionId) return;
+  throw new PublicSourceAcquisitionStoreError("fact_conflict");
+}
+
+async function advanceFactRetraction(
+  retraction: PublicSourceRetraction,
+  client: PublicSourceAcquisitionStoreClient,
+): Promise<void> {
+  const key = recordKey("fact-head", retraction.logicalKey);
+  const current = await readFactHead(retraction.logicalKey, client);
+  if (
+    current?.head.revisionId === null &&
+    current.head.retractionId === retraction.retractionId
+  ) return;
+  if (current?.head.revisionId !== retraction.fromRevisionId) {
+    throw new PublicSourceAcquisitionStoreError("fact_conflict");
+  }
+  const next = serialize({
+    logicalKey: retraction.logicalKey,
+    retractionId: retraction.retractionId,
+    revisionId: null,
+    schemaVersion: 1,
+  });
+  if (await client.compareAndSet(key, current.raw, next)) return;
+  const raced = await readFactHead(retraction.logicalKey, client);
+  if (raced?.head.retractionId === retraction.retractionId) return;
   throw new PublicSourceAcquisitionStoreError("fact_conflict");
 }
 
@@ -680,11 +751,15 @@ export async function commitPublicSourceAcquisition(input: {
   const facts = input.acquisition.facts.map((fact) => canonicalPublicFactRevisionSchema.parse(fact));
   const corrections = input.acquisition.corrections.map((correction) =>
     publicSourceCorrectionSchema.parse(correction));
+  const retractions = input.acquisition.retractions.map((retraction) =>
+    publicSourceRetractionSchema.parse(retraction));
   if (
     JSON.stringify(result.candidateFactRevisionIds) !==
       JSON.stringify(facts.map((fact) => fact.revisionId)) ||
     JSON.stringify(result.correctionIds) !==
       JSON.stringify(corrections.map((correction) => correction.correctionId)) ||
+    JSON.stringify(result.retractionIds) !==
+      JSON.stringify(retractions.map((retraction) => retraction.retractionId)) ||
     facts.some((fact) =>
       fact.sourceInstanceId !== result.sourceInstanceId ||
       fact.adapterId !== result.adapterId)
@@ -711,6 +786,7 @@ export async function commitPublicSourceAcquisition(input: {
     correctionIds: result.correctionIds,
     expectedCursorRevision: result.proposedNextCursor.expectedRevision,
     factRevisionIds: result.candidateFactRevisionIds,
+    retractionIds: result.retractionIds,
     preparedAt: result.observedAt,
     proposedCursor: result.proposedNextCursor,
     recordType: "public_source_acquisition_journal",
@@ -750,6 +826,33 @@ export async function commitPublicSourceAcquisition(input: {
   ).length;
   const correctionsReused = correctionOutcomes.length - correctionsCreated;
 
+  const retractedRevisionIds = [...new Set(
+    retractions.map((retraction) => retraction.fromRevisionId),
+  )];
+  const retractedRevisions = new Map(await Promise.all(
+    retractedRevisionIds.map(async (revisionId) => [
+      revisionId,
+      await readPublicSourceFactRevision(revisionId, client),
+    ] as const),
+  ));
+  for (const retraction of retractions) {
+    const fromRevision = retractedRevisions.get(retraction.fromRevisionId);
+    if (
+      fromRevision?.logicalKey !== retraction.logicalKey ||
+      fromRevision.sourceInstanceId !== retraction.sourceInstanceId ||
+      retraction.sourceInstanceId !== result.sourceInstanceId
+    ) {
+      throw new PublicSourceAcquisitionStoreError("fact_conflict");
+    }
+  }
+  const retractionOutcomes = await Promise.all(
+    retractions.map((retraction) => writeRetraction(retraction, client)),
+  );
+  const retractionsCreated = retractionOutcomes.filter(
+    (outcome) => outcome === "created",
+  ).length;
+  const retractionsReused = retractionOutcomes.length - retractionsCreated;
+
   const journal = await commitJournal(prepared, result.observedAt, client);
   const currentSource = await readPublicSourceInstance(result.sourceInstanceId, client);
   if (!currentSource) throw new PublicSourceAcquisitionStoreError("source_instance_conflict");
@@ -762,6 +865,9 @@ export async function commitPublicSourceAcquisition(input: {
       correction: correctionsByRevision.get(fact.revisionId) ?? null,
       fact,
     }, client);
+  }
+  for (const retraction of retractions) {
+    await advanceFactRetraction(retraction, client);
   }
   await writeAcquisitionResult(result, client);
   await publishPublicSourceAcquisition({
@@ -778,6 +884,8 @@ export async function commitPublicSourceAcquisition(input: {
     factsCreated,
     factsReused,
     journal,
+    retractionsCreated,
+    retractionsReused,
     sourceInstance,
   });
 }

@@ -1,0 +1,11 @@
+{
+  "scenarios": [
+    { "id": "ambiguous-member", "expected": "ambiguous" },
+    { "id": "ambiguous-security", "expected": "ambiguous" },
+    { "id": "broad-jurisdiction", "expected": "unknown" },
+    { "id": "changed-assignment", "expected": "unknown" },
+    { "id": "exact-effective-assignment", "expected": "yes" },
+    { "id": "same-version-different-digest", "expected": "catalog_identity_conflict" },
+    { "id": "stale-catalog", "expected": "stale" }
+  ]
+}

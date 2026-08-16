@@ -1,0 +1,55 @@
+{
+  "policy": {
+    "alertThresholds": ["priority", "review"],
+    "bands": ["record_only", "review", "priority"],
+    "coverage": "house_only",
+    "defaultAlertThreshold": "priority",
+    "eligibleTransactionTypes": ["P", "S"],
+    "materialLowerBound": "50001",
+    "maximumDisclosureLagDays": 45,
+    "policyId": "congressional-signals-policy",
+    "policyVersion": "1.0.0",
+    "reasonCodes": [
+      "baseline",
+      "broad_fund",
+      "committee_cluster",
+      "committee_relevant",
+      "duplicate",
+      "eligible",
+      "invalid_date",
+      "material_range",
+      "member_not_selected",
+      "non_security_asset",
+      "pattern_break",
+      "same_member_cluster",
+      "stale_disclosure",
+      "superseded",
+      "timely",
+      "unclassified_direction",
+      "unresolved_member",
+      "unresolved_security",
+      "unsupported_source"
+    ],
+    "recordType": "congressional_signal_policy",
+    "schemaVersion": 1,
+    "timelyMaximumLagDays": 15
+  },
+  "catalogs": [
+    {
+      "catalogId": "congressional-house-members",
+      "catalogVersion": "1.0.0",
+      "entries": [],
+      "kind": "house_members",
+      "recordType": "congressional_reference_catalog",
+      "schemaVersion": 1
+    },
+    {
+      "catalogId": "congressional-security-classifications",
+      "catalogVersion": "1.0.0",
+      "entries": [],
+      "kind": "security_classifications",
+      "recordType": "congressional_reference_catalog",
+      "schemaVersion": 1
+    }
+  ]
+}

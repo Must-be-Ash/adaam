@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    { "id": "baseline", "expectedBand": "record_only", "expectedAlert": false },
+    { "id": "broad-fund", "expectedBand": "record_only", "expectedAlert": false },
+    { "id": "duplicate", "expectedNewSignalCount": 0, "expectedNewTransactionCount": 0 },
+    { "id": "forbidden-capability", "expected": "denied" },
+    { "id": "priority", "expectedBand": "priority", "expectedAlert": true },
+    { "id": "retained-official-multi-row", "expectedBand": "review", "expectedAlert": true },
+    { "id": "stale", "expectedBand": "record_only", "expectedAlert": false },
+    { "id": "unresolved", "expectedBand": "record_only", "expectedAlert": false }
+  ]
+}

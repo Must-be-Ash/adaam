@@ -7,7 +7,6 @@ import {
   type FileEntry,
 } from "@zip.js/zip.js";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 import {
   PUBLIC_SOURCE_LIMITS,
@@ -39,6 +38,31 @@ export class HouseFeasibilityError extends Error {
     super(code);
     this.name = "HouseFeasibilityError";
   }
+}
+
+let pdfJsModule: Promise<typeof import("pdfjs-dist/legacy/build/pdf.mjs")> | undefined;
+let pdfJsWorkerModule: Promise<typeof import("pdfjs-dist/legacy/build/pdf.worker.mjs")> | undefined;
+let canvasPrimitives: { DOMMatrix: typeof DOMMatrix; Path2D: typeof Path2D } | undefined;
+
+async function loadPdfJs() {
+  canvasPrimitives ??= process.getBuiltinModule("module")
+    .createRequire(import.meta.url)("@napi-rs/canvas") as typeof canvasPrimitives;
+  if (!globalThis.DOMMatrix) {
+    Object.defineProperty(globalThis, "DOMMatrix", {
+      configurable: true,
+      value: canvasPrimitives!.DOMMatrix,
+      writable: true,
+    });
+  }
+  if (!globalThis.Path2D) {
+    Object.defineProperty(globalThis, "Path2D", {
+      configurable: true,
+      value: canvasPrimitives!.Path2D,
+      writable: true,
+    });
+  }
+  await (pdfJsWorkerModule ??= import("pdfjs-dist/legacy/build/pdf.worker.mjs"));
+  return (pdfJsModule ??= import("pdfjs-dist/legacy/build/pdf.mjs"));
 }
 
 function digestBytes(value: Uint8Array): string {
@@ -192,12 +216,68 @@ export interface HousePtrPdfInspection {
 }
 
 export interface HousePtrPdfTextExtraction extends HousePtrPdfInspection {
+  /** Ephemeral positioned text used only by the deterministic House parser. */
+  readonly fragments: readonly HousePtrPdfTextFragment[];
+  /** Ephemeral validated row structures shared by feasibility and parsing. */
+  readonly transactionStructures: readonly HousePtrPdfTransactionStructure[];
   /** Ephemeral normalized text used only by the deterministic House parser. */
   readonly text: string;
 }
 
-function countTransactionRows(text: string): number {
-  return text.match(/\$\s*[\d,]+\s*-\s*\$\s*[\d,]+|Over\s+\$\s*[\d,]+/giu)?.length ?? 0;
+export interface HousePtrPdfTextFragment {
+  readonly page: number;
+  readonly text: string;
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface HousePtrPdfTransactionStructure {
+  readonly amountFragments: readonly HousePtrPdfTextFragment[];
+  readonly amountLabel: string;
+  readonly band: readonly HousePtrPdfTextFragment[];
+  readonly dates: readonly [HousePtrPdfTextFragment, HousePtrPdfTextFragment];
+  readonly typeFragment: HousePtrPdfTextFragment;
+}
+
+export function identifyHousePtrTransactionStructures(
+  fragments: readonly HousePtrPdfTextFragment[],
+): readonly HousePtrPdfTransactionStructure[] {
+  const structures: HousePtrPdfTransactionStructure[] = [];
+  for (const typeFragment of fragments) {
+    if (!/^[EPS](?:\s*\(partial\))?$/iu.test(typeFragment.text)) continue;
+    const band = fragments.filter((fragment) =>
+      fragment.page === typeFragment.page &&
+      fragment.y <= typeFragment.y + 8 &&
+      fragment.y >= typeFragment.y - 18
+    ).sort((left, right) => right.y - left.y || left.x - right.x);
+    const dates = band
+      .filter((fragment) =>
+        fragment.x > typeFragment.x && /^\d{2}\/\d{2}\/\d{4}$/u.test(fragment.text)
+      )
+      .sort((left, right) => left.x - right.x);
+    if (dates.length !== 2) continue;
+    const amountFragments = band
+      .filter((fragment) => fragment.x > dates[1]!.x && /\$|^Over\b/iu.test(fragment.text));
+    const amountLabel = amountFragments
+      .map((fragment) => fragment.text)
+      .join(" ")
+      .replace(/\s+/gu, " ")
+      .trim();
+    if (!/^(?:\$\s*[\d,]+\s*-\s*\$\s*[\d,]+|Over\s+\$\s*[\d,]+)$/iu.test(amountLabel)) {
+      continue;
+    }
+    structures.push(Object.freeze({
+      amountFragments: Object.freeze(amountFragments),
+      amountLabel,
+      band: Object.freeze(band),
+      dates: Object.freeze([dates[0]!, dates[1]!]) as readonly [
+        HousePtrPdfTextFragment,
+        HousePtrPdfTextFragment,
+      ],
+      typeFragment,
+    }));
+  }
+  return Object.freeze(structures);
 }
 
 async function withinPdfExecutionLimit<T>(startedAt: number, work: Promise<T>): Promise<T> {
@@ -232,6 +312,7 @@ export async function extractHousePtrPdfText(
     throw new HouseFeasibilityError("pdf_invalid");
   }
 
+  const { getDocument } = await loadPdfJs();
   const loadingTask = getDocument({
     data: bytes.slice(),
     useSystemFonts: true,
@@ -242,16 +323,21 @@ export async function extractHousePtrPdfText(
     if (document.numPages > PUBLIC_SOURCE_LIMITS.maximumPdfPages) {
       throw new HouseFeasibilityError("pdf_page_limit_exceeded");
     }
-    const fragments: string[] = [];
+    const fragments: HousePtrPdfTextFragment[] = [];
     let textCharacterCount = 0;
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
       const page = await withinPdfExecutionLimit(startedAt, document.getPage(pageNumber));
       const content = await withinPdfExecutionLimit(startedAt, page.getTextContent());
       for (const item of content.items) {
         if ("str" in item) {
-          const fragment = item.str.trim();
+          const fragment = item.str.replaceAll("\0", "").trim();
           if (fragment.length > 0) {
-            fragments.push(fragment);
+            fragments.push(Object.freeze({
+              page: pageNumber,
+              text: fragment,
+              x: item.transform[4],
+              y: item.transform[5],
+            }));
             textCharacterCount += fragment.length + 1;
             if (textCharacterCount > PUBLIC_SOURCE_LIMITS.maximumPdfTextCharacters) {
               throw new HouseFeasibilityError("pdf_text_limit_exceeded");
@@ -261,16 +347,18 @@ export async function extractHousePtrPdfText(
       }
     }
 
-    const text = fragments.join(" ").replace(/\s+/gu, " ").trim();
+    const text = fragments.map((fragment) => fragment.text).join(" ").replace(/\s+/gu, " ").trim();
     if (text.length === 0) {
       return Object.freeze({
         documentDigest: digestBytes(bytes),
         errorCode: "pdf_scanned_unsupported",
         extractionState: "unsupported",
+        fragments: Object.freeze(fragments),
         layout: "unknown",
         pageCount: document.numPages,
         text,
         transactionRowCount: 0,
+        transactionStructures: Object.freeze([]),
       });
     }
 
@@ -281,7 +369,11 @@ export async function extractHousePtrPdfText(
       /Transaction/iu.test(text) &&
       /Amount/iu.test(text);
     const noTransactions = /no reportable transactions|no transactions to report/iu.test(text);
-    const transactionRowCount = countTransactionRows(text);
+    const transactionStructures = identifyHousePtrTransactionStructures(fragments);
+    if (Date.now() - startedAt > PUBLIC_SOURCE_LIMITS.maximumPdfExecutionMilliseconds) {
+      throw new HouseFeasibilityError("pdf_execution_timeout");
+    }
+    const transactionRowCount = transactionStructures.length;
     if (
       !hasOfficialHeader ||
       (!hasTableHeader && !noTransactions) ||
@@ -291,10 +383,12 @@ export async function extractHousePtrPdfText(
         documentDigest: digestBytes(bytes),
         errorCode: "pdf_layout_ambiguous",
         extractionState: "partial",
+        fragments: Object.freeze(fragments),
         layout: "unknown",
         pageCount: document.numPages,
         text,
         transactionRowCount,
+        transactionStructures,
       });
     }
 
@@ -309,10 +403,12 @@ export async function extractHousePtrPdfText(
       documentDigest: digestBytes(bytes),
       errorCode: null,
       extractionState: "complete",
+      fragments: Object.freeze(fragments),
       layout,
       pageCount: document.numPages,
       text,
       transactionRowCount,
+      transactionStructures,
     });
   } catch (error) {
     if (error instanceof HouseFeasibilityError) throw error;
@@ -325,6 +421,11 @@ export async function extractHousePtrPdfText(
 export async function inspectHousePtrPdf(
   bytes: Uint8Array,
 ): Promise<HousePtrPdfInspection> {
-  const { text: _text, ...inspection } = await extractHousePtrPdfText(bytes);
+  const {
+    fragments: _fragments,
+    text: _text,
+    transactionStructures: _transactionStructures,
+    ...inspection
+  } = await extractHousePtrPdfText(bytes);
   return Object.freeze(inspection);
 }

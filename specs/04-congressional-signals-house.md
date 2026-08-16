@@ -1,6 +1,6 @@
 # Spec 4: Congressional Signals v1 — House disclosures
 
-Status: Ready for sprint implementation after Specs 1–3
+Status: Implemented and production accepted; execution, dispatch, and alert flags rolled back off
 
 Date: 2026-08-16
 
@@ -12,7 +12,10 @@ Dependencies:
 - `specs/02-versioned-strategy-packs.md`
 - `specs/03-public-source-adapters.md`
 
-Pack target: `congressional-signals@1.0.0`
+Pack targets: foundational `congressional-signals@1.0.0`; committee-evidence revision
+`congressional-signals@1.1.0`; history/cluster/correction revision
+`congressional-signals@1.2.0`; official full-roster revision
+`congressional-signals@1.3.0`
 
 ## Objective
 
@@ -363,109 +366,254 @@ shows evidence and caveats without exposing unrelated workspace history.
 
 ### Sprint 0 — prove viability and close dependencies
 
-- [ ] Run the owner-authorized real-PTR source viability gate and record the
-  bounded corpus result. Stop here if extraction coverage is below the gate.
-- [ ] If required, implement and verify the focused Spec 3 extraction extension,
-  without adding extraction to the strategy layer.
-- [ ] Add the Spec 3 transaction retraction/tombstone projection required for
-  amended filings that remove prior rows.
-- [ ] Freeze the minimal transaction, signal, reason-code, policy, and immutable
+- [x] Run the owner-authorized real-PTR source viability gate and record the
+  bounded corpus result. On 2026-08-16 the literal newest 20 official current-
+  year PTRs spanned 18 members; independent visual review found transactions in
+  all 20, while the production parser produced transaction facts from 0/20.
+  Seventeen current text-backed e-filing tables returned `parser_incomplete`,
+  two scanned legacy forms returned `pdf_scanned_unsupported`, and one 13-page
+  scanned attached-schedule form returned `pdf_page_limit_exceeded`. The
+  retained corpus and hashes are under
+  `scripts/fixtures/public-source-adapters/house/live-review-2026-08-16/`. After
+  the focused extension below, the same production regression produced
+  transaction facts from 17/20 documents (85%), above the required 80%; the two
+  image-only documents and one page-limit document remained explicit zero-row
+  unsupported outcomes.
+- [x] Implement and verify the focused Spec 3 extraction extension for the
+  measured current digital e-filing layout, without adding extraction to the
+  strategy layer. The production parser now shares bounded positioned-row
+  recognition between feasibility inspection and canonical fact parsing.
+- [x] Add the Spec 3 transaction retraction/tombstone projection required for
+  amended filings that remove prior rows. A checked-in amended-filing fixture
+  proves the removed row remains immutable evidence, its latest head is a
+  tombstone, and the authorized workspace receives the retraction projection.
+- [x] Freeze the minimal transaction, signal, reason-code, policy, and immutable
   catalog contracts required by the first vertical, with positive and negative
-  fixtures.
-- [ ] Prove one retained official transaction passes through the real Spec 3
-  projection into one normalized strategy record, while zero-row and unsupported
-  documents remain explicit non-transactions.
+  fixtures. Contracts use ordinal bands, fixed reason codes, deterministic IDs,
+  pinned digests, amount ranges, and fail-closed catalog immutability.
+- [x] Prove one retained official transaction passes through the real Spec 3
+  projection into one normalized strategy record, while checked-in zero-row and
+  unsupported documents remain explicit non-transactions. The normalized record
+  preserves the official URL, fact/projection lineage, disclosure lag, amount
+  range, unresolved catalog state, and fixed `record_only` reasons.
 
 Exit: the real source can supply non-empty trustworthy transactions, amendments
 can retract rows, and the smallest vertical contracts are executable.
 
 ### Sprint 1 — ship the first filing-to-alert vertical
 
-- [ ] Extend the shared Spec 2 configuration schema/service with bounded enum and
+- [x] Extend the shared Spec 2 configuration schema/service with bounded enum and
   canonical-ID-list fields, including compatibility and invalid-input tests,
   before generating the immutable pack.
-- [ ] Author and generate `congressional-signals@1.0.0` using those configuration
+- [x] Author and generate `congressional-signals@1.0.0` using those configuration
   kinds, the Spec 2 catalog, and the existing House source instance.
-- [ ] Add the primary-sourced member record and reviewed security classification
+- [x] Add the primary-sourced member record and reviewed security classification
   needed by the retained official first-vertical transaction; broader reference
   coverage remains Sprint 2 work.
-- [ ] Consume an authorized projected House transaction exactly once and persist
+- [x] Consume an authorized projected House transaction exactly once and persist
   the minimal normalized strategy transaction.
-- [ ] Implement eligibility, disclosure lag, `timely`, `material_range`, and the
+- [x] Implement eligibility, disclosure lag, `timely`, `material_range`, and the
   initial ordinal band policy with complete fixed reason traces.
-- [ ] Establish a historical baseline that records prior facts and coverage but
+- [x] Establish a historical baseline that records prior facts and coverage but
   never alerts.
-- [ ] Persist one filing-level strategy signal and deliver at most one
+- [x] Persist one filing-level strategy signal and deliver at most one
   deterministic neutral alert through the existing finding/outbox/Photon adapter
   and Discuss path, including a multi-row filing dedupe fixture.
-- [ ] Add representative qualifying, stale, broad-fund, unresolved, duplicate,
+- [x] Add representative qualifying, stale, broad-fund, unresolved, duplicate,
   baseline, and forbidden-capability fixtures; run focused tests and affected
   builds.
 
 Exit: one verified official House transaction can produce one accurate sourced
 priority alert, and ordinary non-qualifying facts are recorded without noise.
 
+Sprint 1 evidence note: the retained official Kevin Hern multi-row PTR is timely
+but its published lower bounds are below the material threshold, so the pinned
+policy correctly produces `review`, not `priority`. A deterministic material and
+timely fixture proves the `priority` branch, while stale, broad-fund, unresolved,
+duplicate, baseline, and forbidden paths remain quiet. None of the authorized
+retained official transactions is both timely and material, so the official
+priority-alert portion of this exit remains unverified rather than relabeling a
+real filing or weakening the policy.
+
 ### Sprint 2 — add official member and committee evidence
 
-- [ ] Add the bounded official House roster and effective-dated committee
+- [x] Add the bounded official House roster and effective-dated committee
   assignment catalogs with primary-source provenance, immutable versions, and
   digests.
-- [ ] Add reviewed committee-jurisdiction and limited security-industry mappings;
+- [x] Add reviewed committee-jurisdiction and limited security-industry mappings;
   keep everything else explicitly unresolved.
-- [ ] Resolve committee relevance on the transaction date and add its evidence
+- [x] Resolve committee relevance on the transaction date and add its evidence
   trace to the ordinal band policy.
-- [ ] Prove former/changing assignments, ambiguous member/security mappings,
+- [x] Prove former/changing assignments, ambiguous member/security mappings,
   broad jurisdictions, stale catalogs, and same-version/different-digest failure.
 
 Exit: official effective-dated evidence can raise a band without subjective
 member tiers, unsupported mappings, or mutable catalog content.
 
+Completion evidence: the immutable `1.0.0` pack and its original catalog/policy
+identities remain unchanged. `1.1.0` pins the reviewed policy plus member,
+security, assignment, and jurisdiction digests. The deterministic Sprint 2
+fixture proves that an exact transaction-date assignment and narrow industry
+rule raise a material, non-timely transaction from `review` to `priority`, while
+former/replaced assignments, broad language, ambiguity, and catalogs older than
+90 calendar days cannot apply committee evidence. No live source read or alert
+delivery was performed in this sprint.
+
 ### Sprint 3 — add history, clusters, and corrections
 
-- [ ] Implement measured coverage and the exact pattern-break rules; incomplete
+- [x] Implement measured coverage and the exact pattern-break rules; incomplete
   history leaves the factor unavailable.
-- [ ] Implement same-member and committee clusters with distinct-fact/member,
+- [x] Implement same-member and committee clusters with distinct-fact/member,
   direction, mapping, and 30-day window rules.
-- [ ] Apply projected corrections and retractions to normalized history,
+- [x] Apply projected corrections and retractions to normalized history,
   clusters, signals, and at-most-once correction alerts.
-- [ ] Add deterministic fixtures for coverage boundaries, each pattern rule,
+- [x] Add deterministic fixtures for coverage boundaries, each pattern rule,
   cluster membership/dedupe, descriptive party diversity, replay, and correction
   removal.
 
 Exit: history and clusters are reproducible from versioned records, and amended
 facts cannot leave stale evidence or inflate a signal.
 
+Completion evidence: immutable `congressional-signals@1.2.0` pins the measured
+90-day/five-transaction pattern policy and 30-day/three-evidence cluster policy
+without changing the `1.0.0` or `1.1.0` pack digests. Workspace-scoped history
+uses immutable revisions behind a compare-and-set head; corrections replace the
+active fact contribution, retractions persist neutral superseding transaction
+and signal revisions, and deterministic correction identities reuse the shared
+at-most-once finding path. The Sprint 3 fixture covers 89/90-day boundaries,
+coverage reset, all three pattern rules, distinct-fact/member cluster dedupe,
+descriptive-only party diversity, replay, correction lineage, retraction-driven
+cluster removal, and correction-alert gating. Focused Sprints 0–3 tests,
+strategy-pack verification, TypeScript, Eve build, Next build, and diff checks
+passed without a live source read or alert delivery.
+
 ### Sprint 4 — owner configuration and manager experience
 
-- [ ] Expose threshold and selected-member configuration through the existing
+- [x] Expose threshold and selected-member configuration through the existing
   natural-language and Spectrum pack mutation paths.
-- [ ] Render source/extraction health, pinned evidence versions, configuration,
+- [x] Render source/extraction health, pinned evidence versions, configuration,
   latest signal, and fixed outcome counts in the workspace manager.
-- [ ] Add one pack-specific end-to-end test proving alert delivery, Discuss,
+- [x] Add one pack-specific end-to-end test proving alert delivery, Discuss,
   selected-workspace routing, and isolation through the existing Spec 1 paths;
   rely on Specs 1–2 for generic lifecycle regression coverage.
-- [ ] Add bounded read-only signal explanation using only validated traces.
+- [x] Add bounded read-only signal explanation using only validated traces.
 
 Exit: the owner can install, configure, understand, and discuss the strategy
 without code changes or access to unrelated session state.
 
+Completion evidence: the shared natural-language and Spectrum mutation inputs
+now carry all four reviewed configuration kinds, and Spectrum renders the
+Congressional threshold and canonical selected-member controls from the exact
+pack manifest rather than a Congressional-only mutation path. The existing
+manager shows authenticated House adapter/extraction health plus immutable
+evidence versions, labeled configuration, measured coverage, one validated
+latest signal, and a fixed five-counter signal outcome shape. A read-only tool
+revalidates the stored signal and returns bounded deterministic reason,
+evidence, committee, cluster, and pattern traces without raw filing content or
+cross-session identifiers. The Sprint 4 end-to-end fixture delivers a neutral
+Congressional alert through the Spec 1 Photon adapter, applies Discuss, proves
+selection and pending-context isolation, and rejects a cross-session delivery
+scope. Focused Sprints 0–4, pack mutation/runtime, manager, alert, Spectrum
+browser, TypeScript, Eve build, Next build, and diff checks passed without a
+live source read or real alert delivery.
+
 ### Sprint 5 — final verification and controlled rollout
 
-- [ ] Run one independent diff-scoped review, fix validated Spec 4 blockers, and
+- [x] Run one independent diff-scoped review, fix validated Spec 4 blockers, and
   place nonblocking hardening in the appropriate spec or `BACKLOG.md`.
-- [ ] Run focused strategy/source/correction tests, relevant Specs 1–3
-  regressions, typecheck, Eve build, application build, and `git diff --check`.
-- [ ] With owner authorization, run one controlled live official-source to
+- [x] Run focused strategy/source/correction tests, relevant Specs 1–3
+  regressions, typecheck, Eve build, application build, and
+  `git -c core.whitespace=-blank-at-eof diff --check`; the accepted pack
+  files' trailing blank lines are intentionally preserved byte-for-byte.
+- [x] With owner authorization, run one controlled live official-source to
   strategy signal smoke and one real Photon alert/Discuss smoke; do not use paid
   services or broker capabilities.
-- [ ] Prove two active strategy sessions with different settings consume shared
+- [x] Prove two active strategy sessions with different settings consume shared
   public facts while their state, decisions, alerts, context, and tools remain
   isolated.
-- [ ] Roll out with existing dependency and alert flags plus the single
+- [x] Roll out with existing dependency and alert flags plus the single
   Congressional strategy execution flag, verify rollback, and leave production
   flags in the owner-approved final state.
-- [ ] Record exact production evidence and rollback state in this spec and
+- [x] Record exact production evidence and rollback state in this spec and
   `HANDOFF.md`; update `NORTH_STAR.md` or `BACKLOG.md` only where reality changed.
+
+Sprint 5 evidence: the single independent diff-scoped review covered correctness,
+security, reliability, API contracts, tests, maintainability, performance,
+standards, and agent-native usability. Validated fixes defer projection
+acknowledgement until the workspace outcome commits; recover a run whose
+coverage/history committed before its outcome; preserve stable acquisition time
+on replay; keep later baseline pages quiet; distinguish partial and unsupported
+PDF coverage; support every available pack version; preserve row identity across
+insertions/removals; carry filing-only amendments into transaction lineage;
+accept schema-valid Spectrum configuration payloads; parse open-ended `Over $N`
+ranges; and explain the latest signal without requiring an opaque ID. Production
+acceptance additionally exposed and fixed two real deployment boundaries:
+`pdfjs-dist` now receives an explicitly traced native canvas and worker runtime,
+and newly created pack-managed monitors bind the authenticated Photon conversation
+subscription instead of a placeholder ID.
+
+The owner-authorized roster acquisition read only
+`https://clerk.house.gov/xml/lists/MemberData.xml`: HTTP 200, `text/xml`, 556,140
+bytes, published 2026-07-06, retrieved `2026-08-16T19:59:10.000Z`, raw SHA-256
+`4ccea8259aff2df6a175545e45bdac2dfcdf0085a9cc7ab6c46aa80527bc524b`.
+The immutable snapshot contains 441 official rows: 437 current members (215
+Democratic, 221 Republican, one Independent) and four vacancies (`CA14`, `FL20`,
+`GA13`, `TX23`). Member catalog `1.2.0` has digest
+`ac8780e513f32730cc9aa253fa47cb73275f937098036b183e8d1876fa5a3cc0`;
+pack `congressional-signals@1.3.0` has digest
+`5c93463b5659ef694980c4ebf82e75c9b2edc1078ccfbad3ecda3d5655f27acc`.
+Prior pack versions remain byte-identical: `1.0.0`
+`c5031a9d345956d491b35e5459043195437497bc90ce18f8fe8600a596fa8d29`,
+`1.1.0` `54b09e91047f9e34681994eefc5f1284c45b658f55873df49ba3fab3ad211630`,
+and `1.2.0` `3ced2a1538b6ce1fbb1113fe326a9232963c08b56f0b264bab663c0597bc30ab`.
+
+The controlled official House source-to-signal acceptance used ID
+`4bc5dabf-aeae-4230-ab53-7c9842191e3d`. The live 2026 House index digest was
+`5b3ce10fe839abed08e14e0cd79dda573e7b9c9c2abc77ee55ac2007dd0536f0`.
+Baseline DocID `20035134` had digest
+`ad182ec8d9b632115329f229f9144c0390affbf4a77ae52e7debe1352ddfb81e`
+and produced checkpoint
+`8195b1b2a28d6f4fd0f214d132ff8439e2976ed353b219cf6616c6707f092489`
+with one signal and no alert. Live DocID `20035196` had digest
+`951740000ede6c5cb506bb14de74c7a8ce7d17d082d35f46ee4c24915583e677`
+and produced checkpoint
+`8a1932e4d29e5a743046c939d5bb5422af728a85642ae1e31a96ef038db48d64`,
+one signal, signal revision
+`congressional-signal-revision.4929f5c2256cfad9796d941d372b20251034cb2b2a980be36ff44cf089de4e4a`,
+finding `finding_d2e1e661711606682292414496bcfeddb47966520680c635e2f204fcb8ef3fbb`,
+and alert `alert_6bf03df6bcfb425df310477adfa9c94f95653dca31f6aec80993f99dc46544eb`.
+The real Photon delivery completed at `2026-08-16T20:55:05.244Z` as
+`delivery_461f4b1b36f8b1e912c024822e1ee9bdfc7c5ef6ede29dc36f32201a23ca0be5`;
+the Discuss action selected the disposable Congressional session and its bounded
+context was consumed successfully.
+
+The staged production rollout and rollback were:
+
+| Stage | Production deployment | Exact proof |
+| --- | --- | --- |
+| all execution off | `dpl_4MAkVWi4r4CNALBbFevfk2vxq9eG` | `/` and `/skill` 200; authorization route failed closed with 404 |
+| dispatch only | `dpl_EkgS53LZds5SLbFVQgnu9Tj8YDHB` | authorized signal probe returned 409 `acceptance_flag_off:EVE_CONGRESSIONAL_SIGNALS_EXECUTION_ENABLED` |
+| Congressional execution, alerts off | `dpl_9phHxzSTgE3d3ps6Am9ZL76DpkBT` | official baseline/live signal receipt above |
+| one Photon alert | `dpl_4TkRx7rXCVWJpASfQ7XZp8Egd2zn` | one delivered receipt and successful Discuss routing above |
+| alert rollback | `dpl_CRB5zgJHrEixpALxK1A8i4TKoPDL` | repeated delivery returned 409 `acceptance_alert_flag_off` |
+| full execution rollback | `dpl_GB3iMcUf9U9YgXEiqnVJFMTXefwe` | execution, managed dispatch, workspace dispatch, and alerts all off; accepted workspace plus five preflight workspaces retired and archived |
+| final artifact | `dpl_7BaxMhGw5bmkEMYZ8dZqDmQxDQw3` | `/` and `/skill` 200, temporary route 404, bounded error logs empty, temporary authorization variables absent; the Linux Eve build traced `pdfjs-dist` and `@napi-rs/canvas` |
+
+The final production values are exactly `1` for public-source acquisition and
+projections, SEC and House adapters, strategy-pack catalog/mutations/runtime,
+workspace state, and monitor writes. They are exactly `0` for pack-managed
+dispatch, global workspace dispatch, Photon workspace alerts, Congressional
+Signals execution, and paid research. Temporary acceptance authorization and
+token variables are absent. No paid service or broker/trading capability was
+called. The accepted disposable workspace and every preflight workspace are
+archived, all their monitors are retired, their isolated acquisition namespaces
+are removed, and the prior source session is selected again.
+
+Focused Sprints 0–5, public-source House/SEC/contracts/runtime, strategy-pack
+catalog/mutations/runtime/owner/configuration, workspace/worker isolation,
+alert/context/reply/delivery, and SEC worker regressions all pass. TypeScript,
+Eve build, Next production build, and the digest-preserving diff check above
+pass.
 
 Exit: Congressional Signals continuously turns supported official House PTRs
 into isolated, explainable, neutral research alerts and cannot perform or

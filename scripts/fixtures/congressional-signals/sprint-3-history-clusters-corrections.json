@@ -1,0 +1,20 @@
+{
+  "scenarios": [
+    "coverage-89-days-unavailable",
+    "coverage-90-days-complete",
+    "coverage-gap-resets",
+    "pattern-amount-above-history",
+    "pattern-new-industry",
+    "pattern-new-direction",
+    "pattern-insufficient-history",
+    "same-member-cluster",
+    "same-member-replay-dedupe",
+    "committee-cluster",
+    "committee-distinct-member-dedupe",
+    "party-diversity-descriptive-only",
+    "correction-replaces-contribution",
+    "retraction-removes-cluster",
+    "retraction-replay",
+    "correction-alert-change-gate"
+  ]
+}

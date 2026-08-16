@@ -9,8 +9,9 @@ language mirror the public form while names, document IDs, and securities are
 fictional.
 
 The corrected-amendment variant changes only disclosed filer metadata while
-retaining the same transaction rows. Sprint 3 uses it to prove an immutable
-filing revision and explicit correction without manufacturing row changes.
+retaining the same transaction rows. The row-removed amendment retains only the
+first row so verification can prove an immutable retraction/tombstone without
+deleting the earlier canonical fact.
 
 The older `baseline-index.xml`, `one-new-index.xml`, `valid-ptr.txt`, and
 `partial-ptr.txt` files are retained as small parser-development seeds. They do

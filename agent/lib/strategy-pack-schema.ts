@@ -159,9 +159,51 @@ const dailyTimesConfigurationSchema = z
     }
   });
 
+const boundedEnumConfigurationSchema = z
+  .object({
+    ...configurationFieldBase,
+    allowedValues: z.array(stableIdSchema).min(2).max(32),
+    default: stableIdSchema,
+    kind: z.literal("bounded_enum"),
+  })
+  .strict()
+  .superRefine((field, context) => {
+    if (!sortedUnique(field.allowedValues) || !field.allowedValues.includes(field.default)) {
+      context.addIssue({ code: "custom", message: "strategy_pack_bounded_enum_invalid" });
+    }
+  });
+
+const canonicalIdListConfigurationSchema = z
+  .object({
+    ...configurationFieldBase,
+    allowedValues: z.array(stableIdSchema).min(1).max(600),
+    default: z.array(stableIdSchema).max(32),
+    kind: z.literal("canonical_id_list"),
+    maximumItems: z.number().int().positive().max(32),
+    minimumItems: z.number().int().nonnegative().max(32),
+  })
+  .strict()
+  .superRefine((field, context) => {
+    if (
+      field.minimumItems > field.maximumItems ||
+      field.default.length < field.minimumItems ||
+      field.default.length > field.maximumItems ||
+      !sortedUnique(field.allowedValues) ||
+      !sortedUnique(field.default) ||
+      field.default.some((value) => !field.allowedValues.includes(value))
+    ) {
+      context.addIssue({ code: "custom", message: "strategy_pack_canonical_id_list_invalid" });
+    }
+  });
+
 export const strategyPackConfigurationFieldSchema = z.discriminatedUnion(
   "kind",
-  [timezoneConfigurationSchema, dailyTimesConfigurationSchema],
+  [
+    timezoneConfigurationSchema,
+    dailyTimesConfigurationSchema,
+    boundedEnumConfigurationSchema,
+    canonicalIdListConfigurationSchema,
+  ],
 );
 
 const skillSchema = z
@@ -259,6 +301,15 @@ export const strategyPackManifestSchema = z
     configuration: z.array(strategyPackConfigurationFieldSchema).max(16),
     description: z.string().trim().min(1).max(500),
     displayName: z.string().trim().min(1).max(120),
+    evidenceContracts: z.array(z.object({
+      digest: digestSchema,
+      id: stableIdSchema,
+      version: semverSchema,
+    }).strict()).max(16).superRefine((contracts, context) => {
+      if (!sortedUnique(contracts.map(({ id }) => id))) {
+        context.addIssue({ code: "custom", message: "strategy_pack_evidence_contract_duplicate" });
+      }
+    }).optional(),
     evaluationsPath: relativePathSchema,
     id: packIdSchema,
     maturity: z.enum(["deprecated", "experimental", "reference", "stable"]),

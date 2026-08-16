@@ -3,6 +3,7 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import { z } from "zod";
 
 import { photonApprovalGuardKey } from "./photon-approval-store";
+import { resolvePhotonOwnerConversationIdentity } from "./owner-identity";
 import {
   normalizePhotonWorkspaceName,
   normalizePhotonWorkspaceNameKey,
@@ -85,10 +86,18 @@ const DEFAULT_BUDGET_CEILINGS = Object.freeze({
   maximumScheduledRunsPerDay: 8,
 });
 
+export const strategyPackMutationConfigurationSchema = z.record(
+  z.string().min(1).max(80),
+  z.union([
+    z.string().max(200),
+    z.array(z.string().max(160)).max(32),
+  ]),
+).refine((value) => Object.keys(value).length <= 16);
+
 const mutationRequestSchema = z
   .object({
     activateMonitorResourceIds: z.array(z.string().min(2).max(80)).max(16).optional(),
-    configuration: z.record(z.string().min(1).max(80), z.unknown()).optional(),
+    configuration: strategyPackMutationConfigurationSchema.optional(),
     expectedRegistryRevision: z.number().int().nonnegative(),
     name: z.string().trim().min(1).max(80),
     pack: z
@@ -104,7 +113,7 @@ const mutationRequestSchema = z
 const lifecycleConfirmationSchema = z.literal(true);
 const configureRequestSchema = z.object({
   confirmedConsequences: lifecycleConfirmationSchema,
-  configuration: z.record(z.string().min(1).max(80), z.unknown())
+  configuration: strategyPackMutationConfigurationSchema
     .refine((value) => Object.keys(value).length > 0),
   expectedBindingRevision: z.number().int().positive(),
   expectedRegistryRevision: z.number().int().nonnegative(),
@@ -225,6 +234,9 @@ function packInspection(pack: StrategyPackCatalogEntry) {
     }),
     configuration: Object.freeze(pack.configuration.map((field) =>
       Object.freeze({
+        ...("allowedValues" in field
+          ? { allowedValues: Object.freeze([...field.allowedValues]) }
+          : {}),
         default: Array.isArray(field.default)
           ? Object.freeze([...field.default])
           : field.default,
@@ -237,6 +249,11 @@ function packInspection(pack: StrategyPackCatalogEntry) {
     contentDigest: pack.contentDigest,
     description: pack.description,
     displayName: pack.displayName,
+    evidenceContracts: Object.freeze((pack.evidenceContracts ?? []).map((contract) => Object.freeze({
+      digest: contract.digest,
+      id: contract.id,
+      version: contract.version,
+    }))),
     evaluations: Object.freeze({ suiteId: pack.evaluations.suiteId }),
     id: pack.id,
     instructionsIncluded: false as const,
@@ -678,7 +695,7 @@ function parseLifecycleRequest<T>(value: unknown, schema: z.ZodType<T>) {
   return { payloadDigest: sha256(encoded), request: parsed.data };
 }
 
-function effectiveConfiguration(
+export function resolveStrategyPackConfiguration(
   pack: StrategyPackCatalogEntry,
   requested: Record<string, unknown> | undefined,
 ): { configuration: Record<string, string | string[]>; ownerOverrides: Record<string, string | string[]> } {
@@ -703,13 +720,28 @@ function effectiveConfiguration(
       if (supplied) ownerOverrides[field.key] = value;
       continue;
     }
+    if (field.kind === "bounded_enum") {
+      if (typeof value !== "string" || !field.allowedValues.includes(value)) {
+        throw new StrategyPackServiceError("strategy_pack_invalid_request");
+      }
+      configuration[field.key] = value;
+      if (supplied) ownerOverrides[field.key] = value;
+      continue;
+    }
     if (
       !Array.isArray(value) ||
       value.length < field.minimumItems ||
       value.length > field.maximumItems ||
-      value.some((entry) => typeof entry !== "string" || !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(entry)) ||
+      value.some((entry) => typeof entry !== "string") ||
       new Set(value).size !== value.length ||
       value.some((entry, index) => index > 0 && value[index - 1]! > entry)
+    ) {
+      throw new StrategyPackServiceError("strategy_pack_invalid_request");
+    }
+    if (
+      field.kind === "daily_local_times"
+        ? value.some((entry) => !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(entry))
+        : value.some((entry) => !field.allowedValues.includes(entry))
     ) {
       throw new StrategyPackServiceError("strategy_pack_invalid_request");
     }
@@ -869,6 +901,7 @@ function monitorPreparations(input: {
   activate: Set<string>;
   budget: WorkspaceBudgetPolicyValue;
   configuration: Record<string, string | string[]>;
+  deliverySubscriptionId: string;
   now: Date;
   pack: StrategyPackCatalogEntry;
   scope: AuthorizedWorkspaceStoreScope;
@@ -893,7 +926,7 @@ function monitorPreparations(input: {
     });
     return prepareWorkspaceMonitorCreate({
       activateManagedMonitor: input.activate.has(monitor.resourceId),
-      deliverySubscriptionId: `strategy-pack:${monitor.resourceId}`,
+      deliverySubscriptionId: input.deliverySubscriptionId,
       idempotencyKey: `strategy-pack:${input.pack.contentDigest}:${monitor.resourceId}`,
       instruction: monitor.instruction,
       managedBy: {
@@ -1012,7 +1045,7 @@ async function executeCreateStrategyPackWorkspace(
   if (!pack || pack.availability !== "available") {
     throw new StrategyPackServiceError("strategy_pack_unavailable");
   }
-  const configuration = effectiveConfiguration(pack, request.configuration);
+  const configuration = resolveStrategyPackConfiguration(pack, request.configuration);
   const requestedActivation = request.activateMonitorResourceIds ?? [];
   if (
     new Set(requestedActivation).size !== requestedActivation.length ||
@@ -1118,6 +1151,10 @@ async function executeCreateStrategyPackWorkspace(
     activate: new Set(requestedActivation),
     budget,
     configuration: configuration.configuration,
+    deliverySubscriptionId: resolvePhotonOwnerConversationIdentity({
+      principalId: input.principalId,
+      threadId: input.threadId,
+    }, environment).conversationId,
     now,
     pack,
     scope: targetScope,
@@ -1494,7 +1531,7 @@ async function mutateStrategyPackWorkspace(
         throw new StrategyPackServiceError("strategy_pack_invalid_request");
       }
     }
-    const configured = effectiveConfiguration(pack, {
+    const configured = resolveStrategyPackConfiguration(pack, {
       ...binding.ownerOverrides,
       ...suppliedConfiguration,
     });

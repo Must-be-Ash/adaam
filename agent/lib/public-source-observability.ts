@@ -10,6 +10,7 @@ export const PUBLIC_SOURCE_RUNTIME_COUNTERS = [
   "public_source_acquisition_total",
   "public_source_fact_revision_total",
   "public_source_correction_total",
+  "public_source_retraction_total",
   "public_source_acquisition_reused_total",
   "public_source_projection_total",
   "public_source_failure_total",
@@ -49,6 +50,7 @@ export const publicSourceRuntimeObservationSchema = z.object({
   const needsOutcome = observation.counter === "public_source_acquisition_total";
   const needsOperation = observation.counter === "public_source_fact_revision_total" ||
     observation.counter === "public_source_correction_total" ||
+    observation.counter === "public_source_retraction_total" ||
     observation.counter === "public_source_projection_total";
   const needsFailure = observation.counter === "public_source_failure_total";
   if (needsOutcome !== (observation.outcome !== undefined)) {

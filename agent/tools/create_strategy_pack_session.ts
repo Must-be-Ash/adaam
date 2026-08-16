@@ -2,15 +2,15 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 
 import { STRATEGY_PACK_CAPABILITY_INVENTORY } from "../lib/strategy-pack-reference-catalog";
-import { createStrategyPackWorkspaceFromSelection } from "../lib/strategy-pack-service";
+import {
+  createStrategyPackWorkspaceFromSelection,
+  strategyPackMutationConfigurationSchema,
+} from "../lib/strategy-pack-service";
 import { requireStrategyPackToolContext } from "../lib/strategy-pack-tool-context";
 
 export const createStrategyPackSessionInputSchema = z.object({
   activateMonitorResourceIds: z.array(z.string().min(2).max(80)).max(16).default([]),
-  configuration: z.object({
-    dailyTimes: z.array(z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u)).min(1).max(16).optional(),
-    timezone: z.string().min(1).max(80).optional(),
-  }).strict().optional(),
+  configuration: strategyPackMutationConfigurationSchema.optional(),
   name: z.string().trim().min(1).max(80),
   packId: z.string().min(2).max(64),
   packVersion: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u),

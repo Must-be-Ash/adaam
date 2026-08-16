@@ -6,7 +6,7 @@ tracing the implementation, checking the installed Eve and Next.js semantics,
 and reviewing the regression coverage. Use it to form the initial system model;
 then verify task-specific details against current code before making a change.
 
-> **Specification status:** Specs 1–3 are implemented and production accepted.
+> **Specification status:** Specs 1–4 are implemented and production accepted.
 > Specs 1 and 2 are on `main`; Spec 3 was deployed from the exact reviewed
 > source commit `9b6e01f` on `codex/spec-03` without pushing or merging it.
 > Spec 2's versioned strategy-pack framework and
@@ -14,20 +14,24 @@ then verify task-specific details against current code before making a change.
 > Discuss, managed-worker, cleanup, and rollback acceptance on 2026-08-15.
 > Spec 3's shared SEC/House acquisition, canonical facts, isolated projections,
 > and rollback controls passed staged production acceptance on 2026-08-16. The
+> Spec 4 `Congressional Signals` strategy, official current House roster,
+> deterministic history/evidence policy, real Photon alert/Discuss route, and
+> kill-switch rollback passed staged production acceptance on 2026-08-16. The
 > spec files remain the authoritative split between production evidence and
 > deliberately deferred work.
 
 Snapshot date: 2026-08-16
 
-Repository branch: `codex/spec-03`
+Repository branch: `codex/spec-04`
 
 Production alias: <https://adaam.vercel.app>
 
-Production currently runs the exact local Spec 3 source commit `9b6e01f`; that
-commit has not been pushed or merged into Git-backed `main`. The alias, branch,
-and local checkout can therefore diverge. Inspect all three before diagnosing
-or deploying. Never commit, push, deploy, or mutate an external service unless
-the owner asks.
+Production currently runs the final Spec 4 runtime artifact
+`dpl_7BaxMhGw5bmkEMYZ8dZqDmQxDQw3`; the local Sprint 5 commit adds the matching
+runtime source plus acceptance documentation and has not been pushed or merged
+into Git-backed `main`. The alias, branch, and local checkout can therefore
+diverge. Inspect all three before diagnosing or deploying. Never commit, push,
+deploy, or mutate an external service unless the owner asks.
 
 ## Executive summary
 
@@ -45,7 +49,7 @@ architecture. Keep them distinct:
 | Research | Direct sources, public feeds, FMP/SEC-oriented skills, and guarded Masterkey fallback | Durable private ingestion of every paid or temporary result |
 | Trading | Allowlisted Coinbase reads and preview-bound spot-order approval | A generally safe live-trading surface or account-wide reconciliation |
 | Deliverables | Public-data reports and media on stable Eve URLs | Owner-private artifacts for portfolio, account, or personal data |
-| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, source-global SEC/House adapters, immutable canonical facts, isolated workspace projections, and real Specs 1–3 production acceptance | Push source events and crash/operations hardening remain deferred |
+| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC and Congressional findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, source-global SEC/House adapters, immutable canonical facts, isolated workspace projections, and real Specs 1–4 production acceptance | Push source events and crash/operations hardening remain deferred |
 | Authorization | Fail-closed deployment-owner mapping for Photon workspace paths plus a separate Coinbase allowlist | Owner-global enforcement across Telegram, HTTP, and every remaining private capability |
 
 `NORTH_STAR.md` describes the intended strategy-workspace architecture; it is
@@ -296,6 +300,67 @@ S-1/S-1/A filings without findings or alerts. The current House index contained
 returned `pdf_scanned_unsupported`. No signal, alert, message, paid call, or
 state mutation was produced by that observation.
 
+### Congressional Signals
+
+Spec 4 adds the `congressional-signals` pack and deterministic House PTR
+interpretation inside one authorized workspace. It retains disclosed amount
+ranges, separates baseline from live facts, resolves members and securities
+against immutable catalogs, records coverage/history/cluster/correction state,
+emits fixed neutral reason traces, and stages at most one filing alert. It cannot
+use paid research, infer intent or wrongdoing, place a trade, or treat a signal as
+financial approval.
+
+The owner-authorized official Clerk roster snapshot was retrieved from
+`https://clerk.house.gov/xml/lists/MemberData.xml` on
+`2026-08-16T19:59:10.000Z`. Its 556,140 source bytes have SHA-256
+`4ccea8259aff2df6a175545e45bdac2dfcdf0085a9cc7ab6c46aa80527bc524b`
+and contain 441 rows: 437 current members and four vacancies. Immutable member
+catalog `1.2.0` has digest
+`ac8780e513f32730cc9aa253fa47cb73275f937098036b183e8d1876fa5a3cc0`;
+`congressional-signals@1.3.0` has digest
+`5c93463b5659ef694980c4ebf82e75c9b2edc1078ccfbad3ecda3d5655f27acc`.
+Pack versions `1.0.0`–`1.2.0` remain registered with their original digests.
+
+Production acceptance ID `4bc5dabf-aeae-4230-ab53-7c9842191e3d` used the
+official current-year House index digest
+`5b3ce10fe839abed08e14e0cd79dda573e7b9c9c2abc77ee55ac2007dd0536f0`.
+DocID `20035134` established baseline checkpoint
+`8195b1b2a28d6f4fd0f214d132ff8439e2976ed353b219cf6616c6707f092489`;
+DocID `20035196` produced live checkpoint
+`8a1932e4d29e5a743046c939d5bb5422af728a85642ae1e31a96ef038db48d64`,
+signal revision
+`congressional-signal-revision.4929f5c2256cfad9796d941d372b20251034cb2b2a980be36ff44cf089de4e4a`,
+finding `finding_d2e1e661711606682292414496bcfeddb47966520680c635e2f204fcb8ef3fbb`,
+and alert `alert_6bf03df6bcfb425df310477adfa9c94f95653dca31f6aec80993f99dc46544eb`.
+The real Photon send completed at `2026-08-16T20:55:05.244Z` as delivery
+`delivery_461f4b1b36f8b1e912c024822e1ee9bdfc7c5ef6ede29dc36f32201a23ca0be5`;
+Discuss selected the disposable session and its bounded context was consumed.
+
+The successful staged deployments were all-off
+`dpl_4MAkVWi4r4CNALBbFevfk2vxq9eG`, dispatch-only
+`dpl_EkgS53LZds5SLbFVQgnu9Tj8YDHB`, execution-on/alerts-off
+`dpl_9phHxzSTgE3d3ps6Am9ZL76DpkBT`, one-alert
+`dpl_4TkRx7rXCVWJpASfQ7XZp8Egd2zn`, alert rollback
+`dpl_CRB5zgJHrEixpALxK1A8i4TKoPDL`, full rollback
+`dpl_GB3iMcUf9U9YgXEiqnVJFMTXefwe`, and final temporary-route-free artifact
+`dpl_7BaxMhGw5bmkEMYZ8dZqDmQxDQw3`. The final Linux Eve build traced
+`pdfjs-dist` and `@napi-rs/canvas`; the alias returned 200 for `/` and `/skill`,
+404 for the removed acceptance route, and no bounded error logs.
+Repeated delivery after alert rollback failed with
+`acceptance_alert_flag_off`. The accepted workspace and five preflight
+workspaces were archived, all monitors retired, isolated temporary source state
+removed, and the prior source session restored.
+
+Final production values are `1` for source acquisition/projections, SEC/House
+adapters, pack catalog/mutations/runtime, workspace state, and monitor writes;
+they are `0` for pack-managed dispatch, global workspace dispatch, Photon
+alerts, Congressional execution, and paid research. Temporary acceptance
+authorization and token variables are absent. No paid or broker/trading
+capability was used. Production acceptance also established two deployment
+requirements: `pdfjs-dist` must load its explicitly traced native canvas and
+worker modules in Next server functions, and new pack-managed monitors must bind
+the authenticated Photon conversation subscription rather than a placeholder.
+
 ### Approval state machine
 
 Photon's financial approval is durable application state, not model prose. The
@@ -526,9 +591,9 @@ The most important differences between the working app and `NORTH_STAR.md` are:
    assignment, runtimes, monitors, alerts, and manager controls exist for
    Photon's durable mode. Telegram and HTTP do not use that broker.
 2. **Later strategy packs remain.** The versioned pack framework, IPO reference
-   pack, and canonical SEC/House public-source adapters are production accepted.
-   Congressional Signals, Insider Clusters, and shared signals remain Specs
-   4–6.
+   pack, canonical SEC/House public-source adapters, and Congressional Signals
+   are production accepted. Insider Clusters and shared signals remain Specs
+   5–6.
 3. **Artifacts are public-only.** Private portfolio/account deliverables and
    safe recovery of paid temporary outputs require owner-private storage.
 4. **MCP ingestion is incomplete.** Normalized model context is safe and
@@ -605,17 +670,19 @@ Focused regression scripts map to the important boundaries:
 | `verify:public-source-adapters:sec` | acquisition journal, immutable SEC facts, parity, correction/replay, and explicit legacy rollback behavior |
 | `verify:public-source-adapters:house` | bounded official index/PTR parsing, filing and transaction facts, corrections, partial/scanned handling, and resource limits |
 | `verify:public-source-adapters:runtime` | source-global acquisition reuse, workspace-isolated projections, coordinator flags, source health, and manager privacy |
+| `verify:congressional-signals:sprint-0` through `:sprint-5` | live-layout viability, versioned policy/evidence, history/corrections/clusters, owner surfaces, full official roster, replay, and workspace isolation |
 
 The Redis checks require exported environment variables and do not load
 `.env.local`. Model evals do not exercise the Photon webhook, Redis delivery,
 Spectrum UI, or iMessage response path.
 
-At this snapshot, the Specs 1–3 deterministic matrices, Redis races, TypeScript,
-the compiled Eve build, the Next.js webpack production build, and read-only live
+At this snapshot, the Specs 1–4 deterministic matrices, Redis races, TypeScript,
+the compiled Eve build, the Next.js production build, and read-only live
 SEC and House observations have passed. Production acceptance additionally
 proved real SEC polling, Photon alert delivery, Discuss routing/context, exact
 pack-managed worker composition, manager state, the Spec 3 SEC/House staged
-cutovers, and kill-switch rollback paths described above. Earlier real-channel
+cutovers, the Spec 4 official House source-to-signal path, and kill-switch
+rollback paths described above. Earlier real-channel
 smokes validated
 named-session operations and isolation, Coinbase balance and spot-order flows,
 Spectrum order approval, guarded Masterkey research, public report publication,

@@ -25,16 +25,19 @@ import {
   publicSourceAcquisitionResultSchema,
   publicSourceCorrectionSchema,
   publicSourceInstanceSchema,
+  publicSourceRetractionSchema,
   type CanonicalPublicFactRevision,
   type PublicSourceAcquisitionJournal,
   type PublicSourceAcquisitionResult,
   type PublicSourceCorrection,
   type PublicSourceInstance,
+  type PublicSourceRetraction,
 } from "./public-source-adapter-schema";
 import {
   extractHousePtrPdfText,
   HouseFeasibilityError,
   inspectHouseIndexArchive,
+  type HousePtrPdfTransactionStructure,
 } from "./house-public-source-feasibility";
 import { resolveReviewedPublicSource } from "./public-source-registry";
 
@@ -83,9 +86,9 @@ interface HouseTransactionRow {
     readonly upper: string | null;
   };
   readonly assetDescription: string;
-  readonly capitalGainsIndicator: "no" | "yes";
+  readonly capitalGainsIndicator: "no" | "unknown" | "yes";
   readonly notificationDate: string;
-  readonly ownerCode: string;
+  readonly ownerCode: string | null;
   readonly reportedTicker: string | null;
   readonly rowEvidenceDigest: string;
   readonly transactionDate: string;
@@ -292,16 +295,193 @@ function rowMatchesLatestIndex(latest: CanonicalPublicFactRevision, row: HouseIn
     JSON.stringify(latest.payload.filer) === JSON.stringify(row.filer);
 }
 
-function parseAmount(label: string): HouseTransactionRow["amountRange"] {
-  const closed = /^\$\s*([\d,]+)\s*-\s*\$\s*([\d,]+)$/u.exec(label);
+function transactionRowNumber(fact: CanonicalPublicFactRevision): number {
+  if (fact.payload.schemaVersion !== "house-ptr-transaction/v1") return 0;
+  return Number(fact.payload.rowIdentity.slice("row:".length));
+}
+
+function transactionContentSignature(transaction: HouseTransactionRow | Extract<
+  CanonicalPublicFactRevision["payload"],
+  { schemaVersion: "house-ptr-transaction/v1" }
+>): string {
+  return JSON.stringify({
+    amountRange: transaction.amountRange,
+    assetDescription: transaction.assetDescription,
+    capitalGainsIndicator: transaction.capitalGainsIndicator,
+    notificationDate: transaction.notificationDate,
+    ownerCode: transaction.ownerCode,
+    reportedTicker: transaction.reportedTicker,
+    transactionDate: transaction.transactionDate,
+    transactionType: transaction.transactionType,
+  });
+}
+
+async function readPriorTransactionFacts(input: {
+  readonly client?: PublicSourceAcquisitionStoreClient;
+  readonly filing: CanonicalPublicFactRevision;
+  readonly row: HouseIndexRow;
+  readonly source: PublicSourceInstance;
+}): Promise<readonly CanonicalPublicFactRevision[]> {
+  const facts: CanonicalPublicFactRevision[] = [];
+  const batchSize = 16;
+  for (let start = 1; start <= PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition; start += batchSize) {
+    const batch = await Promise.all(Array.from(
+      { length: Math.min(batchSize, PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition - start + 1) },
+      async (_, offset) => {
+        const logicalKey = deriveCanonicalPublicFactLogicalKey({
+          adapterId: "house-financial-disclosures",
+          factSchemaVersion: "house-ptr-transaction/v1",
+          sourceInstanceId: input.source.sourceInstanceId,
+          sourceNativeId: `${input.row.year}:${input.row.docId}`,
+          stableRowIdentity: `row:${start + offset}`,
+        });
+        return readLatestPublicSourceFactRevision(logicalKey, input.client);
+      },
+    ));
+    for (const fact of batch) {
+      if (
+        fact?.payload.schemaVersion === "house-ptr-transaction/v1" &&
+        fact.payload.filingLogicalKey === input.filing.logicalKey
+      ) facts.push(fact);
+    }
+  }
+  return Object.freeze(facts.sort((left, right) =>
+    transactionRowNumber(left) - transactionRowNumber(right)));
+}
+
+function assignStableRowIdentities(
+  transactions: readonly HouseTransactionRow[],
+  priorFacts: readonly CanonicalPublicFactRevision[],
+): {
+  readonly identities: readonly `row:${number}`[];
+  readonly removed: readonly CanonicalPublicFactRevision[];
+} {
+  const current = transactions.map(transactionContentSignature);
+  const prior = priorFacts.map((fact) => {
+    if (fact.payload.schemaVersion !== "house-ptr-transaction/v1") {
+      throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
+    }
+    return transactionContentSignature(fact.payload);
+  });
+  const lengths = Array.from({ length: prior.length + 1 }, () =>
+    new Uint16Array(current.length + 1));
+  for (let priorIndex = prior.length - 1; priorIndex >= 0; priorIndex -= 1) {
+    for (let currentIndex = current.length - 1; currentIndex >= 0; currentIndex -= 1) {
+      lengths[priorIndex]![currentIndex] = prior[priorIndex] === current[currentIndex]
+        ? lengths[priorIndex + 1]![currentIndex + 1]! + 1
+        : Math.max(
+            lengths[priorIndex + 1]![currentIndex]!,
+            lengths[priorIndex]![currentIndex + 1]!,
+          );
+    }
+  }
+  const identities: Array<`row:${number}` | undefined> = Array(current.length);
+  const matchedPrior = new Set<number>();
+  let priorIndex = 0;
+  let currentIndex = 0;
+  while (priorIndex < prior.length && currentIndex < current.length) {
+    if (prior[priorIndex] === current[currentIndex]) {
+      identities[currentIndex] = `row:${transactionRowNumber(priorFacts[priorIndex]!)}`;
+      matchedPrior.add(priorIndex);
+      priorIndex += 1;
+      currentIndex += 1;
+    } else if (lengths[priorIndex + 1]![currentIndex]! >= lengths[priorIndex]![currentIndex + 1]!) {
+      priorIndex += 1;
+    } else currentIndex += 1;
+  }
+  const unmatchedPrior = priorFacts
+    .map((fact, index) => ({ fact, index }))
+    .filter(({ index }) => !matchedPrior.has(index));
+  const unmatchedCurrent = Array.from(identities, (identity, index) => ({ identity, index }))
+    .filter(({ identity }) => identity === undefined);
+  const replacements = Math.min(unmatchedPrior.length, unmatchedCurrent.length);
+  for (let index = 0; index < replacements; index += 1) {
+    identities[unmatchedCurrent[index]!.index] =
+      `row:${transactionRowNumber(unmatchedPrior[index]!.fact)}`;
+    matchedPrior.add(unmatchedPrior[index]!.index);
+  }
+  let nextRow = Math.max(0, ...priorFacts.map(transactionRowNumber)) + 1;
+  for (const unmatched of unmatchedCurrent.slice(replacements)) {
+    identities[unmatched.index] = `row:${nextRow}`;
+    nextRow += 1;
+  }
   return Object.freeze({
-    label: label.replace(/\s+/gu, " ").trim(),
-    lower: closed ? closed[1]!.replaceAll(",", "") : null,
+    identities: Object.freeze(identities as `row:${number}`[]),
+    removed: Object.freeze(priorFacts.filter((_, index) => !matchedPrior.has(index))),
+  });
+}
+
+export function parseHouseTransactionAmountRange(label: string): HouseTransactionRow["amountRange"] {
+  const normalized = label.replace(/\s+/gu, " ").trim();
+  const closed = /^\$\s*([\d,]+)\s*-\s*\$\s*([\d,]+)$/u.exec(normalized);
+  const over = /^Over\s+\$\s*([\d,]+)$/iu.exec(normalized);
+  return Object.freeze({
+    label: normalized,
+    lower: closed
+      ? closed[1]!.replaceAll(",", "")
+      : over
+        ? (BigInt(over[1]!.replaceAll(",", "")) + 1n).toString()
+        : null,
     upper: closed ? closed[2]!.replaceAll(",", "") : null,
   });
 }
 
-function parseTransactions(text: string): readonly HouseTransactionRow[] {
+function parsePositionedTransactions(
+  structures: readonly HousePtrPdfTransactionStructure[],
+): readonly HouseTransactionRow[] {
+  const rows: HouseTransactionRow[] = [];
+  for (const structure of structures) {
+    const { amountFragments, amountLabel, band, dates, typeFragment } = structure;
+    const ownerFragment = band.find((fragment) =>
+      fragment.x < typeFragment.x && /^[A-Z]{1,3}$/u.test(fragment.text)
+    );
+    const assetDescription = band
+      .filter((fragment) =>
+        fragment.x >= 70 &&
+        fragment.x < typeFragment.x - 5 &&
+        fragment !== ownerFragment &&
+        !/^\d{5,20}$/u.test(fragment.text)
+      )
+      .map((fragment) => fragment.text)
+      .join(" ")
+      .replace(/\s+/gu, " ")
+      .trim();
+    if (assetDescription.length === 0) continue;
+
+    const capitalGains = band.find((fragment) =>
+      fragment.x > amountFragments[0]!.x && /^(?:Yes|No)$/iu.test(fragment.text)
+    )?.text.toLowerCase();
+    const evidence = band.map((fragment) => [fragment.x, fragment.y, fragment.text]);
+    rows.push(Object.freeze({
+      amountRange: parseHouseTransactionAmountRange(amountLabel),
+      assetDescription,
+      capitalGainsIndicator: capitalGains === "yes" || capitalGains === "no"
+        ? capitalGains
+        : "unknown",
+      notificationDate: exactDate(
+        dates[1]!.text,
+        new HouseAdapterError("parser_incomplete", "normalize", "partial"),
+      ),
+      ownerCode: ownerFragment?.text ?? null,
+      reportedTicker: /\(([A-Z0-9.-]{1,20})\)\s*\[[A-Z]{1,8}\]/u.exec(assetDescription)?.[1] ?? null,
+      rowEvidenceDigest: digestPublicSourceValue([typeFragment.page, evidence]),
+      transactionDate: exactDate(
+        dates[0]!.text,
+        new HouseAdapterError("parser_incomplete", "normalize", "partial"),
+      ),
+      transactionType: typeFragment.text[0]!.toUpperCase() as "E" | "P" | "S",
+    }));
+  }
+  return Object.freeze(rows);
+}
+
+function parseTransactions(
+  text: string,
+  structures: readonly HousePtrPdfTransactionStructure[],
+): readonly HouseTransactionRow[] {
+  const positioned = parsePositionedTransactions(structures);
+  if (positioned.length > 0) return positioned;
+
   const rowPattern = /(?:^|\s)([A-Z]{1,3})\s+(.+?)\s+([EPS])\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\$\s*[\d,]+\s*-\s*\$\s*[\d,]+|Over\s+\$\s*[\d,]+)\s+(Yes|No)(?=\s+(?:[A-Z]{1,3}\s+|Periodic Transaction Report)|$)/gu;
   const rows: HouseTransactionRow[] = [];
   for (const match of text.matchAll(rowPattern)) {
@@ -309,7 +489,7 @@ function parseTransactions(text: string): readonly HouseTransactionRow[] {
     const ticker = /\(([A-Z0-9.-]{1,20})\)\s*\[[A-Z]{1,8}\]\s*$/u.exec(assetDescription)?.[1] ?? null;
     const evidence = match[0].replace(/\s+/gu, " ").trim();
     rows.push(Object.freeze({
-      amountRange: parseAmount(match[6]!),
+      amountRange: parseHouseTransactionAmountRange(match[6]!),
       assetDescription,
       capitalGainsIndicator: match[7]!.toLowerCase() as "no" | "yes",
       notificationDate: exactDate(
@@ -337,15 +517,20 @@ function assertDocumentIdentity(text: string, row: HouseIndexRow): void {
     row.filer.lastName,
     row.filer.suffix,
   ].filter((value): value is string => value !== null).join(" ");
-  if (
-    !identity ||
-    identity[1]!.replace(/\s+/gu, " ").trim() !== expectedName ||
-    identity[2]!.toUpperCase() !== row.filer.stateDistrict ||
+  const [year, month, day] = row.filingDate.split("-");
+  const filingDate = `${month}/${day}/${year}`;
+  const legacyIdentityMatches = identity !== null &&
+    identity[1]!.replace(/\s+/gu, " ").trim() === expectedName &&
+    identity[2]!.toUpperCase() === row.filer.stateDistrict &&
     exactDate(
       identity[3]!,
       new HouseAdapterError("parser_incomplete", "normalize", "partial"),
-    ) !== row.filingDate
-  ) {
+    ) === row.filingDate;
+  const digitalIdentityMatches = text.includes(`Name: ${expectedName}`) &&
+    text.includes(`State/District: ${row.filer.stateDistrict}`) &&
+    text.includes(`Filing ID #${row.docId}`) &&
+    new RegExp(`${RegExp.escape(expectedName)}\\s*,\\s*${RegExp.escape(filingDate)}`, "u").test(text);
+  if (!legacyIdentityMatches && !digitalIdentityMatches) {
     throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
   }
 }
@@ -415,6 +600,27 @@ function correction(
   });
 }
 
+function retraction(
+  from: CanonicalPublicFactRevision,
+  observedAt: string,
+): PublicSourceRetraction {
+  const reason = "source_amendment" as const;
+  return publicSourceRetractionSchema.parse({
+    createdObservedAt: observedAt,
+    fromRevisionId: from.revisionId,
+    logicalKey: from.logicalKey,
+    reason,
+    recordType: "public_source_fact_retraction",
+    retractionId: `retraction.${digestPublicSourceValue([
+      from.logicalKey,
+      from.revisionId,
+      reason,
+    ])}`,
+    schemaVersion: 1,
+    sourceInstanceId: from.sourceInstanceId,
+  });
+}
+
 function acquisitionId(input: {
   readonly contentDigest: string;
   readonly source: PublicSourceInstance;
@@ -442,6 +648,7 @@ function failureAcquisition(input: {
     baselineEstablished: false,
     corrections: Object.freeze([]),
     facts: Object.freeze([]),
+    retractions: Object.freeze([]),
     result: publicSourceAcquisitionResultSchema.parse({
       acquisitionId: id,
       adapterDefinitionDigest: input.source.adapterDefinitionDigest,
@@ -450,6 +657,7 @@ function failureAcquisition(input: {
       baselineEstablished: false,
       candidateFactRevisionIds: [],
       correctionIds: [],
+      retractionIds: [],
       coverage: "partial",
       errorCode: input.error.code,
       observedAt: input.observedAt,
@@ -534,6 +742,7 @@ async function acquireHouse(input: {
         corrections: [],
         facts: [],
         pdfReceipts: [],
+        retractions: [],
         source,
         status: "no_change",
         watermark: source.cursor.watermark ?? `${source.configuration.year}:none`,
@@ -551,6 +760,7 @@ async function acquireHouse(input: {
 
     const facts: CanonicalPublicFactRevision[] = [];
     const corrections: PublicSourceCorrection[] = [];
+    const retractions: PublicSourceRetraction[] = [];
     const pdfReceipts: Array<{
       errorCode: "pdf_layout_ambiguous" | "pdf_scanned_unsupported" | null;
       inputDigest: string;
@@ -574,7 +784,7 @@ async function acquireHouse(input: {
         assertDocumentIdentity(extraction.text, row);
       }
       const transactions = extraction.extractionState === "complete"
-        ? parseTransactions(extraction.text)
+        ? parseTransactions(extraction.text, extraction.transactionStructures)
         : Object.freeze([]);
       if (extraction.extractionState === "complete" && transactions.length !== extraction.transactionRowCount) {
         throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
@@ -609,6 +819,17 @@ async function acquireHouse(input: {
       if (filingCandidate.fact) facts.push(filingCandidate.fact);
       if (filingCandidate.correction) corrections.push(filingCandidate.correction);
 
+      const priorTransactionFacts = extraction.extractionState === "complete" &&
+          filingCandidate.correction !== null
+        ? await readPriorTransactionFacts({
+            client: input.client,
+            filing: filingFact,
+            row,
+            source,
+          })
+        : [];
+      const stableRows = assignStableRowIdentities(transactions, priorTransactionFacts);
+
       for (const [index, transaction] of transactions.entries()) {
         const transactionPayload = {
           amountRange: transaction.amountRange,
@@ -621,7 +842,7 @@ async function acquireHouse(input: {
           ownerCode: transaction.ownerCode,
           publicDocumentUrl: publicUrl,
           reportedTicker: transaction.reportedTicker,
-          rowIdentity: `row:${index + 1}` as const,
+          rowIdentity: stableRows.identities[index]!,
           schemaVersion: "house-ptr-transaction/v1" as const,
           transactionDate: transaction.transactionDate,
           transactionType: transaction.transactionType,
@@ -644,6 +865,14 @@ async function acquireHouse(input: {
         });
         if (candidate.fact) facts.push(candidate.fact);
         if (candidate.correction) corrections.push(candidate.correction);
+      }
+      if (extraction.extractionState === "complete") {
+        for (const latest of stableRows.removed) {
+          if (retractions.length === PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition) {
+            throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
+          }
+          retractions.push(retraction(latest, input.indexResponse.observedAt));
+        }
       }
       pdfReceipts.push({
         errorCode: extraction.errorCode,
@@ -668,7 +897,7 @@ async function acquireHouse(input: {
       observedAt: input.indexResponse.observedAt,
       pdfReceipts,
       source,
-      status: facts.length === 0 && !hasMore ? "no_change" : "complete",
+      status: facts.length === 0 && retractions.length === 0 && !hasMore ? "no_change" : "complete",
       watermark: hasMore && lastProcessed
         ? `${baselineEstablished ? "baseline" : "incremental"}:${lastProcessed.filingDate}:${lastProcessed.docId}`
         : rows.at(-1)
@@ -676,6 +905,7 @@ async function acquireHouse(input: {
           : `${source.configuration.year}:none`,
       window: input.window,
       xmlDigest: archive.xmlDigest,
+      retractions,
     });
   } catch (error) {
     return failureAcquisition({
@@ -701,11 +931,13 @@ function successfulAcquisition(input: {
     readonly status: "complete" | "partial" | "unsupported";
   }[];
   readonly source: PublicSourceInstance;
+  readonly retractions: readonly PublicSourceRetraction[];
   readonly status: "complete" | "no_change";
   readonly watermark: string;
   readonly window: { readonly endAt: string; readonly startAt: string };
   readonly xmlDigest: string;
 }): HousePublicSourceAcquisition {
+  const retractions = input.retractions;
   const pdfInputDigest = digestPublicSourceValue(input.pdfReceipts.map((receipt) => receipt.inputDigest));
   const contentDigest = digestPublicSourceValue([input.xmlDigest, pdfInputDigest]);
   const id = acquisitionId({ contentDigest, source: input.source, window: input.window });
@@ -719,6 +951,7 @@ function successfulAcquisition(input: {
     baselineEstablished: input.baselineEstablished,
     corrections: Object.freeze([...input.corrections]),
     facts: Object.freeze([...input.facts]),
+    retractions: Object.freeze([...retractions]),
     result: publicSourceAcquisitionResultSchema.parse({
       acquisitionId: id,
       adapterDefinitionDigest: input.source.adapterDefinitionDigest,
@@ -727,7 +960,8 @@ function successfulAcquisition(input: {
       baselineEstablished: input.baselineEstablished,
       candidateFactRevisionIds: input.facts.map((fact) => fact.revisionId),
       correctionIds: input.corrections.map((item) => item.correctionId),
-      coverage: "complete",
+      retractionIds: retractions.map((item) => item.retractionId),
+      coverage: pdfState,
       errorCode: null,
       observedAt: input.observedAt,
       proposedNextCursor: {

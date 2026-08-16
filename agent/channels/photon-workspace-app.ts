@@ -23,6 +23,7 @@ import {
   listStrategyPacks,
   mintSpectrumStrategyPackMutationIdentity,
   removeStrategyPackWorkspaceFromSelection,
+  strategyPackMutationConfigurationSchema,
   StrategyPackServiceError,
   verifySpectrumStrategyPackMutationIdentity,
 } from "../lib/strategy-pack-service";
@@ -38,6 +39,7 @@ import {
   readPublicSourceWorkspaceHealth,
   unavailablePublicSourceWorkspaceHealth,
 } from "../lib/public-source-health";
+import { readCongressionalWorkspacePresentation } from "../lib/congressional-signal-presentation";
 import {
   getWorkspaceMonitor,
   listWorkspaceMonitors,
@@ -102,14 +104,11 @@ const packLifecycleRequestBase = {
   sourceWorkspaceGeneration: z.number().int().positive(),
   sourceWorkspaceId: workspaceIdSchema,
 };
-const packActionRequestSchema = z.discriminatedUnion("action", [
+export const photonStrategyPackActionRequestSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("strategy-pack-create"),
     activateMonitorResourceIds: z.array(z.string().min(2).max(80)).max(16),
-    configuration: z.object({
-      dailyTimes: z.array(z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u)).min(1).max(16),
-      timezone: z.string().min(1).max(80),
-    }).strict(),
+    configuration: strategyPackMutationConfigurationSchema,
     expectedRoutingRevision: z.number().int().nonnegative(),
     managerToken: tokenSchema,
     name: z.string().trim().min(1).max(80),
@@ -122,10 +121,7 @@ const packActionRequestSchema = z.discriminatedUnion("action", [
   z.object({
     ...packLifecycleRequestBase,
     action: z.literal("strategy-pack-configure"),
-    configuration: z.object({
-      dailyTimes: z.array(z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u)).min(1).max(16),
-      timezone: z.string().min(1).max(80),
-    }).strict(),
+    configuration: strategyPackMutationConfigurationSchema,
     confirmedConsequences: z.literal(true),
   }).strict(),
   z.object({
@@ -245,9 +241,10 @@ function json(body: unknown, status = 200): Response {
 async function readJson<T>(
   request: Request,
   schema: z.ZodType<T>,
+  maximumBytes = 2_048,
 ): Promise<T | Response> {
   const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (!Number.isFinite(contentLength) || contentLength > 2_048) {
+  if (!Number.isFinite(contentLength) || contentLength > maximumBytes) {
     return json({ error: "Request too large." }, 413);
   }
   if (
@@ -264,7 +261,7 @@ async function readJson<T>(
   }
   try {
     const body = await request.text();
-    if (body.length > 2_048) {
+    if (Buffer.byteLength(body, "utf8") > maximumBytes) {
       return json({ error: "Request too large." }, 413);
     }
     return schema.parse(JSON.parse(body));
@@ -319,7 +316,7 @@ async function publicManagerState(
         resource: "manager",
         workspaceId: workspace.id,
       });
-      const [monitors, budget, budgetLedger, strategyPack] = await Promise.all([
+      const [monitors, budget, budgetLedger, inspectedStrategyPack] = await Promise.all([
         listWorkspaceMonitors(scope),
         readWorkspaceDocument("budget", scope),
         readWorkspaceBudgetLedger(scope).catch(() => null),
@@ -337,6 +334,24 @@ async function publicManagerState(
             budget.value.ownerTimezone,
           )
         : null;
+      const congressionalSignals = inspectedStrategyPack?.state === "active" &&
+          inspectedStrategyPack.pack?.id === "congressional-signals"
+        ? await readCongressionalWorkspacePresentation(scope).catch(() => Object.freeze({
+            coverage: null,
+            latestSignal: null,
+            outcomeCounts: Object.freeze({
+              alertEligible: 0,
+              priority: 0,
+              recordOnly: 0,
+              review: 0,
+              total: 0,
+            }),
+            state: "unavailable" as const,
+          }))
+        : null;
+      const strategyPack = congressionalSignals
+        ? Object.freeze({ ...inspectedStrategyPack, congressionalSignals })
+        : inspectedStrategyPack;
       const publicMonitors = await Promise.all(monitors.map(async (monitor) => ({
         configurationRevision: monitor.configurationRevision,
         lastCompletedAt: monitor.lastCompletedAt,
@@ -524,6 +539,8 @@ export function workspaceHtml(nonce: string, origin: string): string {
       border-color: var(--line);
       background: #252525;
     }
+    .pack-field select[multiple] { min-height: 88px; padding-block: 8px; }
+    #pack-configuration-fields { display: contents; }
     .pack-toggle {
       grid-column: 1 / -1;
       min-height: 44px;
@@ -686,14 +703,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
           <label for="pack-name">Session name</label>
           <input id="pack-name" maxlength="40" autocomplete="off" value="IPO Filings">
         </div>
-        <div class="pack-field">
-          <label for="pack-timezone">Timezone</label>
-          <input id="pack-timezone" maxlength="80" autocomplete="off" value="UTC">
-        </div>
-        <div class="pack-field">
-          <label for="pack-times">Daily times</label>
-          <input id="pack-times" maxlength="95" autocomplete="off" value="09:00, 16:00">
-        </div>
+        <div id="pack-configuration-fields"></div>
         <label class="pack-toggle" for="pack-activate">
           <input id="pack-activate" type="checkbox">
           <span>Start this schedule now</span>
@@ -718,8 +728,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
       const packForm = document.querySelector("#pack-create-form");
       const packSelect = document.querySelector("#pack-select");
       const packName = document.querySelector("#pack-name");
-      const packTimezone = document.querySelector("#pack-timezone");
-      const packTimes = document.querySelector("#pack-times");
+      const packConfigurationFields = document.querySelector("#pack-configuration-fields");
       const packActivate = document.querySelector("#pack-activate");
       let state = null;
       let busy = false;
@@ -772,6 +781,84 @@ export function workspaceHtml(nonce: string, origin: string): string {
       };
 
       const paidLimit = (value) => value === null ? "deployment cap" : "$" + value;
+
+      const selectedPack = () => state && state.strategyPackCatalog.find(
+        (pack) => pack.id + "@" + pack.version === packSelect.value,
+      );
+
+      const configurationValue = (field, control) => {
+        if (field.kind === "daily_local_times") {
+          return [...new Set(control.value.split(",").map((item) => item.trim()).filter(Boolean))].sort();
+        }
+        if (field.kind === "canonical_id_list") {
+          return Array.from(control.selectedOptions).map((option) => option.value).sort();
+        }
+        return control.value.trim();
+      };
+
+      const readPackConfiguration = (pack) => Object.fromEntries(pack.configuration.map((field) => {
+        const control = packConfigurationFields.querySelector('[data-configuration-key="' + field.key + '"]');
+        return [field.key, configurationValue(field, control)];
+      }));
+
+      const renderPackConfiguration = () => {
+        packConfigurationFields.replaceChildren();
+        const pack = selectedPack();
+        if (!pack) return;
+        packName.value = pack.displayName;
+        for (const field of pack.configuration) {
+          const wrapper = document.createElement("div");
+          wrapper.className = "pack-field" +
+            (field.kind === "canonical_id_list" ? " full" : "");
+          const label = document.createElement("label");
+          const id = "pack-configuration-" + field.key;
+          label.htmlFor = id;
+          label.textContent = field.label;
+          let control;
+          if (field.kind === "bounded_enum" || field.kind === "canonical_id_list") {
+            control = document.createElement("select");
+            control.multiple = field.kind === "canonical_id_list";
+            if (control.multiple) control.size = Math.min(6, field.allowedValues.length);
+            for (const value of field.allowedValues) {
+              const option = document.createElement("option");
+              option.value = value;
+              option.textContent = value;
+              option.selected = Array.isArray(field.default)
+                ? field.default.includes(value)
+                : field.default === value;
+              control.append(option);
+            }
+          } else {
+            control = document.createElement("input");
+            control.maxLength = field.kind === "daily_local_times" ? 160 : 80;
+            control.autocomplete = "off";
+            control.value = Array.isArray(field.default) ? field.default.join(", ") : field.default;
+          }
+          control.id = id;
+          control.dataset.configurationKey = field.key;
+          control.title = field.description;
+          wrapper.append(label, control);
+          packConfigurationFields.append(wrapper);
+        }
+      };
+
+      const promptPackConfiguration = (pack, current) => {
+        const configuration = {};
+        for (const field of pack.configuration) {
+          const existing = current[field.key] === undefined ? field.default : current[field.key];
+          const choices = "allowedValues" in field ? " (" + field.allowedValues.join(", ") + ")" : "";
+          const answer = prompt(field.label + choices,
+            Array.isArray(existing) ? existing.join(", ") : existing);
+          if (answer === null) return null;
+          if (field.kind === "daily_local_times" || field.kind === "canonical_id_list") {
+            configuration[field.key] = [...new Set(answer.split(",")
+              .map((value) => value.trim()).filter(Boolean))].sort();
+          } else {
+            configuration[field.key] = answer.trim();
+          }
+        }
+        return configuration;
+      };
 
       const strategyPackRow = (workspace) => {
         const strategyPack = workspace.strategyPack;
@@ -854,9 +941,23 @@ export function workspaceHtml(nonce: string, origin: string): string {
           const configuration = document.createElement("p");
           configuration.className = "runtime-detail";
           configuration.textContent = "Configuration · " + Object.entries(strategyPack.configuration)
-            .map(([key, value]) => key + ": " + (Array.isArray(value) ? value.join(", ") : value))
+            .map(([key, value]) => {
+              const field = pack?.configuration?.find((candidate) => candidate.key === key);
+              const rendered = Array.isArray(value)
+                ? (value.length ? value.join(", ") : "all")
+                : value;
+              return (field?.label || key) + ": " + rendered;
+            })
             .join(" · ");
           details.append(configuration);
+        }
+        if (pack?.evidenceContracts?.length) {
+          const evidence = document.createElement("p");
+          evidence.className = "runtime-detail";
+          evidence.textContent = "Pinned evidence · " + pack.evidenceContracts
+            .map((contract) => contract.id + "@" + contract.version + " · " + contract.digest.slice(0, 12))
+            .join(" · ");
+          details.append(evidence);
         }
         if (strategyPack.capabilities && strategyPack.capabilities.length) {
           const capabilities = document.createElement("p");
@@ -872,6 +973,32 @@ export function workspaceHtml(nonce: string, origin: string): string {
             .map((source) => source.sourceId + ": " + source.status + " · " + source.canonicalUrl)
             .join(" · ");
           details.append(sources);
+        }
+        const congressional = strategyPack.congressionalSignals;
+        if (congressional) {
+          const coverage = document.createElement("p");
+          coverage.className = "runtime-detail";
+          coverage.textContent = congressional.coverage
+            ? "House-only extraction coverage · " + congressional.coverage.state + " · " +
+              congressional.coverage.consecutiveDays + " consecutive day(s) · through " +
+              congressional.coverage.lastCompleteOn
+            : "House-only extraction coverage · " + congressional.state;
+          const outcomes = document.createElement("p");
+          outcomes.className = "runtime-detail";
+          outcomes.textContent = congressional.state === "unavailable"
+            ? "Signal outcomes · unavailable"
+            : "Signal outcomes · " + congressional.outcomeCounts.total + " total · " +
+              congressional.outcomeCounts.priority + " priority · " + congressional.outcomeCounts.review +
+              " review · " + congressional.outcomeCounts.recordOnly + " record only · " +
+              congressional.outcomeCounts.alertEligible + " alert eligible";
+          const latest = document.createElement("p");
+          latest.className = "runtime-detail";
+          latest.textContent = congressional.latestSignal
+            ? "Latest signal · " + congressional.latestSignal.band + " · " +
+              congressional.latestSignal.createdAt + " · " + congressional.latestSignal.signalRevisionId +
+              " · " + congressional.latestSignal.caveat
+            : "Latest signal · none";
+          details.append(coverage, outcomes, latest);
         }
         row.append(details);
         return row;
@@ -892,6 +1019,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
           option.disabled = pack.availability !== "available";
           packSelect.append(option);
         }
+        renderPackConfiguration();
       };
 
       const render = () => {
@@ -1185,17 +1313,15 @@ export function workspaceHtml(nonce: string, origin: string): string {
         const managed = (strategyPack.managedMonitors || []).map((monitor) => monitor.name).join(", ") || "none";
         if (action === "configure") {
           const current = strategyPack.configuration || {};
-          const timezone = prompt("IANA time zone", current.timezone || "UTC");
-          const times = prompt("Daily times (24-hour, comma-separated)",
-            Array.isArray(current.dailyTimes) ? current.dailyTimes.join(", ") : "09:00, 16:00");
-          if (!timezone || !times) return;
-          const dailyTimes = [...new Set(times.split(",").map((value) => value.trim()).filter(Boolean))].sort();
-          if (dailyTimes.length === 0) return;
+          const pack = strategyPack.pack;
+          if (!pack || !pack.configuration) return;
+          const configuration = promptPackConfiguration(pack, current);
+          if (!configuration) return;
           if (!confirm("Configure this pack? Affected managed work: " + managed +
             ". Cadence and budget timing may change. Managed work will pause, future messages will start a fresh conversation generation, and durable research will remain.")) return;
           await packMutate({
             action: "strategy-pack-configure",
-            configuration: { dailyTimes, timezone: timezone.trim() },
+            configuration,
             confirmedConsequences: true,
             expectedBindingRevision: strategyPack.bindingRevision,
             sourceWorkspaceGeneration: workspace.generation,
@@ -1267,23 +1393,18 @@ export function workspaceHtml(nonce: string, origin: string): string {
       packForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         if (!state) return;
-        const selected = state.strategyPackCatalog.find(
-          (pack) => pack.id + "@" + pack.version === packSelect.value,
-        );
+        const selected = selectedPack();
         const sourceWorkspace = state.workspaces.find(
           (workspace) => workspace.id === state.activeWorkspaceId,
         );
         const name = packName.value.trim();
-        const timezone = packTimezone.value.trim();
-        const dailyTimes = [...new Set(packTimes.value.split(",")
-          .map((value) => value.trim()).filter(Boolean))].sort();
-        if (!selected || !sourceWorkspace || !name || !timezone || dailyTimes.length === 0) return;
+        if (!selected || !sourceWorkspace || !name) return;
         await packMutate({
           action: "strategy-pack-create",
           activateMonitorResourceIds: packActivate.checked
             ? selected.monitors.map((monitor) => monitor.resourceId)
             : [],
-          configuration: { dailyTimes, timezone },
+          configuration: readPackConfiguration(selected),
           name,
           packId: selected.id,
           packVersion: selected.version,
@@ -1291,6 +1412,8 @@ export function workspaceHtml(nonce: string, origin: string): string {
           sourceWorkspaceId: sourceWorkspace.id,
         });
       });
+
+      packSelect.addEventListener("change", renderPackConfiguration);
 
       void load();
     })();
@@ -1471,7 +1594,7 @@ export default defineChannel({
       },
     ),
     POST(`${PHOTON_WORKSPACE_APP_PATH}/pack-action`, async (request) => {
-      const body = await readJson(request, packActionRequestSchema);
+      const body = await readJson(request, photonStrategyPackActionRequestSchema, 16 * 1_024);
       if (body instanceof Response) return body;
       const managerScope = await getPhotonWorkspaceManagerScope(body.managerToken);
       if (!managerScope) {

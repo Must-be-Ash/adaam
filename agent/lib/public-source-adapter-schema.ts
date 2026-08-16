@@ -51,6 +51,7 @@ export const PUBLIC_SOURCE_LOG_EVENTS = [
   "fact_revision_created",
   "fact_revision_reused",
   "projection_created",
+  "retraction_created",
   "stage_completed",
 ] as const;
 
@@ -242,6 +243,7 @@ export const publicSourceAcquisitionResultSchema = z.object({
   baselineEstablished: z.boolean(),
   candidateFactRevisionIds: z.array(idSchema).max(PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition),
   correctionIds: z.array(idSchema).max(PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition),
+  retractionIds: z.array(idSchema).max(PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition).default([]),
   coverage: z.enum(["complete", "partial", "unsupported"]),
   errorCode: errorCodeSchema.nullable(),
   observedAt: timestampSchema,
@@ -265,13 +267,15 @@ export const publicSourceAcquisitionResultSchema = z.object({
 }).strict().superRefine((result, context) => {
   const successful = result.status === "complete" || result.status === "no_change";
   if (
-    successful !== (result.coverage === "complete" && result.errorCode === null) ||
+    successful !== (result.errorCode === null) ||
+    (!successful && result.coverage === "complete") ||
     successful !== (result.proposedNextCursor !== null) ||
     (!successful && result.errorCode === null) ||
     (result.status === "no_change" && result.candidateFactRevisionIds.length !== 0) ||
     ((result.status === "retryable_failure") !== (result.retryAfterSeconds !== null)) ||
     new Set(result.candidateFactRevisionIds).size !== result.candidateFactRevisionIds.length ||
-    new Set(result.correctionIds).size !== result.correctionIds.length
+    new Set(result.correctionIds).size !== result.correctionIds.length ||
+    new Set(result.retractionIds).size !== result.retractionIds.length
   ) {
     context.addIssue({ code: "custom", message: "acquisition_result_invalid" });
   }
@@ -284,6 +288,7 @@ export const publicSourceAcquisitionJournalSchema = z.object({
   correctionIds: z.array(idSchema).max(PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition),
   expectedCursorRevision: z.number().int().nonnegative(),
   factRevisionIds: z.array(idSchema).max(PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition),
+  retractionIds: z.array(idSchema).max(PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition).default([]),
   preparedAt: timestampSchema,
   proposedCursor: proposedCursorSchema,
   recordType: z.literal("public_source_acquisition_journal"),
@@ -300,7 +305,8 @@ export const publicSourceAcquisitionJournalSchema = z.object({
     (journal.status === "committed") !== (journal.committedAt !== null) ||
     journal.window.endAt <= journal.window.startAt ||
     new Set(journal.factRevisionIds).size !== journal.factRevisionIds.length ||
-    new Set(journal.correctionIds).size !== journal.correctionIds.length
+    new Set(journal.correctionIds).size !== journal.correctionIds.length ||
+    new Set(journal.retractionIds).size !== journal.retractionIds.length
   ) {
     context.addIssue({ code: "custom", message: "acquisition_journal_invalid" });
   }
@@ -496,6 +502,27 @@ export const publicSourceCorrectionSchema = z.object({
   }
 });
 
+export const publicSourceRetractionSchema = z.object({
+  createdObservedAt: timestampSchema,
+  fromRevisionId: idSchema,
+  logicalKey: idSchema,
+  reason: z.literal("source_amendment"),
+  recordType: z.literal("public_source_fact_retraction"),
+  retractionId: idSchema,
+  schemaVersion: z.literal(1),
+  sourceInstanceId: idSchema,
+}).strict().superRefine((retraction, context) => {
+  if (
+    retraction.retractionId !== `retraction.${digestPublicSourceValue([
+      retraction.logicalKey,
+      retraction.fromRevisionId,
+      retraction.reason,
+    ])}`
+  ) {
+    context.addIssue({ code: "custom", message: "retraction_invalid" });
+  }
+});
+
 const subscriptionFilterSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("all") }).strict(),
   z.object({
@@ -564,6 +591,29 @@ export const publicSourceProjectionSchema = z.object({
   }
 });
 
+export const publicSourceRetractionProjectionSchema = z.object({
+  acquisitionId: idSchema,
+  factRevisionId: idSchema,
+  factSchemaVersion: factSchemaVersionSchema,
+  monitorId: idSchema,
+  projectedAt: timestampSchema,
+  projectionId: idSchema,
+  recordType: z.literal("public_source_fact_retraction_projection"),
+  retractionId: idSchema,
+  schemaVersion: z.literal(1),
+  sourceInstanceId: idSchema,
+  subscriptionId: idSchema,
+  workspaceId: z.string().uuid(),
+}).strict().superRefine((projection, context) => {
+  const expected = `projection.${digestPublicSourceValue([
+    projection.subscriptionId,
+    projection.retractionId,
+  ])}`;
+  if (projection.projectionId !== expected) {
+    context.addIssue({ code: "custom", message: "projection_invalid" });
+  }
+});
+
 export const publicSourceLogEventSchema = z.object({
   adapterId: adapterIdSchema,
   errorCode: errorCodeSchema.nullable(),
@@ -594,8 +644,10 @@ export const publicSourceRecordSchema = z.discriminatedUnion("recordType", [
   publicSourceAdapterDefinitionSchema,
   canonicalPublicFactRevisionSchema,
   publicSourceCorrectionSchema,
+  publicSourceRetractionSchema,
   publicSourceInstanceSchema,
   publicSourceProjectionSchema,
+  publicSourceRetractionProjectionSchema,
   publicSourceSubscriptionSchema,
 ]);
 
@@ -608,6 +660,8 @@ export type PublicSourceAcquisitionResult = z.infer<typeof publicSourceAcquisiti
 export type PublicSourceAcquisitionJournal = z.infer<typeof publicSourceAcquisitionJournalSchema>;
 export type CanonicalPublicFactRevision = z.infer<typeof canonicalPublicFactRevisionSchema>;
 export type PublicSourceCorrection = z.infer<typeof publicSourceCorrectionSchema>;
+export type PublicSourceRetraction = z.infer<typeof publicSourceRetractionSchema>;
 export type PublicSourceInstance = z.infer<typeof publicSourceInstanceSchema>;
 export type PublicSourceProjection = z.infer<typeof publicSourceProjectionSchema>;
+export type PublicSourceRetractionProjection = z.infer<typeof publicSourceRetractionProjectionSchema>;
 export type PublicSourceSubscription = z.infer<typeof publicSourceSubscriptionSchema>;

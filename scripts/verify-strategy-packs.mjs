@@ -15,7 +15,10 @@ import {
   resolveStrategyPackBindingAvailability,
   resolveStrategyPackFlags,
 } from "../agent/lib/strategy-pack-flags.ts";
-import { STRATEGY_PACK_REFERENCE_CATALOG } from "../agent/lib/strategy-pack-reference-catalog.ts";
+import {
+  CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
+  STRATEGY_PACK_REFERENCE_CATALOG,
+} from "../agent/lib/strategy-pack-reference-catalog.ts";
 import {
   EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
   SEC_IPO_SOURCE_ALLOWED_ORIGINS,
@@ -372,9 +375,15 @@ const productionCheck = await generateStrategyPackCatalog({
 assert.equal(productionCheck.outputMatches, true);
 assert.deepEqual(
   productionCheck.entries.map(({ id, version }) => `${id}@${version}`),
-  ["ipo-filings@1.0.0"],
+  [
+    "congressional-signals@1.0.0",
+    "congressional-signals@1.1.0",
+    "congressional-signals@1.2.0",
+    "congressional-signals@1.3.0",
+    "ipo-filings@1.0.0",
+  ],
 );
-const productionPack = productionCheck.entries[0];
+const productionPack = productionCheck.entries.find(({ id }) => id === "ipo-filings");
 assert.equal(productionPack?.maturity, "reference");
 assert.equal(productionPack?.sources[0]?.sourceId, "sec-latest-s1-filings");
 assert.equal(productionPack?.monitors[0]?.resourceId, "detect-new-s1");
@@ -395,6 +404,12 @@ assert.equal(publicSource.sourceInstance.sourceInstanceId, "source.sec-latest-s1
 assert.equal(
   STRATEGY_PACK_REFERENCE_CATALOG.capabilityIds.includes(
     EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
+  ),
+  true,
+);
+assert.equal(
+  STRATEGY_PACK_REFERENCE_CATALOG.capabilityIds.includes(
+    CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
   ),
   true,
 );

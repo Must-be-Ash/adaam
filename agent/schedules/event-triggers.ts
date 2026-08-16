@@ -29,7 +29,7 @@ import {
   type WorkspaceRuntimeErrorCode,
   type WorkspaceRuntimeObservationSink,
 } from "../lib/workspace-runtime-observability";
-import { recoverSecIpoWorkspaceRunForControlPlane } from "../lib/sec-ipo-workspace-worker";
+import { recoverWorkspaceRunForControlPlane } from "../lib/workspace-worker-recovery";
 import { deliverWorkspaceOutcomeToPhoton } from "../lib/workspace-alert-dispatch";
 import {
   prepareWorkspaceWorkerRecovery,
@@ -50,7 +50,7 @@ export interface EventTriggerScheduleDependencies {
   readonly prepareWorkspaceRecovery: typeof prepareWorkspaceWorkerRecovery;
   readonly prepareWorkspaceWorker: typeof prepareWorkspaceWorkerRun;
   readonly recordWorkspaceFailure: typeof recordWorkspaceMonitorFailure;
-  readonly recoverWorkspaceOutcome: typeof recoverSecIpoWorkspaceRunForControlPlane;
+  readonly recoverWorkspaceOutcome: typeof recoverWorkspaceRunForControlPlane;
   readonly releaseWorkspaceLease: typeof releaseWorkspaceMonitorLease;
   readonly requireWorkspaceOutcome: typeof requireWorkspaceWorkerOutcome;
   readonly reserveWorkspaceBudget: typeof reserveWorkspaceMonitorDispatchBudget;
@@ -72,7 +72,7 @@ const productionDependencies: EventTriggerScheduleDependencies = Object.freeze({
   prepareWorkspaceRecovery: prepareWorkspaceWorkerRecovery,
   prepareWorkspaceWorker: prepareWorkspaceWorkerRun,
   recordWorkspaceFailure: recordWorkspaceMonitorFailure,
-  recoverWorkspaceOutcome: recoverSecIpoWorkspaceRunForControlPlane,
+  recoverWorkspaceOutcome: recoverWorkspaceRunForControlPlane,
   releaseWorkspaceLease: releaseWorkspaceMonitorLease,
   requireWorkspaceOutcome: requireWorkspaceWorkerOutcome,
   reserveWorkspaceBudget: reserveWorkspaceMonitorDispatchBudget,
