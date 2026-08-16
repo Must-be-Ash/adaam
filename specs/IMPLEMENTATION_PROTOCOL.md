@@ -6,6 +6,13 @@ reviewed, remediated if necessary, and integrated before a fresh task starts the
 next sprint. The protocol exists so phase prompts can stay short and consistent
 without asking one context window to implement and judge a whole specification.
 
+An assigned spec's explicit implementation workflow overrides this legacy
+default. In particular, Spec 4A keeps one implementation agent/context across
+sprints, commits and reports at each sprint boundary, runs one independent
+review and broad gate only in its final sprint, then completes its documented
+push/PR/merge landing pass. Do not reintroduce per-sprint re-orientation or
+independent review when the assigned spec explicitly removes it.
+
 ## Repository and branch setup
 
 For the current Spec 1 acceptance/Spec 2 plan, use the owner's simplified rule:
@@ -21,6 +28,7 @@ integration-branch pattern below remains available for later multi-sprint specs.
   - `codex/spec-02-strategy-packs`
   - `codex/spec-03-source-adapters`
   - `codex/spec-04-congressional-signals`
+  - `codex/spec-04a-hybrid-evidence`
   - `codex/spec-05-insider-clusters`
   - `codex/spec-06-shared-signal-plane`
 - Create a fresh dedicated worktree and phase branch for the assigned sprint
@@ -44,7 +52,8 @@ integration-branch pattern below remains available for later multi-sprint specs.
   integration-to-`main` merge are authorized by this protocol. An implementation
   task must stop at its phase handoff; it does not review or merge its own phase.
   Do not push, rebase published work, open a pull request, deploy, or otherwise
-  alter remote/production state unless the user separately asks.
+  alter remote/production state unless the user or assigned spec explicitly
+  authorizes its final landing workflow.
 
 ## Required orientation
 

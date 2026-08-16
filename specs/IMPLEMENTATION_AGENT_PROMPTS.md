@@ -21,6 +21,12 @@ The sequence is:
 repeat only the scope and evidence rules that a task must keep in immediate
 context.
 
+An assigned spec's explicit workflow can override the legacy per-sprint review
+loop. Spec 4A does so: keep one implementation context, commit and report each
+sprint, continue only with owner direction, run one final independent review,
+then complete the spec's push/PR/merge landing pass without rerunning an already-
+green broad suite when landing changed no code.
+
 ## Current implementation target
 
 Spec 1's polling-first application is implemented, independently reviewed,
@@ -146,6 +152,7 @@ Use these branch values:
 | --- | --- | --- | --- |
 | 3 | `specs/03-public-source-adapters.md` | `codex/spec-03-source-adapters` | `codex/spec-03-sprint-N` |
 | 4 | `specs/04-congressional-signals-house.md` | `codex/spec-04-congressional-signals` | `codex/spec-04-sprint-N` |
+| 4A | `specs/04a-hybrid-evidence-reasoning.md` | `codex/spec-04a-hybrid-evidence` | same integration branch; sprint commits |
 | 5 | `specs/05-insider-clusters.md` | `codex/spec-05-insider-clusters` | `codex/spec-05-sprint-N` |
 | 6 | `specs/06-shared-signal-plane.md` | `codex/spec-06-shared-signal-plane` | `codex/spec-06-sprint-N` |
 

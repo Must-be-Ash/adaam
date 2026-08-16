@@ -346,24 +346,28 @@ directories so a fork contains its own north-star sources.
 
 ## Near-term sequence
 
-1. Build Spec 3's versioned polling adapters and canonical facts for SEC and
-   House. Add source-event/RSS/WebSub ingress only when a selected adapter has a
-   real production push contract.
-2. Implement Specs 4 and 5 strategy behavior, then Spec 6's typed shared-signal
-   plane without weakening workspace isolation.
-3. Extend the deployment-owner boundary and workspace broker to Telegram and
+1. Specs 1–4 are complete: isolated runtimes, versioned packs, shared SEC/House
+   public facts, and the Congressional Signals reference strategy.
+2. Implement Spec 4A's shared hybrid evidence and reasoning foundation: keep
+   deterministic parsing first, add bounded model recovery and semantic
+   interpretation, and prove it with PDF, spreadsheet, and public-text cases.
+3. Prove that foundation with two real consumers: Spec 4B Earnings Call Changes,
+   then Spec 4C using a different connector and content shape.
+4. Revisit Spec 5 Insider Clusters after those proofs, then implement Spec 6's
+   typed shared-signal plane without weakening workspace isolation.
+5. Extend the deployment-owner boundary and workspace broker to Telegram and
    authenticated HTTP before enabling workspace access there.
-4. Add owner-private artifact retention and pre-normalization capture for paid
+6. Add owner-private artifact retention and pre-normalization capture for paid
    or temporary provider output.
-5. Disable out-of-scope Coinbase mutations, then make order-create/edit/cancel
+7. Disable out-of-scope Coinbase mutations, then make order-create/edit/cancel
    risk reservations, previews, collars, approvals, revalidation, uncertainty
    gates, and audit records workspace-aware before enabling multi-workspace live
    trading.
-6. Add high-confidence general topic-change detection and held-message crash
+8. Add high-confidence general topic-change detection and held-message crash
    recovery.
-7. Return to the explicit Spec 1 deferred-hardening phase after Specs 2–6 unless
+9. Return to the explicit Spec 1 deferred-hardening phase after Specs 2–6 unless
    an item becomes an observed ordinary-path failure sooner.
-8. Introduce cheaper bounded worker models only where evals show no quality or
+10. Introduce cheaper bounded worker models only where evals show no quality or
    safety regression.
 
 Owner-authorized Spec 1 production rollout completed on 2026-08-15 at commit
