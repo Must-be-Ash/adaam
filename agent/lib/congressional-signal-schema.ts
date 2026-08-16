@@ -72,14 +72,19 @@ export const congressionalPolicySchema = z.object({
     ...z.ZodLiteral<(typeof CONGRESSIONAL_SIGNAL_BANDS)[number]>[],
   ]),
   catalogMaximumAgeDays: z.literal(90).optional(),
+  clusterMinimumFacts: z.literal(3).optional(),
+  clusterWindowDays: z.literal(30).optional(),
   coverage: z.literal("house_only"),
+  coverageMaximumGapDays: z.literal(2).optional(),
   defaultAlertThreshold: z.literal("priority"),
   eligibleTransactionTypes: z.tuple([z.literal("P"), z.literal("S")]),
   materialLowerBound: z.literal("50001"),
   maximumDisclosureLagDays: z.literal(45),
+  historyCoverageDays: z.literal(90).optional(),
+  historyMinimumTransactions: z.literal(5).optional(),
   policyDigest: digestSchema,
   policyId: z.literal("congressional-signals-policy"),
-  policyVersion: z.enum(["1.0.0", "1.1.0"]),
+  policyVersion: z.enum(["1.0.0", "1.1.0", "1.2.0"]),
   reasonCodes: z.tuple(CONGRESSIONAL_SIGNAL_REASON_CODES.map((code) => z.literal(code)) as [
     z.ZodLiteral<(typeof CONGRESSIONAL_SIGNAL_REASON_CODES)[0]>,
     ...z.ZodLiteral<(typeof CONGRESSIONAL_SIGNAL_REASON_CODES)[number]>[],
@@ -91,7 +96,14 @@ export const congressionalPolicySchema = z.object({
   if (
     policy.policyDigest !== congressionalSignalContractDigest(withoutField(policy, "policyDigest")) ||
     !sortedUnique(policy.reasonCodes) ||
-    (policy.policyVersion === "1.1.0") !== (policy.catalogMaximumAgeDays === 90)
+    (policy.policyVersion !== "1.0.0") !== (policy.catalogMaximumAgeDays === 90) ||
+    (policy.policyVersion === "1.2.0") !== (
+      policy.clusterMinimumFacts === 3 &&
+      policy.clusterWindowDays === 30 &&
+      policy.coverageMaximumGapDays === 2 &&
+      policy.historyCoverageDays === 90 &&
+      policy.historyMinimumTransactions === 5
+    )
   ) {
     context.addIssue({ code: "custom", message: "congressional_policy_invalid" });
   }
@@ -220,13 +232,13 @@ const packBindingSchema = z.object({
   bindingRevision: z.number().int().positive(),
   packContentDigest: digestSchema,
   packId: z.literal("congressional-signals"),
-  packVersion: z.enum(["1.0.0", "1.1.0"]),
+  packVersion: z.enum(["1.0.0", "1.1.0", "1.2.0"]),
 }).strict();
 
 const policyReferenceSchema = z.object({
   policyDigest: digestSchema,
   policyId: z.literal("congressional-signals-policy"),
-  policyVersion: z.enum(["1.0.0", "1.1.0"]),
+  policyVersion: z.enum(["1.0.0", "1.1.0", "1.2.0"]),
 }).strict();
 
 const catalogReferenceSchema = z.object({
@@ -241,7 +253,13 @@ const lineageSchema = z.object({
   retractionId: identifierSchema.nullable(),
   state: z.enum(["active", "retracted"]),
 }).strict().superRefine((lineage, context) => {
-  if ((lineage.state === "retracted") !== (lineage.retractionId !== null)) {
+  if (
+    (lineage.state === "retracted") !== (lineage.retractionId !== null) ||
+    (lineage.state === "active" &&
+      (lineage.correctionId !== null) !== (lineage.priorRevisionId !== null)) ||
+    (lineage.state === "retracted" &&
+      (lineage.correctionId !== null || lineage.priorRevisionId === null))
+  ) {
     context.addIssue({ code: "custom", message: "congressional_lineage_invalid" });
   }
 });
@@ -387,12 +405,14 @@ const filingSignalCoreSchema = z.object({
     band: bandSchema,
     committeeResolution: z.object({
       assignmentIds: z.array(identifierSchema).max(32),
+      committeeKeys: z.array(identifierSchema).max(32).optional(),
       jurisdictionIds: z.array(identifierSchema).max(32),
       state: z.enum(["ambiguous", "no", "stale", "unknown", "yes"]),
     }).strict(),
+    clusterRevisionIds: z.array(identifierSchema).max(64).optional(),
     evidence: z.array(z.object({
       reasonCode: z.enum(CONGRESSIONAL_SIGNAL_EVIDENCE_REASON_CODES),
-      sourceRecordIds: z.array(identifierSchema).max(32),
+      sourceRecordIds: z.array(identifierSchema).max(500),
       state: z.enum(["applied", "not_applicable", "unavailable"]),
     }).strict().superRefine((evidence, context) => {
       if (!sortedUnique(evidence.sourceRecordIds)) {
@@ -400,6 +420,11 @@ const filingSignalCoreSchema = z.object({
       }
     })).length(6),
     reasonCodes: z.array(reasonCodeSchema).min(1).max(CONGRESSIONAL_SIGNAL_REASON_CODES.length),
+    patternResolution: z.object({
+      priorTransactionRevisionIds: z.array(identifierSchema).max(500),
+      ruleCodes: z.array(z.enum(["amount_above_history", "new_direction", "new_industry"])).max(3),
+      state: z.enum(["no", "unavailable", "yes"]),
+    }).strict().optional(),
     transactionRevisionId: identifierSchema,
   }).strict()).min(1).max(500),
   workspaceId: z.string().uuid(),
@@ -435,6 +460,18 @@ export const congressionalFilingSignalSchema = filingSignalCoreSchema.extend({
     !sortedUnique(signal.transactionEvaluations.map(({ transactionRevisionId }) =>
       transactionRevisionId)) ||
     signal.transactionEvaluations.some((evaluation) => !sortedUnique(evaluation.reasonCodes)) ||
+    signal.transactionEvaluations.some((evaluation) =>
+      signal.packBinding.packVersion === "1.2.0" && (
+        evaluation.committeeResolution.committeeKeys === undefined ||
+        evaluation.clusterRevisionIds === undefined ||
+        evaluation.patternResolution === undefined
+      )) ||
+    signal.transactionEvaluations.some((evaluation) =>
+      signal.packBinding.packVersion !== "1.2.0" && (
+        evaluation.committeeResolution.committeeKeys !== undefined ||
+        evaluation.clusterRevisionIds !== undefined ||
+        evaluation.patternResolution !== undefined
+      )) ||
     (signal.band === "record_only" && signal.alertEligible)
   ) {
     context.addIssue({ code: "custom", message: "congressional_signal_invalid" });

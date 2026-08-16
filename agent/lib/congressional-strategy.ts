@@ -8,6 +8,7 @@ import {
   congressionalFilingSignalSchema,
   deriveCongressionalSignalId,
   deriveCongressionalSignalRevisionId,
+  houseStrategyTransactionSchema,
   normalizeProjectedHouseTransaction,
   type CongressionalFilingSignal,
   type CongressionalPolicy,
@@ -19,6 +20,13 @@ import {
   HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
   HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL,
 } from "./strategy-pack-reference-catalog";
+import {
+  evaluateCongressionalPatternBreak,
+  type CongressionalCluster,
+  type CongressionalCoverage,
+  type CongressionalHistoryEntry,
+  type CongressionalPatternResolution,
+} from "./congressional-history";
 
 type EvidenceReasonCode = (typeof CONGRESSIONAL_SIGNAL_EVIDENCE_REASON_CODES)[number];
 type EvidenceState = "applied" | "not_applicable" | "unavailable";
@@ -27,12 +35,14 @@ type ReasonCode = (typeof CONGRESSIONAL_SIGNAL_REASON_CODES)[number];
 export interface CongressionalTransactionEvaluation {
   readonly band: (typeof CONGRESSIONAL_SIGNAL_BANDS)[number];
   readonly committeeResolution: CongressionalCommitteeResolution;
+  readonly clusterRevisionIds: readonly string[];
   readonly evidence: {
     reasonCode: EvidenceReasonCode;
     sourceRecordIds: string[];
     state: EvidenceState;
   }[];
   readonly reasonCodes: ReasonCode[];
+  readonly patternResolution: CongressionalPatternResolution;
   readonly transactionRevisionId: string;
 }
 
@@ -42,6 +52,7 @@ type CommitteeCatalog = Extract<CongressionalReferenceCatalog, {
 
 export interface CongressionalCommitteeResolution {
   readonly assignmentIds: string[];
+  readonly committeeKeys: string[];
   readonly jurisdictionIds: string[];
   readonly state: "ambiguous" | "no" | "stale" | "unknown" | "yes";
 }
@@ -84,6 +95,7 @@ export function resolveCongressionalCommitteeRelevance(input: {
   ) {
     return Object.freeze({
       assignmentIds: [assignmentCatalogRevisionId],
+      committeeKeys: [],
       jurisdictionIds: [jurisdictionCatalogRevisionId],
       state: "stale",
     });
@@ -91,6 +103,7 @@ export function resolveCongressionalCommitteeRelevance(input: {
   if (input.memberBioguideId === null || input.industryId === null || input.transactionDate === null) {
     return Object.freeze({
       assignmentIds: [assignmentCatalogRevisionId],
+      committeeKeys: [],
       jurisdictionIds: [jurisdictionCatalogRevisionId],
       state: "unknown",
     });
@@ -100,10 +113,12 @@ export function resolveCongressionalCommitteeRelevance(input: {
     dateIsEffective(input.transactionDate!, assignment.effectiveFrom, assignment.effectiveThrough)
   );
   const assignmentIds = assignments.map(({ assignmentId }) => assignmentId).sort();
+  const committeeKeys = [...new Set(assignments.map((assignment) =>
+    assignment.subcommitteeId ?? assignment.committeeId))].sort();
   const targets = assignments.map((assignment) =>
     `${assignment.committeeId}:${assignment.subcommitteeId ?? ""}`);
   if (new Set(targets).size !== targets.length) {
-    return Object.freeze({ assignmentIds, jurisdictionIds: [], state: "ambiguous" });
+    return Object.freeze({ assignmentIds, committeeKeys, jurisdictionIds: [], state: "ambiguous" });
   }
 
   const matched = assignments.flatMap((assignment) => input.jurisdictions.entries.filter((rule) =>
@@ -122,7 +137,7 @@ export function resolveCongressionalCommitteeRelevance(input: {
       .filter((match) => match.target === target && match.rule.industryId === input.industryId)
       .map(({ rule }) => rule.relevance));
     if (exactStates.size > 1) {
-      return Object.freeze({ assignmentIds, jurisdictionIds, state: "ambiguous" });
+      return Object.freeze({ assignmentIds, committeeKeys, jurisdictionIds, state: "ambiguous" });
     }
   }
   const exact = matched.filter(({ rule }) => rule.industryId === input.industryId);
@@ -137,7 +152,7 @@ export function resolveCongressionalCommitteeRelevance(input: {
     : exact.some(({ rule }) => rule.relevance === "no")
       ? "no" as const
       : "unknown" as const;
-  return Object.freeze({ assignmentIds: supportingAssignmentIds, jurisdictionIds, state });
+  return Object.freeze({ assignmentIds: supportingAssignmentIds, committeeKeys, jurisdictionIds, state });
 }
 
 export interface CongressionalFilingEvaluation {
@@ -159,6 +174,11 @@ export function evaluateCongressionalTransaction(
     readonly committeeAssignments: Extract<CongressionalReferenceCatalog, { kind: "committee_assignments" }>;
     readonly committeeJurisdictions: Extract<CongressionalReferenceCatalog, { kind: "committee_jurisdictions" }>;
   },
+  history?: {
+    readonly clusters: readonly CongressionalCluster[];
+    readonly coverage: CongressionalCoverage;
+    readonly priorEntries: readonly CongressionalHistoryEntry[];
+  },
 ): CongressionalTransactionEvaluation {
   const eligible = transaction.eligibility.state === "eligible";
   const timely = eligible && transaction.disclosureLagDays !== null &&
@@ -167,7 +187,7 @@ export function evaluateCongressionalTransaction(
     transaction.amountRange.lower,
     policy.materialLowerBound,
   );
-  const committeeResolution = policy.policyVersion === "1.1.0"
+  const committeeResolution = policy.policyVersion !== "1.0.0"
     ? resolveCongressionalCommitteeRelevance({
         assignments: catalogs.committeeAssignments,
         industryId: transaction.securityResolution.industryId,
@@ -177,8 +197,21 @@ export function evaluateCongressionalTransaction(
         observedAt: transaction.observedAt,
         transactionDate: transaction.transactionDate,
       })
-    : Object.freeze({ assignmentIds: [], jurisdictionIds: [], state: "unknown" as const });
+    : Object.freeze({ assignmentIds: [], committeeKeys: [], jurisdictionIds: [], state: "unknown" as const });
   const committeeRelevant = eligible && committeeResolution.state === "yes";
+  const patternResolution = policy.policyVersion === "1.2.0" && history
+    ? evaluateCongressionalPatternBreak({
+        coverage: history.coverage,
+        current: transaction,
+        minimumPriorTransactions: policy.historyMinimumTransactions!,
+        priorEntries: history.priorEntries,
+      })
+    : Object.freeze({ priorTransactionRevisionIds: [], ruleCodes: [], state: "unavailable" as const });
+  const matchingClusters = history?.clusters.filter(({ factLogicalKeys }) =>
+    factLogicalKeys.includes(transaction.source.factLogicalKey)).slice(0, 64) ?? [];
+  const sameMemberCluster = eligible && matchingClusters.some(({ kind }) => kind === "same_member");
+  const committeeCluster = eligible && matchingClusters.some(({ kind }) => kind === "committee");
+  const patternBreak = eligible && patternResolution.state === "yes";
   const evidence = CONGRESSIONAL_SIGNAL_EVIDENCE_REASON_CODES.map((reasonCode) => {
     let state: EvidenceState;
     if (!eligible) state = "not_applicable";
@@ -191,17 +224,44 @@ export function evaluateCongressionalTransaction(
           ? "not_applicable"
           : "unavailable";
     }
+    else if (reasonCode === "pattern_break") {
+      state = patternBreak
+        ? "applied"
+        : patternResolution.state === "no"
+          ? "not_applicable"
+          : "unavailable";
+    }
+    else if (reasonCode === "same_member_cluster") {
+      state = policy.policyVersion === "1.2.0"
+        ? sameMemberCluster ? "applied" : "not_applicable"
+        : "unavailable";
+    }
+    else if (reasonCode === "committee_cluster") {
+      state = policy.policyVersion === "1.2.0"
+        ? committeeCluster ? "applied" : "not_applicable"
+        : "unavailable";
+    }
     else state = "unavailable";
     const sourceRecordIds = reasonCode === "committee_relevant"
       ? [...committeeResolution.assignmentIds, ...committeeResolution.jurisdictionIds].sort()
-      : [transaction.transactionRevisionId];
+      : reasonCode === "pattern_break"
+        ? patternResolution.priorTransactionRevisionIds.length > 0
+          ? [...patternResolution.priorTransactionRevisionIds]
+          : [transaction.transactionRevisionId]
+        : reasonCode === "same_member_cluster" || reasonCode === "committee_cluster"
+          ? matchingClusters.filter(({ kind }) => kind === (
+              reasonCode === "same_member_cluster" ? "same_member" : "committee"
+            )).map(({ clusterRevisionId }) => clusterRevisionId).sort()
+          : [transaction.transactionRevisionId];
     return Object.freeze({ reasonCode, sourceRecordIds, state });
   });
   const band = !eligible
     ? "record_only" as const
-    : material && (timely || committeeRelevant)
+    : committeeCluster ||
+      (committeeRelevant && (material || patternBreak || sameMemberCluster)) ||
+      (timely && material)
       ? "priority" as const
-      : timely || material || committeeRelevant
+      : timely || material || committeeRelevant || patternBreak || sameMemberCluster
         ? "review" as const
         : "record_only" as const;
   const reasonCodes = [...new Set([
@@ -211,8 +271,11 @@ export function evaluateCongressionalTransaction(
   return Object.freeze({
     band,
     committeeResolution,
+    clusterRevisionIds: Object.freeze(matchingClusters.map(({ clusterRevisionId }) =>
+      clusterRevisionId).sort()),
     evidence,
     reasonCodes,
+    patternResolution,
     transactionRevisionId: transaction.transactionRevisionId,
   });
 }
@@ -249,25 +312,23 @@ function transactionDescription(
   ].join(", ");
 }
 
-function findingForSignal(input: {
+export function congressionalFindingForSignal(input: {
   evaluations: readonly CongressionalTransactionEvaluation[];
-  filing: AuthorizedPublicSourceProjection;
   signal: CongressionalFilingSignal;
   transactions: readonly HouseStrategyTransaction[];
 }): { finding: WorkspaceFindingCandidate; presentation: { title: string; whyMatched: string } } {
-  const filing = input.filing.fact.payload;
-  if (filing.schemaVersion !== "house-ptr-filing/v1") throw new Error("congressional_filing_invalid");
   const resolvedMember = input.transactions.find(({ memberResolution }) =>
     memberResolution.bioguideId !== null)?.memberResolution.bioguideId;
   if (!resolvedMember) throw new Error("congressional_member_unresolved");
-  const disclosedName = `${filing.filer.firstName} ${filing.filer.lastName}`
+  const disclosedMember = input.transactions[0]!.disclosedMember;
+  const disclosedName = `${disclosedMember.firstName} ${disclosedMember.lastName}`
     .replace(/\s+/gu, " ")
     .trim();
   const publicDocumentUrl = input.transactions[0]!.source.publicDocumentUrl;
   const fact = {
     band: input.signal.band,
     delayedDisclosureCaveat: CONGRESSIONAL_SIGNAL_NEUTRAL_CAVEAT,
-    filingDate: filing.filingDate,
+    filingDate: input.transactions[0]!.filingDate,
     filingIdentity: input.signal.signalRevisionId,
     kind: "congressional_filing_signal" as const,
     member: { bioguideId: resolvedMember, disclosedName },
@@ -327,7 +388,7 @@ function findingForSignal(input: {
   };
 }
 
-export function evaluateCongressionalFiling(input: {
+export interface CongressionalFilingEvaluationInput {
   readonly catalogs: {
     readonly committeeAssignments: Extract<CongressionalReferenceCatalog, { kind: "committee_assignments" }>;
     readonly committeeJurisdictions: Extract<CongressionalReferenceCatalog, { kind: "committee_jurisdictions" }>;
@@ -342,7 +403,18 @@ export function evaluateCongressionalFiling(input: {
   readonly processingMode: "baseline" | "live";
   readonly selectedMemberBioguideIds: readonly string[];
   readonly transactions: readonly AuthorizedPublicSourceProjection[];
-}): CongressionalFilingEvaluation {
+  readonly normalizedTransactions?: readonly HouseStrategyTransaction[];
+  readonly history?: {
+    readonly clusters: readonly CongressionalCluster[];
+    readonly coverage: CongressionalCoverage;
+    readonly lineageEntries?: readonly CongressionalHistoryEntry[];
+    readonly priorEntries: readonly CongressionalHistoryEntry[];
+  };
+}
+
+export function normalizeCongressionalFilingTransactions(
+  input: Omit<CongressionalFilingEvaluationInput, "history" | "normalizedTransactions">,
+): readonly HouseStrategyTransaction[] {
   if (input.filing.fact.payload.schemaVersion !== "house-ptr-filing/v1" || input.transactions.length === 0) {
     throw new Error("congressional_filing_invalid");
   }
@@ -352,7 +424,7 @@ export function evaluateCongressionalFiling(input: {
   ) {
     throw new Error("congressional_catalog_invalid");
   }
-  const transactions = input.transactions.map((transaction) =>
+  return Object.freeze(input.transactions.map((transaction) =>
     normalizeProjectedHouseTransaction({
       catalogs: input.catalogs,
       filing: input.filing,
@@ -362,12 +434,31 @@ export function evaluateCongressionalFiling(input: {
       processingMode: input.processingMode,
       selectedMemberBioguideIds: input.selectedMemberBioguideIds,
       transaction,
-    })).sort((left, right) => left.transactionRevisionId.localeCompare(right.transactionRevisionId));
+    })).sort((left, right) => left.transactionRevisionId.localeCompare(right.transactionRevisionId)));
+}
+
+export function evaluateCongressionalFiling(
+  input: CongressionalFilingEvaluationInput,
+): CongressionalFilingEvaluation {
+  if (input.filing.fact.payload.schemaVersion !== "house-ptr-filing/v1" || input.transactions.length === 0) {
+    throw new Error("congressional_filing_invalid");
+  }
+  if (
+    input.catalogs.committeeAssignments.kind !== "committee_assignments" ||
+    input.catalogs.committeeJurisdictions.kind !== "committee_jurisdictions"
+  ) {
+    throw new Error("congressional_catalog_invalid");
+  }
+  const transactions = input.normalizedTransactions === undefined
+    ? normalizeCongressionalFilingTransactions(input)
+    : [...input.normalizedTransactions].map((transaction) =>
+        houseStrategyTransactionSchema.parse(transaction))
+      .sort((left, right) => left.transactionRevisionId.localeCompare(right.transactionRevisionId));
   const evaluations = transactions.map((transaction) =>
     evaluateCongressionalTransaction(transaction, input.policy, {
       committeeAssignments: input.catalogs.committeeAssignments,
       committeeJurisdictions: input.catalogs.committeeJurisdictions,
-    }));
+    }, input.history));
   const band = highestBand(evaluations);
   const signalId = deriveCongressionalSignalId({
     filingLogicalKey: input.filing.fact.logicalKey,
@@ -396,14 +487,50 @@ export function evaluateCongressionalFiling(input: {
     catalogReferences: transactions[0]!.catalogReferences,
     createdAt: input.observedAt,
     filingLogicalKey: input.filing.fact.logicalKey,
-    lineage: { correctionId: null, priorRevisionId: null, retractionId: null, state: "active" as const },
+    lineage: (() => {
+      const corrected = transactions.find(({ lineage }) => lineage.correctionId !== null);
+      if (!corrected) return { correctionId: null, priorRevisionId: null, retractionId: null, state: "active" as const };
+      const priorRevisionId = [
+        ...(input.history?.priorEntries ?? []),
+        ...(input.history?.lineageEntries ?? []),
+      ].find(({ transaction }) =>
+        transaction.transactionId === corrected.transactionId)?.signalRevisionId ?? null;
+      return {
+        correctionId: corrected.lineage.correctionId,
+        priorRevisionId,
+        retractionId: null,
+        state: "active" as const,
+      };
+    })(),
     packBinding: input.packBinding,
     policyReference: transactions[0]!.policyReference,
     reasonTrace,
     recordType: "congressional_filing_signal" as const,
     schemaVersion: 1 as const,
     signalId,
-    transactionEvaluations: evaluations,
+    transactionEvaluations: evaluations.map((evaluation) => {
+      if (input.policy.policyVersion !== "1.2.0") {
+        const {
+          clusterRevisionIds: _clusterRevisionIds,
+          patternResolution: _patternResolution,
+          ...legacyEvaluation
+        } = evaluation;
+        const {
+          committeeKeys: _committeeKeys,
+          ...legacyCommitteeResolution
+        } = legacyEvaluation.committeeResolution;
+        return { ...legacyEvaluation, committeeResolution: legacyCommitteeResolution };
+      }
+      return {
+        ...evaluation,
+        clusterRevisionIds: [...evaluation.clusterRevisionIds],
+        patternResolution: {
+          ...evaluation.patternResolution,
+          priorTransactionRevisionIds: [...evaluation.patternResolution.priorTransactionRevisionIds],
+          ruleCodes: [...evaluation.patternResolution.ruleCodes],
+        },
+      };
+    }),
     workspaceId: input.filing.projection.workspaceId,
   };
   const signal = congressionalFilingSignalSchema.parse({
@@ -419,7 +546,7 @@ export function evaluateCongressionalFiling(input: {
       transactions: Object.freeze(transactions),
     });
   }
-  const alert = findingForSignal({ evaluations, filing: input.filing, signal, transactions });
+  const alert = congressionalFindingForSignal({ evaluations, signal, transactions });
   return Object.freeze({
     alertPresentation: Object.freeze(alert.presentation),
     filing: input.filing,

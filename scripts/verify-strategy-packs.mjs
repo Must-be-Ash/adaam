@@ -375,7 +375,12 @@ const productionCheck = await generateStrategyPackCatalog({
 assert.equal(productionCheck.outputMatches, true);
 assert.deepEqual(
   productionCheck.entries.map(({ id, version }) => `${id}@${version}`),
-  ["congressional-signals@1.0.0", "congressional-signals@1.1.0", "ipo-filings@1.0.0"],
+  [
+    "congressional-signals@1.0.0",
+    "congressional-signals@1.1.0",
+    "congressional-signals@1.2.0",
+    "ipo-filings@1.0.0",
+  ],
 );
 const productionPack = productionCheck.entries.find(({ id }) => id === "ipo-filings");
 assert.equal(productionPack?.maturity, "reference");

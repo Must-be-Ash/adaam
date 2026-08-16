@@ -38,6 +38,21 @@ export const CONGRESSIONAL_POLICY_V1_1 = Object.freeze(congressionalPolicySchema
   policyDigest: congressionalSignalContractDigest(policyV1_1Core),
 }));
 
+const policyV1_2Core = Object.freeze({
+  ...policyV1_1Core,
+  clusterMinimumFacts: 3 as const,
+  clusterWindowDays: 30 as const,
+  coverageMaximumGapDays: 2 as const,
+  historyCoverageDays: 90 as const,
+  historyMinimumTransactions: 5 as const,
+  policyVersion: "1.2.0" as const,
+});
+
+export const CONGRESSIONAL_POLICY_V1_2 = Object.freeze(congressionalPolicySchema.parse({
+  ...policyV1_2Core,
+  policyDigest: congressionalSignalContractDigest(policyV1_2Core),
+}));
+
 const memberCatalogCore = Object.freeze({
   catalogId: "congressional-house-members",
   catalogVersion: "1.0.0",
@@ -214,6 +229,18 @@ export const CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_1 = Object.freeze([
   CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
   CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_1,
   CONGRESSIONAL_POLICY_V1_1,
+  CONGRESSIONAL_SECURITY_CATALOG_V1_1,
+].map((contract) => Object.freeze({
+  digest: "catalogDigest" in contract ? contract.catalogDigest : contract.policyDigest,
+  id: "catalogId" in contract ? contract.catalogId : contract.policyId,
+  version: "catalogVersion" in contract ? contract.catalogVersion : contract.policyVersion,
+})).sort((left, right) => left.id.localeCompare(right.id)));
+
+export const CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_2 = Object.freeze([
+  CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+  CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
+  CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_1,
+  CONGRESSIONAL_POLICY_V1_2,
   CONGRESSIONAL_SECURITY_CATALOG_V1_1,
 ].map((contract) => Object.freeze({
   digest: "catalogDigest" in contract ? contract.catalogDigest : contract.policyDigest,

@@ -1,6 +1,6 @@
 # Spec 4: Congressional Signals v1 — House disclosures
 
-Status: Sprint 2 checklist complete; awaiting owner direction
+Status: Sprint 3 checklist complete; awaiting owner direction
 
 Date: 2026-08-16
 
@@ -13,7 +13,8 @@ Dependencies:
 - `specs/03-public-source-adapters.md`
 
 Pack targets: foundational `congressional-signals@1.0.0`; committee-evidence revision
-`congressional-signals@1.1.0`
+`congressional-signals@1.1.0`; history/cluster/correction revision
+`congressional-signals@1.2.0`
 
 ## Objective
 
@@ -459,18 +460,31 @@ delivery was performed in this sprint.
 
 ### Sprint 3 — add history, clusters, and corrections
 
-- [ ] Implement measured coverage and the exact pattern-break rules; incomplete
+- [x] Implement measured coverage and the exact pattern-break rules; incomplete
   history leaves the factor unavailable.
-- [ ] Implement same-member and committee clusters with distinct-fact/member,
+- [x] Implement same-member and committee clusters with distinct-fact/member,
   direction, mapping, and 30-day window rules.
-- [ ] Apply projected corrections and retractions to normalized history,
+- [x] Apply projected corrections and retractions to normalized history,
   clusters, signals, and at-most-once correction alerts.
-- [ ] Add deterministic fixtures for coverage boundaries, each pattern rule,
+- [x] Add deterministic fixtures for coverage boundaries, each pattern rule,
   cluster membership/dedupe, descriptive party diversity, replay, and correction
   removal.
 
 Exit: history and clusters are reproducible from versioned records, and amended
 facts cannot leave stale evidence or inflate a signal.
+
+Completion evidence: immutable `congressional-signals@1.2.0` pins the measured
+90-day/five-transaction pattern policy and 30-day/three-evidence cluster policy
+without changing the `1.0.0` or `1.1.0` pack digests. Workspace-scoped history
+uses immutable revisions behind a compare-and-set head; corrections replace the
+active fact contribution, retractions persist neutral superseding transaction
+and signal revisions, and deterministic correction identities reuse the shared
+at-most-once finding path. The Sprint 3 fixture covers 89/90-day boundaries,
+coverage reset, all three pattern rules, distinct-fact/member cluster dedupe,
+descriptive-only party diversity, replay, correction lineage, retraction-driven
+cluster removal, and correction-alert gating. Focused Sprints 0–3 tests,
+strategy-pack verification, TypeScript, Eve build, Next build, and diff checks
+passed without a live source read or alert delivery.
 
 ### Sprint 4 — owner configuration and manager experience
 
