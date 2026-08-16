@@ -1,41 +1,119 @@
-# Workspace Runtimes and Strategy Packs
+# Eve Foundation: Workspaces, Strategy Packs, and Public Sources
 
-This document summarizes the application delivered by Specs 1 and 2.
+This document summarizes the reusable application foundation delivered by Specs
+1–3. It intentionally excludes the specialized strategies introduced by later
+specifications.
 
-## Application
+## Application model
 
-Eve is a single agent service that manages multiple durable, isolated workspaces. Each workspace has its own conversation state, instructions, capabilities, budgets, scheduled monitors, findings, alerts, and strategy configuration. Owners interact with the same underlying state through natural-language conversations in Photon and management controls in Spectrum.
+Eve is a forkable, single-owner agent service with one user-facing identity and
+many durable, isolated workspaces. Each workspace can act like a specialized
+agent because it owns its own conversation state, strategy, instructions,
+permissions, budgets, monitors, findings, and alerts.
 
-## Features
+The model is not kept running continuously. Schedules and source events start
+short-lived, bounded workers only when work is due. Each worker receives the
+exact context and tools for one workspace and exits after recording its result.
 
-- Create, select, archive, restore, and inspect independent workspaces.
-- Run scheduled monitors without requiring the workspace to remain selected.
-- Store structured findings and deliver workspace-labeled Photon alerts.
-- Select the relevant workspace from an alert and continue the discussion with bounded alert context.
-- View monitor schedules, approved sources, usage, limits, failures, and health in Spectrum.
-- Install repository-owned, versioned strategy packs with validated manifests and pinned content digests.
-- Configure, upgrade, downgrade, replace, or remove packs without deleting historical findings or owner-created resources.
-- Use `IPO Filings@1.0.0` to monitor approved SEC filings through the existing normalized finding and alert pipeline.
-- Use the same authenticated application services from Eve tools and Spectrum actions.
+Photon/iMessage is the first interface, but the workspace, strategy, source, and
+worker contracts are channel-neutral. Telegram or web support requires a channel
+adapter, not a second agent platform.
 
-## Agent capabilities
+## What a fork includes
 
-- Create a pack-bound workspace from a concrete request such as: `Create an IPO-filings session at 9 AM and 4 PM.`
-- Install a pack without starting background work until a schedule is explicitly enabled.
-- Explain a workspace's active strategy, configuration, sources, schedule, limits, usage, and health.
-- Apply only the selected workspace's instructions and pack context to interactive turns.
-- Run workers with an exact workspace, generation, strategy-pack, capability, source, and monitor snapshot.
-- Detect qualifying events, record findings, deliver alerts, and route follow-up discussion to the correct workspace.
-- Safely pause or retire pack-managed work while preserving durable research and conversation state.
+### Independent workspaces
 
-## Engineering properties
+- Create, select, rename, archive, restore, and start fresh in named workspaces.
+- Keep conversation history, durable research, files, settings, monitors,
+  budgets, and tool permissions isolated per workspace.
+- Run several background strategies concurrently without selecting them in chat.
+- Route every ordinary message to exactly one workspace before a model sees it.
+- Preserve durable research and monitors when interactive chat history is reset.
 
-- Owner-authorized ingress and workspace mutations fail closed when identity, configuration, or storage requirements are incomplete.
-- Workspace and pack data remain isolated across interactive sessions, scheduled workers, findings, and alerts.
-- Pack requests cannot grant capabilities; effective access is always constrained by deployment, owner, workspace, monitor, and source policy.
-- Mutations and deliveries are atomic or recoverable, revision-checked, replay-safe, and idempotent.
-- Pack versions, source contracts, and runtime snapshots are digest-bound and revalidated before access and commit.
-- Budget, concurrency, privacy, and bounded-data rules are enforced at runtime boundaries.
-- Crash recovery, stale-work reconciliation, and concurrent execution preserve durable state without duplicating effects.
-- Independent feature controls support staged rollout and rollback without deleting bindings, findings, alerts, or receipts.
-- Memory, Redis, compiled-worker, browser, and production acceptance tests cover the complete owner workflow.
+### Background monitoring and alerts
+
+- Create and manage scheduled monitors through natural language and Spectrum.
+- Wake bounded workers only for due occurrences instead of keeping models alive.
+- Record structured findings and safely advance source checkpoints.
+- Deliver workspace-labeled alerts into the owner's existing conversation.
+- Use **Discuss** to select the producing workspace and give the next turn a
+  one-time bounded alert reference.
+- Detect strong plain-text references to recent alerts without reading or merging
+  workspace histories; ambiguous messages stay in the selected workspace.
+- Inspect schedules, sources, next and previous runs, failures, budgets, usage,
+  active workers, and health in the Spectrum manager.
+
+### Versioned strategy packs
+
+- Package a reusable strategy as a validated, repository-owned manifest,
+  instructions, source contracts, tools, configuration, managed monitors, and
+  evaluations.
+- Generate a deterministic catalog with immutable versions and content digests.
+- Create a pack-bound workspace from a request such as: `Create an IPO Filings
+  session at 9 AM and 4 PM.`
+- Install a pack without starting background work until the owner enables its
+  managed monitor.
+- Configure, upgrade, downgrade, replace, or remove a pack through the same
+  authenticated application service used by Eve and Spectrum.
+- Preserve findings, alerts, checkpoints, and owner-created resources when a
+  managed pack is removed.
+- Bind each worker to the exact workspace generation, pack version and digest,
+  capabilities, source contracts, monitor, and configuration that produced it.
+
+### Reusable public-source adapters
+
+- Register reviewed, versioned adapters for official public sources.
+- Acquire a public source once and reuse its canonical facts across authorized
+  workspaces instead of fetching the same data independently for every agent.
+- Keep canonical facts immutable, provenance-bearing, and separate from each
+  workspace's private interpretation and findings.
+- Give each workspace an authorized projection and independent checkpoint so one
+  workspace cannot inspect another workspace's subscriptions or conclusions.
+- Record source revisions, corrections, replay identity, acquisition health, and
+  bounded failure states without exposing raw payloads in logs.
+- Enforce allowed origins, redirects, response types, byte limits, timeouts, and
+  source-specific parsing before facts enter a strategy.
+- Include reference adapters for official SEC filing data and House financial
+  disclosure indexes/PTR documents, with explicit partial or unsupported states
+  when a document cannot be safely extracted.
+
+## What Eve can do with this foundation
+
+- Turn an owner request into a named, configured workspace using an available
+  strategy pack.
+- Keep an eye on approved sources at a chosen schedule and report matching
+  events without additional code for each installation.
+- Explain a workspace's strategy, configuration, sources, schedule, limits,
+  usage, findings, and health.
+- Run multiple strategies against shared public facts while keeping their
+  histories, settings, interpretations, and alerts separate.
+- Continue a conversation about an alert in the correct workspace without
+  copying another workspace's history into it.
+- Pause or retire managed work while retaining durable research and audit state.
+
+Creating a genuinely new research method or supporting a new source family can
+still require a reviewed strategy pack or source adapter. The foundation removes
+the need to rebuild scheduling, isolation, routing, storage, alert delivery,
+provenance, and lifecycle management for every new strategy.
+
+## Engineering qualities
+
+- Single-owner authorization fails closed when identity, configuration, or
+  storage is incomplete.
+- Workspace context and durable state remain isolated across interactive turns,
+  workers, findings, and alerts.
+- Capabilities are default-deny and cannot be expanded by pack instructions or
+  model output.
+- Mutations, worker commits, source acquisitions, and alert deliveries use
+  revision checks, replay protection, stable identities, and bounded records.
+- Pack content, source contracts, and runtime snapshots are digest-bound and
+  revalidated before access and commit.
+- Budgets, concurrency, source boundaries, and log privacy are enforced outside
+  the model.
+- Independent flags support staged rollout and rollback without deleting durable
+  workspaces, bindings, findings, facts, alerts, or receipts.
+- Fixture, in-memory, Redis, compiled-worker, application-build, and controlled
+  production acceptance cover the foundation's main owner workflows.
+
+For the user-facing routing model, see
+[`docs/workspace-agent-routing-and-ux.md`](workspace-agent-routing-and-ux.md).
