@@ -10,6 +10,7 @@ import {
 import type { WorkspaceSourceCoverage } from "./workspace-source-coverage";
 import type { WorkspaceWorkerEnvelope } from "./workspace-worker-auth";
 import { workspaceFindingFactSchema } from "./workspace-finding-facts";
+import { strategyPackWorkerSnapshotSchema } from "./strategy-pack-runtime-schema";
 
 const KEY_PREFIX = "eve:workspace-runtime:v1:run-outcome:";
 // The official SEC monitor requests up to 40 entries. Keep the record bounded
@@ -109,6 +110,7 @@ const findingSchema = workspaceFindingCandidateSchema.extend({
   runId: z.string().min(1).max(160),
   schemaVersion: z.literal(1),
   state: z.literal("staged"),
+  strategyPack: strategyPackWorkerSnapshotSchema.nullable().default(null),
   workspaceId: z.string().uuid(),
 }).strict();
 
@@ -143,6 +145,7 @@ const outcomeSchema = z.object({
   recordType: z.literal("workspace_run_outcome"),
   runId: z.string().min(1).max(160),
   schemaVersion: z.literal(1),
+  strategyPack: strategyPackWorkerSnapshotSchema.nullable().default(null),
   workspaceId: z.string().uuid(),
 }).strict().superRefine((value, context) => {
   if ((value.outcome === "finding_staged") !== (value.finding !== null)) {
@@ -156,7 +159,9 @@ const outcomeSchema = z.object({
     (value.finding.ownerId !== value.ownerId ||
       value.finding.workspaceId !== value.workspaceId ||
       value.finding.monitorId !== value.monitorId ||
-      value.finding.runId !== value.runId)
+      value.finding.runId !== value.runId ||
+      JSON.stringify(value.finding.strategyPack) !==
+        JSON.stringify(value.strategyPack))
   ) {
     context.addIssue({ code: "custom", message: "finding_parent_mismatch" });
   }
@@ -522,6 +527,7 @@ export async function stageWorkspaceFinding(
     runId: input.envelope.runId,
     schemaVersion: 1,
     state: "staged",
+    strategyPack: input.envelope.strategyPack,
     workspaceId: input.scope.workspaceId,
   });
   const outcome = {
@@ -536,6 +542,7 @@ export async function stageWorkspaceFinding(
     recordType: "workspace_run_outcome",
     runId: input.envelope.runId,
     schemaVersion: 1,
+    strategyPack: input.envelope.strategyPack,
     workspaceId: input.scope.workspaceId,
   } satisfies WorkspaceRunOutcome;
   const identityClaims = findingInput.data.factIdentities.map((factIdentity) =>
@@ -576,6 +583,7 @@ export async function completeWorkspaceRunNoMatch(
     recordType: "workspace_run_outcome",
     runId: input.envelope.runId,
     schemaVersion: 1,
+    strategyPack: input.envelope.strategyPack,
     workspaceId: input.scope.workspaceId,
   }, client);
 }

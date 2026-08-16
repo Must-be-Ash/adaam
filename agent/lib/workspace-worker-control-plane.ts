@@ -29,6 +29,8 @@ import {
 import { authorizeWorkspaceWorkerStore } from "./workspace-store-authorization";
 import { requireWorkspaceWorkerAuth, type WorkspaceWorkerEnvelope } from "./workspace-worker-auth";
 import { resolveWorkspaceWorkerCapabilitySnapshot } from "./workspace-worker-capabilities";
+import { requireWorkspaceWorkerStrategyPackRuntime } from "./strategy-pack-runtime";
+import type { StrategyPackRuntimeCatalog } from "./strategy-pack-runtime";
 
 export const COMPLETE_WORKSPACE_RUN_TOOL_ID = "complete_workspace_run";
 export const WRITE_WORKSPACE_FINDING_TOOL_ID = "write_workspace_finding";
@@ -43,6 +45,7 @@ export interface WorkspaceWorkerControlPlaneClients {
   readonly monitor?: WorkspaceMonitorStoreClient;
   readonly sourceCoverage?: WorkspaceSourceCoverageClient;
   readonly state?: WorkspaceStateStoreClient;
+  readonly strategyPackCatalog?: StrategyPackRuntimeCatalog;
 }
 
 export class WorkspaceWorkerCommitError extends Error {
@@ -81,7 +84,9 @@ function findingMatchesOutcome(outcome: WorkspaceRunOutcome): boolean {
     (outcome.finding.ownerId === outcome.ownerId &&
       outcome.finding.workspaceId === outcome.workspaceId &&
       outcome.finding.monitorId === outcome.monitorId &&
-      outcome.finding.runId === outcome.runId)
+      outcome.finding.runId === outcome.runId &&
+      JSON.stringify(outcome.finding.strategyPack) ===
+        JSON.stringify(outcome.strategyPack))
   );
 }
 
@@ -93,20 +98,35 @@ function sameSources(
 }
 
 async function assertCurrentMonitor(
-  envelope: Pick<
-    WorkspaceWorkerEnvelope,
-    "configurationRevision" | "monitorId" | "sources"
+  envelope: Pick<WorkspaceWorkerEnvelope,
+    "capabilityRevision" | "configurationRevision" | "monitorId" | "sources" | "strategyPack"
   >,
   scope: ReturnType<typeof authorizeWorkspaceWorkerStore>,
-  client?: WorkspaceMonitorStoreClient,
+  clients: Pick<
+    WorkspaceWorkerControlPlaneClients,
+    "monitor" | "state" | "strategyPackCatalog"
+  > = {},
+  environment: NodeJS.ProcessEnv = process.env,
 ): Promise<WorkspaceMonitor> {
-  const monitor = await getWorkspaceMonitor(scope, envelope.monitorId, client);
+  const monitor = await getWorkspaceMonitor(scope, envelope.monitorId, clients.monitor);
   if (
     !monitor ||
     monitor.lifecycleState !== "enabled" ||
     monitor.configurationRevision !== envelope.configurationRevision ||
     !sameSources(monitor, envelope)
   ) {
+    throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
+  }
+  try {
+    await requireWorkspaceWorkerStrategyPackRuntime({
+      catalog: clients.strategyPackCatalog,
+      envelope,
+      environment,
+      monitor,
+      scope,
+      stateClient: clients.state,
+    });
+  } catch {
     throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
   }
   return monitor;
@@ -140,7 +160,12 @@ async function prepareCommit(input: {
   if (!(input.toolId in capabilities.tools)) {
     throw new WorkspaceWorkerCommitError("workspace_worker_capability_denied");
   }
-  const monitor = await assertCurrentMonitor(envelope, scope, input.clients?.monitor);
+  const monitor = await assertCurrentMonitor(
+    envelope,
+    scope,
+    input.clients,
+    input.environment,
+  );
   const currentCoverage = await readWorkspaceSourceCoverage(
     scope,
     envelope.runId,
@@ -162,7 +187,7 @@ async function prepareCommit(input: {
     },
     input.clients?.sourceCoverage,
   );
-  await assertCurrentMonitor(envelope, scope, input.clients?.monitor);
+  await assertCurrentMonitor(envelope, scope, input.clients, input.environment);
   return {
     coverage,
     envelope,
@@ -321,6 +346,7 @@ export async function finalizePriorWorkspaceRunOutcomeForControlPlane(input: {
     ownerId: scope.ownerId,
     scheduledFor: claimed.occurrence.scheduledFor,
     sources: claimed.monitor.sources,
+    strategyPack: input.prepared.strategyPack,
     workspaceId: scope.workspaceId,
   };
   if (
@@ -329,6 +355,8 @@ export async function finalizePriorWorkspaceRunOutcomeForControlPlane(input: {
     input.outcome.monitorId !== envelope.monitorId ||
     input.outcome.occurrenceKey !== envelope.occurrenceKey ||
     !findingMatchesOutcome(input.outcome) ||
+    JSON.stringify(input.outcome.strategyPack) !==
+      JSON.stringify(envelope.strategyPack) ||
     input.outcome.configurationRevision !== envelope.configurationRevision
   ) {
     throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
@@ -363,7 +391,7 @@ export async function finalizePriorWorkspaceRunOutcomeForControlPlane(input: {
   const monitor = await assertCurrentMonitor(
     envelope,
     scope,
-    input.clients?.monitor,
+    input.clients,
   );
   const lease = await inspectWorkspaceMonitorOccurrenceLease({
     configurationRevision: envelope.configurationRevision,

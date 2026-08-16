@@ -73,7 +73,7 @@ export function workspaceRuntimeScopeAttributes(
 }
 
 export function requirePhotonWorkspaceToolScope(
-  ctx: Pick<SessionContext, "session">,
+  ctx: { readonly session: { readonly auth: SessionContext["session"]["auth"] } },
   expected: Partial<WorkspaceRuntimeScope> = {},
   environment: NodeJS.ProcessEnv = process.env,
 ): WorkspaceRuntimeScope {

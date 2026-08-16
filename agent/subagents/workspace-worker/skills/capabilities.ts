@@ -18,12 +18,18 @@ export default defineDynamic({
         ctx,
         registry: [],
       });
+      const strategyPackSkills = new Map(
+        capabilities.strategyPackRuntime?.skills.map((skill) => [skill.id, skill]) ?? [],
+      );
       return Object.fromEntries(
         capabilities.skillIds.flatMap((skillId) => {
-          const markdown = skillCatalog[skillId as keyof typeof skillCatalog];
+          const strategyPackSkill = strategyPackSkills.get(skillId);
+          const markdown = strategyPackSkill?.instruction ??
+            skillCatalog[skillId as keyof typeof skillCatalog];
           return markdown
             ? [[skillId, defineSkill({
-                description: "Evaluate exact public sources for one bounded monitor occurrence.",
+                description: strategyPackSkill?.description ??
+                  "Evaluate exact public sources for one bounded monitor occurrence.",
                 markdown,
               })] as const]
             : [];

@@ -190,6 +190,12 @@ await writeWorkspaceDocument("capabilities", {
     workerModelPolicy: { allowedModelIds: ["google/gemini-3.6-flash"], maximumOutputTokens: 200 },
   },
 }, stateClient);
+await writeWorkspaceDocument("strategy", {
+  expectedRevision: 0,
+  now,
+  scope,
+  value: { configuration: {}, strategyPack: null },
+}, stateClient);
 
 const runId = `${"c".repeat(64)}:attempt:1`;
 const claimed = {
@@ -244,6 +250,7 @@ const envelope = createWorkspaceWorkerEnvelope({
   expiresAt: new Date(now.getTime() + 10 * 60_000),
   issuedAt: now,
   stateRevision: { brief: 1, strategy: 1 },
+  strategyPack: null,
   window,
 });
 const token = signWorkspaceWorkerEnvelope(envelope, environment);
@@ -340,6 +347,9 @@ assert.equal(outcome.workspaceId, scope.workspaceId);
 assert.equal(outcome.runId, runId);
 assert.equal(outcome.finding?.summary, finding.summary);
 assert.deepEqual(outcome.finding?.facts, finding.facts);
+assert.equal(outcome.strategyPack, null);
+assert.equal(outcome.finding?.strategyPack, null);
+assert.equal("strategyPack" in outcome.finding!.facts![0]!, false);
 assert.match(outcome.finding?.findingId ?? "", /^finding_[a-f0-9]{64}$/u);
 assert.ok(outcome.finding);
 
@@ -386,6 +396,7 @@ const maxEnvelope = createWorkspaceWorkerEnvelope({
   expiresAt: new Date(now.getTime() + 10 * 60_000),
   issuedAt: now,
   stateRevision: { brief: 1, strategy: 1 },
+  strategyPack: null,
   window,
 });
 await createWorkspaceSourceCoverage({
@@ -629,6 +640,7 @@ const retryEnvelope = createWorkspaceWorkerEnvelope({
   expiresAt: new Date(now.getTime() + 10 * 60_000),
   issuedAt: now,
   stateRevision: { brief: 1, strategy: 1 },
+  strategyPack: null,
   window,
 });
 const retryToken = signWorkspaceWorkerEnvelope(retryEnvelope, environment);
@@ -685,6 +697,7 @@ const noMatchEnvelope = createWorkspaceWorkerEnvelope({
   expiresAt: new Date(now.getTime() + 10 * 60_000),
   issuedAt: now,
   stateRevision: { brief: 1, strategy: 1 },
+  strategyPack: null,
   window,
 });
 const noMatchToken = signWorkspaceWorkerEnvelope(noMatchEnvelope, environment);
@@ -755,6 +768,7 @@ const interruptedEnvelope = createWorkspaceWorkerEnvelope({
   expiresAt: new Date(now.getTime() + 10 * 60_000),
   issuedAt: now,
   stateRevision: { brief: 1, strategy: 1 },
+  strategyPack: null,
   window,
 });
 const interruptedToken = signWorkspaceWorkerEnvelope(interruptedEnvelope, environment);
@@ -935,6 +949,7 @@ const deniedEnvelope = createWorkspaceWorkerEnvelope({
   expiresAt: new Date(now.getTime() + 10 * 60_000),
   issuedAt: now,
   stateRevision: { brief: 1, strategy: 1 },
+  strategyPack: null,
   window,
 });
 const deniedToken = signWorkspaceWorkerEnvelope(deniedEnvelope, environment);

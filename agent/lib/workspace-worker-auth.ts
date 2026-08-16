@@ -6,6 +6,10 @@ import { z } from "zod";
 import type { WorkspaceDispatchReservation } from "./workspace-dispatch-budget";
 import { workspaceMonitorSourcesSchema } from "./workspace-monitor-input";
 import type { ClaimedWorkspaceMonitor } from "./workspace-monitor-store";
+import {
+  strategyPackWorkerSnapshotSchema,
+  type StrategyPackWorkerSnapshot,
+} from "./strategy-pack-runtime-schema";
 
 const MAX_AUTH_LIFETIME_MS = 2 * 60 * 60_000;
 const CLOCK_SKEW_MS = 60_000;
@@ -33,6 +37,7 @@ const envelopeSchema = z.object({
   scheduledFor: timestampSchema,
   schemaVersion: z.literal(1),
   sources: workspaceMonitorSourcesSchema,
+  strategyPack: strategyPackWorkerSnapshotSchema.nullable().default(null),
   stateRevision: z.object({
     brief: z.number().int().positive(),
     strategy: z.number().int().positive(),
@@ -91,6 +96,7 @@ export function createWorkspaceWorkerEnvelope(input: {
   expiresAt: Date;
   issuedAt: Date;
   stateRevision: { brief: number; strategy: number };
+  strategyPack: StrategyPackWorkerSnapshot | null;
   window: { endAt: string; startAt: string };
 }): WorkspaceWorkerEnvelope {
   const candidate = envelopeSchema.safeParse({
@@ -115,6 +121,7 @@ export function createWorkspaceWorkerEnvelope(input: {
     scheduledFor: input.claimed.occurrence.scheduledFor,
     schemaVersion: 1,
     sources: input.claimed.monitor.sources,
+    strategyPack: input.strategyPack,
     stateRevision: input.stateRevision,
     window: input.window,
     workspaceId: input.claimed.scope.workspaceId,

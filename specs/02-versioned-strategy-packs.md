@@ -186,15 +186,15 @@ must promote the smallest necessary prerequisite into its own sprint.
 
 - [ ] Refuse to enable strategy-pack feature flags if the required Spec 1 schema
   versions or runtime guards are absent.
-- [ ] Add adjacent records and indexes; do not duplicate or fork Spec 1 stores.
+- [x] Add adjacent records and indexes; do not duplicate or fork Spec 1 stores.
 - [x] Keep a general-purpose workspace valid and fully usable without a pack.
 
 ## Non-negotiable invariants
 
-- [ ] A pack ID, version, or workspace ID supplied by a model is never trusted as
+- [x] A pack ID, version, or workspace ID supplied by a model is never trusted as
   authorization. The control plane derives the current workspace and owner from
   authenticated routing or signed runtime context.
-- [ ] A pack manifest is configuration, never authority. Every tool, skill,
+- [x] A pack manifest is configuration, never authority. Every tool, skill,
   source, provider, budget, and data class is revalidated against authoritative
   deployment and workspace policy before exposure or execution.
 - [x] Pack versions are immutable. The same pack ID and version cannot resolve
@@ -204,11 +204,11 @@ must promote the smallest necessary prerequisite into its own sprint.
 - [x] Installing a pack may declare and bind reviewed source contracts, but no
   fetch, cadence, monitor run, paid access, or broader capability begins without
   an explicit owner request or manager action describing that activation.
-- [ ] Pack instructions, research documents, and other packs are not loaded into
+- [x] Pack instructions, research documents, and other packs are not loaded into
   a workspace unless required by its exact active binding.
-- [ ] Pack instructions cannot override shared safety, authorization, approval,
+- [x] Pack instructions cannot override shared safety, authorization, approval,
   source-fencing, budget, privacy, or financial rules.
-- [ ] Background pack workers never receive private chat history, interactive
+- [x] Background pack workers never receive private chat history, interactive
   HITL, user OAuth, shell, filesystem, or broker-mutation tools.
 - [ ] Installing, configuring, or removing a pack never deletes workspace findings,
   alerts, audit records, or retained monitor history.
@@ -346,10 +346,10 @@ The definition lists stable references to:
 - required capabilities; and
 - explicit hard denials for the pack.
 
-- [ ] Resolve the effective manifest by intersection with Spec 1 policy. A pack
+- [x] Resolve the effective manifest by intersection with Spec 1 policy. A pack
   requirement that is not granted remains unavailable and is reported with the
   typed reason from Spec 1.
-- [ ] A missing required capability blocks activation. Optional-capability and
+- [x] A missing required capability blocks activation. Optional-capability and
   degraded-mode behavior waits until a real pack requires it.
 - [ ] Run provider tool-inventory/schema drift checks before declaring a pack
   healthy. Newly discovered tools remain disabled.
@@ -381,7 +381,7 @@ Each template includes:
 
 - [x] Validate template schedules against Spec 1 cadence, timezone, source-count,
   concurrency, and run-budget limits.
-- [ ] Materialize templates as ordinary Spec 1 workspace monitors with immutable
+- [x] Materialize templates as ordinary Spec 1 workspace monitors with immutable
   workspace identity plus pack ID, version, resource ID, and binding revision.
 - [ ] Let the owner edit only template fields declared overridable. Record those
   values as workspace-owned overrides rather than altering the pack definition.
@@ -397,7 +397,7 @@ required for that exact version.
 - [x] Require every production pack to declare at least one fixture-backed
   positive case, no-match case, replay/idempotency case, malformed-input case,
   and forbidden-capability case.
-- [ ] Require provenance, source identity, observed/as-of time, producing
+- [x] Require provenance, source identity, observed/as-of time, producing
   workspace, pack version, monitor/run identity, and schema version on every
   pack-produced finding.
 - [x] Keep scoring and interpretation rules pack-specific. Do not add one shared
@@ -493,7 +493,7 @@ state change plus immutable receipt against expected revisions.
   owner request supplies and enables their schedule.
 - [ ] Validate configuration before committing it, pause affected monitors when
   required, and advance the session generation with the binding revision.
-- [ ] Resolve runtime state by the exact workspace, generation, binding
+- [x] Resolve runtime state by the exact workspace, generation, binding
   revision, pack digest, capability revision, and reciprocal managed-resource
   provenance. An unmatched tuple fails closed.
 - [ ] Removal pauses or retires pack-managed resources and preserves findings,
@@ -509,16 +509,16 @@ dynamically composing capabilities from the authenticated workspace binding.
 
 ### Interactive workspace sessions
 
-- [ ] At workspace session start, resolve the exact pack binding and catalog
+- [x] At workspace session start, resolve the exact pack binding and catalog
   digest from trusted routing context.
-- [ ] Compose shared Eve safety instructions with the pack's bounded
+- [x] Compose shared Eve safety instructions with the pack's bounded
   `workspace.md`; pack text always has lower authority than shared core rules.
-- [ ] Advertise only the installed pack's `playbook.md` as a dynamic Eve skill.
+- [x] Advertise only the installed pack's `playbook.md` as a dynamic Eve skill.
   Do not advertise skills for every catalog entry.
-- [ ] Compose only the active pack's additional mission and playbook. Existing
+- [x] Compose only the active pack's additional mission and playbook. Existing
   shared root tools remain subject to Spec 1 workspace authorization; every
   pack-management executor re-reads authoritative scope before acting.
-- [ ] Use Eve's dynamic-capability APIs at a lifecycle boundary compatible with
+- [x] Use Eve's dynamic-capability APIs at a lifecycle boundary compatible with
   durable replay. If dynamic tools are emitted, their `execute` functions follow
   Eve's inline-function requirement so replayed steps retain the executor.
 - [ ] Pack install, configuration, and removal create a new workspace session
@@ -528,17 +528,17 @@ dynamically composing capabilities from the authenticated workspace binding.
 
 ### Scheduled workspace workers
 
-- [ ] Add pack ID, version, digest, binding revision, and pack resource ID to the
+- [x] Add pack ID, version, digest, binding revision, and pack resource ID to the
   Spec 1 worker envelope and run snapshot.
-- [ ] Resolve only the claimed monitor instruction, exact source definitions,
+- [x] Resolve only the claimed monitor instruction, exact source definitions,
   bounded workspace brief, relevant findings, and effective tools.
-- [ ] Revalidate the binding, capability, monitor, and pack digest immediately
+- [x] Revalidate the binding, capability, monitor, and pack digest immediately
   before source access and before committing findings.
-- [ ] Mark a run stale before side effects if the pack changed, was blocked,
+- [x] Mark a run stale before side effects if the pack changed, was blocked,
   became unavailable, or no longer matches the snapshotted digest.
-- [ ] Preserve Eve step replay semantics: every source fetch, finding, alert, and
+- [x] Preserve Eve step replay semantics: every source fetch, finding, alert, and
   external side effect retains an application-level idempotency key.
-- [ ] Do not represent pack instances as Eve subagents. Spec 1's fresh bounded
+- [x] Do not represent pack instances as Eve subagents. Spec 1's fresh bounded
   task session remains the worker isolation boundary.
 
 ## Natural-language management contract
