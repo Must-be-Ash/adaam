@@ -1,6 +1,6 @@
 # Spec 4A: Hybrid evidence and reasoning foundation
 
-Status: In progress; Sprint 0 complete, Sprint 1 next
+Status: In progress; Sprint 1 complete, Sprint 2 next
 
 Date: 2026-08-16
 
@@ -528,20 +528,29 @@ or source path has changed.
 
 ### Sprint 1 — durable evidence jobs and isolated worker
 
-- [ ] Add the dedicated public evidence artifact namespace/store, bounded
+- [x] Add the dedicated public evidence artifact namespace/store, bounded
   retrieval/locator validation, reference-aware retention, aggregate quotas,
   and content-addressed reuse.
-- [ ] Add idempotent job preparation, claim, completion, acceptance, quarantine,
+- [x] Add idempotent job preparation, claim, completion, acceptance, quarantine,
   failure, and uncertain persistence with exact definition/input digests.
-- [ ] Add the fresh Eve task worker, per-turn output schema, narrow dynamic
+- [x] Add the fresh Eve task worker, per-turn output schema, narrow dynamic
   financial/session/general-fetch tools; bind every read/commit to an expiring
   signed single-job scope.
-- [ ] Extend the existing ledgers with independently keyed hybrid attempts:
+- [x] Extend the existing ledgers with independently keyed hybrid attempts:
   deployment source-recovery budgets for Lane A and workspace budgets for Lane
   B, without incrementing scheduled-run counts.
-- [ ] Prove replay, definition/artifact revision invalidation, two-workspace
+- [x] Prove replay, definition/artifact revision invalidation, two-workspace
   isolation, and one deployment-funded source-global job reused by two
   workspaces.
+
+Local evidence: the Sprint 1 gate exercises content-addressed Blob reuse,
+aggregate quotas, bounded text locators, 30/90-day reference-aware retention,
+every durable job transition, signed control-plane reads/commits, task output
+schema, compiled tool isolation, both independently reconciled budget lanes,
+revision invalidation, workspace isolation, and one source-global reservation
+reused by two workspaces. Sprint 0, workspace budget/dispatch/auth/isolation,
+compiled worker-tool, and public-source runtime regressions, TypeScript, and the
+Eve build pass without a production model or source call.
 
 Exit: a fixture job can run through the real local control plane and produce an
 accepted or quarantined durable result; it cannot yet change a source fact or

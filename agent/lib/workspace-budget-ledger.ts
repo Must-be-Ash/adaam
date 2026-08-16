@@ -34,6 +34,7 @@ const reservationSchema = z.object({
   calendarMonth: z.string().regex(/^\d{4}-\d{2}$/u),
   createdAt: z.string().datetime({ offset: true }),
   inputTokens: z.number().int().nonnegative(),
+  kind: z.enum(["hybrid_model_attempt", "scheduled_monitor"]).default("scheduled_monitor"),
   outputTokens: z.number().int().nonnegative(),
   paidMicros: microsSchema,
   policyRevision: z.number().int().positive(),
@@ -282,7 +283,7 @@ export function summarizeWorkspaceBudgetUsage(
       (total, reservation) => total + usagePaid(reservation),
       0n,
     ).toString(),
-    runsToday: today.length,
+    runsToday: today.filter((reservation) => reservation.kind === "scheduled_monitor").length,
   });
 }
 
@@ -326,6 +327,7 @@ export async function reserveWorkspaceRunBudget(
   input: {
     deploymentPaidCaps?: DeploymentPaidBudgetCaps;
     inputTokens: number;
+    kind?: "hybrid_model_attempt" | "scheduled_monitor";
     now?: Date;
     outputTokens: number;
     paidCostCeiling?: { amount: string; kind: "known" } | { kind: "unknown" };
@@ -378,6 +380,7 @@ export async function reserveWorkspaceRunBudget(
     if (existing) {
       if (
         existing.policyRevision !== input.policyRevision ||
+        existing.kind !== (input.kind ?? "scheduled_monitor") ||
         existing.inputTokens !== input.inputTokens ||
         existing.outputTokens !== input.outputTokens ||
         BigInt(existing.paidMicros) !== paid
@@ -397,7 +400,8 @@ export async function reserveWorkspaceRunBudget(
       (reservation) => reservation.state === "reserved",
     );
     const dailyRuns = today.filter(
-      (reservation) => reservation.state !== "released",
+      (reservation) =>
+        reservation.kind === "scheduled_monitor" && reservation.state !== "released",
     ).length;
     const dailyInput = today.reduce(
       (total, reservation) => total + usageTokens(reservation, "input"),
@@ -415,7 +419,7 @@ export async function reserveWorkspaceRunBudget(
       .filter((reservation) => reservation.calendarMonth === calendar.month)
       .reduce((total, reservation) => total + usagePaid(reservation), 0n);
     if (
-      dailyRuns + 1 > policy.maximumScheduledRunsPerDay ||
+      dailyRuns + (input.kind === "hybrid_model_attempt" ? 0 : 1) > policy.maximumScheduledRunsPerDay ||
       active.length + 1 > policy.maximumConcurrentWorkers ||
       dailyInput + input.inputTokens > policy.maximumInputTokensPerDay ||
       dailyOutput + input.outputTokens > policy.maximumOutputTokensPerDay ||
@@ -430,6 +434,7 @@ export async function reserveWorkspaceRunBudget(
       calendarMonth: calendar.month,
       createdAt: timestamp,
       inputTokens: input.inputTokens,
+      kind: input.kind ?? "scheduled_monitor",
       outputTokens: input.outputTokens,
       paidMicros: paid.toString(),
       policyRevision: input.policyRevision,

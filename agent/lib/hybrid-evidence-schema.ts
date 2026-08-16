@@ -406,6 +406,7 @@ export const hybridEvidenceJobSchema = z.object({
   definitionId: slugSchema,
   definitionVersion: semverSchema,
   idempotencyKey: digestSchema,
+  inputDigest: digestSchema,
   jobId: identifierSchema,
   locatorDigests: z.array(digestSchema).min(1).max(HYBRID_EVIDENCE_LIMITS.maximumCitations),
   modelId: identifierSchema,

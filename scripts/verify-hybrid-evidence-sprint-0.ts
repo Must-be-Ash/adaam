@@ -213,6 +213,7 @@ const job = hybridEvidenceJobSchema.parse({
   definitionId: definition.definitionId,
   definitionVersion: definition.definitionVersion,
   idempotencyKey: digestB,
+  inputDigest: digestA,
   jobId: "hybrid-job.fixture.1",
   locatorDigests: [digestHybridEvidenceValue(pdfLocator)],
   modelId: "fixture/hybrid-evidence-model",

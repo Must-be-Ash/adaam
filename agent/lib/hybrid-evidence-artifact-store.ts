@@ -1,0 +1,563 @@
+import { createHash } from "node:crypto";
+
+import { del, get, put } from "@vercel/blob";
+import { Redis } from "@upstash/redis";
+import { z } from "zod";
+
+import {
+  HYBRID_EVIDENCE_LIMITS,
+  digestHybridEvidenceValue,
+  evidenceArtifactManifestSchema,
+  evidenceLocatorSchema,
+  type EvidenceArtifactManifest,
+  type EvidenceLocator,
+} from "./hybrid-evidence-schema";
+
+const INDEX_KEY = "eve:hybrid-evidence:v1:artifact-index";
+const MAX_CAS_ATTEMPTS = 8;
+const MAX_INDEX_BYTES = 512 * 1_024;
+const MAX_ARTIFACTS = 1_024;
+const QUARANTINE_RETENTION_MS = 90 * 24 * 60 * 60_000;
+const ORPHAN_RETENTION_MS = 30 * 24 * 60 * 60_000;
+const CAS_SCRIPT = `
+local current = redis.call("GET", KEYS[1])
+if ARGV[1] == "" then
+  if current then return 0 end
+elseif current ~= ARGV[1] then
+  return 0
+end
+redis.call("SET", KEYS[1], ARGV[2])
+return 1
+`;
+
+const referenceSchema = z.object({
+  active: z.boolean(),
+  kind: z.enum(["accepted_result", "current_lineage", "promotion"]),
+  referenceId: z.string().min(3).max(200),
+}).strict();
+const artifactEntrySchema = z.object({
+  manifest: evidenceArtifactManifestSchema,
+  references: z.array(referenceSchema).max(128),
+}).strict();
+const usageSchema = z.object({
+  artifactDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+  byteCount: z.number().int().nonnegative(),
+  calendarDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+  count: z.number().int().nonnegative(),
+  sourceInstanceId: z.string().min(3).max(200).nullable(),
+}).strict();
+const indexSchema = z.object({
+  artifacts: z.array(artifactEntrySchema).max(MAX_ARTIFACTS),
+  revision: z.number().int().nonnegative(),
+  schemaVersion: z.literal(1),
+  usage: z.array(usageSchema).max(4096),
+}).strict();
+
+type ArtifactIndex = z.infer<typeof indexSchema>;
+
+export interface HybridEvidenceArtifactIndexClient {
+  compareAndSet(key: string, expected: string | null, next: string): Promise<boolean>;
+  get(key: string): Promise<unknown>;
+}
+
+export interface HybridEvidenceBlobClient {
+  delete(storageKey: string): Promise<void>;
+  get(storageKey: string): Promise<Uint8Array | null>;
+  put(storageKey: string, bytes: Uint8Array, mediaType: string): Promise<void>;
+}
+
+export interface HybridEvidenceArtifactQuota {
+  readonly deploymentBytesPerDay: number;
+  readonly deploymentCountPerDay: number;
+  readonly sourceBytesPerDay: number;
+  readonly sourceCountPerDay: number;
+}
+
+export interface HybridEvidenceArtifactStore {
+  collectExpired(input?: { now?: Date }): Promise<readonly string[]>;
+  persist(input: PersistHybridEvidenceArtifactInput): Promise<EvidenceArtifactManifest>;
+  readManifest(artifactDigest: string): Promise<EvidenceArtifactManifest | null>;
+  readSlice(input: {
+    locator: EvidenceLocator;
+    maximumBytes: number;
+  }): Promise<HybridEvidenceSlice>;
+  setReference(input: {
+    active: boolean;
+    artifactDigest: string;
+    kind: "accepted_result" | "current_lineage" | "promotion";
+    referenceId: string;
+  }): Promise<void>;
+  setRetention(input: {
+    artifactDigest: string;
+    now?: Date;
+    state: "active" | "orphaned" | "quarantined";
+  }): Promise<EvidenceArtifactManifest>;
+}
+
+export interface PersistHybridEvidenceArtifactInput {
+  readonly acquisitionId: string;
+  readonly authority: string;
+  readonly bytes: Uint8Array;
+  readonly canonicalPublicUrl: string;
+  readonly mediaType: EvidenceArtifactManifest["mediaType"];
+  readonly now?: Date;
+  readonly observedAt: string;
+  readonly parserEligibility: EvidenceArtifactManifest["parserEligibility"];
+  readonly sourceInstanceId: string;
+  readonly structure: EvidenceArtifactManifest["structure"];
+}
+
+export interface HybridEvidenceSlice {
+  readonly artifactDigest: string;
+  readonly byteCount: number;
+  readonly content: string;
+  readonly locatorDigest: string;
+  readonly mediaType: EvidenceArtifactManifest["mediaType"];
+}
+
+export class HybridEvidenceArtifactStoreError extends Error {
+  constructor(readonly code:
+    | "artifact_bounds_exceeded"
+    | "artifact_digest_mismatch"
+    | "artifact_not_found"
+    | "artifact_quota_exceeded"
+    | "artifact_store_conflict"
+    | "artifact_store_corrupt"
+    | "locator_out_of_bounds"
+    | "storage_unavailable"
+    | "unsupported_layout") {
+    super(code);
+    this.name = "HybridEvidenceArtifactStoreError";
+  }
+}
+
+let redisClient: Redis | undefined;
+let defaultIndexClient: HybridEvidenceArtifactIndexClient | undefined;
+
+function redisStore(): HybridEvidenceArtifactIndexClient {
+  if (defaultIndexClient) return defaultIndexClient;
+  const url = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) throw new HybridEvidenceArtifactStoreError("storage_unavailable");
+  redisClient ??= new Redis({ automaticDeserialization: false, token, url });
+  let scriptSha = redisClient.scriptLoad(CAS_SCRIPT);
+  defaultIndexClient = {
+    async compareAndSet(key, expected, next) {
+      let sha = await scriptSha;
+      const execute = (candidate: string) => redisClient!.evalsha<[string, string], number>(
+        candidate,
+        [key],
+        [expected ?? "", next],
+      );
+      try {
+        return (await execute(sha)) === 1;
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes("NOSCRIPT")) throw error;
+        scriptSha = redisClient!.scriptLoad(CAS_SCRIPT);
+        sha = await scriptSha;
+        return (await execute(sha)) === 1;
+      }
+    },
+    get: (key) => redisClient!.get(key),
+  };
+  return defaultIndexClient;
+}
+
+const blobStore: HybridEvidenceBlobClient = {
+  async delete(storageKey) {
+    await del(storageKey);
+  },
+  async get(storageKey) {
+    const result = await get(storageKey, { access: "public", useCache: true });
+    if (!result || result.statusCode !== 200) return null;
+    return new Uint8Array(await new Response(result.stream).arrayBuffer());
+  },
+  async put(storageKey, bytes, mediaType) {
+    await put(storageKey, Buffer.from(bytes), {
+      access: "public",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      cacheControlMaxAge: 31_536_000,
+      contentType: mediaType,
+      maximumSizeInBytes: HYBRID_EVIDENCE_LIMITS.maximumArtifactBytes,
+    });
+  },
+};
+
+function rawValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function parseIndex(raw: string | null): ArtifactIndex {
+  if (raw === null) return { artifacts: [], revision: 0, schemaVersion: 1, usage: [] };
+  if (Buffer.byteLength(raw, "utf8") > MAX_INDEX_BYTES) {
+    throw new HybridEvidenceArtifactStoreError("artifact_store_corrupt");
+  }
+  try {
+    return indexSchema.parse(JSON.parse(raw));
+  } catch {
+    throw new HybridEvidenceArtifactStoreError("artifact_store_corrupt");
+  }
+}
+
+async function updateIndex<T>(
+  client: HybridEvidenceArtifactIndexClient,
+  mutate: (index: ArtifactIndex) => { index: ArtifactIndex; result: T },
+): Promise<T> {
+  for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
+    const currentRaw = rawValue(await client.get(INDEX_KEY));
+    const mutation = mutate(parseIndex(currentRaw));
+    const parsed = indexSchema.safeParse(mutation.index);
+    if (!parsed.success) throw new HybridEvidenceArtifactStoreError("artifact_store_corrupt");
+    const nextRaw = JSON.stringify(parsed.data);
+    if (Buffer.byteLength(nextRaw, "utf8") > MAX_INDEX_BYTES) {
+      throw new HybridEvidenceArtifactStoreError("artifact_quota_exceeded");
+    }
+    if (await client.compareAndSet(INDEX_KEY, currentRaw, nextRaw)) return mutation.result;
+  }
+  throw new HybridEvidenceArtifactStoreError("artifact_store_conflict");
+}
+
+function defaultQuota(): HybridEvidenceArtifactQuota {
+  return {
+    deploymentBytesPerDay: 500 * 1_024 * 1_024,
+    deploymentCountPerDay: 500,
+    sourceBytesPerDay: 50 * 1_024 * 1_024,
+    sourceCountPerDay: 50,
+  };
+}
+
+function assertQuota(quota: HybridEvidenceArtifactQuota): void {
+  for (const value of Object.values(quota)) {
+    if (!Number.isSafeInteger(value) || value < 1) {
+      throw new HybridEvidenceArtifactStoreError("artifact_quota_exceeded");
+    }
+  }
+}
+
+function artifactId(digest: string): string {
+  return `hybrid-evidence.artifact.${digest}`;
+}
+
+function storageKey(digest: string): string {
+  return `hybrid-evidence/sha256/${digest}`;
+}
+
+function digestBytes(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function assertArtifactShape(input: PersistHybridEvidenceArtifactInput): void {
+  if (
+    input.mediaType === "application/pdf" &&
+    Buffer.from(input.bytes.subarray(0, 5)).toString("ascii") !== "%PDF-"
+  ) throw new HybridEvidenceArtifactStoreError("artifact_digest_mismatch");
+  if (
+    input.mediaType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" &&
+    !(input.bytes[0] === 0x50 && input.bytes[1] === 0x4b && input.bytes[2] === 0x03 && input.bytes[3] === 0x04)
+  ) throw new HybridEvidenceArtifactStoreError("artifact_digest_mismatch");
+  if (["application/xml", "text/html", "text/plain"].includes(input.mediaType)) {
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(input.bytes);
+    } catch {
+      throw new HybridEvidenceArtifactStoreError("artifact_digest_mismatch");
+    }
+    if (
+      input.structure.characterCount === null ||
+      input.structure.characterCount !== text.length
+    ) throw new HybridEvidenceArtifactStoreError("artifact_bounds_exceeded");
+  }
+}
+
+function validateLocatorBounds(
+  manifest: EvidenceArtifactManifest,
+  locator: EvidenceLocator,
+): void {
+  if (locator.kind === "source_fact" || locator.artifactDigest !== manifest.contentDigest) {
+    throw new HybridEvidenceArtifactStoreError("locator_out_of_bounds");
+  }
+  if (
+    locator.kind === "pdf_page" &&
+    (manifest.mediaType !== "application/pdf" ||
+      manifest.structure.pageCount === null ||
+      locator.page > manifest.structure.pageCount)
+  ) {
+    throw new HybridEvidenceArtifactStoreError("locator_out_of_bounds");
+  }
+  if (locator.kind === "text_span") {
+    if (
+      !manifest.mediaType.startsWith("text/") ||
+      manifest.structure.characterCount === null ||
+      locator.end > manifest.structure.characterCount
+    ) {
+      throw new HybridEvidenceArtifactStoreError("locator_out_of_bounds");
+    }
+  }
+  if (locator.kind === "spreadsheet_range") {
+    const match = /^([A-Z]{1,3})([1-9]\d*):([A-Z]{1,3})([1-9]\d*)$/u.exec(locator.range);
+    const column = (letters: string) => [...letters].reduce(
+      (total, letter) => total * 26 + letter.charCodeAt(0) - 64,
+      0,
+    );
+    if (
+      manifest.mediaType !== "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+      manifest.structure.rowCount === null ||
+      manifest.structure.columnCount === null ||
+      !match ||
+      Number(match[4]) > manifest.structure.rowCount ||
+      column(match[3]!) > manifest.structure.columnCount
+    ) {
+      throw new HybridEvidenceArtifactStoreError("locator_out_of_bounds");
+    }
+  }
+}
+
+export function createHybridEvidenceArtifactStore(options: {
+  blob?: HybridEvidenceBlobClient;
+  index?: HybridEvidenceArtifactIndexClient;
+  quota?: HybridEvidenceArtifactQuota;
+} = {}): HybridEvidenceArtifactStore {
+  const indexClient = options.index ?? redisStore();
+  const blobs = options.blob ?? blobStore;
+  const quota = options.quota ?? defaultQuota();
+  assertQuota(quota);
+
+  const readEntry = async (digest: string) => {
+    const index = parseIndex(rawValue(await indexClient.get(INDEX_KEY)));
+    return index.artifacts.find(({ manifest }) => manifest.contentDigest === digest) ?? null;
+  };
+
+  const artifactStore: HybridEvidenceArtifactStore = {
+    async collectExpired(input: { now?: Date } = {}) {
+      const now = input.now ?? new Date();
+      const deleted = await updateIndex(indexClient, (current) => {
+        const removable = current.artifacts.filter(({ manifest, references }) =>
+          references.every(({ active }) => !active) &&
+          manifest.retention.expiresAt !== null &&
+          Date.parse(manifest.retention.expiresAt) <= now.getTime()
+        );
+        const digests = new Set(removable.map(({ manifest }) => manifest.contentDigest));
+        return {
+          index: {
+            ...current,
+            artifacts: current.artifacts.filter(
+              ({ manifest }) => !digests.has(manifest.contentDigest),
+            ),
+            revision: removable.length === 0 ? current.revision : current.revision + 1,
+          },
+          result: [...digests],
+        };
+      });
+      await Promise.all(deleted.map((digest) => blobs.delete(storageKey(digest))));
+      return deleted;
+    },
+
+    async persist(input: PersistHybridEvidenceArtifactInput) {
+      if (
+        input.bytes.byteLength < 1 ||
+        input.bytes.byteLength > HYBRID_EVIDENCE_LIMITS.maximumArtifactBytes
+      ) {
+        throw new HybridEvidenceArtifactStoreError("artifact_bounds_exceeded");
+      }
+      assertArtifactShape(input);
+      const digest = digestBytes(input.bytes);
+      const observedAt = new Date(input.observedAt);
+      const now = input.now ?? new Date();
+      if (!Number.isFinite(observedAt.getTime())) {
+        throw new HybridEvidenceArtifactStoreError("artifact_store_corrupt");
+      }
+      const manifest = evidenceArtifactManifestSchema.parse({
+        accessClassification: "public",
+        acquisitionId: input.acquisitionId,
+        artifactId: artifactId(digest),
+        authority: input.authority,
+        byteCount: input.bytes.byteLength,
+        canonicalPublicUrl: input.canonicalPublicUrl,
+        contentDigest: digest,
+        mediaType: input.mediaType,
+        observedAt: observedAt.toISOString(),
+        parserEligibility: input.parserEligibility,
+        recordType: "hybrid_evidence_artifact",
+        retention: { expiresAt: null, state: "active" },
+        schemaVersion: 1,
+        sourceInstanceId: input.sourceInstanceId,
+        storageKey: storageKey(digest),
+        structure: input.structure,
+      });
+      const day = now.toISOString().slice(0, 10);
+      const reserved = await updateIndex(indexClient, (current) => {
+        const existing = current.artifacts.find(
+          ({ manifest: candidate }) => candidate.contentDigest === digest,
+        );
+        if (existing) {
+          if (
+            existing.manifest.byteCount !== manifest.byteCount ||
+            existing.manifest.mediaType !== manifest.mediaType
+          ) {
+            throw new HybridEvidenceArtifactStoreError("artifact_digest_mismatch");
+          }
+          return { index: current, result: { created: false, manifest: existing.manifest } };
+        }
+        const daily = current.usage.filter(
+          (entry) => entry.calendarDay === day && entry.sourceInstanceId === null,
+        );
+        const source = current.usage.filter(
+          (entry) => entry.calendarDay === day &&
+            entry.sourceInstanceId === input.sourceInstanceId,
+        );
+        const total = (entries: typeof daily, field: "byteCount" | "count") =>
+          entries.reduce((sum, entry) => sum + entry[field], 0);
+        if (
+          total(daily, "count") + 1 > quota.deploymentCountPerDay ||
+          total(daily, "byteCount") + input.bytes.byteLength > quota.deploymentBytesPerDay ||
+          total(source, "count") + 1 > quota.sourceCountPerDay ||
+          total(source, "byteCount") + input.bytes.byteLength > quota.sourceBytesPerDay ||
+          current.artifacts.length >= MAX_ARTIFACTS
+        ) {
+          throw new HybridEvidenceArtifactStoreError("artifact_quota_exceeded");
+        }
+        return {
+          index: {
+            ...current,
+            artifacts: [...current.artifacts, { manifest, references: [] }],
+            revision: current.revision + 1,
+            usage: [
+              ...current.usage.filter((entry) => entry.calendarDay >= day),
+              { artifactDigest: digest, byteCount: input.bytes.byteLength, calendarDay: day, count: 1, sourceInstanceId: null },
+              { artifactDigest: digest, byteCount: input.bytes.byteLength, calendarDay: day, count: 1, sourceInstanceId: input.sourceInstanceId },
+            ],
+          },
+          result: { created: true, manifest },
+        };
+      });
+      const stored = reserved.created ? null : await blobs.get(manifest.storageKey);
+      if (
+        reserved.created ||
+        stored === null ||
+        stored.byteLength !== input.bytes.byteLength ||
+        digestBytes(stored) !== digest
+      ) {
+        try {
+          await blobs.put(manifest.storageKey, input.bytes, input.mediaType);
+        } catch {
+          if (reserved.created) {
+            await updateIndex(indexClient, (current) => ({
+              index: {
+                ...current,
+                artifacts: current.artifacts.filter(
+                  ({ manifest: candidate }) => candidate.contentDigest !== digest,
+                ),
+                revision: current.revision + 1,
+                usage: current.usage.filter((entry) => entry.artifactDigest !== digest),
+              },
+              result: undefined,
+            }));
+          }
+          throw new HybridEvidenceArtifactStoreError("storage_unavailable");
+        }
+      }
+      return reserved.manifest;
+    },
+
+    async readManifest(artifactDigest: string) {
+      return (await readEntry(artifactDigest))?.manifest ?? null;
+    },
+
+    async readSlice(input: { locator: EvidenceLocator; maximumBytes: number }) {
+      const locator = evidenceLocatorSchema.parse(input.locator);
+      if (!Number.isSafeInteger(input.maximumBytes) || input.maximumBytes < 1) {
+        throw new HybridEvidenceArtifactStoreError("artifact_bounds_exceeded");
+      }
+      if (locator.kind === "source_fact") {
+        throw new HybridEvidenceArtifactStoreError("locator_out_of_bounds");
+      }
+      const entry = await readEntry(locator.artifactDigest);
+      if (!entry) throw new HybridEvidenceArtifactStoreError("artifact_not_found");
+      validateLocatorBounds(entry.manifest, locator);
+      const bytes = await blobs.get(entry.manifest.storageKey);
+      if (!bytes) throw new HybridEvidenceArtifactStoreError("storage_unavailable");
+      if (
+        bytes.byteLength !== entry.manifest.byteCount ||
+        digestBytes(bytes) !== entry.manifest.contentDigest
+      ) {
+        throw new HybridEvidenceArtifactStoreError("artifact_digest_mismatch");
+      }
+      let content: string;
+      if (locator.kind === "text_span") {
+        const full = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        content = full.slice(locator.start, locator.end);
+        if (digestBytes(Buffer.from(content, "utf8")) !== locator.spanDigest) {
+          throw new HybridEvidenceArtifactStoreError("artifact_digest_mismatch");
+        }
+      } else throw new HybridEvidenceArtifactStoreError("unsupported_layout");
+      if (Buffer.byteLength(content, "utf8") > input.maximumBytes) {
+        throw new HybridEvidenceArtifactStoreError("artifact_bounds_exceeded");
+      }
+      return Object.freeze({
+        artifactDigest: entry.manifest.contentDigest,
+        byteCount: Buffer.byteLength(content, "utf8"),
+        content,
+        locatorDigest: digestHybridEvidenceValue(locator),
+        mediaType: entry.manifest.mediaType,
+      });
+    },
+
+    async setReference(input: {
+      active: boolean;
+      artifactDigest: string;
+      kind: "accepted_result" | "current_lineage" | "promotion";
+      referenceId: string;
+    }) {
+      await updateIndex(indexClient, (current) => {
+        const index = current.artifacts.findIndex(
+          ({ manifest }) => manifest.contentDigest === input.artifactDigest,
+        );
+        if (index < 0) throw new HybridEvidenceArtifactStoreError("artifact_not_found");
+        const entry = current.artifacts[index]!;
+        const references = entry.references.filter(
+          ({ referenceId }) => referenceId !== input.referenceId,
+        );
+        references.push({ active: input.active, kind: input.kind, referenceId: input.referenceId });
+        const artifacts = [...current.artifacts];
+        artifacts[index] = { ...entry, references };
+        return { index: { ...current, artifacts, revision: current.revision + 1 }, result: undefined };
+      });
+    },
+
+    async setRetention(input: {
+      artifactDigest: string;
+      now?: Date;
+      state: "active" | "orphaned" | "quarantined";
+    }) {
+      const now = input.now ?? new Date();
+      return updateIndex(indexClient, (current) => {
+        const index = current.artifacts.findIndex(
+          ({ manifest }) => manifest.contentDigest === input.artifactDigest,
+        );
+        if (index < 0) throw new HybridEvidenceArtifactStoreError("artifact_not_found");
+        const entry = current.artifacts[index]!;
+        if (input.state !== "active" && entry.references.some(({ active }) => active)) {
+          throw new HybridEvidenceArtifactStoreError("artifact_store_conflict");
+        }
+        const expiresAt = input.state === "active"
+          ? null
+          : new Date(now.getTime() + (
+              input.state === "quarantined" ? QUARANTINE_RETENTION_MS : ORPHAN_RETENTION_MS
+            )).toISOString();
+        const manifest = evidenceArtifactManifestSchema.parse({
+          ...entry.manifest,
+          retention: { expiresAt, state: input.state },
+        });
+        const artifacts = [...current.artifacts];
+        artifacts[index] = { ...entry, manifest };
+        return {
+          index: { ...current, artifacts, revision: current.revision + 1 },
+          result: manifest,
+        };
+      });
+    },
+  };
+  return Object.freeze(artifactStore);
+}
