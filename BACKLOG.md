@@ -348,6 +348,16 @@ Source-event/RSS/WebSub work is not in this bucket; it moved to Spec 3 Sprint 4.
 - [x] Remove legacy trigger deletion from the order-shaped rich approval path
   and use recoverable workspace-monitor retirement for the new runtime.
 
+### Optional production monitoring launch (owner decision)
+
+- [ ] When continuous production monitoring is desired—not as a Spec 2 or
+  Spec 3 blocker—approve the production schedules, budgets, and Photon alert
+  destinations; enable `EVE_WORKSPACE_DISPATCH_ENABLED`, then the applicable
+  `EVE_STRATEGY_PACK_MANAGED_DISPATCH_ENABLED`, then
+  `EVE_PHOTON_WORKSPACE_ALERTS_ENABLED` in stages; verify one live run before
+  leaving them enabled. Until that decision, keeping all three flags off is the
+  intended safe production state.
+
 ## 4. Strategy packs and research corpus
 
 ### Strategy-pack framework
