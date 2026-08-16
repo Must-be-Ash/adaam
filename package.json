@@ -52,6 +52,7 @@
     "verify:congressional-signals:sprint-1": "jiti scripts/verify-congressional-signals-sprint-1.ts",
     "verify:congressional-signals:sprint-2": "jiti scripts/verify-congressional-signals-sprint-2.ts",
     "verify:congressional-signals:sprint-3": "jiti scripts/verify-congressional-signals-sprint-3.ts",
+    "verify:congressional-signals:sprint-4": "jiti scripts/verify-congressional-signals-sprint-4.ts",
     "verify:strategy-pack-configuration-kinds": "jiti scripts/verify-strategy-pack-configuration-kinds.ts",
     "verify:workspace-runtime:contracts": "node scripts/verify-workspace-runtime-contracts.mjs",
     "verify:workspace-runtime:failures": "node scripts/verify-workspace-runtime-failures.mjs",

@@ -85,10 +85,18 @@ const DEFAULT_BUDGET_CEILINGS = Object.freeze({
   maximumScheduledRunsPerDay: 8,
 });
 
+export const strategyPackMutationConfigurationSchema = z.record(
+  z.string().min(1).max(80),
+  z.union([
+    z.string().max(200),
+    z.array(z.string().max(160)).max(32),
+  ]),
+).refine((value) => Object.keys(value).length <= 16);
+
 const mutationRequestSchema = z
   .object({
     activateMonitorResourceIds: z.array(z.string().min(2).max(80)).max(16).optional(),
-    configuration: z.record(z.string().min(1).max(80), z.unknown()).optional(),
+    configuration: strategyPackMutationConfigurationSchema.optional(),
     expectedRegistryRevision: z.number().int().nonnegative(),
     name: z.string().trim().min(1).max(80),
     pack: z
@@ -104,7 +112,7 @@ const mutationRequestSchema = z
 const lifecycleConfirmationSchema = z.literal(true);
 const configureRequestSchema = z.object({
   confirmedConsequences: lifecycleConfirmationSchema,
-  configuration: z.record(z.string().min(1).max(80), z.unknown())
+  configuration: strategyPackMutationConfigurationSchema
     .refine((value) => Object.keys(value).length > 0),
   expectedBindingRevision: z.number().int().positive(),
   expectedRegistryRevision: z.number().int().nonnegative(),
@@ -240,6 +248,11 @@ function packInspection(pack: StrategyPackCatalogEntry) {
     contentDigest: pack.contentDigest,
     description: pack.description,
     displayName: pack.displayName,
+    evidenceContracts: Object.freeze((pack.evidenceContracts ?? []).map((contract) => Object.freeze({
+      digest: contract.digest,
+      id: contract.id,
+      version: contract.version,
+    }))),
     evaluations: Object.freeze({ suiteId: pack.evaluations.suiteId }),
     id: pack.id,
     instructionsIncluded: false as const,

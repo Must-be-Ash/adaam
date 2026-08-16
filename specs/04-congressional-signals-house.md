@@ -1,6 +1,6 @@
 # Spec 4: Congressional Signals v1 — House disclosures
 
-Status: Sprint 3 checklist complete; awaiting owner direction
+Status: Sprint 4 checklist complete; awaiting owner direction
 
 Date: 2026-08-16
 
@@ -488,17 +488,33 @@ passed without a live source read or alert delivery.
 
 ### Sprint 4 — owner configuration and manager experience
 
-- [ ] Expose threshold and selected-member configuration through the existing
+- [x] Expose threshold and selected-member configuration through the existing
   natural-language and Spectrum pack mutation paths.
-- [ ] Render source/extraction health, pinned evidence versions, configuration,
+- [x] Render source/extraction health, pinned evidence versions, configuration,
   latest signal, and fixed outcome counts in the workspace manager.
-- [ ] Add one pack-specific end-to-end test proving alert delivery, Discuss,
+- [x] Add one pack-specific end-to-end test proving alert delivery, Discuss,
   selected-workspace routing, and isolation through the existing Spec 1 paths;
   rely on Specs 1–2 for generic lifecycle regression coverage.
-- [ ] Add bounded read-only signal explanation using only validated traces.
+- [x] Add bounded read-only signal explanation using only validated traces.
 
 Exit: the owner can install, configure, understand, and discuss the strategy
 without code changes or access to unrelated session state.
+
+Completion evidence: the shared natural-language and Spectrum mutation inputs
+now carry all four reviewed configuration kinds, and Spectrum renders the
+Congressional threshold and canonical selected-member controls from the exact
+pack manifest rather than a Congressional-only mutation path. The existing
+manager shows authenticated House adapter/extraction health plus immutable
+evidence versions, labeled configuration, measured coverage, one validated
+latest signal, and a fixed five-counter signal outcome shape. A read-only tool
+revalidates the stored signal and returns bounded deterministic reason,
+evidence, committee, cluster, and pattern traces without raw filing content or
+cross-session identifiers. The Sprint 4 end-to-end fixture delivers a neutral
+Congressional alert through the Spec 1 Photon adapter, applies Discuss, proves
+selection and pending-context isolation, and rejects a cross-session delivery
+scope. Focused Sprints 0–4, pack mutation/runtime, manager, alert, Spectrum
+browser, TypeScript, Eve build, Next build, and diff checks passed without a
+live source read or real alert delivery.
 
 ### Sprint 5 — final verification and controlled rollout
 

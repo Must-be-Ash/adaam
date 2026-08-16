@@ -31,12 +31,15 @@ const pack = {
   configuration: [
     { default: "UTC", description: "Owner timezone", key: "timezone", kind: "iana_timezone", label: "Timezone", required: true },
     { default: ["09:00"], description: "Daily cadence", key: "dailyTimes", kind: "daily_local_times", label: "Daily times", required: true },
+    { allowedValues: ["priority", "review"], default: "priority", description: "Minimum signal band", key: "minimumAlertBand", kind: "bounded_enum", label: "Minimum alert band", required: true },
+    { allowedValues: ["G000568", "H001082"], default: [], description: "Selected members", key: "selectedMemberBioguideIds", kind: "canonical_id_list", label: "Selected House members", required: true },
   ],
   contentDigest: "c".repeat(64),
-  description: "Detect reviewed public events.",
-  displayName: "Alpha Pack",
+  description: "Detect reviewed House filings.",
+  displayName: "Congressional Signals",
+  evidenceContracts: [{ digest: "e".repeat(64), id: "congressional-signals-policy", version: "1.2.0" }],
   evaluations: { suiteId: "eval.alpha/v1" },
-  id: "alpha-pack",
+  id: "congressional-signals",
   instructionsIncluded: false,
   maturity: "reference",
   monitors: [{ activationDefault: "paused", displayName: "Detect alpha", resourceId: "detect-alpha", sourceIds: ["source.alpha"] }],
@@ -54,11 +57,30 @@ const monitor = {
   nextOccurrenceAt: "2026-08-16T16:00:00.000Z",
   schedule: { kind: "daily_local", times: ["09:00"], timezone: "UTC" },
   sources: [{ canonicalUrl: "https://alpha.example.gov/events", sourceId: "source.alpha" }],
+  publicSourceHealth: [{
+    adapterId: "house-financial-disclosures",
+    adapterVersion: "1.0.0",
+    cursor: { revision: 4, watermark: "2026-08-15T17:00:00.000Z" },
+    extraction: { complete: 3, partial: 0, state: "complete", unsupported: 0 },
+    healthState: "healthy",
+    lastCompleteAcquisition: { observedAt: "2026-08-15T17:00:00.000Z", status: "complete" },
+    lastOutcome: { coverage: "complete", errorCode: null, failureStage: null, observedAt: "2026-08-15T17:00:00.000Z", status: "complete" },
+    lifecycleState: "active",
+    runtimeState: "enabled",
+    sourceId: "source.alpha",
+    subscription: { deliveryRevision: 4, lag: 0, state: "caught_up" },
+  }],
 };
 const activeBinding = {
   bindingRevision: 1,
   capabilities: [{ id: "tool.alpha.fetch", status: "available" }],
-  configuration: { dailyTimes: ["09:00"], timezone: "UTC" },
+  configuration: { dailyTimes: ["09:00"], minimumAlertBand: "priority", selectedMemberBioguideIds: [], timezone: "UTC" },
+  congressionalSignals: {
+    coverage: { consecutiveDays: 90, lastCompleteOn: "2026-08-15", startedOn: "2026-05-18", state: "complete" },
+    latestSignal: { alertEligible: true, band: "priority", caveat: "Delayed public disclosure; research signal only, not evidence of wrongdoing or a trade instruction.", createdAt: "2026-08-15T17:00:00.000Z", signalRevisionId: "congressional-signal-revision." + "f".repeat(64) },
+    outcomeCounts: { alertEligible: 1, priority: 1, recordOnly: 2, review: 3, total: 6 },
+    state: "available",
+  },
   health: { checkedAt: "2026-08-15T17:00:00.000Z", status: "healthy" },
   managedMonitors: [{ ...monitor, resourceId: "detect-alpha", sourceIds: ["source.alpha"] }],
   pack,
@@ -147,18 +169,32 @@ try {
   assert.ok(order[0].includes("Strategy pack"));
   assert.ok(order[1].includes("Detect alpha"));
   assert.ok(order.at(-1).includes("Pack summary"));
+  assert.equal(await page.getByLabel("Minimum alert band").inputValue(), "priority");
+  assert.deepEqual(await page.getByLabel("Selected House members").evaluate((select) =>
+    Array.from(select.selectedOptions).map((option) => option.value)), []);
+  await page.getByText(/extraction complete \(3 complete, 0 partial, 0 unsupported\)/u).waitFor();
   const touchTargets = await page.locator("button").evaluateAll((buttons) =>
     buttons.map((button) => button.getBoundingClientRect().height));
   assert.ok(touchTargets.every((height) => height >= 44));
   await page.getByText("Pack summary").focus();
   await page.keyboard.press("Enter");
   assert.equal(await page.locator("details.pack-details").getAttribute("open"), "");
+  await page.getByText(/Pinned evidence · congressional-signals-policy@1\.2\.0/u).waitFor();
+  await page.getByText(/House-only extraction coverage · complete · 90 consecutive day/u).waitFor();
+  await page.getByText(/Signal outcomes · 6 total · 1 priority · 3 review/u).waitFor();
+  await page.getByText(/Latest signal · priority/u).waitFor();
 
   const dialogMessages = [];
   page.on("dialog", async (dialog) => {
     dialogMessages.push(dialog.message());
     if (dialog.type() === "prompt") {
-      await dialog.accept(dialog.message().includes("time zone") ? "America/Vancouver" : "08:30, 16:00");
+      const message = dialog.message();
+      await dialog.accept(
+        message.includes("Timezone") ? "America/Vancouver" :
+        message.includes("Daily times") ? "08:30, 16:00" :
+        message.includes("Minimum alert band") ? "review" :
+        "G000568",
+      );
     } else {
       await dialog.accept();
     }
@@ -173,6 +209,8 @@ try {
   assert.equal(lastAction.action, "strategy-pack-configure");
   assert.equal(lastAction.confirmedConsequences, true);
   assert.deepEqual(lastAction.configuration.dailyTimes, ["08:30", "16:00"]);
+  assert.equal(lastAction.configuration.minimumAlertBand, "review");
+  assert.deepEqual(lastAction.configuration.selectedMemberBioguideIds, ["G000568"]);
   assert.ok(dialogMessages.some((message) => message.includes("future messages will start a fresh conversation generation")));
   assert.ok(dialogMessages.some((message) => message.includes("durable research will remain")));
 
