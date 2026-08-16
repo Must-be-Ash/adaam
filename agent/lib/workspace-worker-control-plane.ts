@@ -133,6 +133,7 @@ async function assertCurrentMonitor(
 }
 
 async function prepareCommit(input: {
+  allowInitialBaselineCheckpoint?: boolean;
   checkpoint?: { contentDigest: string; watermark: string };
   clients?: WorkspaceWorkerControlPlaneClients;
   ctx: WorkerContext;
@@ -180,6 +181,9 @@ async function prepareCommit(input: {
   }
   const coverage = await completeWorkspaceSourceCoverage(
     {
+      allowCheckpointBeforeWindow:
+        input.allowInitialBaselineCheckpoint === true &&
+        monitor.sourceCheckpoint.watermark === null,
       checkpoint: input.checkpoint,
       now: input.now,
       runId: envelope.runId,
@@ -227,10 +231,15 @@ export async function commitDeterministicWorkspaceEvaluationForWorker(input: {
   ctx: WorkerContext;
   environment?: NodeJS.ProcessEnv;
   finding: WorkspaceFindingCandidate | null;
+  initialBaseline?: boolean;
   now?: Date;
   toolId: string;
 }): Promise<WorkspaceRunOutcome> {
+  if (input.initialBaseline === true && input.finding !== null) {
+    throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
+  }
   const prepared = await prepareCommit({
+    allowInitialBaselineCheckpoint: input.initialBaseline,
     checkpoint: input.checkpoint,
     clients: input.clients,
     ctx: input.ctx,

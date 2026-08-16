@@ -298,6 +298,7 @@ export async function evaluateSecIpoSourceForWorker(input: {
     ctx: input.ctx,
     environment: input.environment,
     finding: findingCandidate(evaluation),
+    initialBaseline: evaluation.baselineEstablished,
     now,
     toolId: EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
   });

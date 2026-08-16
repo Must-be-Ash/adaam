@@ -170,7 +170,10 @@ function countRecords(store: MemoryCreateStore, recordType: string): number {
   ).length;
 }
 
-async function setupWorkspace(workspaceId: string): Promise<{
+async function setupWorkspace(
+  workspaceId: string,
+  createdAt = new Date("2026-08-14T16:00:00.000Z"),
+): Promise<{
   monitor: WorkspaceMonitor;
   scope: ReturnType<typeof authorizeDeploymentWorkspaceStore>;
 }> {
@@ -178,7 +181,6 @@ async function setupWorkspace(workspaceId: string): Promise<{
     { ownerId: "owner_fixture", workspaceId },
     environment,
   );
-  const createdAt = new Date("2026-08-14T16:00:00.000Z");
   await writeWorkspaceDocument("brief", {
     expectedRevision: 0,
     now: createdAt,
@@ -234,7 +236,7 @@ async function setupWorkspace(workspaceId: string): Promise<{
     idempotencyKey: `monitor.${workspaceId}`,
     instruction: "Evaluate the exact SEC S-1 source deterministically.",
     name: "IPO Filings",
-    nextOccurrenceAt: "2026-08-14T17:00:00.000Z",
+    nextOccurrenceAt: new Date(createdAt.getTime() + 60 * 60_000).toISOString(),
     now: createdAt,
     requiredCapabilityIds: [EVALUATE_SEC_IPO_SOURCE_TOOL_ID],
     schedule: {
@@ -388,6 +390,24 @@ assert.deepEqual(
   countsAfterBaseline,
 );
 
+const workspaceWithOlderBaseline = await setupWorkspace(
+  "123e4567-e89b-42d3-a456-426614174099",
+  new Date("2026-08-14T18:00:00.000Z"),
+);
+const olderBaselinePrepared = await prepare({
+  ...workspaceWithOlderBaseline,
+  now: baselineNow,
+});
+const olderBaseline = await execute(
+  olderBaselinePrepared,
+  baselineNow,
+  fetchResponse(fixtureBodies.initial),
+);
+assert.equal(olderBaseline.baselineEstablished, true);
+assert.equal(olderBaseline.factCount, 0);
+assert.equal(olderBaseline.outcome.outcome, "no_match");
+assert.equal(olderBaseline.checkpoint.watermark, "2026-08-14T17:00:00.000Z");
+
 let monitorA = await getWorkspaceMonitor(
   workspaceA.scope,
   workspaceA.monitor.monitorId,
@@ -413,7 +433,7 @@ assert.equal(
   "new_registration",
 );
 assert.equal(alerts.values.size, 1);
-assert.equal(countRecords(findings, "workspace_run_outcome"), 2);
+assert.equal(countRecords(findings, "workspace_run_outcome"), 3);
 assert.deepEqual(
   await execute(laterPrepared, laterNow, async () => {
     throw new Error("A finding occurrence replay must not fetch.");
