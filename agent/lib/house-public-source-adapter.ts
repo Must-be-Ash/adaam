@@ -295,11 +295,133 @@ function rowMatchesLatestIndex(latest: CanonicalPublicFactRevision, row: HouseIn
     JSON.stringify(latest.payload.filer) === JSON.stringify(row.filer);
 }
 
-function parseAmount(label: string): HouseTransactionRow["amountRange"] {
-  const closed = /^\$\s*([\d,]+)\s*-\s*\$\s*([\d,]+)$/u.exec(label);
+function transactionRowNumber(fact: CanonicalPublicFactRevision): number {
+  if (fact.payload.schemaVersion !== "house-ptr-transaction/v1") return 0;
+  return Number(fact.payload.rowIdentity.slice("row:".length));
+}
+
+function transactionContentSignature(transaction: HouseTransactionRow | Extract<
+  CanonicalPublicFactRevision["payload"],
+  { schemaVersion: "house-ptr-transaction/v1" }
+>): string {
+  return JSON.stringify({
+    amountRange: transaction.amountRange,
+    assetDescription: transaction.assetDescription,
+    capitalGainsIndicator: transaction.capitalGainsIndicator,
+    notificationDate: transaction.notificationDate,
+    ownerCode: transaction.ownerCode,
+    reportedTicker: transaction.reportedTicker,
+    transactionDate: transaction.transactionDate,
+    transactionType: transaction.transactionType,
+  });
+}
+
+async function readPriorTransactionFacts(input: {
+  readonly client?: PublicSourceAcquisitionStoreClient;
+  readonly filing: CanonicalPublicFactRevision;
+  readonly row: HouseIndexRow;
+  readonly source: PublicSourceInstance;
+}): Promise<readonly CanonicalPublicFactRevision[]> {
+  const facts: CanonicalPublicFactRevision[] = [];
+  const batchSize = 16;
+  for (let start = 1; start <= PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition; start += batchSize) {
+    const batch = await Promise.all(Array.from(
+      { length: Math.min(batchSize, PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition - start + 1) },
+      async (_, offset) => {
+        const logicalKey = deriveCanonicalPublicFactLogicalKey({
+          adapterId: "house-financial-disclosures",
+          factSchemaVersion: "house-ptr-transaction/v1",
+          sourceInstanceId: input.source.sourceInstanceId,
+          sourceNativeId: `${input.row.year}:${input.row.docId}`,
+          stableRowIdentity: `row:${start + offset}`,
+        });
+        return readLatestPublicSourceFactRevision(logicalKey, input.client);
+      },
+    ));
+    for (const fact of batch) {
+      if (
+        fact?.payload.schemaVersion === "house-ptr-transaction/v1" &&
+        fact.payload.filingLogicalKey === input.filing.logicalKey
+      ) facts.push(fact);
+    }
+  }
+  return Object.freeze(facts.sort((left, right) =>
+    transactionRowNumber(left) - transactionRowNumber(right)));
+}
+
+function assignStableRowIdentities(
+  transactions: readonly HouseTransactionRow[],
+  priorFacts: readonly CanonicalPublicFactRevision[],
+): {
+  readonly identities: readonly `row:${number}`[];
+  readonly removed: readonly CanonicalPublicFactRevision[];
+} {
+  const current = transactions.map(transactionContentSignature);
+  const prior = priorFacts.map((fact) => {
+    if (fact.payload.schemaVersion !== "house-ptr-transaction/v1") {
+      throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
+    }
+    return transactionContentSignature(fact.payload);
+  });
+  const lengths = Array.from({ length: prior.length + 1 }, () =>
+    new Uint16Array(current.length + 1));
+  for (let priorIndex = prior.length - 1; priorIndex >= 0; priorIndex -= 1) {
+    for (let currentIndex = current.length - 1; currentIndex >= 0; currentIndex -= 1) {
+      lengths[priorIndex]![currentIndex] = prior[priorIndex] === current[currentIndex]
+        ? lengths[priorIndex + 1]![currentIndex + 1]! + 1
+        : Math.max(
+            lengths[priorIndex + 1]![currentIndex]!,
+            lengths[priorIndex]![currentIndex + 1]!,
+          );
+    }
+  }
+  const identities: Array<`row:${number}` | undefined> = Array(current.length);
+  const matchedPrior = new Set<number>();
+  let priorIndex = 0;
+  let currentIndex = 0;
+  while (priorIndex < prior.length && currentIndex < current.length) {
+    if (prior[priorIndex] === current[currentIndex]) {
+      identities[currentIndex] = `row:${transactionRowNumber(priorFacts[priorIndex]!)}`;
+      matchedPrior.add(priorIndex);
+      priorIndex += 1;
+      currentIndex += 1;
+    } else if (lengths[priorIndex + 1]![currentIndex]! >= lengths[priorIndex]![currentIndex + 1]!) {
+      priorIndex += 1;
+    } else currentIndex += 1;
+  }
+  const unmatchedPrior = priorFacts
+    .map((fact, index) => ({ fact, index }))
+    .filter(({ index }) => !matchedPrior.has(index));
+  const unmatchedCurrent = Array.from(identities, (identity, index) => ({ identity, index }))
+    .filter(({ identity }) => identity === undefined);
+  const replacements = Math.min(unmatchedPrior.length, unmatchedCurrent.length);
+  for (let index = 0; index < replacements; index += 1) {
+    identities[unmatchedCurrent[index]!.index] =
+      `row:${transactionRowNumber(unmatchedPrior[index]!.fact)}`;
+    matchedPrior.add(unmatchedPrior[index]!.index);
+  }
+  let nextRow = Math.max(0, ...priorFacts.map(transactionRowNumber)) + 1;
+  for (const unmatched of unmatchedCurrent.slice(replacements)) {
+    identities[unmatched.index] = `row:${nextRow}`;
+    nextRow += 1;
+  }
   return Object.freeze({
-    label: label.replace(/\s+/gu, " ").trim(),
-    lower: closed ? closed[1]!.replaceAll(",", "") : null,
+    identities: Object.freeze(identities as `row:${number}`[]),
+    removed: Object.freeze(priorFacts.filter((_, index) => !matchedPrior.has(index))),
+  });
+}
+
+export function parseHouseTransactionAmountRange(label: string): HouseTransactionRow["amountRange"] {
+  const normalized = label.replace(/\s+/gu, " ").trim();
+  const closed = /^\$\s*([\d,]+)\s*-\s*\$\s*([\d,]+)$/u.exec(normalized);
+  const over = /^Over\s+\$\s*([\d,]+)$/iu.exec(normalized);
+  return Object.freeze({
+    label: normalized,
+    lower: closed
+      ? closed[1]!.replaceAll(",", "")
+      : over
+        ? (BigInt(over[1]!.replaceAll(",", "")) + 1n).toString()
+        : null,
     upper: closed ? closed[2]!.replaceAll(",", "") : null,
   });
 }
@@ -331,7 +453,7 @@ function parsePositionedTransactions(
     )?.text.toLowerCase();
     const evidence = band.map((fragment) => [fragment.x, fragment.y, fragment.text]);
     rows.push(Object.freeze({
-      amountRange: parseAmount(amountLabel),
+      amountRange: parseHouseTransactionAmountRange(amountLabel),
       assetDescription,
       capitalGainsIndicator: capitalGains === "yes" || capitalGains === "no"
         ? capitalGains
@@ -367,7 +489,7 @@ function parseTransactions(
     const ticker = /\(([A-Z0-9.-]{1,20})\)\s*\[[A-Z]{1,8}\]\s*$/u.exec(assetDescription)?.[1] ?? null;
     const evidence = match[0].replace(/\s+/gu, " ").trim();
     rows.push(Object.freeze({
-      amountRange: parseAmount(match[6]!),
+      amountRange: parseHouseTransactionAmountRange(match[6]!),
       assetDescription,
       capitalGainsIndicator: match[7]!.toLowerCase() as "no" | "yes",
       notificationDate: exactDate(
@@ -697,6 +819,17 @@ async function acquireHouse(input: {
       if (filingCandidate.fact) facts.push(filingCandidate.fact);
       if (filingCandidate.correction) corrections.push(filingCandidate.correction);
 
+      const priorTransactionFacts = extraction.extractionState === "complete" &&
+          filingCandidate.correction !== null
+        ? await readPriorTransactionFacts({
+            client: input.client,
+            filing: filingFact,
+            row,
+            source,
+          })
+        : [];
+      const stableRows = assignStableRowIdentities(transactions, priorTransactionFacts);
+
       for (const [index, transaction] of transactions.entries()) {
         const transactionPayload = {
           amountRange: transaction.amountRange,
@@ -709,7 +842,7 @@ async function acquireHouse(input: {
           ownerCode: transaction.ownerCode,
           publicDocumentUrl: publicUrl,
           reportedTicker: transaction.reportedTicker,
-          rowIdentity: `row:${index + 1}` as const,
+          rowIdentity: stableRows.identities[index]!,
           schemaVersion: "house-ptr-transaction/v1" as const,
           transactionDate: transaction.transactionDate,
           transactionType: transaction.transactionType,
@@ -734,26 +867,7 @@ async function acquireHouse(input: {
         if (candidate.correction) corrections.push(candidate.correction);
       }
       if (extraction.extractionState === "complete") {
-        const remainingRetractionCapacity =
-          PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition - retractions.length;
-        const maximumRemovedRow = Math.min(
-          PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition,
-          transactions.length + remainingRetractionCapacity + 1,
-        );
-        for (
-          let removedRow = transactions.length + 1;
-          removedRow <= maximumRemovedRow;
-          removedRow += 1
-        ) {
-          const logicalKey = deriveCanonicalPublicFactLogicalKey({
-            adapterId: "house-financial-disclosures",
-            factSchemaVersion: "house-ptr-transaction/v1",
-            sourceInstanceId: source.sourceInstanceId,
-            sourceNativeId: `${row.year}:${row.docId}`,
-            stableRowIdentity: `row:${removedRow}`,
-          });
-          const latest = await readLatestPublicSourceFactRevision(logicalKey, input.client);
-          if (!latest) break;
+        for (const latest of stableRows.removed) {
           if (retractions.length === PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition) {
             throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
           }
@@ -847,7 +961,7 @@ function successfulAcquisition(input: {
       candidateFactRevisionIds: input.facts.map((fact) => fact.revisionId),
       correctionIds: input.corrections.map((item) => item.correctionId),
       retractionIds: retractions.map((item) => item.retractionId),
-      coverage: "complete",
+      coverage: pdfState,
       errorCode: null,
       observedAt: input.observedAt,
       proposedNextCursor: {

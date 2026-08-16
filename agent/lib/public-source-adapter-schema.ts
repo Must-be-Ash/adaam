@@ -267,7 +267,8 @@ export const publicSourceAcquisitionResultSchema = z.object({
 }).strict().superRefine((result, context) => {
   const successful = result.status === "complete" || result.status === "no_change";
   if (
-    successful !== (result.coverage === "complete" && result.errorCode === null) ||
+    successful !== (result.errorCode === null) ||
+    (!successful && result.coverage === "complete") ||
     successful !== (result.proposedNextCursor !== null) ||
     (!successful && result.errorCode === null) ||
     (result.status === "no_change" && result.candidateFactRevisionIds.length !== 0) ||

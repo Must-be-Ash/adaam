@@ -14,13 +14,14 @@ const environment = {
 };
 
 const listed = listStrategyPacks({ environment });
-assert.equal(listed.count, 4);
+assert.equal(listed.count, 5);
 assert.deepEqual(
   listed.packs.map(({ id, version }) => `${id}@${version}`),
   [
     "congressional-signals@1.0.0",
     "congressional-signals@1.1.0",
     "congressional-signals@1.2.0",
+    "congressional-signals@1.3.0",
     "ipo-filings@1.0.0",
   ],
 );

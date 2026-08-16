@@ -85,6 +85,19 @@ export async function readCongressionalSignalExplanation(input: {
   return explainCongressionalSignal(signal);
 }
 
+export async function readLatestCongressionalSignalExplanation(
+  scope: AuthorizedWorkspaceStoreScope,
+  client?: CongressionalSignalStoreClient,
+) {
+  const history = await readCongressionalHistory(scope, client);
+  if (!history) throw new CongressionalSignalPresentationError("congressional_signal_not_found");
+  const signalRevisionId = latestSignalRevisionId(history);
+  if (!signalRevisionId) {
+    throw new CongressionalSignalPresentationError("congressional_signal_not_found");
+  }
+  return readCongressionalSignalExplanation({ scope, signalRevisionId }, client);
+}
+
 function signalOutcomeCounts(history: CongressionalHistoryRevision) {
   const rank = { priority: 2, record_only: 0, review: 1 } as const;
   const signals = new Map<string, { alertEligible: boolean; band: keyof typeof rank }>();

@@ -1,8 +1,9 @@
 # Eve backlog and parked work
 
-Snapshot date: 2026-08-15
-Application baseline: Specs 1 and 2 are production accepted on `main`; global
-workspace dispatch, pack-managed dispatch, and Photon alerts are rolled back off.
+Snapshot date: 2026-08-16
+Application baseline: Specs 1–4 are production accepted; global workspace
+dispatch, pack-managed dispatch, Photon alerts, and Congressional execution are
+rolled back off.
 
 This is the inventory of work that was explicitly postponed, remains incomplete,
 or is known to be needed before Eve can satisfy the full product direction.
@@ -23,7 +24,13 @@ No user-tested core path was reported broken at handoff. These were working:
   Manage actions, manager status/budgets, and legacy/durable rollout gating;
 - the production-accepted Spec 2 strategy-pack framework and
   `IPO Filings@1.0.0` reference pack, with interactive pack surfaces on and
-  scheduled/alert dispatch rolled back off.
+  scheduled/alert dispatch rolled back off;
+- the production-accepted Spec 3 canonical SEC/House public-source foundation;
+  and
+- the production-accepted Spec 4 `Congressional Signals` House strategy,
+  official roster, deterministic history/evidence policy, and verified real
+  Photon alert/Discuss path, with scheduled execution and alerts rolled back
+  off.
 
 The items below are product, safety, testing, and operational gaps around that
 working baseline.
@@ -343,9 +350,24 @@ ordinary-path failure:
   evidence; the current document, fact, and projection work is explicitly
   bounded and remains sequential for deterministic failure behavior.
 - [ ] Expand House parser hardening with CPU-adversarial PDF/ZIP fuzzing,
-  reordered/removed transaction correction semantics, and long archive replay.
+  broader OCR layouts, and long archive replay.
 - [ ] Expose bounded public-source health through Eve's workspace inspection
   tools when interactive agent diagnosis becomes a product requirement.
+
+### Spec 4 deferred hardening
+
+- [ ] Automate official House source-year rollover and immutable roster refresh
+  before a year boundary, including published-date, digest, vacancy, and prior
+  catalog/pack preservation checks.
+- [ ] Add exhaustive cross-process crash/race coverage around deferred
+  projection acknowledgement, workspace outcome commits, signal correction,
+  replay, and alert outbox handoff before increasing worker concurrency.
+- [ ] Generalize historical rescoring only after a versioned evidence-policy
+  migration contract exists; numeric scoring or historical-alpha claims require
+  a separate validation plan and must not be inferred from the v1 ordinal bands.
+- [ ] Treat Senate disclosures, broader OCR coverage, and price/news/
+  legislation/voting/valuation evidence as separate reviewed source and policy
+  extensions rather than silently widening House v1 coverage.
 
 ## 3. Event-trigger work
 
@@ -390,15 +412,17 @@ pins one authoritative binding per session, provides replay-safe create,
 configure, and non-destructive remove services shared by Eve and Spectrum, and
 composes exact pack snapshots into interactive and scheduled runtimes. The full
 local gate and owner-authorized staged production SEC/Photon/managed-worker
-acceptance passed for `IPO Filings@1.0.0`. Generalized upgrades,
-downgrades, replacements, and second-pack abstractions remain deferred until a
-real second pack or version establishes their requirements.
+acceptance passed for `IPO Filings@1.0.0`; the second production-accepted pack,
+`Congressional Signals@1.3.0`, now proves the shared configuration, catalog,
+worker, alert, and owner-surface abstractions. Generalized upgrades, downgrades,
+and replacements remain deferred until the owner selects that product work.
 
 ### Candidate packs documented but not implemented
 
 - [ ] Earnings-call language analysis as a versioned pack.
 - [ ] Insider-buying clusters.
-- [ ] Congressional trading signals.
+- [x] Congressional trading signals — House v1 is production accepted; Senate
+  or broader congressional coverage remains a separate source/policy extension.
 - [ ] Social-signal arbitrage.
 - [ ] Post-bankruptcy equities.
 - [ ] Credit/equity dislocations.

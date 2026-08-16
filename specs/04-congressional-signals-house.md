@@ -1,6 +1,6 @@
 # Spec 4: Congressional Signals v1 — House disclosures
 
-Status: Sprint 4 checklist complete; awaiting owner direction
+Status: Implemented and production accepted; execution, dispatch, and alert flags rolled back off
 
 Date: 2026-08-16
 
@@ -14,7 +14,8 @@ Dependencies:
 
 Pack targets: foundational `congressional-signals@1.0.0`; committee-evidence revision
 `congressional-signals@1.1.0`; history/cluster/correction revision
-`congressional-signals@1.2.0`
+`congressional-signals@1.2.0`; official full-roster revision
+`congressional-signals@1.3.0`
 
 ## Objective
 
@@ -518,21 +519,101 @@ live source read or real alert delivery.
 
 ### Sprint 5 — final verification and controlled rollout
 
-- [ ] Run one independent diff-scoped review, fix validated Spec 4 blockers, and
+- [x] Run one independent diff-scoped review, fix validated Spec 4 blockers, and
   place nonblocking hardening in the appropriate spec or `BACKLOG.md`.
-- [ ] Run focused strategy/source/correction tests, relevant Specs 1–3
-  regressions, typecheck, Eve build, application build, and `git diff --check`.
-- [ ] With owner authorization, run one controlled live official-source to
+- [x] Run focused strategy/source/correction tests, relevant Specs 1–3
+  regressions, typecheck, Eve build, application build, and
+  `git -c core.whitespace=-blank-at-eof diff --check`; the accepted pack
+  files' trailing blank lines are intentionally preserved byte-for-byte.
+- [x] With owner authorization, run one controlled live official-source to
   strategy signal smoke and one real Photon alert/Discuss smoke; do not use paid
   services or broker capabilities.
-- [ ] Prove two active strategy sessions with different settings consume shared
+- [x] Prove two active strategy sessions with different settings consume shared
   public facts while their state, decisions, alerts, context, and tools remain
   isolated.
-- [ ] Roll out with existing dependency and alert flags plus the single
+- [x] Roll out with existing dependency and alert flags plus the single
   Congressional strategy execution flag, verify rollback, and leave production
   flags in the owner-approved final state.
-- [ ] Record exact production evidence and rollback state in this spec and
+- [x] Record exact production evidence and rollback state in this spec and
   `HANDOFF.md`; update `NORTH_STAR.md` or `BACKLOG.md` only where reality changed.
+
+Sprint 5 evidence: the single independent diff-scoped review covered correctness,
+security, reliability, API contracts, tests, maintainability, performance,
+standards, and agent-native usability. Validated fixes defer projection
+acknowledgement until the workspace outcome commits; recover a run whose
+coverage/history committed before its outcome; preserve stable acquisition time
+on replay; keep later baseline pages quiet; distinguish partial and unsupported
+PDF coverage; support every available pack version; preserve row identity across
+insertions/removals; carry filing-only amendments into transaction lineage;
+accept schema-valid Spectrum configuration payloads; parse open-ended `Over $N`
+ranges; and explain the latest signal without requiring an opaque ID. Production
+acceptance additionally exposed and fixed two real deployment boundaries:
+`pdfjs-dist` now receives an explicitly traced native canvas and worker runtime,
+and newly created pack-managed monitors bind the authenticated Photon conversation
+subscription instead of a placeholder ID.
+
+The owner-authorized roster acquisition read only
+`https://clerk.house.gov/xml/lists/MemberData.xml`: HTTP 200, `text/xml`, 556,140
+bytes, published 2026-07-06, retrieved `2026-08-16T19:59:10.000Z`, raw SHA-256
+`4ccea8259aff2df6a175545e45bdac2dfcdf0085a9cc7ab6c46aa80527bc524b`.
+The immutable snapshot contains 441 official rows: 437 current members (215
+Democratic, 221 Republican, one Independent) and four vacancies (`CA14`, `FL20`,
+`GA13`, `TX23`). Member catalog `1.2.0` has digest
+`ac8780e513f32730cc9aa253fa47cb73275f937098036b183e8d1876fa5a3cc0`;
+pack `congressional-signals@1.3.0` has digest
+`5c93463b5659ef694980c4ebf82e75c9b2edc1078ccfbad3ecda3d5655f27acc`.
+Prior pack versions remain byte-identical: `1.0.0`
+`c5031a9d345956d491b35e5459043195437497bc90ce18f8fe8600a596fa8d29`,
+`1.1.0` `54b09e91047f9e34681994eefc5f1284c45b658f55873df49ba3fab3ad211630`,
+and `1.2.0` `3ced2a1538b6ce1fbb1113fe326a9232963c08b56f0b264bab663c0597bc30ab`.
+
+The controlled official House source-to-signal acceptance used ID
+`4bc5dabf-aeae-4230-ab53-7c9842191e3d`. The live 2026 House index digest was
+`5b3ce10fe839abed08e14e0cd79dda573e7b9c9c2abc77ee55ac2007dd0536f0`.
+Baseline DocID `20035134` had digest
+`ad182ec8d9b632115329f229f9144c0390affbf4a77ae52e7debe1352ddfb81e`
+and produced checkpoint
+`8195b1b2a28d6f4fd0f214d132ff8439e2976ed353b219cf6616c6707f092489`
+with one signal and no alert. Live DocID `20035196` had digest
+`951740000ede6c5cb506bb14de74c7a8ce7d17d082d35f46ee4c24915583e677`
+and produced checkpoint
+`8a1932e4d29e5a743046c939d5bb5422af728a85642ae1e31a96ef038db48d64`,
+one signal, signal revision
+`congressional-signal-revision.4929f5c2256cfad9796d941d372b20251034cb2b2a980be36ff44cf089de4e4a`,
+finding `finding_d2e1e661711606682292414496bcfeddb47966520680c635e2f204fcb8ef3fbb`,
+and alert `alert_6bf03df6bcfb425df310477adfa9c94f95653dca31f6aec80993f99dc46544eb`.
+The real Photon delivery completed at `2026-08-16T20:55:05.244Z` as
+`delivery_461f4b1b36f8b1e912c024822e1ee9bdfc7c5ef6ede29dc36f32201a23ca0be5`;
+the Discuss action selected the disposable Congressional session and its bounded
+context was consumed successfully.
+
+The staged production rollout and rollback were:
+
+| Stage | Production deployment | Exact proof |
+| --- | --- | --- |
+| all execution off | `dpl_4MAkVWi4r4CNALBbFevfk2vxq9eG` | `/` and `/skill` 200; authorization route failed closed with 404 |
+| dispatch only | `dpl_EkgS53LZds5SLbFVQgnu9Tj8YDHB` | authorized signal probe returned 409 `acceptance_flag_off:EVE_CONGRESSIONAL_SIGNALS_EXECUTION_ENABLED` |
+| Congressional execution, alerts off | `dpl_9phHxzSTgE3d3ps6Am9ZL76DpkBT` | official baseline/live signal receipt above |
+| one Photon alert | `dpl_4TkRx7rXCVWJpASfQ7XZp8Egd2zn` | one delivered receipt and successful Discuss routing above |
+| alert rollback | `dpl_CRB5zgJHrEixpALxK1A8i4TKoPDL` | repeated delivery returned 409 `acceptance_alert_flag_off` |
+| full execution rollback | `dpl_GB3iMcUf9U9YgXEiqnVJFMTXefwe` | execution, managed dispatch, workspace dispatch, and alerts all off; accepted workspace plus five preflight workspaces retired and archived |
+| final artifact | `dpl_7BaxMhGw5bmkEMYZ8dZqDmQxDQw3` | `/` and `/skill` 200, temporary route 404, bounded error logs empty, temporary authorization variables absent; the Linux Eve build traced `pdfjs-dist` and `@napi-rs/canvas` |
+
+The final production values are exactly `1` for public-source acquisition and
+projections, SEC and House adapters, strategy-pack catalog/mutations/runtime,
+workspace state, and monitor writes. They are exactly `0` for pack-managed
+dispatch, global workspace dispatch, Photon workspace alerts, Congressional
+Signals execution, and paid research. Temporary acceptance authorization and
+token variables are absent. No paid service or broker/trading capability was
+called. The accepted disposable workspace and every preflight workspace are
+archived, all their monitors are retired, their isolated acquisition namespaces
+are removed, and the prior source session is selected again.
+
+Focused Sprints 0–5, public-source House/SEC/contracts/runtime, strategy-pack
+catalog/mutations/runtime/owner/configuration, workspace/worker isolation,
+alert/context/reply/delivery, and SEC worker regressions all pass. TypeScript,
+Eve build, Next production build, and the digest-preserving diff check above
+pass.
 
 Exit: Congressional Signals continuously turns supported official House PTRs
 into isolated, explainable, neutral research alerts and cannot perform or

@@ -239,6 +239,7 @@ const transactionCore = {
     authority: "House Clerk",
     factLogicalKey,
     factRevisionId: "fact-revision.fixture.congressional",
+    filingFactRevisionId: "fact-revision.fixture.congressional.filing",
     filingLogicalKey: "filing.fixture.congressional",
     projectionId: "projection.fixture.congressional",
     publicDocumentUrl: "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/fixture.pdf",

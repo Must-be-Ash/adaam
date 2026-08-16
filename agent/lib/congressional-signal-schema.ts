@@ -125,6 +125,7 @@ const houseMemberEntrySchema = z.object({
   officialName: z.string().trim().min(1).max(240),
   party: z.enum(["Democratic", "Independent", "Republican"]),
   provenanceUrl: z.string().url().refine((value) => value.startsWith("https://")),
+  sourceStateDistrict: z.string().regex(/^[A-Z]{2}(?:\d{2}|AL)$/u).optional(),
   state: z.string().regex(/^[A-Z]{2}$/u),
 }).strict();
 
@@ -232,7 +233,7 @@ const packBindingSchema = z.object({
   bindingRevision: z.number().int().positive(),
   packContentDigest: digestSchema,
   packId: z.literal("congressional-signals"),
-  packVersion: z.enum(["1.0.0", "1.1.0", "1.2.0"]),
+  packVersion: z.enum(["1.0.0", "1.1.0", "1.2.0", "1.3.0"]),
 }).strict();
 
 const policyReferenceSchema = z.object({
@@ -322,6 +323,7 @@ const houseStrategyTransactionCoreSchema = z.object({
     authority: z.literal("House Clerk"),
     factLogicalKey: identifierSchema,
     factRevisionId: identifierSchema,
+    filingFactRevisionId: identifierSchema,
     filingLogicalKey: identifierSchema,
     projectionId: identifierSchema,
     publicDocumentUrl: z.string().url().refine((value) =>
@@ -461,13 +463,13 @@ export const congressionalFilingSignalSchema = filingSignalCoreSchema.extend({
       transactionRevisionId)) ||
     signal.transactionEvaluations.some((evaluation) => !sortedUnique(evaluation.reasonCodes)) ||
     signal.transactionEvaluations.some((evaluation) =>
-      signal.packBinding.packVersion === "1.2.0" && (
+      (signal.packBinding.packVersion === "1.2.0" || signal.packBinding.packVersion === "1.3.0") && (
         evaluation.committeeResolution.committeeKeys === undefined ||
         evaluation.clusterRevisionIds === undefined ||
         evaluation.patternResolution === undefined
       )) ||
     signal.transactionEvaluations.some((evaluation) =>
-      signal.packBinding.packVersion !== "1.2.0" && (
+      signal.packBinding.packVersion !== "1.2.0" && signal.packBinding.packVersion !== "1.3.0" && (
         evaluation.committeeResolution.committeeKeys !== undefined ||
         evaluation.clusterRevisionIds !== undefined ||
         evaluation.patternResolution !== undefined
@@ -517,8 +519,7 @@ export function resolveCongressionalMember(input: {
     .trim()
     .toLocaleLowerCase("en-US");
   const matches = input.catalog.entries.filter((entry) =>
-    entry.state === state &&
-    entry.district === district &&
+    (entry.sourceStateDistrict ?? `${entry.state}${entry.district}`) === `${state}${district}` &&
     entry.officialName.toLocaleLowerCase("en-US") === disclosedName &&
     entry.effectiveFrom <= effectiveDate &&
     (entry.effectiveThrough === null || entry.effectiveThrough >= effectiveDate)
@@ -665,6 +666,7 @@ export function normalizeProjectedHouseTransaction(input: {
       authority: input.transaction.fact.provenance.authority,
       factLogicalKey: input.transaction.fact.logicalKey,
       factRevisionId: input.transaction.fact.revisionId,
+      filingFactRevisionId: input.filing.fact.revisionId,
       filingLogicalKey: input.filing.fact.logicalKey,
       projectionId: input.transaction.projection.projectionId,
       publicDocumentUrl: transaction.publicDocumentUrl,

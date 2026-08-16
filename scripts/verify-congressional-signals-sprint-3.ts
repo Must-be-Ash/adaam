@@ -147,6 +147,7 @@ function transaction(input: {
       authority: "House Clerk",
       factLogicalKey: fact,
       factRevisionId: `${fact}.revision.1`,
+      filingFactRevisionId: `${fact}.filing.revision.1`,
       filingLogicalKey: `filing.${member}.${input.date}`,
       projectionId: `projection.${fact}`,
       publicDocumentUrl: "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/fixture.pdf",
@@ -344,6 +345,39 @@ assert.equal(changes.activeEntries.some(({ transaction }) =>
   transaction.transactionId === priorTransactions[1]!.transactionId), false);
 assert.equal(changes.retractedTransactions.length, 1);
 assert.equal(changes.retractedTransactions[0]?.lineage.retractionId, "retraction.fixture.prior.2");
+const filingCorrectedCore = {
+  ...priorTransactions[2]!,
+  source: {
+    ...priorTransactions[2]!.source,
+    filingFactRevisionId: "fact.prior.3.filing.revision.2",
+  },
+};
+const { transactionRevisionId: _filingCorrectedRevision, ...filingCorrectedWithoutRevision } =
+  filingCorrectedCore;
+const filingCorrected = houseStrategyTransactionSchema.parse({
+  ...filingCorrectedWithoutRevision,
+  transactionRevisionId: deriveHouseStrategyTransactionRevisionId(filingCorrectedWithoutRevision),
+});
+const filingCorrectionChanges = applyCongressionalHistoryChanges({
+  currentTransactions: [filingCorrected],
+  observedAt: "2026-08-16T20:00:00.000Z",
+  priorEntries: entries,
+  retractions: [],
+});
+assert.equal(filingCorrectionChanges.currentTransactions.length, 1);
+assert.equal(
+  filingCorrectionChanges.currentTransactions[0]?.lineage.priorRevisionId,
+  priorTransactions[2]!.transactionRevisionId,
+);
+assert.equal(applyCongressionalHistoryChanges({
+  currentTransactions: [filingCorrected],
+  observedAt: "2026-08-16T20:05:00.000Z",
+  priorEntries: [{
+    ...entries[2]!,
+    transaction: filingCorrectionChanges.currentTransactions[0]!,
+  }],
+  retractions: [],
+}).currentTransactions.length, 0);
 assert.deepEqual(applyCongressionalHistoryChanges({
   currentTransactions: [],
   observedAt: "2026-08-16T20:00:00.000Z",

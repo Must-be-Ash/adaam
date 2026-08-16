@@ -241,9 +241,10 @@ function json(body: unknown, status = 200): Response {
 async function readJson<T>(
   request: Request,
   schema: z.ZodType<T>,
+  maximumBytes = 2_048,
 ): Promise<T | Response> {
   const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (!Number.isFinite(contentLength) || contentLength > 2_048) {
+  if (!Number.isFinite(contentLength) || contentLength > maximumBytes) {
     return json({ error: "Request too large." }, 413);
   }
   if (
@@ -260,7 +261,7 @@ async function readJson<T>(
   }
   try {
     const body = await request.text();
-    if (body.length > 2_048) {
+    if (Buffer.byteLength(body, "utf8") > maximumBytes) {
       return json({ error: "Request too large." }, 413);
     }
     return schema.parse(JSON.parse(body));
@@ -1593,7 +1594,7 @@ export default defineChannel({
       },
     ),
     POST(`${PHOTON_WORKSPACE_APP_PATH}/pack-action`, async (request) => {
-      const body = await readJson(request, photonStrategyPackActionRequestSchema);
+      const body = await readJson(request, photonStrategyPackActionRequestSchema, 16 * 1_024);
       if (body instanceof Response) return body;
       const managerScope = await getPhotonWorkspaceManagerScope(body.managerToken);
       if (!managerScope) {

@@ -807,8 +807,8 @@ assert.equal(
 const compilation = await compileAgent({ startPath: appRoot });
 assert.deepEqual(
   compilation.manifest.config.build?.externalDependencies,
-  ["@adaam/eve-workspace-runtime-bridge"],
-  "The hosted worker runtime must retain Eve for its node-targeted private runtime call.",
+  ["@adaam/eve-workspace-runtime-bridge", "@napi-rs/canvas", "pdfjs-dist"],
+  "The hosted worker runtime must retain its node-targeted bridge and PDF dependencies.",
 );
 const jiti = createJiti(import.meta.url, { interopDefault: false });
 const moduleMapModule = await jiti.import<{ moduleMap: unknown }>(

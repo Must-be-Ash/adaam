@@ -3,6 +3,7 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import { z } from "zod";
 
 import { photonApprovalGuardKey } from "./photon-approval-store";
+import { resolvePhotonOwnerConversationIdentity } from "./owner-identity";
 import {
   normalizePhotonWorkspaceName,
   normalizePhotonWorkspaceNameKey,
@@ -900,6 +901,7 @@ function monitorPreparations(input: {
   activate: Set<string>;
   budget: WorkspaceBudgetPolicyValue;
   configuration: Record<string, string | string[]>;
+  deliverySubscriptionId: string;
   now: Date;
   pack: StrategyPackCatalogEntry;
   scope: AuthorizedWorkspaceStoreScope;
@@ -924,7 +926,7 @@ function monitorPreparations(input: {
     });
     return prepareWorkspaceMonitorCreate({
       activateManagedMonitor: input.activate.has(monitor.resourceId),
-      deliverySubscriptionId: `strategy-pack:${monitor.resourceId}`,
+      deliverySubscriptionId: input.deliverySubscriptionId,
       idempotencyKey: `strategy-pack:${input.pack.contentDigest}:${monitor.resourceId}`,
       instruction: monitor.instruction,
       managedBy: {
@@ -1149,6 +1151,10 @@ async function executeCreateStrategyPackWorkspace(
     activate: new Set(requestedActivation),
     budget,
     configuration: configuration.configuration,
+    deliverySubscriptionId: resolvePhotonOwnerConversationIdentity({
+      principalId: input.principalId,
+      threadId: input.threadId,
+    }, environment).conversationId,
     now,
     pack,
     scope: targetScope,

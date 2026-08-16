@@ -185,6 +185,7 @@ const transactionCore = {
     authority: "House Clerk" as const,
     factLogicalKey: "fact.fixture.congressional-sprint-4",
     factRevisionId: "fact.fixture.congressional-sprint-4.revision.1",
+    filingFactRevisionId: "fact.fixture.congressional-sprint-4.filing.revision.1",
     filingLogicalKey: "filing.fixture.congressional-sprint-4",
     projectionId: "projection.fixture.congressional-sprint-4",
     publicDocumentUrl: "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/fixture.pdf",

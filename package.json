@@ -13,6 +13,7 @@
     "#public-app-url": "./agent/lib/public-app-url.ts"
   },
   "scripts": {
+    "acquire:congressional-house-roster": "jiti scripts/acquire-official-house-roster.ts",
     "accept:strategy-packs:prepare": "jiti scripts/prepare-strategy-pack-production-acceptance.ts",
     "prepare:coinbase": "node scripts/embed-coinbase-cli.mjs",
     "prepare:photon": "node scripts/embed-photon-assets.mjs",
@@ -53,6 +54,7 @@
     "verify:congressional-signals:sprint-2": "jiti scripts/verify-congressional-signals-sprint-2.ts",
     "verify:congressional-signals:sprint-3": "jiti scripts/verify-congressional-signals-sprint-3.ts",
     "verify:congressional-signals:sprint-4": "jiti scripts/verify-congressional-signals-sprint-4.ts",
+    "verify:congressional-signals:sprint-5": "jiti scripts/verify-congressional-signals-sprint-5.ts",
     "verify:strategy-pack-configuration-kinds": "jiti scripts/verify-strategy-pack-configuration-kinds.ts",
     "verify:workspace-runtime:contracts": "node scripts/verify-workspace-runtime-contracts.mjs",
     "verify:workspace-runtime:failures": "node scripts/verify-workspace-runtime-failures.mjs",
@@ -107,6 +109,7 @@
     "@ai-sdk/mcp": "^2.0.29",
     "@chat-adapter/state-redis": "^4.37.0",
     "@coinbase/coinbase-cli": "0.0.4",
+    "@napi-rs/canvas": "^1.0.6",
     "@photon-ai/chat-adapter-imessage": "^3.2.0",
     "@upstash/redis": "^1.38.2",
     "@vercel/blob": "^2.8.0",

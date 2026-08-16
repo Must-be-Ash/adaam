@@ -379,6 +379,7 @@ assert.deepEqual(
     "congressional-signals@1.0.0",
     "congressional-signals@1.1.0",
     "congressional-signals@1.2.0",
+    "congressional-signals@1.3.0",
     "ipo-filings@1.0.0",
   ],
 );

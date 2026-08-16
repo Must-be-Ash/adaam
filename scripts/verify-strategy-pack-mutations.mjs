@@ -929,6 +929,10 @@ try {
   assert.equal(ipoStrategy?.value.pack?.version, "1.0.0");
   assert.equal(ipoMonitors.length, 1);
   assert.equal(ipoMonitors[0]?.lifecycleState, "enabled");
+  assert.match(
+    ipoMonitors[0]?.deliverySubscriptionId ?? "",
+    /^conversation_[a-f0-9]{64}$/u,
+  );
   assert.equal(
     ipoStrategy?.value.managedResources["detect-new-s1"]
       ?.publicSourceSubscriptions?.[0]?.sourceInstanceId,

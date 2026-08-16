@@ -15,6 +15,7 @@ import {
   HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL,
 } from "../agent/lib/strategy-pack-reference-catalog";
 import {
+  parseHouseTransactionAmountRange,
   runHousePublicSourceAcquisition,
   runSharedHousePublicSourceAcquisition,
   type HousePublicSourceBinaryResponse,
@@ -223,6 +224,11 @@ assert.equal(
   "Example Corp - Common Stock (EXM) [ST]",
 );
 assert.equal(JSON.stringify(baseline.acquisition.facts).includes("workspaceId"), false);
+assert.deepEqual(parseHouseTransactionAmountRange("Over $5,000,000"), {
+  label: "Over $5,000,000",
+  lower: "5000001",
+  upper: null,
+});
 
 // A representative-scale yearly index is accepted, but each occurrence reads
 // only the reviewed document budget and advances a durable baseline batch.
@@ -453,6 +459,7 @@ for (const [name, documentBytes, expectedState, expectedError] of [
     window: window(observedAt),
   });
   assert.equal(result.acquisition.result.status, "complete");
+  assert.equal(result.acquisition.result.coverage, expectedState);
   assert.equal(result.acquisition.facts.length, 1);
   assert.deepEqual(result.acquisition.facts[0]?.extraction, { errorCode: expectedError, state: expectedState });
 }

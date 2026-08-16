@@ -2,7 +2,11 @@ import { defineAgent } from "eve";
 
 export default defineAgent({
   build: {
-    externalDependencies: ["@adaam/eve-workspace-runtime-bridge"],
+    externalDependencies: [
+      "@adaam/eve-workspace-runtime-bridge",
+      "@napi-rs/canvas",
+      "pdfjs-dist",
+    ],
   },
   model: "google/gemini-3.6-flash",
   reasoning: "high",

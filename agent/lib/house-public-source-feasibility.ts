@@ -7,7 +7,6 @@ import {
   type FileEntry,
 } from "@zip.js/zip.js";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 import {
   PUBLIC_SOURCE_LIMITS,
@@ -39,6 +38,31 @@ export class HouseFeasibilityError extends Error {
     super(code);
     this.name = "HouseFeasibilityError";
   }
+}
+
+let pdfJsModule: Promise<typeof import("pdfjs-dist/legacy/build/pdf.mjs")> | undefined;
+let pdfJsWorkerModule: Promise<typeof import("pdfjs-dist/legacy/build/pdf.worker.mjs")> | undefined;
+let canvasPrimitives: { DOMMatrix: typeof DOMMatrix; Path2D: typeof Path2D } | undefined;
+
+async function loadPdfJs() {
+  canvasPrimitives ??= process.getBuiltinModule("module")
+    .createRequire(import.meta.url)("@napi-rs/canvas") as typeof canvasPrimitives;
+  if (!globalThis.DOMMatrix) {
+    Object.defineProperty(globalThis, "DOMMatrix", {
+      configurable: true,
+      value: canvasPrimitives!.DOMMatrix,
+      writable: true,
+    });
+  }
+  if (!globalThis.Path2D) {
+    Object.defineProperty(globalThis, "Path2D", {
+      configurable: true,
+      value: canvasPrimitives!.Path2D,
+      writable: true,
+    });
+  }
+  await (pdfJsWorkerModule ??= import("pdfjs-dist/legacy/build/pdf.worker.mjs"));
+  return (pdfJsModule ??= import("pdfjs-dist/legacy/build/pdf.mjs"));
 }
 
 function digestBytes(value: Uint8Array): string {
@@ -288,6 +312,7 @@ export async function extractHousePtrPdfText(
     throw new HouseFeasibilityError("pdf_invalid");
   }
 
+  const { getDocument } = await loadPdfJs();
   const loadingTask = getDocument({
     data: bytes.slice(),
     useSystemFonts: true,

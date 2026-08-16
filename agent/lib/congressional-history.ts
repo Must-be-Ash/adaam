@@ -478,14 +478,17 @@ export function applyCongressionalHistoryChanges(input: {
   const retractedTransactions: HouseStrategyTransaction[] = [];
   for (const transaction of input.currentTransactions) {
     const prior = active.get(transaction.transactionId);
-    if (prior?.transaction.source.factRevisionId === transaction.source.factRevisionId) continue;
+    if (
+      prior?.transaction.source.factRevisionId === transaction.source.factRevisionId &&
+      prior.transaction.source.filingFactRevisionId === transaction.source.filingFactRevisionId
+    ) continue;
     if (prior) {
       priorEntriesByTransactionId.set(transaction.transactionId, prior);
       active.delete(transaction.transactionId);
       const correctionId = `congressional-correction.${congressionalSignalContractDigest([
         transaction.transactionId,
         prior.transaction.transactionRevisionId,
-        transaction.source.factRevisionId,
+        transaction.transactionRevisionId,
       ])}`;
       currentTransactions.push(revisedTransaction(transaction, {
         lineage: {
@@ -551,7 +554,8 @@ export function createCongressionalRetractionSignal(input: {
     transactionRevisionId === input.retractedTransaction.lineage.priorRevisionId);
   if (
     !priorEvaluation ||
-    input.priorSignal.packBinding.packVersion !== "1.2.0" ||
+    (input.priorSignal.packBinding.packVersion !== "1.2.0" &&
+      input.priorSignal.packBinding.packVersion !== "1.3.0") ||
     input.retractedTransaction.lineage.retractionId === null
   ) {
     throw new Error("congressional_retraction_signal_invalid");

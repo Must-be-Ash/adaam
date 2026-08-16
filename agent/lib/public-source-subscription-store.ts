@@ -295,6 +295,7 @@ function matchesFilter(
 
 export async function projectPublicSourceAcquisition(input: {
   readonly acquisition: PublicSourceAcquisitionResult;
+  readonly advanceDeliveryCursor?: boolean;
   readonly projectedAt?: Date;
   readonly scope: AuthorizedWorkspaceStoreScope;
   readonly subscriptionId: string;
@@ -458,7 +459,7 @@ export async function projectPublicSourceAcquisition(input: {
   }
   const replayed = initial.deliveryCursor.lastAcquisitionId === acquisition.acquisitionId;
   let subscription = initial;
-  if (!replayed) {
+  if (!replayed && input.advanceDeliveryCursor !== false) {
     const next = publicSourceSubscriptionSchema.parse({
       ...initial,
       deliveryCursor: {
@@ -490,4 +491,33 @@ export async function projectPublicSourceAcquisition(input: {
     replayed,
     subscription,
   });
+}
+
+export async function acknowledgePublicSourceProjection(input: {
+  readonly acquisitionId: string;
+  readonly expectedDeliveryRevision: number;
+  readonly scope: AuthorizedWorkspaceStoreScope;
+  readonly subscriptionId: string;
+}, client: PublicSourceSubscriptionStoreClient = store()): Promise<PublicSourceSubscription> {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  const key = recordKey("subscription", input.subscriptionId, input.scope);
+  const initialRaw = rawValue(await client.get(key));
+  if (initialRaw === null) throw new PublicSourceSubscriptionStoreError("subscription_conflict");
+  const initial = parseRaw(initialRaw, (value) => publicSourceSubscriptionSchema.parse(value));
+  assertSubscriptionScope(initial, input.scope);
+  if (initial.deliveryCursor.lastAcquisitionId === input.acquisitionId) return initial;
+  if (initial.deliveryCursor.revision !== input.expectedDeliveryRevision) {
+    throw new PublicSourceSubscriptionStoreError("subscription_conflict");
+  }
+  const next = publicSourceSubscriptionSchema.parse({
+    ...initial,
+    deliveryCursor: {
+      lastAcquisitionId: input.acquisitionId,
+      revision: initial.deliveryCursor.revision + 1,
+    },
+  });
+  if (await client.compareAndSet(key, initialRaw, serialize(next))) return next;
+  const current = await readPublicSourceSubscription(input.scope, input.subscriptionId, client);
+  if (current?.deliveryCursor.lastAcquisitionId === input.acquisitionId) return current;
+  throw new PublicSourceSubscriptionStoreError("subscription_conflict");
 }

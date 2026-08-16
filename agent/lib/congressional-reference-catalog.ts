@@ -5,6 +5,7 @@ import {
   congressionalReferenceCatalogSchema,
   congressionalSignalContractDigest,
 } from "./congressional-signal-schema";
+import houseMemberRosterSnapshot from "../catalogs/congressional-house-members/2026-07-06.json";
 
 const policyCore = Object.freeze({
   alertThresholds: ["priority", "review"] as const,
@@ -102,6 +103,26 @@ export const CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_1 = Object.freeze(
   congressionalReferenceCatalogSchema.parse({
     ...memberCatalogV1_1Core,
     catalogDigest: congressionalSignalContractDigest(memberCatalogV1_1Core),
+  }),
+);
+
+export const CONGRESSIONAL_HOUSE_MEMBER_ROSTER_SNAPSHOT_2026_07_06 = Object.freeze({
+  ...houseMemberRosterSnapshot,
+  entries: Object.freeze(houseMemberRosterSnapshot.entries.map((entry) => Object.freeze(entry))),
+  source: Object.freeze(houseMemberRosterSnapshot.source),
+  vacancies: Object.freeze(houseMemberRosterSnapshot.vacancies.map((vacancy) => Object.freeze(vacancy))),
+});
+
+const memberCatalogV1_2Core = Object.freeze({
+  ...memberCatalogCore,
+  catalogVersion: "1.2.0",
+  entries: CONGRESSIONAL_HOUSE_MEMBER_ROSTER_SNAPSHOT_2026_07_06.entries,
+});
+
+export const CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_2 = Object.freeze(
+  congressionalReferenceCatalogSchema.parse({
+    ...memberCatalogV1_2Core,
+    catalogDigest: congressionalSignalContractDigest(memberCatalogV1_2Core),
   }),
 );
 
@@ -240,6 +261,18 @@ export const CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_2 = Object.freeze([
   CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
   CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
   CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_1,
+  CONGRESSIONAL_POLICY_V1_2,
+  CONGRESSIONAL_SECURITY_CATALOG_V1_1,
+].map((contract) => Object.freeze({
+  digest: "catalogDigest" in contract ? contract.catalogDigest : contract.policyDigest,
+  id: "catalogId" in contract ? contract.catalogId : contract.policyId,
+  version: "catalogVersion" in contract ? contract.catalogVersion : contract.policyVersion,
+})).sort((left, right) => left.id.localeCompare(right.id)));
+
+export const CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_3 = Object.freeze([
+  CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+  CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
+  CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_2,
   CONGRESSIONAL_POLICY_V1_2,
   CONGRESSIONAL_SECURITY_CATALOG_V1_1,
 ].map((contract) => Object.freeze({

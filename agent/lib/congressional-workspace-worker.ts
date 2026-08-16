@@ -4,9 +4,16 @@ import { z } from "zod";
 import {
   CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
   CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
+  CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_1,
   CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_2,
+  CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_3,
+  CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1,
   CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_1,
+  CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_2,
+  CONGRESSIONAL_POLICY_V1,
+  CONGRESSIONAL_POLICY_V1_1,
   CONGRESSIONAL_POLICY_V1_2,
+  CONGRESSIONAL_SECURITY_CATALOG_V1,
   CONGRESSIONAL_SECURITY_CATALOG_V1_1,
 } from "./congressional-reference-catalog";
 import { congressionalSignalsExecutionEnabled } from "./congressional-signal-flags";
@@ -41,7 +48,12 @@ import {
 import type { HousePublicSourceBinaryResponse } from "./house-public-source-adapter";
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
 import { coordinatePublicSourceOccurrence } from "./public-source-coordinator";
-import type { AuthorizedPublicSourceProjection, PublicSourceSubscriptionStoreClient } from "./public-source-subscription-store";
+import {
+  acknowledgePublicSourceProjection,
+  readAuthorizedPublicSourceProjection,
+  type AuthorizedPublicSourceProjection,
+  type PublicSourceSubscriptionStoreClient,
+} from "./public-source-subscription-store";
 import {
   CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
   HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER,
@@ -58,6 +70,7 @@ import { getWorkspaceMonitor, type WorkspaceMonitor } from "./workspace-monitor-
 import {
   authorizeWorkspaceSourceFetch,
   markWorkspaceSourceSuccess,
+  readWorkspaceSourceCoverage,
   reserveWorkspaceSourceAttempt,
 } from "./workspace-source-coverage";
 import { readWorkspaceDocument } from "./workspace-state-store";
@@ -75,6 +88,45 @@ import type { PreparedWorkspaceWorkerRecovery } from "./workspace-worker-runner"
 import { fetchOfficialPublicSourceBytes } from "../tools/fetch_public_source";
 
 type WorkerContext = Parameters<typeof requireWorkspaceWorkerAuth>[0];
+type CongressionalPackVersion = "1.0.0" | "1.1.0" | "1.2.0" | "1.3.0";
+
+const CONGRESSIONAL_PACK_VERSIONS = new Set<CongressionalPackVersion>([
+  "1.0.0",
+  "1.1.0",
+  "1.2.0",
+  "1.3.0",
+]);
+
+function congressionalRuntime(version: CongressionalPackVersion) {
+  if (version === "1.0.0") return Object.freeze({
+    evidenceContracts: Object.freeze([]),
+    historyFeatures: false,
+    member: CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1,
+    policy: CONGRESSIONAL_POLICY_V1,
+    security: CONGRESSIONAL_SECURITY_CATALOG_V1,
+  });
+  if (version === "1.1.0") return Object.freeze({
+    evidenceContracts: CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_1,
+    historyFeatures: false,
+    member: CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_1,
+    policy: CONGRESSIONAL_POLICY_V1_1,
+    security: CONGRESSIONAL_SECURITY_CATALOG_V1_1,
+  });
+  if (version === "1.2.0") return Object.freeze({
+    evidenceContracts: CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_2,
+    historyFeatures: true,
+    member: CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_1,
+    policy: CONGRESSIONAL_POLICY_V1_2,
+    security: CONGRESSIONAL_SECURITY_CATALOG_V1_1,
+  });
+  return Object.freeze({
+    evidenceContracts: CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_3,
+    historyFeatures: true,
+    member: CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_2,
+    policy: CONGRESSIONAL_POLICY_V1_2,
+    security: CONGRESSIONAL_SECURITY_CATALOG_V1_1,
+  });
+}
 
 export { CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID } from "./strategy-pack-reference-catalog";
 
@@ -118,7 +170,7 @@ function assertMonitor(
     monitor.lifecycleState !== "enabled" ||
     monitor.configurationRevision !== envelope.configurationRevision ||
     monitor.managedBy?.packId !== "congressional-signals" ||
-    monitor.managedBy.packVersion !== "1.2.0" ||
+    !CONGRESSIONAL_PACK_VERSIONS.has(monitor.managedBy.packVersion as CongressionalPackVersion) ||
     monitor.sources.length !== 1 ||
     monitor.sources[0]?.accessClassification !== "public" ||
     monitor.sources[0].canonicalUrl !== HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL ||
@@ -143,10 +195,13 @@ function groupProjections(projections: readonly AuthorizedPublicSourceProjection
       transactions.set(payload.filingLogicalKey, current);
     }
   }
-  return [...transactions.entries()].map(([filingLogicalKey, rows]) => {
-    const filing = filings.get(filingLogicalKey);
-    if (!filing) throw new CongressionalWorkspaceWorkerError("congressional_projection_invalid");
-    return { filing, transactions: rows };
+  if ([...transactions.keys()].some((filingLogicalKey) => !filings.has(filingLogicalKey))) {
+    throw new CongressionalWorkspaceWorkerError("congressional_projection_invalid");
+  }
+  return [...filings.entries()].flatMap(([filingLogicalKey, filing]) => {
+    const rows = transactions.get(filingLogicalKey) ?? [];
+    if (rows.length === 0) return [];
+    return [{ filing, transactions: rows }];
   });
 }
 
@@ -179,25 +234,22 @@ function alertPresentation(evaluations: readonly CongressionalAlertArtifact[]) {
   };
 }
 
-function requireV12Evaluations(
+function completeEvaluations(
   signal: CongressionalFilingSignal,
 ): CongressionalTransactionEvaluation[] {
-  return signal.transactionEvaluations.map((evaluation) => {
-    if (
-      evaluation.committeeResolution.committeeKeys === undefined ||
-      evaluation.clusterRevisionIds === undefined ||
-      evaluation.patternResolution === undefined
-    ) throw new CongressionalWorkspaceWorkerError("congressional_projection_invalid");
-    return {
+  return signal.transactionEvaluations.map((evaluation) => ({
       ...evaluation,
       committeeResolution: {
         ...evaluation.committeeResolution,
-        committeeKeys: evaluation.committeeResolution.committeeKeys,
+        committeeKeys: evaluation.committeeResolution.committeeKeys ?? [],
       },
-      clusterRevisionIds: evaluation.clusterRevisionIds,
-      patternResolution: evaluation.patternResolution,
-    };
-  });
+      clusterRevisionIds: evaluation.clusterRevisionIds ?? [],
+      patternResolution: evaluation.patternResolution ?? {
+        priorTransactionRevisionIds: [],
+        ruleCodes: [],
+        state: "unavailable",
+      },
+    }));
 }
 
 function responseWithObservedAt(
@@ -262,12 +314,14 @@ export async function evaluateCongressionalSignalsForWorker(input: {
   assertMonitor(monitor, envelope);
   const managedBy = monitor.managedBy;
   if (!managedBy) throw new CongressionalWorkspaceWorkerError("congressional_monitor_invalid");
+  const packVersion = managedBy.packVersion as CongressionalPackVersion;
+  const runtime = congressionalRuntime(packVersion);
   if (strategyResult.status === "rejected") throw strategyResult.reason;
   const strategy = strategyResult.value;
   if (
     strategy?.schemaVersion !== 2 ||
     strategy.value.pack?.id !== "congressional-signals" ||
-    strategy.value.pack.version !== "1.2.0" ||
+    strategy.value.pack.version !== packVersion ||
     strategy.value.pack.contentDigest !== managedBy.packContentDigest
   ) {
     throw new CongressionalWorkspaceWorkerError("congressional_strategy_invalid");
@@ -275,11 +329,11 @@ export async function evaluateCongressionalSignalsForWorker(input: {
   const pack = strategyPackCatalog.resolve({
     contentDigest: managedBy.packContentDigest,
     id: "congressional-signals",
-    version: "1.2.0",
+    version: packVersion,
   });
   if (
     !pack ||
-    JSON.stringify(pack.evidenceContracts) !== JSON.stringify(CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_2)
+    JSON.stringify(pack.evidenceContracts ?? []) !== JSON.stringify(runtime.evidenceContracts)
   ) {
     throw new CongressionalWorkspaceWorkerError("congressional_strategy_invalid");
   }
@@ -293,21 +347,34 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     throw new CongressionalWorkspaceWorkerError("congressional_strategy_invalid");
   }
   const minimumAlertBand = minimumAlertBandValue as "priority" | "review";
-  const source = await authorizeWorkspaceSourceFetch({
-    runId: envelope.runId,
+  const runCoverage = await readWorkspaceSourceCoverage(
     scope,
-    sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
-    url: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL,
-  }, input.clients?.sourceCoverage);
-  await reserveWorkspaceSourceAttempt({
-    now,
-    runId: envelope.runId,
-    scope,
-    sourceId: source.sourceId,
-  }, input.clients?.sourceCoverage);
-  const observedAt = now.toISOString();
+    envelope.runId,
+    input.clients?.sourceCoverage,
+  );
+  const completedSource = runCoverage?.state === "complete"
+    ? runCoverage.sources.find(({ canonicalUrl, sourceId }) =>
+        canonicalUrl === HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL &&
+        sourceId === HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID) ?? null
+    : null;
+  const source = completedSource ?? await authorizeWorkspaceSourceFetch({
+      runId: envelope.runId,
+      scope,
+      sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+      url: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL,
+    }, input.clients?.sourceCoverage);
+  if (!runCoverage?.attempts.includes(source.sourceId)) {
+    await reserveWorkspaceSourceAttempt({
+      now,
+      runId: envelope.runId,
+      scope,
+      sourceId: source.sourceId,
+    }, input.clients?.sourceCoverage);
+  }
+  const requestObservedAt = now.toISOString();
   const coordinated = await coordinatePublicSourceOccurrence({
     clients: { acquisition: input.clients?.acquisition, subscription: input.clients?.subscription },
+    deferProjectionAcknowledgement: true,
     environment,
     fetch: {
       adapterId: HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER.adapterId,
@@ -317,7 +384,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
           HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER.limits.maximumPdfBytes,
           source,
         ),
-        observedAt,
+        requestObservedAt,
       )),
       fetchIndex: input.clients?.fetchIndex ?? (async (url) => responseWithObservedAt(
         await fetchOfficialPublicSourceBytes(
@@ -325,7 +392,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
           HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER.limits.maximumArchiveBytes,
           source,
         ),
-        observedAt,
+        requestObservedAt,
       )),
     },
     monitor,
@@ -338,28 +405,53 @@ export async function evaluateCongressionalSignalsForWorker(input: {
   if (!cursor || !coordinated.projection) {
     throw new CongressionalWorkspaceWorkerError("congressional_projection_invalid");
   }
+  const observedAt = coordinated.acquisition.observedAt;
   const initialBaseline = monitor.sourceCheckpoint.contentDigest === null &&
     monitor.sourceCheckpoint.watermark === null;
   const packBinding = {
     bindingRevision: managedBy.bindingRevision,
     packContentDigest: managedBy.packContentDigest,
     packId: "congressional-signals" as const,
-    packVersion: "1.2.0" as const,
+    packVersion,
   };
   const catalogs = {
     committeeAssignments: CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
     committeeJurisdictions: CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
-    member: CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_1,
-    security: CONGRESSIONAL_SECURITY_CATALOG_V1_1,
+    member: runtime.member,
+    security: runtime.security,
   } as const;
-  const filingGroups = groupProjections(coordinated.projection.projections);
+  const priorHistory = await readCongressionalHistory(scope, input.clients?.signal);
+  const incomingTransactionFilings = new Set(coordinated.projection.projections.flatMap(({ fact }) =>
+    fact.payload.schemaVersion === "house-ptr-transaction/v1"
+      ? [fact.payload.filingLogicalKey]
+      : []));
+  const filingOnlyKeys = new Set(coordinated.projection.projections.flatMap(({ fact }) =>
+    fact.payload.schemaVersion === "house-ptr-filing/v1" &&
+      !incomingTransactionFilings.has(fact.logicalKey)
+      ? [fact.logicalKey]
+      : []));
+  const hydrated = (await Promise.all((priorHistory?.activeEntries ?? []).flatMap(({ transaction }) =>
+    filingOnlyKeys.has(transaction.source.filingLogicalKey)
+      ? [readAuthorizedPublicSourceProjection({
+          factRevisionId: transaction.source.factRevisionId,
+          scope,
+          subscriptionId: transaction.source.subscriptionId,
+        }, {
+          acquisition: input.clients?.acquisition,
+          subscription: input.clients?.subscription,
+        })]
+      : []))).filter((projection): projection is AuthorizedPublicSourceProjection => projection !== null);
+  const filingGroups = groupProjections([
+    ...coordinated.projection.projections,
+    ...hydrated,
+  ]);
   const baseEvaluationInput = {
     catalogs,
     minimumAlertBand,
     observedAt,
     packBinding,
-    policy: CONGRESSIONAL_POLICY_V1_2,
-    processingMode: initialBaseline ? "baseline" as const : "live" as const,
+    policy: runtime.policy,
+    processingMode: coordinated.baselineEstablished ? "baseline" as const : "live" as const,
     selectedMemberBioguideIds,
   };
   const normalized = filingGroups.flatMap((group) =>
@@ -368,12 +460,12 @@ export async function evaluateCongressionalSignalsForWorker(input: {
       filing: group.filing,
       transactions: group.transactions,
     }));
-  const priorHistory = await readCongressionalHistory(scope, input.clients?.signal);
   const coverage = advanceCongressionalCoverage(priorHistory?.coverage ?? null, {
     maximumGapDays: CONGRESSIONAL_POLICY_V1_2.coverageMaximumGapDays!,
     observedOn: observedAt.slice(0, 10),
     requiredDays: CONGRESSIONAL_POLICY_V1_2.historyCoverageDays!,
-    sourceComplete: coordinated.acquisition.coverage === "complete",
+    sourceComplete: coordinated.acquisition.coverage === "complete" &&
+      coordinated.acquisition.stageReceipts.every(({ status }) => status === "complete"),
   });
   const historyChanges = applyCongressionalHistoryChanges({
     currentTransactions: normalized,
@@ -385,14 +477,15 @@ export async function evaluateCongressionalSignalsForWorker(input: {
       retractionId: retraction.retractionId,
     })),
   });
-  const memberCatalog = CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_1;
+  const memberCatalog = runtime.member;
   if (memberCatalog.kind !== "house_members") {
     throw new CongressionalWorkspaceWorkerError("congressional_strategy_invalid");
   }
   const partyFor = (transaction: (typeof historyChanges.currentTransactions)[number]) =>
     memberCatalog.entries.find(({ bioguideId }) =>
       bioguideId === transaction.memberResolution.bioguideId)?.party ?? null;
-  const currentCandidates = historyChanges.currentTransactions.flatMap((transaction): CongressionalClusterCandidate[] => {
+  const currentCandidates = runtime.historyFeatures
+    ? historyChanges.currentTransactions.flatMap((transaction): CongressionalClusterCandidate[] => {
     const party = partyFor(transaction);
     if (party === null) return [];
     const committee = resolveCongressionalCommitteeRelevance({
@@ -404,9 +497,10 @@ export async function evaluateCongressionalSignalsForWorker(input: {
       observedAt,
       transactionDate: transaction.transactionDate,
     });
-    return [{ committeeKeys: committee.committeeKeys, party, transaction }];
-  });
-  const clusters = deriveCongressionalClusters({
+      return [{ committeeKeys: committee.committeeKeys, party, transaction }];
+    })
+    : [];
+  const clusters = runtime.historyFeatures ? deriveCongressionalClusters({
     candidates: [
       ...historyChanges.activeEntries.map(({ committeeKeys, party, transaction }) => ({
         committeeKeys,
@@ -418,10 +512,16 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     minimumFacts: CONGRESSIONAL_POLICY_V1_2.clusterMinimumFacts!,
     windowDays: CONGRESSIONAL_POLICY_V1_2.clusterWindowDays!,
     workspaceId: scope.workspaceId,
-  });
+  }) : [];
+  const changedTransactions = new Map(historyChanges.currentTransactions.map((transaction) =>
+    [transaction.transactionId, transaction]));
+  const unchangedTransactions = new Map(historyChanges.activeEntries.map(({ transaction }) =>
+    [transaction.transactionId, transaction]));
   const evaluations = filingGroups.flatMap((group) => {
-    const currentTransactions = historyChanges.currentTransactions.filter(({ source }) =>
-      source.filingLogicalKey === group.filing.fact.logicalKey);
+    const currentTransactions = normalized
+      .filter(({ source }) => source.filingLogicalKey === group.filing.fact.logicalKey)
+      .map((transaction) => changedTransactions.get(transaction.transactionId) ??
+        unchangedTransactions.get(transaction.transactionId) ?? transaction);
     if (currentTransactions.length === 0) return [];
     const currentTransactionIds = new Set(currentTransactions.map(({ transactionId }) => transactionId));
     const retainedTransactions = historyChanges.activeEntries.flatMap(({ transaction }) =>
@@ -461,7 +561,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     retractionRecords.push({ priorEntry, signal, transaction });
   }
   const evaluatedEntries = evaluations.flatMap((evaluation) => {
-    const signalEvaluations = requireV12Evaluations(evaluation.signal);
+    const signalEvaluations = completeEvaluations(evaluation.signal);
     return evaluation.transactions.map((transaction, index) => {
       const party = partyFor(transaction);
       if (party === null) throw new CongressionalWorkspaceWorkerError("congressional_projection_invalid");
@@ -487,7 +587,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     const corrected = evaluation.transactions.find(({ lineage }) => lineage.correctionId !== null);
     if (!corrected) return [];
     const priorEntry = historyChanges.priorEntriesByTransactionId.get(corrected.transactionId);
-    const signalEvaluations = requireV12Evaluations(evaluation.signal);
+    const signalEvaluations = completeEvaluations(evaluation.signal);
     const currentEvaluation = signalEvaluations.find(({ transactionRevisionId }) =>
       transactionRevisionId === corrected.transactionRevisionId);
     if (!priorEntry || !currentEvaluation || !shouldCreateCongressionalCorrectionAlert({
@@ -519,7 +619,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
       priorEntry,
     })) continue;
     const artifact = congressionalFindingForSignal({
-      evaluations: requireV12Evaluations(signal),
+      evaluations: completeEvaluations(signal),
       signal,
       transactions: [transaction],
     });
@@ -586,7 +686,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
   }, input.clients?.finding));
   const alertEvaluations = alertArtifacts.filter(({ finding }) =>
     finding?.factIdentities?.some((identity) => unseen.has(identity)));
-  const checkpoint = { contentDigest: cursor.contentDigest, watermark: cursor.watermark };
+  const checkpoint = { contentDigest: cursor.contentDigest, watermark: observedAt };
   await markWorkspaceSourceSuccess({
     contentDigest: cursor.contentDigest,
     now,
@@ -605,8 +705,14 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     now,
     toolId: CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
   });
+  await acknowledgePublicSourceProjection({
+    acquisitionId: coordinated.acquisition.acquisitionId,
+    expectedDeliveryRevision: coordinated.projection.subscription.deliveryCursor.revision,
+    scope,
+    subscriptionId: coordinated.projection.subscription.subscriptionId,
+  }, input.clients?.subscription);
   return Object.freeze({
-    baselineEstablished: initialBaseline,
+    baselineEstablished: coordinated.baselineEstablished,
     checkpoint,
     filingCount: evaluations.length,
     outcome,

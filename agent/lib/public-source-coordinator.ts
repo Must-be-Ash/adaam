@@ -134,6 +134,7 @@ export async function coordinatePublicSourceOccurrence(input: {
     readonly acquisition?: PublicSourceAcquisitionStoreClient;
     readonly subscription?: PublicSourceSubscriptionStoreClient;
   };
+  readonly deferProjectionAcknowledgement?: boolean;
   readonly environment?: NodeJS.ProcessEnv;
   readonly fetch: CoordinatorFetch;
   readonly monitor: PublicSourceMonitor;
@@ -157,7 +158,14 @@ export async function coordinatePublicSourceOccurrence(input: {
   const subscription = await ensurePublicSourceSubscription(
     input.scope,
     createPublicSourceSubscription({
-      binding: input.monitor.managedBy,
+      binding: input.monitor.managedBy
+        ? {
+            bindingRevision: input.monitor.managedBy.bindingRevision,
+            packContentDigest: input.monitor.managedBy.packContentDigest,
+            packId: input.monitor.managedBy.packId,
+            packVersion: input.monitor.managedBy.packVersion,
+          }
+        : null,
       lifecycleState: input.monitor.lifecycleState === "enabled" ? "active" : "paused",
       monitorId: input.monitor.monitorId,
       reference,
@@ -206,6 +214,7 @@ export async function coordinatePublicSourceOccurrence(input: {
   }
   const projection = await projectPublicSourceAcquisition({
     acquisition: shared.acquisition,
+    advanceDeliveryCursor: input.deferProjectionAcknowledgement !== true,
     projectedAt: input.observedAt,
     scope: input.scope,
     subscriptionId: subscription.subscriptionId,
