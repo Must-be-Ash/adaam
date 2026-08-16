@@ -343,15 +343,17 @@ path is required yet.
 
 ### Sprint 1 — acquisition kernel and SEC vertical
 
-- [ ] Extend existing Spec 1/2 source contracts with reviewed registry and
+- [x] Extend existing Spec 1/2 source contracts with reviewed registry and
   source-instance resolution rather than creating a parallel catalog.
-- [ ] Implement the acquisition journal, idempotent fact revision/correction
+- [x] Implement the acquisition journal, idempotent fact revision/correction
   writes, source cursor compare-and-set, and interrupted-before-cursor replay.
-- [ ] Implement the SEC adapter and prove parity for baseline, new S-1,
+- [x] Implement the SEC adapter and prove parity for baseline, new S-1,
   amendment, no-change, malformed, and partial input.
-- [ ] Keep the old SEC runtime path available behind the rollback flag.
-- [ ] Run focused SEC/kernel tests, typecheck, Eve build, update this ledger, and
-  commit Sprint 1.
+- [x] Keep the old SEC runtime path available behind the rollback flag.
+- [x] Run focused SEC/kernel tests, typecheck, Eve build, update this ledger, and
+  commit Sprint 1. The fixture-backed caller, legacy SEC parity suites,
+  strategy-pack contract, typecheck, and compiled Eve build passed on
+  2026-08-15 with both public-source flags left off.
 
 Exit: the production caller completes one fixture-backed SEC acquisition and
 persists equivalent canonical behavior without enabling production traffic.

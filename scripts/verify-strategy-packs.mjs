@@ -379,8 +379,10 @@ assert.equal(productionPack?.maturity, "reference");
 assert.equal(productionPack?.sources[0]?.sourceId, "sec-latest-s1-filings");
 assert.equal(productionPack?.monitors[0]?.resourceId, "detect-new-s1");
 assert.equal(productionPack?.evaluations.suiteId, "eval.sec-ipo/v1");
+const { publicSource, ...legacySourceContract } =
+  STRATEGY_PACK_REFERENCE_CATALOG.sourceContracts[SEC_IPO_SOURCE_ID];
 assert.deepEqual(
-  STRATEGY_PACK_REFERENCE_CATALOG.sourceContracts[SEC_IPO_SOURCE_ID],
+  legacySourceContract,
   {
     allowedOrigins: SEC_IPO_SOURCE_ALLOWED_ORIGINS,
     canonicalUrl: SEC_IPO_SOURCE_URL,
@@ -388,6 +390,8 @@ assert.deepEqual(
     contractVersion: SEC_IPO_SOURCE_CONTRACT_VERSION,
   },
 );
+assert.equal(publicSource.adapterDefinition.adapterId, "sec-latest-filings");
+assert.equal(publicSource.sourceInstance.sourceInstanceId, "source.sec-latest-s1-filings");
 assert.equal(
   STRATEGY_PACK_REFERENCE_CATALOG.capabilityIds.includes(
     EVALUATE_SEC_IPO_SOURCE_TOOL_ID,

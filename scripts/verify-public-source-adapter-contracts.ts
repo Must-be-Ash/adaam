@@ -10,6 +10,7 @@ import {
   canonicalPublicFactRevisionSchema,
   deriveCanonicalPublicFactLogicalKey,
   deriveCanonicalPublicFactRevisionId,
+  derivePublicSourceAdapterDefinitionDigest,
   digestPublicSourceValue,
   parsePublicSourceRecord,
   publicSourceAcquisitionJournalSchema,
@@ -41,13 +42,12 @@ assert.deepEqual([...PUBLIC_SOURCE_ERROR_CODES].sort(), [...PUBLIC_SOURCE_ERROR_
 assert.deepEqual([...PUBLIC_SOURCE_LOG_EVENTS].sort(), [...PUBLIC_SOURCE_LOG_EVENTS]);
 assert.equal(new Set(PUBLIC_SOURCE_ERROR_CODES).size, PUBLIC_SOURCE_ERROR_CODES.length);
 
-const secDefinition = {
+const secDefinitionCore = {
   acquisitionMethod: "poll",
   adapterId: "sec-latest-filings",
   adapterVersion: "1.0.0",
   authorityOrigin: "https://www.sec.gov",
   configurationSchemaVersion: 1,
-  definitionDigest: digestA,
   factSchemaVersions: ["sec-filing/v1"],
   implementationRevision: 1,
   limits: {
@@ -62,15 +62,23 @@ const secDefinition = {
   recordType: "public_source_adapter_definition",
   schemaVersion: 1,
 } as const;
+const secDefinition = {
+  ...secDefinitionCore,
+  definitionDigest: derivePublicSourceAdapterDefinitionDigest(secDefinitionCore),
+} as const;
 assert.deepEqual(publicSourceAdapterDefinitionSchema.parse(secDefinition), secDefinition);
 
-const houseDefinition = publicSourceAdapterDefinitionSchema.parse({
-  ...secDefinition,
+const { definitionDigest: _secDefinitionDigest, ...houseDefinitionBase } = secDefinition;
+const houseDefinitionCore = {
+  ...houseDefinitionBase,
   adapterId: "house-financial-disclosures",
   authorityOrigin: "https://disclosures-clerk.house.gov",
-  definitionDigest: digestB,
   factSchemaVersions: ["house-ptr-filing/v1", "house-ptr-transaction/v1"],
   minimumCadenceMinutes: 60,
+} as const;
+const houseDefinition = publicSourceAdapterDefinitionSchema.parse({
+  ...houseDefinitionCore,
+  definitionDigest: derivePublicSourceAdapterDefinitionDigest(houseDefinitionCore),
 });
 
 const secConfiguration = {
@@ -78,7 +86,7 @@ const secConfiguration = {
   kind: "sec_latest_s1",
 } as const;
 const secSource = publicSourceInstanceSchema.parse({
-  adapterDefinitionDigest: digestA,
+  adapterDefinitionDigest: secDefinition.definitionDigest,
   adapterId: "sec-latest-filings",
   adapterVersion: "1.0.0",
   authorityOrigin: "https://www.sec.gov",
@@ -162,6 +170,7 @@ const secPayload = {
   amendmentOfAccessionNumber: null,
   cik: "0001000001",
   companyName: "Fixture Registration Corp",
+  fileNumber: "333-100001",
   filingUrl: "https://www.sec.gov/Archives/edgar/data/1000001/000100000126000001/fixture-s1.htm",
   formType: "S-1",
   publishedAt: "2026-08-14T15:59:00.000Z",
@@ -415,6 +424,10 @@ for (const fixture of invalidFixtures.cases) {
 
 const sourcePlaneFiles = [
   new URL("../agent/lib/public-source-adapter-schema.ts", import.meta.url),
+  new URL("../agent/lib/public-source-acquisition-store.ts", import.meta.url),
+  new URL("../agent/lib/public-source-flags.ts", import.meta.url),
+  new URL("../agent/lib/public-source-registry.ts", import.meta.url),
+  new URL("../agent/lib/sec-public-source-adapter.ts", import.meta.url),
   new URL("../agent/lib/house-public-source-feasibility.ts", import.meta.url),
 ];
 for (const sourceFile of sourcePlaneFiles) {
@@ -487,8 +500,8 @@ const secCorpus = await readJson(new URL("sec/corpus.json", fixtureRoot)) as {
 assert.equal(secCorpus.schemaVersion, 1);
 assert.ok(secCorpus.cases.length >= 5);
 for (const fixture of secCorpus.cases) {
-  assert.ok(["complete", "partial", "terminal_failure"].includes(fixture.expectedStatus), fixture.fixtureId);
-  assert.ok(["complete", "incomplete"].includes(fixture.expectedCoverage), fixture.fixtureId);
+  assert.ok(["complete", "no_change", "partial", "terminal_failure"].includes(fixture.expectedStatus), fixture.fixtureId);
+  assert.ok(["complete", "partial", "unsupported"].includes(fixture.expectedCoverage), fixture.fixtureId);
   assert.ok(Array.isArray(fixture.expectedFacts), fixture.fixtureId);
 }
 

@@ -120,6 +120,12 @@ export function digestPublicSourceValue(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
 }
 
+export function derivePublicSourceAdapterDefinitionDigest(
+  definition: unknown,
+): string {
+  return digestPublicSourceValue(definition);
+}
+
 const adapterLimitsSchema = z.object({
   maximumArchiveBytes: z.number().int().positive().max(PUBLIC_SOURCE_LIMITS.maximumArchiveBytes),
   maximumFactsPerAcquisition: z.number().int().positive().max(PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition),
@@ -143,12 +149,14 @@ export const publicSourceAdapterDefinitionSchema = z.object({
   recordType: z.literal("public_source_adapter_definition"),
   schemaVersion: z.literal(1),
 }).strict().superRefine((definition, context) => {
+  const { definitionDigest: _definitionDigest, ...digestInput } = definition;
   const expectedSchemas = definition.adapterId === "sec-latest-filings"
     ? ["sec-filing/v1"]
     : ["house-ptr-filing/v1", "house-ptr-transaction/v1"];
   if (
     definition.minimumCadenceMinutes > definition.maximumCadenceMinutes ||
-    JSON.stringify(definition.factSchemaVersions) !== JSON.stringify(expectedSchemas)
+    JSON.stringify(definition.factSchemaVersions) !== JSON.stringify(expectedSchemas) ||
+    definition.definitionDigest !== derivePublicSourceAdapterDefinitionDigest(digestInput)
   ) {
     context.addIssue({ code: "custom", message: "adapter_definition_invalid" });
   }
@@ -310,6 +318,7 @@ const secFilingPayloadSchema = z.object({
   amendmentOfAccessionNumber: z.string().regex(/^\d{10}-\d{2}-\d{6}$/u).nullable(),
   cik: z.string().regex(/^\d{10}$/u),
   companyName: z.string().trim().min(1).max(300),
+  fileNumber: z.string().trim().min(1).max(80).nullable(),
   filingUrl: publicUrlSchema,
   formType: z.enum(["S-1", "S-1/A"]),
   publishedAt: timestampSchema.nullable(),
@@ -593,4 +602,7 @@ export function parsePublicSourceRecord(value: unknown): z.infer<typeof publicSo
 
 export type PublicSourceAdapterDefinition = z.infer<typeof publicSourceAdapterDefinitionSchema>;
 export type PublicSourceAcquisitionResult = z.infer<typeof publicSourceAcquisitionResultSchema>;
+export type PublicSourceAcquisitionJournal = z.infer<typeof publicSourceAcquisitionJournalSchema>;
 export type CanonicalPublicFactRevision = z.infer<typeof canonicalPublicFactRevisionSchema>;
+export type PublicSourceCorrection = z.infer<typeof publicSourceCorrectionSchema>;
+export type PublicSourceInstance = z.infer<typeof publicSourceInstanceSchema>;

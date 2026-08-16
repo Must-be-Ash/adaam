@@ -17,6 +17,14 @@
       ]
     },
     {
+      "fixtureId": "fixture.sec.no-change",
+      "input": "initial.atom",
+      "expectedStatus": "no_change",
+      "expectedCoverage": "complete",
+      "expectedBaseline": false,
+      "expectedFacts": []
+    },
+    {
       "fixtureId": "fixture.sec.one-new-registration",
       "input": "later-s1.atom",
       "expectedStatus": "complete",
@@ -36,7 +44,7 @@
         { "sourceNativeId": "0001000003-26-000002:S-1/A", "schemaVersion": "sec-filing/v1", "stableRowId": "filing", "publishedAt": null, "updatedAt": "2026-08-14T19:00:00.000Z" }
       ]
     },
-    { "fixtureId": "fixture.sec.malformed", "input": "malformed.atom", "expectedStatus": "terminal_failure", "expectedCoverage": "incomplete", "expectedErrorCode": "parser_invalid", "expectedFacts": [] },
-    { "fixtureId": "fixture.sec.incomplete", "input": "incomplete.atom", "expectedStatus": "partial", "expectedCoverage": "incomplete", "expectedErrorCode": "parser_incomplete", "expectedFacts": [] }
+    { "fixtureId": "fixture.sec.malformed", "input": "malformed.atom", "expectedStatus": "terminal_failure", "expectedCoverage": "partial", "expectedErrorCode": "xml_invalid", "expectedFacts": [] },
+    { "fixtureId": "fixture.sec.incomplete", "input": "incomplete.atom", "expectedStatus": "partial", "expectedCoverage": "partial", "expectedErrorCode": "parser_incomplete", "expectedFacts": [] }
   ]
 }
