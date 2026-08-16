@@ -1,6 +1,7 @@
 # Spec 4 implementation prompt
 
-Use this prompt in a fresh Codex task attached to the existing Spec 3 worktree.
+Use this prompt in a fresh Codex task after the completed Spec 3 branch and this
+Spec 4 preparation commit have been merged into local `main`.
 
 ---
 
@@ -10,16 +11,18 @@ its final exit gate.
 
 ## Start here
 
-- Worktree: `/private/tmp/adaam-spec-03`
-- Branch: `codex/spec-03`
-- Minimum required ancestry: Spec 3 implementation commit `9b6e01f`
+- Create the one temporary worktree `/private/tmp/adaam-spec-04` on a new branch
+  `codex/spec-04` from current local `main`.
+- Before changing files, verify that `main` contains Spec 3 implementation commit
+  `9b6e01f` and Spec 4 preparation commit `2ebd9aa`. Stop if either is absent.
 - Specs 1–2 are production-complete. Spec 3's implementation and read-only source
   smoke are complete at `9b6e01f`; its production acquisition flags remain off.
   Earlier deferred hardening is nonblocking and must not be pulled into Spec 4
   unless a measured Spec 4 gate makes a focused dependency fix necessary.
 - Production public-source dispatch and Photon workspace-alert flags remain
   intentionally off. Do not change them without explicit owner authorization.
-- Do not create another branch, worktree, or implementation plan.
+- After that setup, do not create another branch, worktree, or implementation
+  plan.
 
 Read `AGENTS.md`, `HANDOFF.md`, `NORTH_STAR.md`, and the complete Spec 4 once.
 Read only the relevant sections of Specs 1–3 and current code needed for the
@@ -65,7 +68,7 @@ and make the smallest correction needed to preserve the objective.
    changed.
 3. Mark only genuinely completed Spec 4 checklist items and add concise evidence
    where it prevents later re-investigation.
-4. Commit that sprint on `codex/spec-03` with a clear Spec 4 subject.
+4. Commit that sprint on `codex/spec-04` with a clear Spec 4 subject.
 5. Report:
    - commit and changed files;
    - checklist items completed;
