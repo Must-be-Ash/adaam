@@ -1,8 +1,10 @@
 # Spec 3: Public-source adapters and canonical facts
 
-Status: Ready for implementation after Specs 1–2
+Status: Complete (2026-08-16)
 
 Current implementation base: `44128c6581296c7efebc1f8b37d783bcc407ecf2`
+
+Production rollout source: `9b6e01f0c908f9e24c2409369ec5d9882fd0ab0f`
 
 Product target: `NORTH_STAR.md`
 
@@ -449,10 +451,20 @@ without inspecting payloads or channel logs.
   also exposed official non-zero-padded index dates; the adapter now normalizes
   them with strict calendar validation. No strategy signal, alert, Photon
   message, paid call, deployment write, or feature-flag change occurred.
-- [ ] With owner authorization, enable the new SEC path first, verify parity and
-  rollback, then enable House acquisition. Keep unrelated flags unchanged.
-- [ ] Record production evidence and rollback state in `HANDOFF.md`, mark this
-  spec complete, and commit the exit gate.
+- [x] With owner authorization, enable the new SEC path first, verify parity and
+  rollback, then enable House acquisition. Production moved through all-off
+  (`dpl_EwzsXYB4PRpufQZqKCv5DZCKcmBM`), SEC-only
+  (`dpl_4zj1yZfQEkzPR4QtdXJxvCNMwttq`), a real promotion rollback to all-off,
+  restored SEC-only, and final SEC-plus-House
+  (`dpl_CkAobXMjsDraBwnAJntNTfgSh4kB`). The production alias and `/skill`
+  returned HTTP 200 at every promoted stage, deployment error queries were
+  empty, and an exact before/after audit proved unrelated environment entries
+  unchanged. Global workspace dispatch and Photon workspace alerts remained
+  off, so rollout performed no acquisition or delivery.
+- [x] Record production evidence and rollback state in `HANDOFF.md`, mark this
+  spec complete, and commit the exit gate. `HANDOFF.md` names the retained
+  all-off rollback deployment, final deployment and flag state, accepted live
+  source evidence, and deliberately disabled dispatch/delivery controls.
 
 Exit: the acceptance experience is proven, Spec 4 has a stable House fact input,
 and production can return to the pre-Spec path without data loss.
