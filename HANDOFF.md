@@ -6,12 +6,12 @@ tracing the implementation, checking the installed Eve and Next.js semantics,
 and reviewing the regression coverage. Use it to form the initial system model;
 then verify task-specific details against current code before making a change.
 
-> **Specification status:** Spec 1 is implemented, production accepted, and on
-> `main`. Spec 2's versioned strategy-pack framework and `IPO Filings@1.0.0`
-> are implemented and fully verified locally on `codex/spec-02`; the branch has
-> not been pushed or merged, and no production pack flag or real Photon pack
-> smoke has been authorized. The two spec files remain the authoritative split
-> between local evidence, production evidence, and deferred work.
+> **Specification status:** Specs 1 and 2 are implemented, production accepted,
+> and on `main`. Spec 2's versioned strategy-pack framework and
+> `IPO Filings@1.0.0` passed staged production scheduling, real SEC/Photon,
+> Discuss, managed-worker, cleanup, and rollback acceptance on 2026-08-15. The
+> two spec files remain the authoritative split between production evidence and
+> deliberately deferred work.
 
 Snapshot date: 2026-08-15
 
@@ -39,7 +39,7 @@ architecture. Keep them distinct:
 | Research | Direct sources, public feeds, FMP/SEC-oriented skills, and guarded Masterkey fallback | Durable private ingestion of every paid or temporary result |
 | Trading | Allowlisted Coinbase reads and preview-bound spot-order approval | A generally safe live-trading surface or account-wide reconciliation |
 | Deliverables | Public-data reports and media on stable Eve URLs | Owner-private artifacts for portfolio, account, or personal data |
-| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, and real Spec 1 Photon production acceptance | Spec 2 Photon pack acceptance, Spec 3 source events, and deferred crash/operations hardening |
+| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, and real Specs 1–2 Photon production acceptance | Spec 3 source events and deferred crash/operations hardening |
 | Authorization | Fail-closed deployment-owner mapping for Photon workspace paths plus a separate Coinbase allowlist | Owner-global enforcement across Telegram, HTTP, and every remaining private capability |
 
 `NORTH_STAR.md` describes the intended strategy-workspace architecture; it is
@@ -233,7 +233,20 @@ duplicate suppression, and independent rollback switches. The generated
 catalog digest is `23906ba142505adf2ddd083ba409112d3570ea53ca7e61d0efa1ff54f3d47849`;
 the reference pack digest is
 `509e1a06a7bf2d8de6cd216ff894f9353870cc8062fff0945cde4ba7ad2a0fce`.
-These are local evidence only. All production pack switches remain disabled.
+Production acceptance additionally proved an owner-approved SEC replay through
+one delivered Photon alert and real Discuss action, plus a pack-managed no-match
+whose durable worker snapshot carried the exact pack/resource identity. The
+accepted framework merge is `d5da00c`; production exposed a fresh-baseline
+source-coverage edge fixed in `7a04b3d`. Acceptance deployments were
+`dpl_7Uhww7Do2fT2XrWuq8hFsLrp8sbA` and
+`dpl_vpthJGpcS9Rm35hG7SvRijwznUCo`; rollback deployment was
+`dpl_3Sdbty7p8BCpnq9UKaZzkEwv5ubp`. Bounded evidence and final flag state are in
+`specs/02-versioned-strategy-packs.md`. Global dispatch, pack-managed dispatch,
+and Photon alerts are off; catalog, mutation, interactive runtime, workspace
+state, and monitor writes remain on. Disposable bindings were removed, their
+workspaces archived, all disposable monitors retired, and `Main` restored.
+Two post-rollback scheduler ticks claimed no workspace monitor and started no
+worker.
 
 ### Approval state machine
 
@@ -464,11 +477,10 @@ The most important differences between the working app and `NORTH_STAR.md` are:
 1. **Owner and workspace parity is Photon-only.** Durable owner mapping,
    assignment, runtimes, monitors, alerts, and manager controls exist for
    Photon's durable mode. Telegram and HTTP do not use that broker.
-2. **Production pack acceptance and source adapters remain.** The versioned
-   pack framework and IPO reference pack are locally complete, but their staged
-   deployment/Photon acceptance is not authorized. Canonical public adapters,
-   Congressional Signals, Insider Clusters, and shared signals remain Specs
-   3–6.
+2. **Source adapters and later strategy packs remain.** The versioned pack
+   framework and IPO reference pack are production accepted. Canonical public
+   adapters, Congressional Signals, Insider Clusters, and shared signals remain
+   Specs 3–6.
 3. **Artifacts are public-only.** Private portfolio/account deliverables and
    safe recovery of paid temporary outputs require owner-private storage.
 4. **MCP ingestion is incomplete.** Normalized model context is safe and
@@ -546,11 +558,12 @@ The Redis checks require exported environment variables and do not load
 `.env.local`. Model evals do not exercise the Photon webhook, Redis delivery,
 Spectrum UI, or iMessage response path.
 
-At this snapshot, the Spec 1 deterministic matrix, Redis races, TypeScript, the
+At this snapshot, the Specs 1–2 deterministic matrices, Redis races, TypeScript, the
 compiled Eve build, the Next.js webpack production build, and a read-only live
-SEC smoke have passed. Production acceptance additionally proved the real SEC
-polling, Photon alert, Discuss routing, next-turn context, manager state, and
-kill-switch rollback path described above. Earlier real-channel smokes validated
+SEC smoke have passed. Production acceptance additionally proved real SEC
+polling, Photon alert delivery, Discuss routing/context, exact pack-managed
+worker composition, manager state, and kill-switch rollback paths described
+above. Earlier real-channel smokes validated
 named-session operations and isolation, Coinbase balance and spot-order flows,
 Spectrum order approval, guarded Masterkey research, public report publication,
 and natural-language artifact-card delivery. These establish a baseline, not a
@@ -600,6 +613,10 @@ Chart-only and image-only iMessage smokes remain outstanding.
     clipped financial series on mobile and let axis text overlap candles. Keep
     the data contract strict, but derive responsive geometry, readable ticks,
     and trading context in the deterministic renderer.
+13. **A fresh source baseline can predate its monitor.** A quiet feed's newest
+    event may be older than the newly created monitor window. Permit that cursor
+    only for an authenticated initial no-finding baseline with no prior
+    checkpoint; ordinary runs must retain the stricter window fence.
 
 ## Code map
 

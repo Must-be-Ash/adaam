@@ -770,14 +770,43 @@ intact while failing closed. The compiled-worker, local Redis mutation/runtime,
 Spectrum browser, TypeScript, Eve production build, and Next.js webpack build
 gates passed separately.
 
-Production pack acceptance remains incomplete. All pack flags remain disabled,
-and the required deployment ID/commit, resolved production flags, privacy-safe
-receipt chain, real Photon smoke, rollback deployment, and final feature state
-must be recorded only after the owner explicitly authorizes those actions. The
-operator initializer is read-only by default and requires both the dedicated
-authorization environment value and `--authorization=owner-approved` before it
-atomically creates a paused disposable monitor seeded immediately before a
-selected filing present in the current SEC feed.
+### Production acceptance evidence
+
+Owner-authorized staged acceptance completed on 2026-08-15. The framework
+merged in `d5da00c`; the live gate exposed and then fixed fresh-baseline source
+coverage in `7a04b3d`. The accepted owner replay ran on
+`dpl_7Uhww7Do2fT2XrWuq8hFsLrp8sbA`, the repaired pack-managed run on
+`dpl_vpthJGpcS9Rm35hG7SvRijwznUCo`, and rollback on
+`dpl_3Sdbty7p8BCpnq9UKaZzkEwv5ubp`.
+
+Catalog inspection, mutation, runtime composition, managed dispatch, global
+dispatch, and Photon delivery were enabled in that order. The owner-approved
+initializer performed one real SEC read and created a paused monitor before any
+dispatch switch changed. Its bounded occurrence `00f26a6c9070` produced one
+typed finding `9632c5e6133a`, alert `f4603d90bf37`, and single-attempt delivered
+Photon receipt `ad64b58c446d`, with no delivery failure. The real Discuss route
+returned 200/applied, exposed the matching one-time alert context, and Main was
+restored after that context was consumed.
+
+The first pack-managed baseline found a production-only invariant mismatch:
+the newest source event could predate a newly created monitor's evaluation
+window. The fix admits that earlier cursor only for an authenticated initial
+no-finding baseline with no existing checkpoint. After deterministic,
+source-coverage, compiled-scheduler, runtime, auth, acceptance, and TypeScript
+regressions passed, occurrence `9559e81d1ab3` completed as a no-match with zero
+failures and durable run `a185c04ae8c9` carrying `ipo-filings@1.0.0`, resource
+`detect-new-s1`, binding revision 1, and exact pack digest
+`509e1a06a7bf2d8de6cd216ff894f9353870cc8062fff0945cde4ba7ad2a0fce`.
+
+Rollback disabled global workspace dispatch, pack-managed dispatch, and Photon
+workspace alerts while leaving workspace state, monitor writes, catalog,
+mutations, and interactive runtime composition on. Both disposable bindings
+were removed non-destructively; their two workspace records are archived,
+their three monitors are retired, Main is selected, and the accidentally
+created noncanonical-principal orphan was also unbound and archived. Catalog
+and pack digests remained unchanged throughout. Two post-rollback scheduler
+ticks claimed no workspace monitor and started no worker. No owner identifier,
+source payload, prompt, phone number, or credential is recorded here.
 
 ## Observability and operations
 
@@ -801,7 +830,7 @@ selected filing present in the current SEC feed.
 ## Rollout and rollback
 
 - [x] Keep the pack catalog visible only to the configured deployment owner.
-- [ ] Enable catalog inspection first, then installation in fixture/dev, then
+- [x] Enable catalog inspection first, then installation in fixture/dev, then
   runtime composition, then Spectrum controls, and finally the Photon live smoke.
 - [x] Keep general-purpose sessions and Spec 1 monitor behavior available while
   pack feature flags are disabled.
@@ -809,14 +838,14 @@ selected filing present in the current SEC feed.
   while preserving bindings, monitors, findings, and receipts.
 - [x] Do not remove a compiled pack version while a durable active binding still
   references it.
-- [ ] Record the deployed commit, catalog digest, reference-pack digest, feature
+- [x] Record the deployed commit, catalog digest, reference-pack digest, feature
   flag state, smoke result, and rollback verification without owner data.
 
 ## Definition of done
 
 This specification is complete only when:
 
-- [ ] Every implementation-plan unit passes and a clean fork produces the same
+- [x] Every implementation-plan unit passes and a clean fork produces the same
   validated catalog and reference-pack digest.
 - [x] A general-purpose session remains valid with no pack.
 - [x] The owner can create a new IPO Filings session, pin its exact pack and
@@ -830,7 +859,7 @@ This specification is complete only when:
   binding, health, configuration, and mutation status.
 - [x] Non-destructive removal preserves findings, alerts, checkpoints, history,
   and owner-created resources.
-- [ ] Spec 1 regressions, builds, privacy and redirect gates, owner-authorized
+- [x] Spec 1 regressions, builds, privacy and redirect gates, owner-authorized
   production acceptance, and feature rollback all pass before rollout.
 - [x] `HANDOFF.md`, `NORTH_STAR.md`, and `BACKLOG.md` record only verified
   implementation facts and remaining follow-ons.
