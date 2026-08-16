@@ -22,16 +22,17 @@ then verify task-specific details against current code before making a change.
 
 Snapshot date: 2026-08-16
 
-Repository branch: `codex/spec-04`
+Repository baseline: `main`; Spec 4 merged through PR #6 as
+`18e7c78487287b6c31b4f2dc486f31447dd02acc`.
 
 Production alias: <https://adaam.vercel.app>
 
-Production currently runs the final Spec 4 runtime artifact
-`dpl_7BaxMhGw5bmkEMYZ8dZqDmQxDQw3`; the local Sprint 5 commit adds the matching
-runtime source plus acceptance documentation and has not been pushed or merged
-into Git-backed `main`. The alias, branch, and local checkout can therefore
-diverge. Inspect all three before diagnosing or deploying. Never commit, push,
-deploy, or mutate an external service unless the owner asks.
+Production follows Git-backed `main`. The first post-merge Spec 4 deployment was
+`dpl_2qXYJZvgzowi1gYf38Wn1noXTgGx`; the owner-authorized pre-merge acceptance
+artifact was `dpl_7BaxMhGw5bmkEMYZ8dZqDmQxDQw3`. A later `main` commit can
+therefore replace the current artifact without changing these acceptance
+receipts. Query the alias and Vercel project before diagnosing or deploying.
+Never commit, push, deploy, or mutate an external service unless the owner asks.
 
 ## Executive summary
 
