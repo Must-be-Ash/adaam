@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+import {
+  CONGRESSIONAL_SIGNAL_BANDS,
+  CONGRESSIONAL_SIGNAL_NEUTRAL_CAVEAT,
+  CONGRESSIONAL_SIGNAL_REASON_CODES,
+} from "./congressional-signal-schema";
+import {
+  HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER,
+  HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL,
+} from "./strategy-pack-reference-catalog";
+
 export const SEC_IPO_FACT_SCHEMA_VERSION = 1;
 export const SEC_IPO_NORMALIZER_VERSION = "sec-ipo-atom/1.0.0";
 
@@ -48,9 +59,63 @@ export const secIpoFilingFactSchema = z.object({
   }
 });
 
+export const congressionalFilingSignalFactSchema = z.object({
+  band: z.enum(CONGRESSIONAL_SIGNAL_BANDS),
+  delayedDisclosureCaveat: z.literal(CONGRESSIONAL_SIGNAL_NEUTRAL_CAVEAT),
+  filingDate: z.string().date(),
+  filingIdentity: z.string().min(1).max(160),
+  kind: z.literal("congressional_filing_signal"),
+  member: z.object({
+    bioguideId: z.string().regex(/^[A-Z]\d{6}$/u),
+    disclosedName: z.string().trim().min(1).max(240),
+  }).strict(),
+  observedAt: timestampSchema,
+  publicDocumentUrl: z.string().url().max(2_048),
+  schemaVersion: z.literal(1),
+  signalId: z.string().min(1).max(160),
+  signalRevisionId: z.string().min(1).max(160),
+  source: z.object({
+    accessClassification: z.literal("public"),
+    canonicalUrl: z.literal(HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL),
+    origin: z.literal(HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER.authorityOrigin),
+    sourceId: z.literal(HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID),
+  }).strict(),
+  transactions: z.array(z.object({
+    amountRange: z.object({
+      label: z.string().trim().min(1).max(120),
+      lower: z.string().regex(/^(?:0|[1-9]\d*)$/u).nullable(),
+      upper: z.string().regex(/^(?:0|[1-9]\d*)$/u).nullable(),
+    }).strict(),
+    assetDescription: z.string().trim().min(1).max(1_000),
+    band: z.enum(CONGRESSIONAL_SIGNAL_BANDS),
+    disclosureLagDays: z.number().int().nonnegative().nullable(),
+    ownerRelationship: z.enum([
+      "dependent_child",
+      "joint",
+      "other_disclosed",
+      "self",
+      "spouse",
+      "unknown",
+    ]),
+    reasonCodes: z.array(z.enum(CONGRESSIONAL_SIGNAL_REASON_CODES)).min(1).max(32),
+    transactionDate: z.string().date(),
+    transactionType: z.enum(["P", "S"]),
+  }).strict()).min(1).max(50),
+}).strict().superRefine((fact, context) => {
+  if (
+    fact.filingIdentity !== fact.signalRevisionId ||
+    new URL(fact.publicDocumentUrl).origin !==
+      HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER.authorityOrigin
+  ) {
+    context.addIssue({ code: "custom", message: "congressional_filing_signal_fact_invalid" });
+  }
+});
+
 export const workspaceFindingFactSchema = z.discriminatedUnion("kind", [
   secIpoFilingFactSchema,
+  congressionalFilingSignalFactSchema,
 ]);
 
 export type SecIpoFilingFact = z.infer<typeof secIpoFilingFactSchema>;
+export type CongressionalFilingSignalFact = z.infer<typeof congressionalFilingSignalFactSchema>;
 export type WorkspaceFindingFact = z.infer<typeof workspaceFindingFactSchema>;

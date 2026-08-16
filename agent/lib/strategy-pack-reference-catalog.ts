@@ -12,6 +12,10 @@ export const IPO_FILINGS_SOURCE_ALLOWED_ORIGINS = Object.freeze([
 ]);
 export const IPO_FILINGS_EVALUATION_TOOL_ID = "evaluate_sec_ipo_source";
 
+export const CONGRESSIONAL_SIGNALS_EVAL_SUITE_ID = "eval.congressional-signals/v1";
+export const CONGRESSIONAL_SIGNALS_FINDING_SCHEMA_ID = "congressional-filing-signal/v1";
+export const CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID = "evaluate_congressional_signals";
+
 export const HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID =
   "house-financial-disclosures-2026";
 export const HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL =
@@ -122,16 +126,30 @@ export const IPO_FILINGS_EVAL_FIXTURE_IDS = Object.freeze([
   "fixture.sec-ipo.replay",
 ]);
 
+export const CONGRESSIONAL_SIGNALS_EVAL_FIXTURE_IDS = Object.freeze([
+  "fixture.congressional-signals.baseline",
+  "fixture.congressional-signals.forbidden-capability",
+  "fixture.congressional-signals.non-qualifying",
+  "fixture.congressional-signals.priority",
+  "fixture.congressional-signals.replay",
+]);
+
 export const STRATEGY_PACK_REFERENCE_CATALOG = Object.freeze({
   alertPresentationIds: Object.freeze([IPO_FILINGS_ALERT_PRESENTATION_ID]),
   capabilityIds: Object.freeze([
+    CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
     IPO_FILINGS_EVALUATION_TOOL_ID,
+    "skill.congressional-signal-triage",
     "skill.public-event-monitoring",
   ]),
   evalSuites: Object.freeze({
+    [CONGRESSIONAL_SIGNALS_EVAL_SUITE_ID]: CONGRESSIONAL_SIGNALS_EVAL_FIXTURE_IDS,
     [IPO_FILINGS_EVAL_SUITE_ID]: IPO_FILINGS_EVAL_FIXTURE_IDS,
   }),
-  findingSchemaIds: Object.freeze([IPO_FILINGS_FINDING_SCHEMA_ID]),
+  findingSchemaIds: Object.freeze([
+    CONGRESSIONAL_SIGNALS_FINDING_SCHEMA_ID,
+    IPO_FILINGS_FINDING_SCHEMA_ID,
+  ]),
   sourceContracts: Object.freeze({
     [HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID]: Object.freeze({
       allowedOrigins: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ALLOWED_ORIGINS,
@@ -157,6 +175,10 @@ export const STRATEGY_PACK_REFERENCE_CATALOG = Object.freeze({
 });
 
 export const STRATEGY_PACK_CAPABILITY_INVENTORY = Object.freeze([
+  Object.freeze({
+    category: "control" as const,
+    id: CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
+  }),
   Object.freeze({
     category: "control" as const,
     id: IPO_FILINGS_EVALUATION_TOOL_ID,

@@ -211,6 +211,19 @@ const signalCore = {
     packBinding: normalized.packBinding,
     workspaceId,
   }),
+  transactionEvaluations: [{
+    band: "record_only" as const,
+    evidence: [
+      { reasonCode: "committee_cluster" as const, state: "not_applicable" as const },
+      { reasonCode: "committee_relevant" as const, state: "not_applicable" as const },
+      { reasonCode: "material_range" as const, state: "not_applicable" as const },
+      { reasonCode: "pattern_break" as const, state: "not_applicable" as const },
+      { reasonCode: "same_member_cluster" as const, state: "not_applicable" as const },
+      { reasonCode: "timely" as const, state: "not_applicable" as const },
+    ],
+    reasonCodes: normalized.eligibility.reasonCodes,
+    transactionRevisionId: normalized.transactionRevisionId,
+  }],
   transactionRevisionIds: [normalized.transactionRevisionId],
   workspaceId,
 };

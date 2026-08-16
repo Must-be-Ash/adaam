@@ -1,0 +1,416 @@
+import { defineTool } from "eve/tools";
+import { z } from "zod";
+
+import {
+  CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1,
+  CONGRESSIONAL_POLICY_V1,
+  CONGRESSIONAL_SECURITY_CATALOG_V1,
+} from "./congressional-reference-catalog";
+import { congressionalSignalsExecutionEnabled } from "./congressional-signal-flags";
+import { persistCongressionalFilingEvaluation, type CongressionalSignalStoreClient } from "./congressional-signal-store";
+import { evaluateCongressionalFiling, type CongressionalFilingEvaluation } from "./congressional-strategy";
+import type { HousePublicSourceBinaryResponse } from "./house-public-source-adapter";
+import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
+import { coordinatePublicSourceOccurrence } from "./public-source-coordinator";
+import type { AuthorizedPublicSourceProjection, PublicSourceSubscriptionStoreClient } from "./public-source-subscription-store";
+import {
+  CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
+  HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER,
+  HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL,
+} from "./strategy-pack-reference-catalog";
+import {
+  readWorkspaceRunOutcome,
+  selectUnseenWorkspaceFindingIdentities,
+  type WorkspaceFindingCandidate,
+  type WorkspaceRunOutcome,
+} from "./workspace-finding-store";
+import { getWorkspaceMonitor, type WorkspaceMonitor } from "./workspace-monitor-store";
+import {
+  authorizeWorkspaceSourceFetch,
+  markWorkspaceSourceSuccess,
+  reserveWorkspaceSourceAttempt,
+} from "./workspace-source-coverage";
+import { readWorkspaceDocument } from "./workspace-state-store";
+import { authorizeWorkspaceWorkerStore } from "./workspace-store-authorization";
+import { requireWorkspaceWorkerAuth } from "./workspace-worker-auth";
+import { resolveWorkspaceWorkerCapabilitySnapshot } from "./workspace-worker-capabilities";
+import {
+  commitDeterministicWorkspaceEvaluationForWorker,
+  finalizeExistingWorkspaceRunOutcomeForWorker,
+  finalizePriorWorkspaceRunOutcomeForControlPlane,
+  type WorkspaceWorkerControlPlaneClients,
+} from "./workspace-worker-control-plane";
+import type { CongressionalFilingSignalFact } from "./workspace-finding-facts";
+import type { PreparedWorkspaceWorkerRecovery } from "./workspace-worker-runner";
+import { fetchOfficialPublicSourceBytes } from "../tools/fetch_public_source";
+
+type WorkerContext = Parameters<typeof requireWorkspaceWorkerAuth>[0];
+
+export { CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID } from "./strategy-pack-reference-catalog";
+
+export interface CongressionalWorkspaceWorkerClients extends WorkspaceWorkerControlPlaneClients {
+  readonly acquisition?: PublicSourceAcquisitionStoreClient;
+  readonly fetchDocument?: (url: string) => Promise<HousePublicSourceBinaryResponse>;
+  readonly fetchIndex?: (url: string) => Promise<HousePublicSourceBinaryResponse>;
+  readonly signal?: CongressionalSignalStoreClient;
+  readonly subscription?: PublicSourceSubscriptionStoreClient;
+}
+
+export interface CongressionalWorkspaceWorkerResult {
+  readonly baselineEstablished: boolean;
+  readonly checkpoint: { readonly contentDigest: string; readonly watermark: string };
+  readonly filingCount: number;
+  readonly outcome: WorkspaceRunOutcome;
+  readonly replayed: boolean;
+  readonly signalCount: number;
+}
+
+export class CongressionalWorkspaceWorkerError extends Error {
+  constructor(readonly code:
+    | "congressional_capability_denied"
+    | "congressional_execution_disabled"
+    | "congressional_monitor_invalid"
+    | "congressional_monitor_not_found"
+    | "congressional_projection_invalid"
+    | "congressional_strategy_invalid"
+  ) {
+    super(code);
+    this.name = "CongressionalWorkspaceWorkerError";
+  }
+}
+
+function assertMonitor(
+  monitor: WorkspaceMonitor | null,
+  envelope: ReturnType<typeof requireWorkspaceWorkerAuth>,
+): asserts monitor is WorkspaceMonitor {
+  if (!monitor) throw new CongressionalWorkspaceWorkerError("congressional_monitor_not_found");
+  if (
+    monitor.lifecycleState !== "enabled" ||
+    monitor.configurationRevision !== envelope.configurationRevision ||
+    monitor.managedBy?.packId !== "congressional-signals" ||
+    monitor.managedBy.packVersion !== "1.0.0" ||
+    monitor.sources.length !== 1 ||
+    monitor.sources[0]?.accessClassification !== "public" ||
+    monitor.sources[0].canonicalUrl !== HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL ||
+    monitor.sources[0].origin !==
+      HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER.authorityOrigin ||
+    monitor.sources[0].sourceId !== HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID
+  ) {
+    throw new CongressionalWorkspaceWorkerError("congressional_monitor_invalid");
+  }
+}
+
+function groupProjections(projections: readonly AuthorizedPublicSourceProjection[]) {
+  const filings = new Map<string, AuthorizedPublicSourceProjection>();
+  const transactions = new Map<string, AuthorizedPublicSourceProjection[]>();
+  for (const projection of projections) {
+    const payload = projection.fact.payload;
+    if (payload.schemaVersion === "house-ptr-filing/v1") {
+      filings.set(projection.fact.logicalKey, projection);
+    } else if (payload.schemaVersion === "house-ptr-transaction/v1") {
+      const current = transactions.get(payload.filingLogicalKey) ?? [];
+      current.push(projection);
+      transactions.set(payload.filingLogicalKey, current);
+    }
+  }
+  return [...transactions.entries()].map(([filingLogicalKey, rows]) => {
+    const filing = filings.get(filingLogicalKey);
+    if (!filing) throw new CongressionalWorkspaceWorkerError("congressional_projection_invalid");
+    return { filing, transactions: rows };
+  });
+}
+
+function combinedFinding(evaluations: readonly CongressionalFilingEvaluation[]): WorkspaceFindingCandidate | null {
+  const findings = evaluations.flatMap(({ finding }) => finding ? [finding] : []);
+  if (findings.length === 0) return null;
+  return {
+    accessClassification: "public",
+    artifactRefs: [],
+    asOf: findings.reduce((latest, finding) => finding.asOf > latest ? finding.asOf : latest, findings[0]!.asOf),
+    factIdentities: findings.flatMap(({ factIdentities }) => factIdentities ?? []).sort(),
+    facts: findings.flatMap(({ facts }) => facts ?? []),
+    provenance: findings.flatMap(({ provenance }) => provenance),
+    summary: findings.length === 1
+      ? findings[0]!.summary
+      : `${findings.length} official House PTR filing signals matched the configured band; delayed public disclosures are not evidence of wrongdoing or trade instructions.`,
+  };
+}
+
+function alertPresentation(evaluations: readonly CongressionalFilingEvaluation[]) {
+  const presentations = evaluations.flatMap(({ alertPresentation }) =>
+    alertPresentation ? [alertPresentation] : []);
+  if (presentations.length === 0) return undefined;
+  if (presentations.length === 1) return presentations[0];
+  return {
+    title: `${presentations.length} Congressional Signals filings`,
+    whyMatched: "Official House PTR filing signals met the configured deterministic band. Delayed public disclosures are not evidence of wrongdoing or trade instructions.",
+  };
+}
+
+function responseWithObservedAt(
+  response: Awaited<ReturnType<typeof fetchOfficialPublicSourceBytes>>,
+  observedAt: string,
+): HousePublicSourceBinaryResponse {
+  return Object.freeze({ ...response, observedAt });
+}
+
+export async function evaluateCongressionalSignalsForWorker(input: {
+  readonly clients?: CongressionalWorkspaceWorkerClients;
+  readonly ctx: WorkerContext;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly now?: Date;
+}): Promise<CongressionalWorkspaceWorkerResult> {
+  const now = input.now ?? new Date();
+  const environment = input.environment ?? process.env;
+  const envelope = requireWorkspaceWorkerAuth(input.ctx, {}, environment);
+  const scope = authorizeWorkspaceWorkerStore(input.ctx, environment);
+  const existing = await readWorkspaceRunOutcome(scope, envelope.occurrenceKey, input.clients?.finding);
+  if (existing) {
+    const outcome = await finalizeExistingWorkspaceRunOutcomeForWorker({
+      clients: input.clients,
+      ctx: input.ctx,
+      environment,
+      now,
+      outcome: existing,
+      toolId: CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
+    });
+    return Object.freeze({
+      baselineEstablished: false,
+      checkpoint: outcome.checkpoint,
+      filingCount: existing.finding?.facts?.length ?? 0,
+      outcome,
+      replayed: true,
+      signalCount: existing.finding?.facts?.length ?? 0,
+    });
+  }
+  if (!congressionalSignalsExecutionEnabled(environment)) {
+    throw new CongressionalWorkspaceWorkerError("congressional_execution_disabled");
+  }
+  const [capabilitiesResult, monitorResult, strategyResult] = await Promise.allSettled([
+    resolveWorkspaceWorkerCapabilitySnapshot({
+      envelope,
+      registry: [{
+        definition: true,
+        metadata: { category: "control_plane", id: CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID },
+      }],
+      scope,
+      stateClient: input.clients?.state,
+    }),
+    getWorkspaceMonitor(scope, envelope.monitorId, input.clients?.monitor),
+    readWorkspaceDocument("strategy", scope, input.clients?.state),
+  ]);
+  if (capabilitiesResult.status === "rejected") throw capabilitiesResult.reason;
+  const capabilities = capabilitiesResult.value;
+  if (!(CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID in capabilities.tools)) {
+    throw new CongressionalWorkspaceWorkerError("congressional_capability_denied");
+  }
+  if (monitorResult.status === "rejected") throw monitorResult.reason;
+  const monitor = monitorResult.value;
+  assertMonitor(monitor, envelope);
+  const managedBy = monitor.managedBy;
+  if (!managedBy) throw new CongressionalWorkspaceWorkerError("congressional_monitor_invalid");
+  if (strategyResult.status === "rejected") throw strategyResult.reason;
+  const strategy = strategyResult.value;
+  if (
+    strategy?.schemaVersion !== 2 ||
+    strategy.value.pack?.id !== "congressional-signals" ||
+    strategy.value.pack.version !== "1.0.0" ||
+    strategy.value.pack.contentDigest !== managedBy.packContentDigest
+  ) {
+    throw new CongressionalWorkspaceWorkerError("congressional_strategy_invalid");
+  }
+  const minimumAlertBand = strategy.value.configuration.minimumAlertBand;
+  const selectedMemberBioguideIds = strategy.value.configuration.selectedMemberBioguideIds;
+  if (
+    (minimumAlertBand !== "priority" && minimumAlertBand !== "review") ||
+    !Array.isArray(selectedMemberBioguideIds) ||
+    !selectedMemberBioguideIds.every((value): value is string => typeof value === "string")
+  ) {
+    throw new CongressionalWorkspaceWorkerError("congressional_strategy_invalid");
+  }
+  const source = await authorizeWorkspaceSourceFetch({
+    runId: envelope.runId,
+    scope,
+    sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+    url: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL,
+  }, input.clients?.sourceCoverage);
+  await reserveWorkspaceSourceAttempt({
+    now,
+    runId: envelope.runId,
+    scope,
+    sourceId: source.sourceId,
+  }, input.clients?.sourceCoverage);
+  const observedAt = now.toISOString();
+  const coordinated = await coordinatePublicSourceOccurrence({
+    clients: { acquisition: input.clients?.acquisition, subscription: input.clients?.subscription },
+    environment,
+    fetch: {
+      adapterId: HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER.adapterId,
+      fetchDocument: input.clients?.fetchDocument ?? (async (url) => responseWithObservedAt(
+        await fetchOfficialPublicSourceBytes(
+          url,
+          HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER.limits.maximumPdfBytes,
+          source,
+        ),
+        observedAt,
+      )),
+      fetchIndex: input.clients?.fetchIndex ?? (async (url) => responseWithObservedAt(
+        await fetchOfficialPublicSourceBytes(
+          url,
+          HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER.limits.maximumArchiveBytes,
+          source,
+        ),
+        observedAt,
+      )),
+    },
+    monitor,
+    observedAt: now,
+    scope,
+    sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+    window: envelope.window,
+  });
+  const cursor = coordinated.acquisition.proposedNextCursor;
+  if (!cursor || !coordinated.projection) {
+    throw new CongressionalWorkspaceWorkerError("congressional_projection_invalid");
+  }
+  const initialBaseline = monitor.sourceCheckpoint.contentDigest === null &&
+    monitor.sourceCheckpoint.watermark === null;
+  const packBinding = {
+    bindingRevision: managedBy.bindingRevision,
+    packContentDigest: managedBy.packContentDigest,
+    packId: "congressional-signals" as const,
+    packVersion: "1.0.0" as const,
+  };
+  const evaluations = groupProjections(coordinated.projection.projections).map((group) =>
+    evaluateCongressionalFiling({
+      catalogs: {
+        member: CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1,
+        security: CONGRESSIONAL_SECURITY_CATALOG_V1,
+      },
+      filing: group.filing,
+      minimumAlertBand,
+      observedAt,
+      packBinding,
+      policy: CONGRESSIONAL_POLICY_V1,
+      processingMode: initialBaseline ? "baseline" : "live",
+      selectedMemberBioguideIds,
+      transactions: group.transactions,
+    }));
+  for (let offset = 0; offset < evaluations.length; offset += 8) {
+    await Promise.all(evaluations.slice(offset, offset + 8).map((evaluation) =>
+      persistCongressionalFilingEvaluation({ evaluation, scope }, input.clients?.signal)));
+  }
+  const unseen = new Set(await selectUnseenWorkspaceFindingIdentities({
+    factIdentities: evaluations.flatMap(({ finding }) => finding?.factIdentities ?? []),
+    monitorId: envelope.monitorId,
+    scope,
+  }, input.clients?.finding));
+  const alertEvaluations = evaluations.filter(({ finding }) =>
+    finding?.factIdentities?.some((identity) => unseen.has(identity)));
+  const checkpoint = { contentDigest: cursor.contentDigest, watermark: cursor.watermark };
+  await markWorkspaceSourceSuccess({
+    contentDigest: cursor.contentDigest,
+    now,
+    runId: envelope.runId,
+    scope,
+    sourceId: source.sourceId,
+  }, input.clients?.sourceCoverage);
+  const outcome = await commitDeterministicWorkspaceEvaluationForWorker({
+    alertPresentation: alertPresentation(alertEvaluations),
+    checkpoint,
+    clients: input.clients,
+    ctx: input.ctx,
+    environment,
+    finding: combinedFinding(alertEvaluations),
+    initialBaseline,
+    now,
+    toolId: CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
+  });
+  return Object.freeze({
+    baselineEstablished: initialBaseline,
+    checkpoint,
+    filingCount: evaluations.length,
+    outcome,
+    replayed: false,
+    signalCount: evaluations.length,
+  });
+}
+
+export const congressionalWorkspaceWorkerOutputSchema = z.object({
+  baselineEstablished: z.boolean(),
+  checkpoint: z.object({
+    contentDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+    watermark: z.string().datetime({ offset: true }),
+  }).strict(),
+  filingCount: z.number().int().min(0).max(500),
+  outcome: z.enum(["finding_staged", "no_match"]),
+  replayed: z.boolean(),
+  runId: z.string().min(1).max(160),
+  signalCount: z.number().int().min(0).max(500),
+}).strict();
+
+export const evaluateCongressionalSignalsTool = defineTool({
+  description: "Evaluate authorized official House PTR projections exactly once using the pinned Congressional Signals policy, persist filing signals, and stage neutral at-most-once alerts.",
+  inputSchema: z.object({}).strict(),
+  outputSchema: congressionalWorkspaceWorkerOutputSchema,
+  async execute(_input, ctx) {
+    const result = await evaluateCongressionalSignalsForWorker({ ctx });
+    return {
+      baselineEstablished: result.baselineEstablished,
+      checkpoint: result.checkpoint,
+      filingCount: result.filingCount,
+      outcome: result.outcome.outcome,
+      replayed: result.replayed,
+      runId: result.outcome.runId,
+      signalCount: result.signalCount,
+    };
+  },
+});
+
+export type CongressionalWorkspaceRunRecoveryResult =
+  | { readonly outcome: WorkspaceRunOutcome; readonly status: "already_completed" | "recovered" }
+  | { readonly status: "missing" | "not_applicable" };
+
+export async function recoverCongressionalWorkspaceRunForControlPlane(input: {
+  readonly clients?: WorkspaceWorkerControlPlaneClients;
+  readonly now?: Date;
+  readonly prepared: PreparedWorkspaceWorkerRecovery;
+}): Promise<CongressionalWorkspaceRunRecoveryResult> {
+  const sources = input.prepared.monitor.sources;
+  if (
+    sources.length !== 1 ||
+    sources[0]?.sourceId !== HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID ||
+    sources[0].canonicalUrl !== HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL
+  ) {
+    return Object.freeze({ status: "not_applicable" });
+  }
+  const outcome = await readWorkspaceRunOutcome(
+    input.prepared.scope,
+    input.prepared.claimed.occurrence.occurrenceKey,
+    input.clients?.finding,
+  );
+  if (!outcome) return Object.freeze({ status: "missing" });
+  const facts = (outcome.finding?.facts ?? []).filter(
+    (fact): fact is CongressionalFilingSignalFact => fact.kind === "congressional_filing_signal",
+  );
+  const presentation = facts.length === 0
+    ? undefined
+    : facts.length === 1
+      ? {
+          title: `Congressional Signals · ${facts[0]!.band}`,
+          whyMatched: "An official House PTR filing met the configured deterministic band. Delayed public disclosure is not evidence of wrongdoing or a trade instruction.",
+        }
+      : {
+          title: `${facts.length} Congressional Signals filings`,
+          whyMatched: "Official House PTR filing signals met the configured deterministic band. Delayed public disclosures are not evidence of wrongdoing or trade instructions.",
+        };
+  return finalizePriorWorkspaceRunOutcomeForControlPlane({
+    alertPresentation: presentation,
+    clients: input.clients,
+    now: input.now,
+    outcome,
+    prepared: input.prepared,
+    toolId: CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
+  });
+}

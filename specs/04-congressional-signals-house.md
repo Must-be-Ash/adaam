@@ -1,6 +1,6 @@
 # Spec 4: Congressional Signals v1 — House disclosures
 
-Status: Sprint 0 complete; awaiting owner direction for Sprint 1
+Status: Sprint 1 checklist complete; official-priority exit evidence unavailable; awaiting owner direction
 
 Date: 2026-08-16
 
@@ -399,29 +399,38 @@ can retract rows, and the smallest vertical contracts are executable.
 
 ### Sprint 1 — ship the first filing-to-alert vertical
 
-- [ ] Extend the shared Spec 2 configuration schema/service with bounded enum and
+- [x] Extend the shared Spec 2 configuration schema/service with bounded enum and
   canonical-ID-list fields, including compatibility and invalid-input tests,
   before generating the immutable pack.
-- [ ] Author and generate `congressional-signals@1.0.0` using those configuration
+- [x] Author and generate `congressional-signals@1.0.0` using those configuration
   kinds, the Spec 2 catalog, and the existing House source instance.
-- [ ] Add the primary-sourced member record and reviewed security classification
+- [x] Add the primary-sourced member record and reviewed security classification
   needed by the retained official first-vertical transaction; broader reference
   coverage remains Sprint 2 work.
-- [ ] Consume an authorized projected House transaction exactly once and persist
+- [x] Consume an authorized projected House transaction exactly once and persist
   the minimal normalized strategy transaction.
-- [ ] Implement eligibility, disclosure lag, `timely`, `material_range`, and the
+- [x] Implement eligibility, disclosure lag, `timely`, `material_range`, and the
   initial ordinal band policy with complete fixed reason traces.
-- [ ] Establish a historical baseline that records prior facts and coverage but
+- [x] Establish a historical baseline that records prior facts and coverage but
   never alerts.
-- [ ] Persist one filing-level strategy signal and deliver at most one
+- [x] Persist one filing-level strategy signal and deliver at most one
   deterministic neutral alert through the existing finding/outbox/Photon adapter
   and Discuss path, including a multi-row filing dedupe fixture.
-- [ ] Add representative qualifying, stale, broad-fund, unresolved, duplicate,
+- [x] Add representative qualifying, stale, broad-fund, unresolved, duplicate,
   baseline, and forbidden-capability fixtures; run focused tests and affected
   builds.
 
 Exit: one verified official House transaction can produce one accurate sourced
 priority alert, and ordinary non-qualifying facts are recorded without noise.
+
+Sprint 1 evidence note: the retained official Kevin Hern multi-row PTR is timely
+but its published lower bounds are below the material threshold, so the pinned
+policy correctly produces `review`, not `priority`. A deterministic material and
+timely fixture proves the `priority` branch, while stale, broad-fund, unresolved,
+duplicate, baseline, and forbidden paths remain quiet. None of the authorized
+retained official transactions is both timely and material, so the official
+priority-alert portion of this exit remains unverified rather than relabeling a
+real filing or weakening the policy.
 
 ### Sprint 2 — add official member and committee evidence
 

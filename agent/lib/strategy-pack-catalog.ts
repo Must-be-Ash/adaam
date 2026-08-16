@@ -20,7 +20,11 @@ export interface ModelSafeStrategyPackSummary {
   readonly availability: StrategyPackCatalogAvailability;
   readonly configuration: readonly {
     readonly key: string;
-    readonly kind: "daily_local_times" | "iana_timezone";
+    readonly kind:
+      | "bounded_enum"
+      | "canonical_id_list"
+      | "daily_local_times"
+      | "iana_timezone";
     readonly label: string;
     readonly required: boolean;
   }[];

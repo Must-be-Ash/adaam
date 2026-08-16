@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "id": "congressional-signals",
+  "version": "1.0.0",
+  "displayName": "Congressional Signals",
+  "description": "Triage official House Periodic Transaction Reports with deterministic, neutral research alerts.",
+  "maturity": "reference",
+  "compatibility": {
+    "coreSchemaVersion": 1,
+    "workspaceSchemaVersion": 1,
+    "strategyPackSchemaVersion": 1
+  },
+  "workspaceInstructionPath": "workspace.md",
+  "configuration": [
+    {
+      "key": "timezone",
+      "kind": "iana_timezone",
+      "label": "Timezone",
+      "description": "Timezone used for local House disclosure checks.",
+      "required": true,
+      "default": "UTC",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "key": "dailyTimes",
+      "kind": "daily_local_times",
+      "label": "Daily check times",
+      "description": "Unique local times when the House disclosure monitor may run.",
+      "required": true,
+      "default": ["09:00", "16:00"],
+      "minimumItems": 1,
+      "maximumItems": 8,
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "key": "minimumAlertBand",
+      "kind": "bounded_enum",
+      "label": "Minimum alert band",
+      "description": "Lowest deterministic filing band that may produce an alert.",
+      "required": true,
+      "default": "priority",
+      "allowedValues": ["priority", "review"],
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "key": "selectedMemberBioguideIds",
+      "kind": "canonical_id_list",
+      "label": "Selected House members",
+      "description": "Canonical Bioguide IDs to monitor; empty means all reviewed members.",
+      "required": true,
+      "default": [],
+      "allowedValues": ["H001082"],
+      "minimumItems": 0,
+      "maximumItems": 1,
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
+    }
+  ],
+  "skills": [
+    {
+      "id": "congressional-signal-triage",
+      "version": "1.0.0",
+      "description": "Evaluate authorized official House PTR projections using the pinned ordinal policy.",
+      "instructionPath": "playbook.md"
+    }
+  ],
+  "capabilities": {
+    "required": [
+      "evaluate_congressional_signals",
+      "skill.congressional-signal-triage"
+    ],
+    "hardDenied": [
+      "broker.mutation",
+      "coinbase_create_order",
+      "financial.mutation",
+      "filesystem",
+      "interactive.approval",
+      "masterkey_mcp",
+      "private.history",
+      "shell",
+      "web.search"
+    ]
+  },
+  "sources": [
+    {
+      "sourceId": "house-financial-disclosures-2026",
+      "contractVersion": "1.0.0",
+      "contractDigest": "ef0772fd62d5781c9dac989eb12f699856d909d10ad3b81efe6b5a68c29046bc",
+      "canonicalUrl": "https://disclosures-clerk.house.gov/public_disc/financial-pdfs/2026FD.zip",
+      "allowedOrigins": ["https://disclosures-clerk.house.gov"],
+      "accessClassification": "public"
+    }
+  ],
+  "monitors": [
+    {
+      "resourceId": "evaluate-house-ptrs",
+      "displayName": "Evaluate House PTR filings",
+      "instructionPath": "monitors/evaluate-house-ptrs.md",
+      "timezoneConfigurationKey": "timezone",
+      "dailyTimesConfigurationKey": "dailyTimes",
+      "sourceIds": ["house-financial-disclosures-2026"],
+      "requiredCapabilityIds": ["evaluate_congressional_signals"],
+      "findingSchemaId": "congressional-filing-signal/v1",
+      "alertPresentationId": "alert.public-event/v1",
+      "suggestedBudget": {
+        "maximumInputTokensPerRun": 12000,
+        "maximumOutputTokensPerRun": 2000,
+        "maximumRunsPerDay": 8
+      },
+      "activationDefault": "paused",
+      "overridableFields": ["schedule"]
+    }
+  ],
+  "evaluationsPath": "evals.json"
+}

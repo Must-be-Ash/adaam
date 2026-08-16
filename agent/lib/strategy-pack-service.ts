@@ -225,6 +225,9 @@ function packInspection(pack: StrategyPackCatalogEntry) {
     }),
     configuration: Object.freeze(pack.configuration.map((field) =>
       Object.freeze({
+        ...("allowedValues" in field
+          ? { allowedValues: Object.freeze([...field.allowedValues]) }
+          : {}),
         default: Array.isArray(field.default)
           ? Object.freeze([...field.default])
           : field.default,
@@ -678,7 +681,7 @@ function parseLifecycleRequest<T>(value: unknown, schema: z.ZodType<T>) {
   return { payloadDigest: sha256(encoded), request: parsed.data };
 }
 
-function effectiveConfiguration(
+export function resolveStrategyPackConfiguration(
   pack: StrategyPackCatalogEntry,
   requested: Record<string, unknown> | undefined,
 ): { configuration: Record<string, string | string[]>; ownerOverrides: Record<string, string | string[]> } {
@@ -703,13 +706,28 @@ function effectiveConfiguration(
       if (supplied) ownerOverrides[field.key] = value;
       continue;
     }
+    if (field.kind === "bounded_enum") {
+      if (typeof value !== "string" || !field.allowedValues.includes(value)) {
+        throw new StrategyPackServiceError("strategy_pack_invalid_request");
+      }
+      configuration[field.key] = value;
+      if (supplied) ownerOverrides[field.key] = value;
+      continue;
+    }
     if (
       !Array.isArray(value) ||
       value.length < field.minimumItems ||
       value.length > field.maximumItems ||
-      value.some((entry) => typeof entry !== "string" || !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(entry)) ||
+      value.some((entry) => typeof entry !== "string") ||
       new Set(value).size !== value.length ||
       value.some((entry, index) => index > 0 && value[index - 1]! > entry)
+    ) {
+      throw new StrategyPackServiceError("strategy_pack_invalid_request");
+    }
+    if (
+      field.kind === "daily_local_times"
+        ? value.some((entry) => !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(entry))
+        : value.some((entry) => !field.allowedValues.includes(entry))
     ) {
       throw new StrategyPackServiceError("strategy_pack_invalid_request");
     }
@@ -1012,7 +1030,7 @@ async function executeCreateStrategyPackWorkspace(
   if (!pack || pack.availability !== "available") {
     throw new StrategyPackServiceError("strategy_pack_unavailable");
   }
-  const configuration = effectiveConfiguration(pack, request.configuration);
+  const configuration = resolveStrategyPackConfiguration(pack, request.configuration);
   const requestedActivation = request.activateMonitorResourceIds ?? [];
   if (
     new Set(requestedActivation).size !== requestedActivation.length ||
@@ -1494,7 +1512,7 @@ async function mutateStrategyPackWorkspace(
         throw new StrategyPackServiceError("strategy_pack_invalid_request");
       }
     }
-    const configured = effectiveConfiguration(pack, {
+    const configured = resolveStrategyPackConfiguration(pack, {
       ...binding.ownerOverrides,
       ...suppliedConfiguration,
     });

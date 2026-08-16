@@ -6,12 +6,19 @@ import type { AuthorizedPublicSourceProjection } from "./public-source-subscript
 export const CONGRESSIONAL_SIGNAL_REASON_CODES = Object.freeze([
   "baseline",
   "broad_fund",
+  "committee_cluster",
+  "committee_relevant",
   "duplicate",
   "eligible",
   "invalid_date",
+  "material_range",
+  "member_not_selected",
   "non_security_asset",
+  "pattern_break",
+  "same_member_cluster",
   "stale_disclosure",
   "superseded",
+  "timely",
   "unclassified_direction",
   "unresolved_member",
   "unresolved_security",
@@ -23,6 +30,18 @@ export const CONGRESSIONAL_SIGNAL_BANDS = Object.freeze([
   "review",
   "priority",
 ] as const);
+
+export const CONGRESSIONAL_SIGNAL_EVIDENCE_REASON_CODES = Object.freeze([
+  "committee_cluster",
+  "committee_relevant",
+  "material_range",
+  "pattern_break",
+  "same_member_cluster",
+  "timely",
+] as const);
+
+export const CONGRESSIONAL_SIGNAL_NEUTRAL_CAVEAT =
+  "Delayed public disclosure; research signal only, not evidence of wrongdoing or a trade instruction." as const;
 
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const semverSchema = z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u);
@@ -310,10 +329,19 @@ const filingSignalCoreSchema = z.object({
     reasonCode: reasonCodeSchema,
     sourceRevisionId: identifierSchema,
     state: z.enum(["applied", "not_applicable", "unavailable"]),
-  }).strict()).min(1).max(64),
+  }).strict()).min(1).max(10_000),
   recordType: z.literal("congressional_filing_signal"),
   schemaVersion: z.literal(1),
   signalId: identifierSchema,
+  transactionEvaluations: z.array(z.object({
+    band: bandSchema,
+    evidence: z.array(z.object({
+      reasonCode: z.enum(CONGRESSIONAL_SIGNAL_EVIDENCE_REASON_CODES),
+      state: z.enum(["applied", "not_applicable", "unavailable"]),
+    }).strict()).length(6),
+    reasonCodes: z.array(reasonCodeSchema).min(1).max(CONGRESSIONAL_SIGNAL_REASON_CODES.length),
+    transactionRevisionId: identifierSchema,
+  }).strict()).min(1).max(500),
   transactionRevisionIds: z.array(identifierSchema).min(1).max(500),
   workspaceId: z.string().uuid(),
 }).strict();
@@ -346,6 +374,9 @@ export const congressionalFilingSignalSchema = filingSignalCoreSchema.extend({
     ) ||
     signal.signalId !== deriveCongressionalSignalId(signal) ||
     !sortedUnique(signal.transactionRevisionIds) ||
+    JSON.stringify(signal.transactionEvaluations.map(({ transactionRevisionId }) =>
+      transactionRevisionId)) !== JSON.stringify(signal.transactionRevisionIds) ||
+    signal.transactionEvaluations.some((evaluation) => !sortedUnique(evaluation.reasonCodes)) ||
     (signal.band === "record_only" && signal.alertEligible)
   ) {
     context.addIssue({ code: "custom", message: "congressional_signal_invalid" });
@@ -373,6 +404,57 @@ function calendarDayDifference(from: string, through: string): number | null {
   return Number.isFinite(difference) ? difference / 86_400_000 : null;
 }
 
+function memberResolution(input: {
+  catalog: Extract<z.infer<typeof congressionalReferenceCatalogSchema>, { kind: "house_members" }>;
+  filingDate: string;
+  filer: {
+    firstName: string;
+    lastName: string;
+    stateDistrict: string;
+  };
+  transactionDate: string | null;
+}) {
+  const effectiveDate = input.transactionDate ?? input.filingDate;
+  const state = input.filer.stateDistrict.slice(0, 2);
+  const district = input.filer.stateDistrict.slice(2);
+  const disclosedName = `${input.filer.firstName} ${input.filer.lastName}`
+    .replace(/\s+/gu, " ")
+    .trim()
+    .toLocaleLowerCase("en-US");
+  const matches = input.catalog.entries.filter((entry) =>
+    entry.state === state &&
+    entry.district === district &&
+    entry.officialName.toLocaleLowerCase("en-US") === disclosedName &&
+    entry.effectiveFrom <= effectiveDate &&
+    (entry.effectiveThrough === null || entry.effectiveThrough >= effectiveDate)
+  );
+  return matches.length === 1
+    ? { bioguideId: matches[0]!.bioguideId, state: "resolved" as const }
+    : { bioguideId: null, state: matches.length > 1 ? "ambiguous" as const : "unknown" as const };
+}
+
+function securityResolution(input: {
+  catalog: Extract<z.infer<typeof congressionalReferenceCatalogSchema>, { kind: "security_classifications" }>;
+  reportedTicker: string | null;
+}) {
+  const matches = input.reportedTicker === null
+    ? []
+    : input.catalog.entries.filter((entry) => entry.reportedTicker === input.reportedTicker);
+  return matches.length === 1
+    ? {
+        canonicalSecurityId: matches[0]!.canonicalSecurityId,
+        classification: matches[0]!.classification,
+        industryId: matches[0]!.industryId,
+        state: "resolved" as const,
+      }
+    : {
+        canonicalSecurityId: null,
+        classification: "unknown" as const,
+        industryId: null,
+        state: matches.length > 1 ? "ambiguous" as const : "unknown" as const,
+      };
+}
+
 export function normalizeProjectedHouseTransaction(input: {
   readonly catalogs: {
     readonly member: z.infer<typeof congressionalReferenceCatalogSchema>;
@@ -383,6 +465,7 @@ export function normalizeProjectedHouseTransaction(input: {
   readonly packBinding: z.infer<typeof packBindingSchema>;
   readonly policy: z.infer<typeof congressionalPolicySchema>;
   readonly processingMode: "baseline" | "live";
+  readonly selectedMemberBioguideIds?: readonly string[];
   readonly transaction: AuthorizedPublicSourceProjection;
 }): z.infer<typeof houseStrategyTransactionSchema> {
   const filing = input.filing.fact.payload;
@@ -403,10 +486,30 @@ export function normalizeProjectedHouseTransaction(input: {
   const disclosureLagDays = transaction.transactionDate === null
     ? null
     : calendarDayDifference(transaction.transactionDate, filing.filingDate);
+  const resolvedMember = memberResolution({
+    catalog: input.catalogs.member,
+    filingDate: filing.filingDate,
+    filer: filing.filer,
+    transactionDate: transaction.transactionDate,
+  });
+  const resolvedSecurity = securityResolution({
+    catalog: input.catalogs.security,
+    reportedTicker: transaction.reportedTicker,
+  });
   const reasons: (typeof CONGRESSIONAL_SIGNAL_REASON_CODES)[number][] = [];
   if (input.processingMode === "baseline") reasons.push("baseline");
   if (input.transaction.fact.extraction.state !== "complete") reasons.push("unsupported_source");
-  reasons.push("unresolved_member", "unresolved_security");
+  if (resolvedMember.state !== "resolved") reasons.push("unresolved_member");
+  if (resolvedSecurity.state !== "resolved") reasons.push("unresolved_security");
+  if (
+    resolvedMember.bioguideId !== null &&
+    (input.selectedMemberBioguideIds?.length ?? 0) > 0 &&
+    !input.selectedMemberBioguideIds!.includes(resolvedMember.bioguideId)
+  ) {
+    reasons.push("member_not_selected");
+  }
+  if (resolvedSecurity.classification === "broad_fund") reasons.push("broad_fund");
+  if (resolvedSecurity.classification === "non_security_asset") reasons.push("non_security_asset");
   if (transaction.transactionType !== "P" && transaction.transactionType !== "S") {
     reasons.push("unclassified_direction");
   }
@@ -440,7 +543,7 @@ export function normalizeProjectedHouseTransaction(input: {
     eligibility,
     filingDate: filing.filingDate,
     lineage: { correctionId: null, priorRevisionId: null, retractionId: null, state: "active" },
-    memberResolution: { bioguideId: null, state: "unknown" },
+    memberResolution: resolvedMember,
     notificationDate: transaction.notificationDate,
     observedAt: input.observedAt,
     owner: {
@@ -456,12 +559,7 @@ export function normalizeProjectedHouseTransaction(input: {
     processingMode: input.processingMode,
     recordType: "house_strategy_transaction",
     schemaVersion: 1,
-    securityResolution: {
-      canonicalSecurityId: null,
-      classification: "unknown",
-      industryId: null,
-      state: "unknown",
-    },
+    securityResolution: resolvedSecurity,
     source: {
       authority: input.transaction.fact.provenance.authority,
       factLogicalKey: input.transaction.fact.logicalKey,
