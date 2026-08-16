@@ -1,7 +1,7 @@
 # Spec 4 implementation prompt
 
-Use this prompt in a fresh Codex task after the completed Spec 3 branch and this
-Spec 4 preparation commit have been merged into local `main`.
+Use this prompt in a fresh Codex task attached to the existing clean Spec 3
+worktree. It starts Spec 4 without creating another worktree.
 
 ---
 
@@ -11,18 +11,21 @@ its final exit gate.
 
 ## Start here
 
-- Create the one temporary worktree `/private/tmp/adaam-spec-04` on a new branch
-  `codex/spec-04` from current local `main`.
-- Before changing files, verify that `main` contains Spec 3 implementation commit
-  `9b6e01f` and Spec 4 preparation commit `2ebd9aa`. Stop if either is absent.
+- Worktree: `/private/tmp/adaam-spec-03`
+- Expected starting branch: `codex/spec-03`
+- Required ancestry: Spec 4 preparation commit
+  `214d2d0e9fb215b0eae9751c17908b2689d7af2d`
+- Verify that the worktree is clean and contains that commit, then create and
+  switch this existing worktree to `codex/spec-04` from its current HEAD. Do not
+  create another worktree.
 - Specs 1–2 are production-complete. Spec 3's implementation and read-only source
   smoke are complete at `9b6e01f`; its production acquisition flags remain off.
   Earlier deferred hardening is nonblocking and must not be pulled into Spec 4
   unless a measured Spec 4 gate makes a focused dependency fix necessary.
 - Production public-source dispatch and Photon workspace-alert flags remain
   intentionally off. Do not change them without explicit owner authorization.
-- After that setup, do not create another branch, worktree, or implementation
-  plan.
+- After that one branch creation, do not create another branch, worktree, or
+  implementation plan.
 
 Read `AGENTS.md`, `HANDOFF.md`, `NORTH_STAR.md`, and the complete Spec 4 once.
 Read only the relevant sections of Specs 1–3 and current code needed for the
