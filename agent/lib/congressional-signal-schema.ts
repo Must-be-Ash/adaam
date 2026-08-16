@@ -71,6 +71,7 @@ export const congressionalPolicySchema = z.object({
     z.ZodLiteral<(typeof CONGRESSIONAL_SIGNAL_BANDS)[0]>,
     ...z.ZodLiteral<(typeof CONGRESSIONAL_SIGNAL_BANDS)[number]>[],
   ]),
+  catalogMaximumAgeDays: z.literal(90).optional(),
   coverage: z.literal("house_only"),
   defaultAlertThreshold: z.literal("priority"),
   eligibleTransactionTypes: z.tuple([z.literal("P"), z.literal("S")]),
@@ -78,7 +79,7 @@ export const congressionalPolicySchema = z.object({
   maximumDisclosureLagDays: z.literal(45),
   policyDigest: digestSchema,
   policyId: z.literal("congressional-signals-policy"),
-  policyVersion: z.literal("1.0.0"),
+  policyVersion: z.enum(["1.0.0", "1.1.0"]),
   reasonCodes: z.tuple(CONGRESSIONAL_SIGNAL_REASON_CODES.map((code) => z.literal(code)) as [
     z.ZodLiteral<(typeof CONGRESSIONAL_SIGNAL_REASON_CODES)[0]>,
     ...z.ZodLiteral<(typeof CONGRESSIONAL_SIGNAL_REASON_CODES)[number]>[],
@@ -89,7 +90,8 @@ export const congressionalPolicySchema = z.object({
 }).strict().superRefine((policy, context) => {
   if (
     policy.policyDigest !== congressionalSignalContractDigest(withoutField(policy, "policyDigest")) ||
-    !sortedUnique(policy.reasonCodes)
+    !sortedUnique(policy.reasonCodes) ||
+    (policy.policyVersion === "1.1.0") !== (policy.catalogMaximumAgeDays === 90)
   ) {
     context.addIssue({ code: "custom", message: "congressional_policy_invalid" });
   }
@@ -123,6 +125,31 @@ const securityClassificationEntrySchema = z.object({
   sourceUrl: z.string().url().refine((value) => value.startsWith("https://")),
 }).strict();
 
+const committeeAssignmentEntrySchema = z.object({
+  assignmentId: identifierSchema,
+  bioguideId: z.string().regex(/^[A-Z]\d{6}$/u),
+  committeeId: identifierSchema,
+  effectiveFrom: dateSchema,
+  effectiveThrough: dateSchema.nullable(),
+  provenanceUrl: z.string().url().refine((value) => value.startsWith("https://")),
+  subcommitteeId: identifierSchema.nullable(),
+}).strict();
+
+const committeeJurisdictionEntrySchema = z.object({
+  committeeId: identifierSchema,
+  effectiveFrom: dateSchema,
+  effectiveThrough: dateSchema.nullable(),
+  industryId: identifierSchema.nullable(),
+  jurisdictionId: identifierSchema,
+  provenanceUrl: z.string().url().refine((value) => value.startsWith("https://")),
+  relevance: z.enum(["broad", "no", "yes"]),
+  subcommitteeId: identifierSchema.nullable(),
+}).strict().superRefine((entry, context) => {
+  if ((entry.relevance === "broad") !== (entry.industryId === null)) {
+    context.addIssue({ code: "custom", message: "congressional_jurisdiction_invalid" });
+  }
+});
+
 export const congressionalReferenceCatalogSchema = z.discriminatedUnion("kind", [
   z.object({
     ...catalogBase,
@@ -134,11 +161,30 @@ export const congressionalReferenceCatalogSchema = z.discriminatedUnion("kind", 
     entries: z.array(securityClassificationEntrySchema).max(256),
     kind: z.literal("security_classifications"),
   }).strict(),
+  z.object({
+    ...catalogBase,
+    entries: z.array(committeeAssignmentEntrySchema).max(2_000),
+    kind: z.literal("committee_assignments"),
+    reviewedAt: dateSchema,
+  }).strict(),
+  z.object({
+    ...catalogBase,
+    entries: z.array(committeeJurisdictionEntrySchema).max(256),
+    kind: z.literal("committee_jurisdictions"),
+    reviewedAt: dateSchema,
+  }).strict(),
 ]).superRefine((catalog, context) => {
   const core = withoutField(catalog, "catalogDigest");
-  const entryIds = catalog.kind === "house_members"
-    ? catalog.entries.map((entry) => `${entry.bioguideId}:${entry.effectiveFrom}`)
-    : catalog.entries.map((entry) => entry.reportedTicker);
+  let entryIds: string[];
+  if (catalog.kind === "house_members") {
+    entryIds = catalog.entries.map((entry) => `${entry.bioguideId}:${entry.effectiveFrom}`);
+  } else if (catalog.kind === "security_classifications") {
+    entryIds = catalog.entries.map((entry) => `${entry.reportedTicker}:${entry.canonicalSecurityId}`);
+  } else if (catalog.kind === "committee_assignments") {
+    entryIds = catalog.entries.map((entry) => entry.assignmentId);
+  } else {
+    entryIds = catalog.entries.map((entry) => entry.jurisdictionId);
+  }
   if (
     catalog.catalogDigest !== congressionalSignalContractDigest(core) ||
     !sortedUnique(entryIds)
@@ -174,13 +220,13 @@ const packBindingSchema = z.object({
   bindingRevision: z.number().int().positive(),
   packContentDigest: digestSchema,
   packId: z.literal("congressional-signals"),
-  packVersion: z.literal("1.0.0"),
+  packVersion: z.enum(["1.0.0", "1.1.0"]),
 }).strict();
 
 const policyReferenceSchema = z.object({
   policyDigest: digestSchema,
   policyId: z.literal("congressional-signals-policy"),
-  policyVersion: z.literal("1.0.0"),
+  policyVersion: z.enum(["1.0.0", "1.1.0"]),
 }).strict();
 
 const catalogReferenceSchema = z.object({
@@ -213,6 +259,8 @@ const houseStrategyTransactionCoreSchema = z.object({
     reportedTicker: z.string().regex(/^[A-Z0-9.-]{1,20}$/u).nullable(),
   }).strict(),
   catalogReferences: z.object({
+    committeeAssignments: catalogReferenceSchema,
+    committeeJurisdictions: catalogReferenceSchema,
     member: catalogReferenceSchema,
     security: catalogReferenceSchema,
   }).strict(),
@@ -317,6 +365,8 @@ const filingSignalCoreSchema = z.object({
   alertEligible: z.boolean(),
   band: bandSchema,
   catalogReferences: z.object({
+    committeeAssignments: catalogReferenceSchema,
+    committeeJurisdictions: catalogReferenceSchema,
     member: catalogReferenceSchema,
     security: catalogReferenceSchema,
   }).strict(),
@@ -335,14 +385,23 @@ const filingSignalCoreSchema = z.object({
   signalId: identifierSchema,
   transactionEvaluations: z.array(z.object({
     band: bandSchema,
+    committeeResolution: z.object({
+      assignmentIds: z.array(identifierSchema).max(32),
+      jurisdictionIds: z.array(identifierSchema).max(32),
+      state: z.enum(["ambiguous", "no", "stale", "unknown", "yes"]),
+    }).strict(),
     evidence: z.array(z.object({
       reasonCode: z.enum(CONGRESSIONAL_SIGNAL_EVIDENCE_REASON_CODES),
+      sourceRecordIds: z.array(identifierSchema).max(32),
       state: z.enum(["applied", "not_applicable", "unavailable"]),
-    }).strict()).length(6),
+    }).strict().superRefine((evidence, context) => {
+      if (!sortedUnique(evidence.sourceRecordIds)) {
+        context.addIssue({ code: "custom", message: "congressional_evidence_invalid" });
+      }
+    })).length(6),
     reasonCodes: z.array(reasonCodeSchema).min(1).max(CONGRESSIONAL_SIGNAL_REASON_CODES.length),
     transactionRevisionId: identifierSchema,
   }).strict()).min(1).max(500),
-  transactionRevisionIds: z.array(identifierSchema).min(1).max(500),
   workspaceId: z.string().uuid(),
 }).strict();
 
@@ -373,9 +432,8 @@ export const congressionalFilingSignalSchema = filingSignalCoreSchema.extend({
       core as z.input<typeof filingSignalCoreSchema>,
     ) ||
     signal.signalId !== deriveCongressionalSignalId(signal) ||
-    !sortedUnique(signal.transactionRevisionIds) ||
-    JSON.stringify(signal.transactionEvaluations.map(({ transactionRevisionId }) =>
-      transactionRevisionId)) !== JSON.stringify(signal.transactionRevisionIds) ||
+    !sortedUnique(signal.transactionEvaluations.map(({ transactionRevisionId }) =>
+      transactionRevisionId)) ||
     signal.transactionEvaluations.some((evaluation) => !sortedUnique(evaluation.reasonCodes)) ||
     (signal.band === "record_only" && signal.alertEligible)
   ) {
@@ -404,7 +462,7 @@ function calendarDayDifference(from: string, through: string): number | null {
   return Number.isFinite(difference) ? difference / 86_400_000 : null;
 }
 
-function memberResolution(input: {
+export function resolveCongressionalMember(input: {
   catalog: Extract<z.infer<typeof congressionalReferenceCatalogSchema>, { kind: "house_members" }>;
   filingDate: string;
   filer: {
@@ -433,7 +491,7 @@ function memberResolution(input: {
     : { bioguideId: null, state: matches.length > 1 ? "ambiguous" as const : "unknown" as const };
 }
 
-function securityResolution(input: {
+export function resolveCongressionalSecurity(input: {
   catalog: Extract<z.infer<typeof congressionalReferenceCatalogSchema>, { kind: "security_classifications" }>;
   reportedTicker: string | null;
 }) {
@@ -457,6 +515,8 @@ function securityResolution(input: {
 
 export function normalizeProjectedHouseTransaction(input: {
   readonly catalogs: {
+    readonly committeeAssignments: z.infer<typeof congressionalReferenceCatalogSchema>;
+    readonly committeeJurisdictions: z.infer<typeof congressionalReferenceCatalogSchema>;
     readonly member: z.infer<typeof congressionalReferenceCatalogSchema>;
     readonly security: z.infer<typeof congressionalReferenceCatalogSchema>;
   };
@@ -477,6 +537,8 @@ export function normalizeProjectedHouseTransaction(input: {
     input.filing.projection.subscriptionId !== input.transaction.projection.subscriptionId ||
     input.filing.fact.logicalKey !== transaction.filingLogicalKey ||
     input.filing.fact.sourceInstanceId !== input.transaction.fact.sourceInstanceId ||
+    input.catalogs.committeeAssignments.kind !== "committee_assignments" ||
+    input.catalogs.committeeJurisdictions.kind !== "committee_jurisdictions" ||
     input.catalogs.member.kind !== "house_members" ||
     input.catalogs.security.kind !== "security_classifications"
   ) {
@@ -486,13 +548,13 @@ export function normalizeProjectedHouseTransaction(input: {
   const disclosureLagDays = transaction.transactionDate === null
     ? null
     : calendarDayDifference(transaction.transactionDate, filing.filingDate);
-  const resolvedMember = memberResolution({
+  const resolvedMember = resolveCongressionalMember({
     catalog: input.catalogs.member,
     filingDate: filing.filingDate,
     filer: filing.filer,
     transactionDate: transaction.transactionDate,
   });
-  const resolvedSecurity = securityResolution({
+  const resolvedSecurity = resolveCongressionalSecurity({
     catalog: input.catalogs.security,
     reportedTicker: transaction.reportedTicker,
   });
@@ -534,6 +596,8 @@ export function normalizeProjectedHouseTransaction(input: {
       reportedTicker: transaction.reportedTicker,
     },
     catalogReferences: {
+      committeeAssignments: catalogReference(input.catalogs.committeeAssignments),
+      committeeJurisdictions: catalogReference(input.catalogs.committeeJurisdictions),
       member: catalogReference(input.catalogs.member),
       security: catalogReference(input.catalogs.security),
     },

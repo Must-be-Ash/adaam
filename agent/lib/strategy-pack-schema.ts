@@ -301,6 +301,15 @@ export const strategyPackManifestSchema = z
     configuration: z.array(strategyPackConfigurationFieldSchema).max(16),
     description: z.string().trim().min(1).max(500),
     displayName: z.string().trim().min(1).max(120),
+    evidenceContracts: z.array(z.object({
+      digest: digestSchema,
+      id: stableIdSchema,
+      version: semverSchema,
+    }).strict()).max(16).superRefine((contracts, context) => {
+      if (!sortedUnique(contracts.map(({ id }) => id))) {
+        context.addIssue({ code: "custom", message: "strategy_pack_evidence_contract_duplicate" });
+      }
+    }).optional(),
     evaluationsPath: relativePathSchema,
     id: packIdSchema,
     maturity: z.enum(["deprecated", "experimental", "reference", "stable"]),

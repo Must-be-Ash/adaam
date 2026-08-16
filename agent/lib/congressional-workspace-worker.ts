@@ -2,11 +2,15 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 
 import {
-  CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1,
-  CONGRESSIONAL_POLICY_V1,
-  CONGRESSIONAL_SECURITY_CATALOG_V1,
+  CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+  CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
+  CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_1,
+  CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_1,
+  CONGRESSIONAL_POLICY_V1_1,
+  CONGRESSIONAL_SECURITY_CATALOG_V1_1,
 } from "./congressional-reference-catalog";
 import { congressionalSignalsExecutionEnabled } from "./congressional-signal-flags";
+import { strategyPackCatalog } from "./strategy-pack-catalog";
 import { persistCongressionalFilingEvaluation, type CongressionalSignalStoreClient } from "./congressional-signal-store";
 import { evaluateCongressionalFiling, type CongressionalFilingEvaluation } from "./congressional-strategy";
 import type { HousePublicSourceBinaryResponse } from "./house-public-source-adapter";
@@ -89,7 +93,7 @@ function assertMonitor(
     monitor.lifecycleState !== "enabled" ||
     monitor.configurationRevision !== envelope.configurationRevision ||
     monitor.managedBy?.packId !== "congressional-signals" ||
-    monitor.managedBy.packVersion !== "1.0.0" ||
+    monitor.managedBy.packVersion !== "1.1.0" ||
     monitor.sources.length !== 1 ||
     monitor.sources[0]?.accessClassification !== "public" ||
     monitor.sources[0].canonicalUrl !== HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL ||
@@ -215,8 +219,19 @@ export async function evaluateCongressionalSignalsForWorker(input: {
   if (
     strategy?.schemaVersion !== 2 ||
     strategy.value.pack?.id !== "congressional-signals" ||
-    strategy.value.pack.version !== "1.0.0" ||
+    strategy.value.pack.version !== "1.1.0" ||
     strategy.value.pack.contentDigest !== managedBy.packContentDigest
+  ) {
+    throw new CongressionalWorkspaceWorkerError("congressional_strategy_invalid");
+  }
+  const pack = strategyPackCatalog.resolve({
+    contentDigest: managedBy.packContentDigest,
+    id: "congressional-signals",
+    version: "1.1.0",
+  });
+  if (
+    !pack ||
+    JSON.stringify(pack.evidenceContracts) !== JSON.stringify(CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_1)
   ) {
     throw new CongressionalWorkspaceWorkerError("congressional_strategy_invalid");
   }
@@ -280,19 +295,21 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     bindingRevision: managedBy.bindingRevision,
     packContentDigest: managedBy.packContentDigest,
     packId: "congressional-signals" as const,
-    packVersion: "1.0.0" as const,
+    packVersion: "1.1.0" as const,
   };
   const evaluations = groupProjections(coordinated.projection.projections).map((group) =>
     evaluateCongressionalFiling({
       catalogs: {
-        member: CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1,
-        security: CONGRESSIONAL_SECURITY_CATALOG_V1,
+        committeeAssignments: CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+        committeeJurisdictions: CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
+        member: CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_1,
+        security: CONGRESSIONAL_SECURITY_CATALOG_V1_1,
       },
       filing: group.filing,
       minimumAlertBand,
       observedAt,
       packBinding,
-      policy: CONGRESSIONAL_POLICY_V1,
+      policy: CONGRESSIONAL_POLICY_V1_1,
       processingMode: initialBaseline ? "baseline" : "live",
       selectedMemberBioguideIds,
       transactions: group.transactions,

@@ -1,6 +1,6 @@
 # Spec 4: Congressional Signals v1 — House disclosures
 
-Status: Sprint 1 checklist complete; official-priority exit evidence unavailable; awaiting owner direction
+Status: Sprint 2 checklist complete; awaiting owner direction
 
 Date: 2026-08-16
 
@@ -12,7 +12,8 @@ Dependencies:
 - `specs/02-versioned-strategy-packs.md`
 - `specs/03-public-source-adapters.md`
 
-Pack target: `congressional-signals@1.0.0`
+Pack targets: foundational `congressional-signals@1.0.0`; committee-evidence revision
+`congressional-signals@1.1.0`
 
 ## Objective
 
@@ -434,18 +435,27 @@ real filing or weakening the policy.
 
 ### Sprint 2 — add official member and committee evidence
 
-- [ ] Add the bounded official House roster and effective-dated committee
+- [x] Add the bounded official House roster and effective-dated committee
   assignment catalogs with primary-source provenance, immutable versions, and
   digests.
-- [ ] Add reviewed committee-jurisdiction and limited security-industry mappings;
+- [x] Add reviewed committee-jurisdiction and limited security-industry mappings;
   keep everything else explicitly unresolved.
-- [ ] Resolve committee relevance on the transaction date and add its evidence
+- [x] Resolve committee relevance on the transaction date and add its evidence
   trace to the ordinal band policy.
-- [ ] Prove former/changing assignments, ambiguous member/security mappings,
+- [x] Prove former/changing assignments, ambiguous member/security mappings,
   broad jurisdictions, stale catalogs, and same-version/different-digest failure.
 
 Exit: official effective-dated evidence can raise a band without subjective
 member tiers, unsupported mappings, or mutable catalog content.
+
+Completion evidence: the immutable `1.0.0` pack and its original catalog/policy
+identities remain unchanged. `1.1.0` pins the reviewed policy plus member,
+security, assignment, and jurisdiction digests. The deterministic Sprint 2
+fixture proves that an exact transaction-date assignment and narrow industry
+rule raise a material, non-timely transaction from `review` to `priority`, while
+former/replaced assignments, broad language, ambiguity, and catalogs older than
+90 calendar days cannot apply committee evidence. No live source read or alert
+delivery was performed in this sprint.
 
 ### Sprint 3 — add history, clusters, and corrections
 

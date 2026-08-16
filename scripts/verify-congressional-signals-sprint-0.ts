@@ -4,6 +4,11 @@ import { readFile } from "node:fs/promises";
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 
 import {
+  CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+  CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
+} from "../agent/lib/congressional-reference-catalog";
+
+import {
   assertImmutableCongressionalCatalog,
   congressionalFilingSignalSchema,
   congressionalPolicySchema,
@@ -162,6 +167,8 @@ const transactionProjection = projection.projections.find(
 )!;
 const normalized = normalizeProjectedHouseTransaction({
   catalogs: {
+    committeeAssignments: CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+    committeeJurisdictions: CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
     member: catalogs.find((catalog) => catalog.kind === "house_members")!,
     security: catalogs.find((catalog) => catalog.kind === "security_classifications")!,
   },
@@ -214,17 +221,17 @@ const signalCore = {
   transactionEvaluations: [{
     band: "record_only" as const,
     evidence: [
-      { reasonCode: "committee_cluster" as const, state: "not_applicable" as const },
-      { reasonCode: "committee_relevant" as const, state: "not_applicable" as const },
-      { reasonCode: "material_range" as const, state: "not_applicable" as const },
-      { reasonCode: "pattern_break" as const, state: "not_applicable" as const },
-      { reasonCode: "same_member_cluster" as const, state: "not_applicable" as const },
-      { reasonCode: "timely" as const, state: "not_applicable" as const },
+      { reasonCode: "committee_cluster" as const, sourceRecordIds: [normalized.transactionRevisionId], state: "not_applicable" as const },
+      { reasonCode: "committee_relevant" as const, sourceRecordIds: [normalized.transactionRevisionId], state: "not_applicable" as const },
+      { reasonCode: "material_range" as const, sourceRecordIds: [normalized.transactionRevisionId], state: "not_applicable" as const },
+      { reasonCode: "pattern_break" as const, sourceRecordIds: [normalized.transactionRevisionId], state: "not_applicable" as const },
+      { reasonCode: "same_member_cluster" as const, sourceRecordIds: [normalized.transactionRevisionId], state: "not_applicable" as const },
+      { reasonCode: "timely" as const, sourceRecordIds: [normalized.transactionRevisionId], state: "not_applicable" as const },
     ],
+    committeeResolution: { assignmentIds: [], jurisdictionIds: [], state: "unknown" as const },
     reasonCodes: normalized.eligibility.reasonCodes,
     transactionRevisionId: normalized.transactionRevisionId,
   }],
-  transactionRevisionIds: [normalized.transactionRevisionId],
   workspaceId,
 };
 const signal = congressionalFilingSignalSchema.parse({

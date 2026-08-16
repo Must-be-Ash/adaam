@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 
 import {
+  CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+  CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
   CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1,
   CONGRESSIONAL_POLICY_V1,
   CONGRESSIONAL_SECURITY_CATALOG_V1,
@@ -171,6 +173,8 @@ assert.equal(transactions.length, 2);
 
 const review = evaluateCongressionalFiling({
   catalogs: {
+    committeeAssignments: CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+    committeeJurisdictions: CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
     member: CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1,
     security: CONGRESSIONAL_SECURITY_CATALOG_V1,
   },
@@ -213,6 +217,8 @@ assert.deepEqual(
 
 const baseline = evaluateCongressionalFiling({
   catalogs: {
+    committeeAssignments: CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+    committeeJurisdictions: CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
     member: CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1,
     security: CONGRESSIONAL_SECURITY_CATALOG_V1,
   },
@@ -244,7 +250,10 @@ const material = houseStrategyTransactionSchema.parse({
   transactionRevisionId: deriveHouseStrategyTransactionRevisionId(materialCore),
 });
 assert.equal(
-  evaluateCongressionalTransaction(material, CONGRESSIONAL_POLICY_V1).band,
+  evaluateCongressionalTransaction(material, CONGRESSIONAL_POLICY_V1, {
+    committeeAssignments: CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+    committeeJurisdictions: CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
+  }).band,
   "priority",
 );
 
@@ -262,21 +271,38 @@ const stale = reviseTransaction({
   disclosureLagDays: 46,
   eligibility: { reasonCodes: ["stale_disclosure"], state: "record_only" },
 });
-assert.equal(evaluateCongressionalTransaction(stale, CONGRESSIONAL_POLICY_V1).band, "record_only");
-assert.ok(evaluateCongressionalTransaction(stale, CONGRESSIONAL_POLICY_V1).reasonCodes.includes("stale_disclosure"));
+assert.equal(evaluateCongressionalTransaction(stale, CONGRESSIONAL_POLICY_V1, {
+  committeeAssignments: CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+  committeeJurisdictions: CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
+}).band, "record_only");
+assert.ok(evaluateCongressionalTransaction(stale, CONGRESSIONAL_POLICY_V1, {
+  committeeAssignments: CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+  committeeJurisdictions: CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
+}).reasonCodes.includes("stale_disclosure"));
 const broadFund = reviseTransaction({
   eligibility: { reasonCodes: ["broad_fund"], state: "record_only" },
   securityResolution: { ...first.securityResolution, classification: "broad_fund" },
 });
-assert.equal(evaluateCongressionalTransaction(broadFund, CONGRESSIONAL_POLICY_V1).band, "record_only");
-assert.ok(evaluateCongressionalTransaction(broadFund, CONGRESSIONAL_POLICY_V1).reasonCodes.includes("broad_fund"));
+assert.equal(evaluateCongressionalTransaction(broadFund, CONGRESSIONAL_POLICY_V1, {
+  committeeAssignments: CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+  committeeJurisdictions: CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
+}).band, "record_only");
+assert.ok(evaluateCongressionalTransaction(broadFund, CONGRESSIONAL_POLICY_V1, {
+  committeeAssignments: CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+  committeeJurisdictions: CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
+}).reasonCodes.includes("broad_fund"));
 const unresolved = review.transactions.find(({ securityResolution }) =>
   securityResolution.state === "unknown")!;
-assert.equal(evaluateCongressionalTransaction(unresolved, CONGRESSIONAL_POLICY_V1).band, "record_only");
+assert.equal(evaluateCongressionalTransaction(unresolved, CONGRESSIONAL_POLICY_V1, {
+  committeeAssignments: CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+  committeeJurisdictions: CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
+}).band, "record_only");
 assert.ok(unresolved.eligibility.reasonCodes.includes("unresolved_security"));
 
 const unselected = evaluateCongressionalFiling({
   catalogs: {
+    committeeAssignments: CONGRESSIONAL_COMMITTEE_ASSIGNMENT_CATALOG_V1,
+    committeeJurisdictions: CONGRESSIONAL_COMMITTEE_JURISDICTION_CATALOG_V1,
     member: CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1,
     security: CONGRESSIONAL_SECURITY_CATALOG_V1,
   },

@@ -148,7 +148,10 @@ export async function persistCongressionalFilingEvaluation(
   assertScopedRecord(input.scope, input.evaluation.signal);
   if (
     JSON.stringify(input.evaluation.transactions.map(({ transactionRevisionId }) =>
-      transactionRevisionId)) !== JSON.stringify(input.evaluation.signal.transactionRevisionIds)
+      transactionRevisionId)) !== JSON.stringify(
+      input.evaluation.signal.transactionEvaluations.map(({ transactionRevisionId }) =>
+        transactionRevisionId),
+    )
   ) {
     throw new CongressionalSignalStoreError("congressional_record_conflict");
   }
