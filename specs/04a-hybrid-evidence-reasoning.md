@@ -1,6 +1,6 @@
 # Spec 4A: Hybrid evidence and reasoning foundation
 
-Status: Planned; next implementation target after completed Spec 4
+Status: In progress; Sprint 0 complete, Sprint 1 next
 
 Date: 2026-08-16
 
@@ -508,16 +508,20 @@ accepted evidence and quarantine history but prevents new model jobs.
 
 ### Sprint 0 — freeze contracts and red fixtures
 
-- [ ] Define the two lanes, evidence artifact/locator, immutable job definition,
+- [x] Define the two lanes, evidence artifact/locator, immutable job definition,
   job lifecycle/abstention, accepted-result envelope, promotion/invalidation
   lineage, and fixed error/event catalogs as bounded schemas.
-- [ ] Register the parent/child flag matrix and prove all-off preserves existing
+- [x] Register the parent/child flag matrix and prove all-off preserves existing
   Spec 3 and Spec 4 behavior without model calls.
-- [ ] Add a versioned corpus of at least 12 cases across PDF, spreadsheet, and
+- [x] Add a versioned corpus of at least 12 cases across PDF, spreadsheet, and
   semantic evidence with expected accepted, abstained, quarantined, false-
   success-layout, hostile-document, and prompt-injection outcomes.
-- [ ] Add deterministic mock-model harnesses that fail at the missing production
+- [x] Add deterministic mock-model harnesses that fail at the missing production
   seams before implementation.
+
+Local evidence: the 16-case Sprint 0 contract gate, public-source runtime and
+Congressional Signals focused regressions, TypeScript, and the Eve build pass;
+the artifact store, job store, and worker runtime remain executable red seams.
 
 Exit: contracts and expected behavior are executable, while no production model
 or source path has changed.
