@@ -597,7 +597,8 @@ The staged production rollout and rollback were:
 | one Photon alert | `dpl_4TkRx7rXCVWJpASfQ7XZp8Egd2zn` | one delivered receipt and successful Discuss routing above |
 | alert rollback | `dpl_CRB5zgJHrEixpALxK1A8i4TKoPDL` | repeated delivery returned 409 `acceptance_alert_flag_off` |
 | full execution rollback | `dpl_GB3iMcUf9U9YgXEiqnVJFMTXefwe` | execution, managed dispatch, workspace dispatch, and alerts all off; accepted workspace plus five preflight workspaces retired and archived |
-| final artifact | `dpl_7BaxMhGw5bmkEMYZ8dZqDmQxDQw3` | `/` and `/skill` 200, temporary route 404, bounded error logs empty, temporary authorization variables absent; the Linux Eve build traced `pdfjs-dist` and `@napi-rs/canvas` |
+| final acceptance artifact | `dpl_7BaxMhGw5bmkEMYZ8dZqDmQxDQw3` | `/` and `/skill` 200, temporary route 404, bounded error logs empty, temporary authorization variables absent; the Linux Eve build traced `pdfjs-dist` and `@napi-rs/canvas` |
+| first Git-backed main artifact | `dpl_2qXYJZvgzowi1gYf38Wn1noXTgGx` | PR #6 merged as `18e7c78487287b6c31b4f2dc486f31447dd02acc`; Vercel reported Ready, `/` and `/skill` returned 200, the removed route returned 404, and bounded error logs were empty |
 
 The final production values are exactly `1` for public-source acquisition and
 projections, SEC and House adapters, strategy-pack catalog/mutations/runtime,
