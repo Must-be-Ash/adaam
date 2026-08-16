@@ -395,6 +395,7 @@ export async function markWorkspaceSourceSuccess(
 
 export async function completeWorkspaceSourceCoverage(
   input: {
+    allowCheckpointBeforeWindow?: boolean;
     checkpoint?: { contentDigest: string; watermark: string };
     now?: Date;
     runId: string;
@@ -438,7 +439,8 @@ export async function completeWorkspaceSourceCoverage(
     });
     if (
       !checkpoint.success ||
-      Date.parse(checkpoint.data.watermark) < Date.parse(record.window.startAt) ||
+      (!input.allowCheckpointBeforeWindow &&
+        Date.parse(checkpoint.data.watermark) < Date.parse(record.window.startAt)) ||
       Date.parse(checkpoint.data.watermark) > Date.parse(record.window.endAt)
     ) {
       throw new WorkspaceSourceCoverageError("source_coverage_conflict");
