@@ -15,14 +15,23 @@ import {
 } from "../agent/lib/strategy-pack-catalog.ts";
 import { STRATEGY_PACK_CAPABILITY_INVENTORY } from "../agent/lib/strategy-pack-reference-catalog.ts";
 import {
+  requireWorkspaceWorkerStrategyPackRuntime,
+  StrategyPackRuntimeError,
+} from "../agent/lib/strategy-pack-runtime.ts";
+import {
   createStrategyPackWorkspace,
   createStrategyPackWorkspaceFromSelection,
+  configureStrategyPackWorkspaceFromSelection,
   deriveEveStrategyPackMutationIdentity,
   mintSpectrumStrategyPackMutationIdentity,
+  removeStrategyPackWorkspaceFromSelection,
   StrategyPackServiceError,
   verifySpectrumStrategyPackMutationIdentity,
 } from "../agent/lib/strategy-pack-service.ts";
-import { listWorkspaceMonitors } from "../agent/lib/workspace-monitor-store.ts";
+import {
+  listWorkspaceMonitors,
+  prepareWorkspaceMonitorCreate,
+} from "../agent/lib/workspace-monitor-store.ts";
 import { readWorkspaceDocument } from "../agent/lib/workspace-state-store.ts";
 import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization.ts";
 import { generateStrategyPackCatalog } from "./generate-strategy-pack-catalog.mjs";
@@ -149,6 +158,38 @@ class MemoryStore {
     this.due = due;
     return { receiptRaw: input.receiptRaw, status: "committed" };
   }
+
+  async commitLifecycle(input) {
+    if (this.failNextCommit) {
+      this.failNextCommit = false;
+      throw new Error("injected_transaction_failure");
+    }
+    const replay = await this.readReplay(input);
+    if (replay.status !== "missing") return replay;
+    if (
+      (this.values.get(input.registryKey) ?? null) !== input.expectedRegistryRaw ||
+      JSON.parse(input.expectedRegistryRaw).revision !== input.expectedRegistryRevision ||
+      this.values.has(input.receiptKey) ||
+      input.records.some(({ expectedRaw, key }) => this.values.get(key) !== expectedRaw) ||
+      input.monitors.some(({ expectedRaw, recordKey }) => this.values.get(recordKey) !== expectedRaw)
+    ) {
+      return { status: "conflict" };
+    }
+    const values = new Map(this.values);
+    const due = new Map(this.due);
+    values.set(input.registryKey, input.nextRegistryRaw);
+    for (const record of input.records) values.set(record.key, record.nextRaw);
+    for (const monitor of input.monitors) {
+      values.set(monitor.recordKey, monitor.nextRaw);
+      if (monitor.dueAtMs === null) due.delete(monitor.recordKey);
+      else due.set(monitor.recordKey, monitor.dueAtMs);
+    }
+    values.set(input.mappingKey, input.mappingRaw);
+    values.set(input.receiptKey, input.receiptRaw);
+    this.values = values;
+    this.due = due;
+    return { receiptRaw: input.receiptRaw, status: "committed" };
+  }
 }
 
 const environment = {
@@ -156,8 +197,11 @@ const environment = {
   EVE_OWNER_ALIAS_HMAC_SECRET: "A".repeat(43),
   EVE_PHOTON_OWNER_PRINCIPALS: "imessage:fixture-owner",
   EVE_STRATEGY_PACK_CATALOG_ENABLED: "1",
+  EVE_STRATEGY_PACK_MANAGED_DISPATCH_ENABLED: "1",
   EVE_STRATEGY_PACK_MUTATIONS_ENABLED: "1",
+  EVE_STRATEGY_PACK_RUNTIME_ENABLED: "1",
   EVE_WORKSPACE_MONITOR_WRITES_ENABLED: "1",
+  EVE_WORKSPACE_DISPATCH_ENABLED: "1",
   EVE_WORKSPACE_STATE_ENABLED: "1",
 };
 const routing = {
@@ -212,6 +256,9 @@ try {
       let value = 0;
       return () => `${++value}23e4567-e89b-42d3-a456-426614174000`;
     })(),
+    monitorClient: client,
+    observationSink() {},
+    stateClient: client,
     transactionClient: client,
     workspaceClient: client,
   };
@@ -502,15 +549,31 @@ try {
   const duplicateIdentity = verifySpectrumStrategyPackMutationIdentity(
     mintSpectrumStrategyPackMutationIdentity({
       actionId: "action_duplicate",
+      expectedRegistryRevision: 2,
       issuedAt: new Date("2026-08-15T17:03:00.000Z"),
       nonce: "nonce_duplicate_123456789",
+      principalId: routing.principalId,
+      sourceWorkspaceGeneration: 1,
+      sourceWorkspaceId: installOnly.receipt.targetWorkspaceId,
+      threadId: routing.threadId,
     }, spectrumSecret),
     spectrumSecret,
+    new Date("2026-08-15T17:03:01.000Z"),
   );
   await assert.rejects(
     async () => verifySpectrumStrategyPackMutationIdentity(
       { ...duplicateIdentity, signature: "0".repeat(64) },
       spectrumSecret,
+      new Date("2026-08-15T17:03:01.000Z"),
+    ),
+    (error) => error instanceof StrategyPackServiceError &&
+      error.code === "strategy_pack_invalid_request",
+  );
+  await assert.rejects(
+    async () => verifySpectrumStrategyPackMutationIdentity(
+      duplicateIdentity,
+      spectrumSecret,
+      new Date("2026-08-15T17:19:01.000Z"),
     ),
     (error) => error instanceof StrategyPackServiceError &&
       error.code === "strategy_pack_invalid_request",
@@ -546,6 +609,214 @@ try {
       },
     }, dependencies)).receipt,
     duplicate.receipt,
+  );
+
+  const ownerMonitor = prepareWorkspaceMonitorCreate({
+    deliverySubscriptionId: "owner-delivery",
+    instruction: "Owner-created monitor must survive pack lifecycle changes.",
+    name: "Owner monitor",
+    nextOccurrenceAt: null,
+    now: new Date("2026-08-15T17:04:00.000Z"),
+    schedule: { at: "2026-08-16T17:04:00.000Z", kind: "one_time" },
+    scope: targetScope,
+    sources: [{
+      accessClassification: "public",
+      canonicalUrl: "https://owner.example.test/events",
+      origin: "https://owner.example.test",
+      sourceId: "owner.source",
+    }],
+  });
+  client.values.set(ownerMonitor.recordKey, ownerMonitor.raw);
+  const ownerIndex = client.indexes.get(ownerMonitor.workspaceIndexKey) ?? new Set();
+  ownerIndex.add(ownerMonitor.recordKey);
+  client.indexes.set(ownerMonitor.workspaceIndexKey, ownerIndex);
+  const evidenceKeys = ["finding", "checkpoint", "alert", "audit"].map(
+    (kind) => `evidence:${kind}:${first.receipt.targetWorkspaceId}`,
+  );
+  for (const key of evidenceKeys) client.values.set(key, `preserved-${key}`);
+
+  const managedBeforeConfigure = (await listWorkspaceMonitors(targetScope, client))
+    .find((monitor) => monitor.managedBy);
+  const leasedSnapshot = {
+    ...strategy.value.pendingSnapshot,
+    resourceId: managedBeforeConfigure.managedBy.resourceId,
+  };
+  const managedRecordKey = [...client.indexes.values()]
+    .flatMap((members) => [...members])
+    .find((key) => key.endsWith(`:${managedBeforeConfigure.monitorId}`));
+  const exactManagedRaw = client.values.get(managedRecordKey);
+  const mismatchedManaged = JSON.parse(exactManagedRaw);
+  mismatchedManaged.managedBy.resourceId = "wrong-resource";
+  client.values.set(managedRecordKey, JSON.stringify(mismatchedManaged));
+  await assert.rejects(
+    configureStrategyPackWorkspaceFromSelection({
+      ...routing,
+      confirmedConsequences: true,
+      configuration: { dailyTimes: ["08:30"] },
+      expectedBindingRevision: 1,
+      expectedRegistryRevision: 2,
+      requestIdentity: deriveEveStrategyPackMutationIdentity({
+        ingressId: `ingress_${"6".repeat(64)}`,
+        operationOrdinal: 0,
+        stepId: "step_provenance_mismatch",
+        turnId: "turn_provenance_mismatch",
+      }),
+      sourceAssignment: { generation: 1, workspaceId: first.receipt.targetWorkspaceId },
+    }, dependencies),
+    (error) => error instanceof StrategyPackServiceError &&
+      error.code === "strategy_pack_unavailable",
+  );
+  client.values.set(managedRecordKey, exactManagedRaw);
+
+  const configureIdentity = deriveEveStrategyPackMutationIdentity({
+    ingressId: `ingress_${"7".repeat(64)}`,
+    operationOrdinal: 0,
+    stepId: "step_configure_alpha",
+    turnId: "turn_configure_alpha",
+  });
+  const configured = await configureStrategyPackWorkspaceFromSelection({
+    ...routing,
+    confirmedConsequences: true,
+    configuration: { dailyTimes: ["08:30"], timezone: "America/Vancouver" },
+    expectedBindingRevision: 1,
+    expectedRegistryRevision: 2,
+    now: new Date("2026-08-15T17:05:00.000Z"),
+    requestIdentity: configureIdentity,
+    sourceAssignment: { generation: 1, workspaceId: first.receipt.targetWorkspaceId },
+  }, dependencies);
+  assert.equal(configured.receipt.outcome, "configured");
+  assert.equal(configured.receipt.bindingRevision, 2);
+  const configuredState = await getPhotonWorkspaceState(routing, client);
+  const configuredWorkspace = configuredState.workspaces.find(
+    ({ id }) => id === first.receipt.targetWorkspaceId,
+  );
+  assert.equal(configuredState.revision, 3);
+  assert.equal(configuredWorkspace.generation, 2);
+  const configuredStrategy = await readWorkspaceDocument("strategy", targetScope, client);
+  assert.equal(configuredStrategy.value.bindingRevision, 2);
+  assert.equal(configuredStrategy.value.pendingSnapshot.workspaceGeneration, 2);
+  const configuredMonitors = await listWorkspaceMonitors(targetScope, client);
+  const configuredManaged = configuredMonitors.find((monitor) => monitor.managedBy);
+  assert.equal(configuredManaged.lifecycleState, "paused");
+  assert.equal(configuredManaged.pauseReason, "strategy_pack_configuration");
+  assert.equal(configuredManaged.managedBy.bindingRevision, 2);
+  assert.deepEqual(configuredManaged.schedule.times, ["08:30"]);
+  await assert.rejects(
+    requireWorkspaceWorkerStrategyPackRuntime({
+      catalog,
+      envelope: {
+        capabilityRevision: 1,
+        sources: managedBeforeConfigure.sources,
+        strategyPack: leasedSnapshot,
+      },
+      environment,
+      monitor: managedBeforeConfigure,
+      scope: targetScope,
+      stateClient: client,
+    }),
+    (error) => error instanceof StrategyPackRuntimeError &&
+      error.code === "strategy_pack_runtime_stale",
+  );
+  assert.equal(client.due.has(ownerMonitor.recordKey), false);
+  assert.deepEqual(
+    (await configureStrategyPackWorkspaceFromSelection({
+      ...routing,
+      confirmedConsequences: true,
+      configuration: { dailyTimes: ["08:30"], timezone: "America/Vancouver" },
+      expectedBindingRevision: 1,
+      expectedRegistryRevision: 2,
+      requestIdentity: configureIdentity,
+      sourceAssignment: { generation: 1, workspaceId: first.receipt.targetWorkspaceId },
+    }, dependencies)).receipt,
+    configured.receipt,
+  );
+  await assert.rejects(
+    configureStrategyPackWorkspaceFromSelection({
+      ...routing,
+      confirmedConsequences: true,
+      configuration: { dailyTimes: ["10:00"] },
+      expectedBindingRevision: 1,
+      expectedRegistryRevision: 2,
+      requestIdentity: configureIdentity,
+      sourceAssignment: { generation: 1, workspaceId: first.receipt.targetWorkspaceId },
+    }, dependencies),
+    (error) => error instanceof StrategyPackServiceError &&
+      error.code === "strategy_pack_mutation_payload_conflict",
+  );
+
+  const beforeLifecycleFailure = {
+    due: new Map(client.due),
+    indexes: new Map([...client.indexes].map(([key, value]) => [key, new Set(value)])),
+    values: new Map(client.values),
+  };
+  client.failNextCommit = true;
+  await assert.rejects(
+    removeStrategyPackWorkspaceFromSelection({
+      ...routing,
+      confirmedConsequences: true,
+      expectedBindingRevision: 2,
+      expectedRegistryRevision: 3,
+      requestIdentity: deriveEveStrategyPackMutationIdentity({
+        ingressId: `ingress_${"8".repeat(64)}`,
+        operationOrdinal: 0,
+        stepId: "step_remove_failure",
+        turnId: "turn_remove_failure",
+      }),
+      sourceAssignment: { generation: 2, workspaceId: first.receipt.targetWorkspaceId },
+    }, dependencies),
+    /injected_transaction_failure/u,
+  );
+  assert.deepEqual(client.values, beforeLifecycleFailure.values);
+  assert.deepEqual(client.indexes, beforeLifecycleFailure.indexes);
+  assert.deepEqual(client.due, beforeLifecycleFailure.due);
+
+  const removeIdentity = deriveEveStrategyPackMutationIdentity({
+    ingressId: `ingress_${"9".repeat(64)}`,
+    operationOrdinal: 0,
+    stepId: "step_remove_alpha",
+    turnId: "turn_remove_alpha",
+  });
+  const removed = await removeStrategyPackWorkspaceFromSelection({
+    ...routing,
+    confirmedConsequences: true,
+    expectedBindingRevision: 2,
+    expectedRegistryRevision: 3,
+    now: new Date("2026-08-15T17:06:00.000Z"),
+    requestIdentity: removeIdentity,
+    sourceAssignment: { generation: 2, workspaceId: first.receipt.targetWorkspaceId },
+  }, dependencies);
+  assert.equal(removed.receipt.outcome, "removed");
+  assert.equal(removed.receipt.bindingRevision, 3);
+  const removedState = await getPhotonWorkspaceState(routing, client);
+  assert.equal(removedState.revision, 4);
+  assert.equal(
+    removedState.workspaces.find(({ id }) => id === first.receipt.targetWorkspaceId).generation,
+    3,
+  );
+  const [removedStrategy, removedCapabilities, removedBrief] = await Promise.all([
+    readWorkspaceDocument("strategy", targetScope, client),
+    readWorkspaceDocument("capabilities", targetScope, client),
+    readWorkspaceDocument("brief", targetScope, client),
+  ]);
+  assert.equal(removedStrategy.value.lifecycleState, "unbound");
+  assert.equal(removedStrategy.value.lastActiveSnapshot.bindingRevision, 2);
+  assert.deepEqual(removedCapabilities.value.researchToolIds, []);
+  assert.deepEqual(removedCapabilities.value.sources, []);
+  assert.deepEqual(removedBrief.value.sourcePolicy.allowedSourceIds, []);
+  const removedMonitors = await listWorkspaceMonitors(targetScope, client);
+  assert.equal(removedMonitors.find((monitor) => monitor.managedBy).lifecycleState, "retired");
+  assert.equal(removedMonitors.find((monitor) => monitor.managedBy === null).name, "Owner monitor");
+  for (const key of evidenceKeys) assert.equal(client.values.get(key), `preserved-${key}`);
+  assert.deepEqual(
+    (await removeStrategyPackWorkspaceFromSelection({
+      ...routing,
+      confirmedConsequences: true,
+      expectedBindingRevision: 2,
+      expectedRegistryRevision: 3,
+      requestIdentity: removeIdentity,
+      sourceAssignment: { generation: 2, workspaceId: first.receipt.targetWorkspaceId },
+    }, dependencies)).receipt,
+    removed.receipt,
   );
 
   let state = await getPhotonWorkspaceState(routing, client);
@@ -599,6 +870,7 @@ try {
       ];
       return () => ids.shift() ?? "b23e4567-e89b-42d3-a456-426614174000";
     })(),
+    observationSink() {},
     transactionClient: ipoClient,
     workspaceClient: ipoClient,
   };

@@ -12,7 +12,7 @@ export const strategyPackMutationReceiptSchema = z
     createdAt: z.string().datetime({ offset: true }),
     monitorIds: z.array(z.string().uuid()).max(16),
     mutationId: digestSchema,
-    outcome: z.enum(["created", "rejected"]),
+    outcome: z.enum(["configured", "created", "rejected", "removed"]),
     payloadDigest: digestSchema,
     recordType: z.literal("strategy_pack_mutation_receipt"),
     registryRevision: z.number().int().positive().nullable(),
@@ -23,14 +23,14 @@ export const strategyPackMutationReceiptSchema = z
   })
   .strict()
   .superRefine((receipt, context) => {
-    const created = receipt.outcome === "created";
+    const succeeded = receipt.outcome !== "rejected";
     if (
-      (created &&
+      (succeeded &&
         (receipt.bindingRevision === null ||
           receipt.registryRevision === null ||
           receipt.rejectionCode !== null ||
           receipt.targetWorkspaceId === null)) ||
-      (!created &&
+      (!succeeded &&
         (receipt.bindingRevision !== null ||
           receipt.monitorIds.length > 0 ||
           receipt.registryRevision !== null ||
@@ -66,6 +66,30 @@ export interface StrategyPackCreateTransactionInput {
   readonly registryKey: string;
 }
 
+export interface StrategyPackLifecycleTransactionInput {
+  readonly approvalGuardKey: string;
+  readonly expectedRegistryRaw: string;
+  readonly expectedRegistryRevision: number;
+  readonly mappingKey: string;
+  readonly mappingRaw: string;
+  readonly monitors: readonly {
+    readonly dueAtMs: number | null;
+    readonly dueKey: string;
+    readonly expectedRaw: string;
+    readonly nextRaw: string;
+    readonly recordKey: string;
+  }[];
+  readonly nextRegistryRaw: string;
+  readonly receiptKey: string;
+  readonly receiptRaw: string;
+  readonly records: readonly {
+    readonly expectedRaw: string;
+    readonly key: string;
+    readonly nextRaw: string;
+  }[];
+  readonly registryKey: string;
+}
+
 export type StrategyPackReplayResult =
   | { readonly status: "blocked" | "corrupt" | "missing" | "payload_conflict" }
   | { readonly receiptRaw: string; readonly status: "replayed" };
@@ -77,9 +101,10 @@ export type StrategyPackCommitResult =
 
 export interface StrategyPackTransactionClient {
   commitCreate(input: StrategyPackCreateTransactionInput): Promise<StrategyPackCommitResult>;
+  commitLifecycle(input: StrategyPackLifecycleTransactionInput): Promise<StrategyPackCommitResult>;
   get(key: string): Promise<unknown>;
   readReplay(input: Pick<
-    StrategyPackCreateTransactionInput,
+    StrategyPackCreateTransactionInput | StrategyPackLifecycleTransactionInput,
     "approvalGuardKey" | "mappingKey" | "mappingRaw" | "receiptKey"
   >): Promise<StrategyPackReplayResult>;
 }
@@ -147,8 +172,66 @@ redis.call("SET", KEYS[3], ARGV[2])
 return "committed:" .. ARGV[2]
 `;
 
+const COMMIT_LIFECYCLE_SCRIPT = `
+if redis.call("EXISTS", KEYS[1]) == 1 then return "blocked" end
+local mapping = redis.call("GET", KEYS[2])
+if mapping then
+  if mapping ~= ARGV[1] then return "payload_conflict" end
+  local receipt = redis.call("GET", KEYS[3])
+  if not receipt then return "corrupt" end
+  return "replayed:" .. receipt
+end
+if redis.call("EXISTS", KEYS[3]) == 1 then return "conflict" end
+local registry = redis.call("GET", KEYS[4])
+if registry ~= ARGV[3] then return "conflict" end
+local ok, decoded = pcall(cjson.decode, registry)
+if not ok or tonumber(decoded.revision) ~= tonumber(ARGV[4]) then return "conflict" end
+local record_count = tonumber(ARGV[6])
+local monitor_count = tonumber(ARGV[7])
+local argument_offset = 7
+for index = 1, record_count do
+  if redis.call("GET", KEYS[4 + index]) ~= ARGV[argument_offset + ((index - 1) * 2) + 1] then
+    return "conflict"
+  end
+end
+local monitor_key_offset = 4 + record_count
+argument_offset = argument_offset + (record_count * 2)
+for index = 1, monitor_count do
+  local base = monitor_key_offset + ((index - 1) * 2)
+  if redis.call("GET", KEYS[base + 1]) ~= ARGV[argument_offset + ((index - 1) * 3) + 1] then
+    return "conflict"
+  end
+  local due_type = redis.call("TYPE", KEYS[base + 2])
+  local due_type_name = due_type["ok"] or due_type
+  if due_type_name ~= "none" and due_type_name ~= "zset" then return "conflict" end
+  local due = ARGV[argument_offset + ((index - 1) * 3) + 3]
+  if due ~= "" and tonumber(due) == nil then return "conflict" end
+end
+redis.call("SET", KEYS[4], ARGV[5])
+argument_offset = 7
+for index = 1, record_count do
+  redis.call("SET", KEYS[4 + index], ARGV[argument_offset + ((index - 1) * 2) + 2])
+end
+argument_offset = argument_offset + (record_count * 2)
+for index = 1, monitor_count do
+  local base = monitor_key_offset + ((index - 1) * 2)
+  local next_raw = ARGV[argument_offset + ((index - 1) * 3) + 2]
+  local due = ARGV[argument_offset + ((index - 1) * 3) + 3]
+  redis.call("SET", KEYS[base + 1], next_raw)
+  if due == "" then
+    redis.call("ZREM", KEYS[base + 2], KEYS[base + 1])
+  else
+    redis.call("ZADD", KEYS[base + 2], due, KEYS[base + 1])
+  end
+end
+redis.call("SET", KEYS[2], ARGV[1])
+redis.call("SET", KEYS[3], ARGV[2])
+return "committed:" .. ARGV[2]
+`;
+
 export const STRATEGY_PACK_TRANSACTION_REDIS_SCRIPTS = Object.freeze({
   commitCreate: COMMIT_CREATE_SCRIPT,
+  commitLifecycle: COMMIT_LIFECYCLE_SCRIPT,
   readReplay: READ_REPLAY_SCRIPT,
 });
 
@@ -239,6 +322,45 @@ export function strategyPackTransactionClient(
       ];
       const result = await redisClient!.eval<string[], string>(
         COMMIT_CREATE_SCRIPT,
+        keys,
+        args,
+      );
+      return decodeResult(result);
+    },
+    async commitLifecycle(input) {
+      if (
+        input.records.length > 4 ||
+        input.monitors.length > 16 ||
+        new Set(input.records.map((record) => record.key)).size !== input.records.length ||
+        new Set(input.monitors.map((monitor) => monitor.recordKey)).size !== input.monitors.length
+      ) {
+        return { status: "conflict" };
+      }
+      const keys = [
+        input.approvalGuardKey,
+        input.mappingKey,
+        input.receiptKey,
+        input.registryKey,
+        ...input.records.map((record) => record.key),
+        ...input.monitors.flatMap((monitor) => [monitor.recordKey, monitor.dueKey]),
+      ];
+      const args = [
+        input.mappingRaw,
+        input.receiptRaw,
+        input.expectedRegistryRaw,
+        String(input.expectedRegistryRevision),
+        input.nextRegistryRaw,
+        String(input.records.length),
+        String(input.monitors.length),
+        ...input.records.flatMap((record) => [record.expectedRaw, record.nextRaw]),
+        ...input.monitors.flatMap((monitor) => [
+          monitor.expectedRaw,
+          monitor.nextRaw,
+          monitor.dueAtMs === null ? "" : String(monitor.dueAtMs),
+        ]),
+      ];
+      const result = await redisClient!.eval<string[], string>(
+        COMMIT_LIFECYCLE_SCRIPT,
         keys,
         args,
       );

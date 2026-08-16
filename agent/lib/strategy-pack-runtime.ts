@@ -104,7 +104,7 @@ function currentSnapshot(binding: WorkspaceStrategyBindingValue) {
   return binding.pendingSnapshot ?? binding.lastActiveSnapshot;
 }
 
-function exactCapabilities(
+export function hasExactStrategyPackCapabilities(
   capabilities: WorkspaceCapabilityManifestValue,
   pack: StrategyPackCatalogEntry,
 ): boolean {
@@ -224,7 +224,7 @@ async function resolveActiveRuntime(input: {
   if (
     !capabilities ||
     capabilities.revision !== binding.effectiveCapabilityManifestRevision ||
-    !exactCapabilities(capabilities.value, pack)
+    !hasExactStrategyPackCapabilities(capabilities.value, pack)
   ) {
     return stale();
   }

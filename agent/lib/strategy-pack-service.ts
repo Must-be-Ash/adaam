@@ -9,6 +9,7 @@ import {
   PHOTON_WORKSPACE_LIMIT,
   photonWorkspaceRegistryStorageKey,
   photonWorkspaceStoreClient,
+  preparePhotonWorkspaceGenerationRollover,
   preparePhotonWorkspaceRegistryCreation,
   readPhotonWorkspaceRegistryRecord,
   type PhotonWorkspaceStoreClient,
@@ -19,30 +20,46 @@ import {
 } from "./strategy-pack-catalog";
 import { resolveStrategyPackFlags } from "./strategy-pack-flags";
 import {
+  emitStrategyPackObservation,
+  safeStrategyPackReasonCode,
+  type StrategyPackObservationSink,
+} from "./strategy-pack-observability";
+import {
   strategyPackMutationStorageKeys,
   strategyPackMutationReceiptSchema,
   strategyPackTransactionClient,
   type StrategyPackCreateTransactionInput,
+  type StrategyPackLifecycleTransactionInput,
   type StrategyPackMutationReceipt,
   type StrategyPackTransactionClient,
 } from "./strategy-pack-transaction";
 import {
   prepareWorkspaceMonitorCreate,
   listWorkspaceMonitors,
+  prepareWorkspaceManagedMonitorUpdate,
+  resolveWorkspaceStrategyManagedMonitors,
+  workspaceMonitorRecordStorageKey,
   type PreparedWorkspaceMonitorCreate,
+  type WorkspaceMonitor,
   type WorkspaceMonitorStoreClient,
 } from "./workspace-monitor-store";
 import { nextWorkspaceMonitorOccurrence } from "./workspace-monitor-schedule";
 import {
   prepareInitialWorkspaceDocument,
   prepareInitialWorkspaceStrategyBinding,
+  prepareWorkspaceDocumentUpdate,
+  prepareWorkspaceStrategyBindingUpdate,
   readWorkspaceDocument,
+  validateWorkspaceDocumentValue,
+  workspaceDocumentStorageKey,
   type WorkspaceBudgetPolicyValue,
   type WorkspaceCapabilityManifestValue,
+  type WorkspaceDocument,
   type WorkspaceStateStoreClient,
   type WorkspaceStrategyBindingValue,
 } from "./workspace-state-store";
 import {
+  hasExactStrategyPackCapabilities,
   resolveInteractiveStrategyPackRuntime,
   StrategyPackRuntimeError,
 } from "./strategy-pack-runtime";
@@ -83,6 +100,20 @@ const mutationRequestSchema = z
   })
   .strict();
 
+const lifecycleConfirmationSchema = z.literal(true);
+const configureRequestSchema = z.object({
+  confirmedConsequences: lifecycleConfirmationSchema,
+  configuration: z.record(z.string().min(1).max(80), z.unknown())
+    .refine((value) => Object.keys(value).length > 0),
+  expectedBindingRevision: z.number().int().positive(),
+  expectedRegistryRevision: z.number().int().nonnegative(),
+}).strict();
+const removeRequestSchema = z.object({
+  confirmedConsequences: lifecycleConfirmationSchema,
+  expectedBindingRevision: z.number().int().positive(),
+  expectedRegistryRevision: z.number().int().nonnegative(),
+}).strict();
+
 const eveIdentitySchema = z
   .object({
     ingressId: z.string().min(1).max(200),
@@ -95,9 +126,13 @@ const eveIdentitySchema = z
 const spectrumIdentitySchema = z
   .object({
     actionId: z.string().min(1).max(200),
+    expectedRegistryRevision: z.number().int().nonnegative(),
     issuedAt: z.string().datetime({ offset: true }),
     nonce: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/u),
+    routingScopeDigest: z.string().regex(/^[a-f0-9]{64}$/u),
     signature: z.string().regex(/^[a-f0-9]{64}$/u),
+    sourceWorkspaceGeneration: z.number().int().positive(),
+    sourceWorkspaceId: z.string().uuid(),
     transport: z.literal("spectrum"),
   })
   .strict();
@@ -126,6 +161,9 @@ export interface StrategyPackServiceDependencies {
   readonly catalog?: typeof strategyPackCatalog;
   readonly environment?: NodeJS.ProcessEnv;
   readonly idFactory?: () => string;
+  readonly monitorClient?: WorkspaceMonitorStoreClient;
+  readonly observationSink?: StrategyPackObservationSink;
+  readonly stateClient?: WorkspaceStateStoreClient;
   readonly transactionClient?: StrategyPackTransactionClient;
   readonly workspaceClient?: PhotonWorkspaceStoreClient;
   readonly workerModelPolicy?: WorkspaceCapabilityManifestValue["workerModelPolicy"];
@@ -260,6 +298,43 @@ export function strategyPackCreateSelectionRequest(
       version: pack.version,
     }),
   });
+}
+
+export function strategyPackConfigureSelectionRequest(input: {
+  readonly confirmedConsequences: true;
+  readonly configuration: Readonly<Record<string, unknown>>;
+  readonly expectedBindingRevision: number;
+  readonly expectedRegistryRevision: number;
+}) {
+  const parsed = configureRequestSchema.safeParse({
+    confirmedConsequences: input.confirmedConsequences,
+    configuration: input.configuration,
+    expectedBindingRevision: input.expectedBindingRevision,
+    expectedRegistryRevision: input.expectedRegistryRevision,
+  });
+  if (!parsed.success) {
+    throw new StrategyPackServiceError("strategy_pack_invalid_request");
+  }
+  return Object.freeze({
+    ...parsed.data,
+    configuration: Object.freeze({ ...parsed.data.configuration }),
+  });
+}
+
+export function strategyPackRemoveSelectionRequest(input: {
+  readonly confirmedConsequences: true;
+  readonly expectedBindingRevision: number;
+  readonly expectedRegistryRevision: number;
+}) {
+  const parsed = removeRequestSchema.safeParse({
+    confirmedConsequences: input.confirmedConsequences,
+    expectedBindingRevision: input.expectedBindingRevision,
+    expectedRegistryRevision: input.expectedRegistryRevision,
+  });
+  if (!parsed.success) {
+    throw new StrategyPackServiceError("strategy_pack_invalid_request");
+  }
+  return Object.freeze(parsed.data);
 }
 
 export async function createStrategyPackWorkspaceFromSelection(
@@ -469,26 +544,47 @@ export function deriveEveStrategyPackMutationIdentity(input: {
 
 function spectrumUnsigned(input: {
   actionId: string;
+  expectedRegistryRevision: number;
   issuedAt: string;
   nonce: string;
+  routingScopeDigest: string;
+  sourceWorkspaceGeneration: number;
+  sourceWorkspaceId: string;
 }): string {
   return canonicalJson({
     actionId: input.actionId,
+    expectedRegistryRevision: input.expectedRegistryRevision,
     issuedAt: input.issuedAt,
     nonce: input.nonce,
+    routingScopeDigest: input.routingScopeDigest,
+    sourceWorkspaceGeneration: input.sourceWorkspaceGeneration,
+    sourceWorkspaceId: input.sourceWorkspaceId,
     transport: "spectrum",
   });
 }
 
 export function mintSpectrumStrategyPackMutationIdentity(
-  input: { actionId: string; issuedAt: Date; nonce: string },
+  input: {
+    actionId: string;
+    expectedRegistryRevision: number;
+    issuedAt: Date;
+    nonce: string;
+    principalId: string;
+    sourceWorkspaceGeneration: number;
+    sourceWorkspaceId: string;
+    threadId: string;
+  },
   secret: string,
 ): StrategyPackMutationIdentity {
   if (secret.length < 32) throw new StrategyPackServiceError("strategy_pack_invalid_request");
   const unsigned = {
     actionId: input.actionId,
+    expectedRegistryRevision: input.expectedRegistryRevision,
     issuedAt: input.issuedAt.toISOString(),
     nonce: input.nonce,
+    routingScopeDigest: sha256(`strategy-pack-spectrum\0${input.principalId}\0${input.threadId}`),
+    sourceWorkspaceGeneration: input.sourceWorkspaceGeneration,
+    sourceWorkspaceId: input.sourceWorkspaceId,
   };
   const signature = createHmac("sha256", secret).update(spectrumUnsigned(unsigned)).digest("hex");
   const parsed = spectrumIdentitySchema.safeParse({ ...unsigned, signature, transport: "spectrum" });
@@ -499,9 +595,15 @@ export function mintSpectrumStrategyPackMutationIdentity(
 export function verifySpectrumStrategyPackMutationIdentity(
   value: unknown,
   secret: string,
+  now: Date = new Date(),
 ): StrategyPackMutationIdentity {
   const parsed = spectrumIdentitySchema.safeParse(value);
-  if (!parsed.success || secret.length < 32) {
+  if (
+    !parsed.success ||
+    secret.length < 32 ||
+    now.getTime() - new Date(parsed.data.issuedAt).getTime() > 15 * 60 * 1_000 ||
+    new Date(parsed.data.issuedAt).getTime() - now.getTime() > 60 * 1_000
+  ) {
     throw new StrategyPackServiceError("strategy_pack_invalid_request");
   }
   const expected = createHmac("sha256", secret)
@@ -511,6 +613,25 @@ export function verifySpectrumStrategyPackMutationIdentity(
     throw new StrategyPackServiceError("strategy_pack_invalid_request");
   }
   return trusted(parsed.data);
+}
+
+function assertMutationIdentityScope(input: {
+  identity: StrategyPackMutationIdentity;
+  principalId: string;
+  sourceAssignment: { generation: number; workspaceId: string };
+  threadId: string;
+  expectedRegistryRevision: number;
+}): void {
+  if (input.identity.transport !== "spectrum") return;
+  if (
+    input.identity.routingScopeDigest !==
+      sha256(`strategy-pack-spectrum\0${input.principalId}\0${input.threadId}`) ||
+    input.identity.sourceWorkspaceId !== input.sourceAssignment.workspaceId ||
+    input.identity.sourceWorkspaceGeneration !== input.sourceAssignment.generation ||
+    input.identity.expectedRegistryRevision !== input.expectedRegistryRevision
+  ) {
+    throw new StrategyPackServiceError("strategy_pack_invalid_request");
+  }
 }
 
 function parseIdentity(value: unknown): StrategyPackMutationIdentity {
@@ -536,6 +657,23 @@ function parseRequest(value: unknown) {
   }
   const parsed = mutationRequestSchema.safeParse(value);
   if (!parsed.success) throw new StrategyPackServiceError("strategy_pack_invalid_request");
+  return { payloadDigest: sha256(encoded), request: parsed.data };
+}
+
+function parseLifecycleRequest<T>(value: unknown, schema: z.ZodType<T>) {
+  let encoded: string;
+  try {
+    encoded = canonicalJson(value);
+  } catch {
+    throw new StrategyPackServiceError("strategy_pack_invalid_request");
+  }
+  if (Buffer.byteLength(encoded, "utf8") > REQUEST_BYTE_LIMIT) {
+    throw new StrategyPackServiceError("strategy_pack_invalid_request");
+  }
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    throw new StrategyPackServiceError("strategy_pack_invalid_request");
+  }
   return { payloadDigest: sha256(encoded), request: parsed.data };
 }
 
@@ -787,7 +925,7 @@ function monitorPreparations(input: {
   });
 }
 
-export async function createStrategyPackWorkspace(
+async function executeCreateStrategyPackWorkspace(
   input: {
     now?: Date;
     principalId: string;
@@ -818,6 +956,13 @@ export async function createStrategyPackWorkspace(
   }, environment);
   const { payloadDigest, request } = parseRequest(input.request);
   const identity = parseIdentity(input.requestIdentity);
+  assertMutationIdentityScope({
+    expectedRegistryRevision: request.expectedRegistryRevision,
+    identity,
+    principalId: input.principalId,
+    sourceAssignment: sourceAssignment.data,
+    threadId: input.threadId,
+  });
   const requestIdentityDigest = sha256(canonicalJson(identity));
   const sourceAssignmentDigest = sha256(canonicalJson(sourceAssignment.data));
   const mutationId = sha256(
@@ -1077,4 +1222,561 @@ export async function createStrategyPackWorkspace(
     }
     throw error;
   }
+}
+
+export async function createStrategyPackWorkspace(
+  input: {
+    now?: Date;
+    principalId: string;
+    request: unknown;
+    requestIdentity: unknown;
+    sourceAssignment: { generation: number; workspaceId: string };
+    threadId: string;
+  },
+  dependencies: StrategyPackServiceDependencies,
+): Promise<{ receipt: StrategyPackMutationReceipt; replayed: boolean }> {
+  try {
+    const result = await executeCreateStrategyPackWorkspace(input, dependencies);
+    emitStrategyPackObservation({
+      counter: "strategy_pack_install_total",
+      outcome: result.replayed
+        ? "replayed"
+        : result.receipt.outcome === "rejected"
+          ? "rejected"
+          : "committed",
+    }, dependencies.observationSink);
+    return result;
+  } catch (error) {
+    emitStrategyPackObservation({
+      counter: error instanceof StrategyPackServiceError &&
+          (error.code === "strategy_pack_mutation_conflict" ||
+            error.code === "strategy_pack_mutation_payload_conflict" ||
+            error.code === "strategy_pack_source_assignment_stale")
+        ? "strategy_pack_mutation_conflict_total"
+        : "strategy_pack_mutation_failure_total",
+      reasonCode: safeStrategyPackReasonCode(error),
+    }, dependencies.observationSink);
+    throw error;
+  }
+}
+
+type StrategyPackLifecycleAction = "configure" | "remove";
+
+function storedRaw(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function lifecycleMonitorSchedule(
+  pack: StrategyPackCatalogEntry,
+  configuration: Record<string, string | string[]>,
+  resourceId: string,
+) {
+  const resource = pack.monitors.find((monitor) => monitor.resourceId === resourceId);
+  if (!resource) throw new StrategyPackServiceError("strategy_pack_unavailable");
+  const timezone = configuration[resource.timezoneConfigurationKey];
+  const times = configuration[resource.dailyTimesConfigurationKey];
+  if (typeof timezone !== "string" || !Array.isArray(times)) {
+    throw new StrategyPackServiceError("strategy_pack_invalid_request");
+  }
+  return { kind: "daily_local" as const, times: [...times], timezone };
+}
+
+function unboundCapabilities(
+  current: WorkspaceCapabilityManifestValue,
+): WorkspaceCapabilityManifestValue {
+  return {
+    connectionIds: [],
+    controlPlaneToolIds: [],
+    financialToolIds: [],
+    hardDeniedCapabilityIds: [...new Set([
+      ...SHARED_HARD_DENIALS,
+      ...current.hardDeniedCapabilityIds,
+    ])].sort(),
+    maximumDataAccessClassification: "public",
+    paidResearchAllowed: false,
+    providerTools: [],
+    researchToolIds: [],
+    skills: [],
+    sources: [],
+    workerModelPolicy: current.workerModelPolicy,
+  };
+}
+
+async function mutateStrategyPackWorkspace(
+  action: StrategyPackLifecycleAction,
+  input: {
+    now?: Date;
+    principalId: string;
+    request: unknown;
+    requestIdentity: unknown;
+    sourceAssignment: { generation: number; workspaceId: string };
+    threadId: string;
+  },
+  dependencies: StrategyPackServiceDependencies,
+): Promise<{ receipt: StrategyPackMutationReceipt; replayed: boolean }> {
+  const environment = dependencies.environment ?? process.env;
+  if (!resolveStrategyPackFlags(environment).mutations) {
+    throw new StrategyPackServiceError("strategy_pack_mutations_disabled");
+  }
+  const transactionClient = dependencies.transactionClient ?? strategyPackTransactionClient(environment);
+  const approvalGuardKey = photonApprovalGuardKey(input);
+  if (await transactionClient.get(approvalGuardKey)) {
+    throw new StrategyPackServiceError("strategy_pack_financial_approval_pending");
+  }
+  const sourceAssignment = sourceAssignmentSchema.safeParse(input.sourceAssignment);
+  if (!sourceAssignment.success) {
+    throw new StrategyPackServiceError("strategy_pack_invalid_request");
+  }
+  const parsed = action === "configure"
+    ? parseLifecycleRequest(input.request, configureRequestSchema)
+    : parseLifecycleRequest(input.request, removeRequestSchema);
+  const request = parsed.request;
+  const identity = parseIdentity(input.requestIdentity);
+  assertMutationIdentityScope({
+    expectedRegistryRevision: request.expectedRegistryRevision,
+    identity,
+    principalId: input.principalId,
+    sourceAssignment: sourceAssignment.data,
+    threadId: input.threadId,
+  });
+  const requestIdentityDigest = sha256(canonicalJson(identity));
+  const sourceAssignmentDigest = sha256(canonicalJson(sourceAssignment.data));
+  const mutationId = sha256(
+    `strategy-pack-${action}\0${requestIdentityDigest}\0${parsed.payloadDigest}\0${sourceAssignmentDigest}`,
+  );
+  const scope = authorizePhotonWorkspaceControlPlaneStore({
+    principalId: input.principalId,
+    resource: "manager",
+    workspaceId: sourceAssignment.data.workspaceId,
+  }, environment);
+  const keys = strategyPackMutationStorageKeys({
+    ownerId: scope.ownerId,
+    principalId: input.principalId,
+    requestIdentityDigest,
+    threadId: input.threadId,
+  });
+  const mappingRaw = canonicalJson({
+    mutationId,
+    payloadDigest: parsed.payloadDigest,
+    requestIdentityDigest,
+    schemaVersion: 1,
+    sourceAssignmentDigest,
+  });
+  const receiptKey = keys.receiptKey(mutationId);
+  const replayInput = { approvalGuardKey, mappingKey: keys.mappingKey, mappingRaw, receiptKey };
+  const expectedReceipt = {
+    mutationId,
+    payloadDigest: parsed.payloadDigest,
+    requestIdentityDigest,
+  };
+  const replay = await transactionClient.readReplay(replayInput);
+  if (replay.status === "replayed") {
+    return receiptResult(replay.receiptRaw, true, expectedReceipt);
+  }
+  if (replay.status !== "missing") transactionError(replay.status);
+
+  const registryRecord = await readPhotonWorkspaceRegistryRecord(
+    input,
+    dependencies.workspaceClient ?? photonWorkspaceStoreClient(),
+  );
+  if (registryRecord.registry.revision !== request.expectedRegistryRevision) {
+    throw new StrategyPackServiceError("strategy_pack_mutation_conflict");
+  }
+  const workspace = registryRecord.registry.workspaces.find(
+    (candidate) => candidate.id === sourceAssignment.data.workspaceId,
+  );
+  if (
+    !workspace ||
+    workspace.status !== "active" ||
+    workspace.generation !== sourceAssignment.data.generation
+  ) {
+    throw new StrategyPackServiceError("strategy_pack_source_assignment_stale");
+  }
+
+  const documentKinds = ["strategy", "capabilities", "brief", "budget"] as const;
+  const documentRaws = await Promise.all(documentKinds.map(async (kind) => ({
+    kind,
+    key: workspaceDocumentStorageKey(kind, scope),
+    raw: storedRaw(await transactionClient.get(workspaceDocumentStorageKey(kind, scope))),
+  })));
+  if (documentRaws.some(({ raw }) => raw === null)) {
+    throw new StrategyPackServiceError("strategy_pack_unavailable");
+  }
+  const rawByKind = Object.fromEntries(
+    documentRaws.map(({ kind, raw }) => [kind, raw!]),
+  ) as Record<(typeof documentKinds)[number], string>;
+  let strategy: WorkspaceDocument<"strategy">;
+  let capabilities: WorkspaceDocument<"capabilities">;
+  let brief: WorkspaceDocument<"brief">;
+  let budget: WorkspaceDocument<"budget">;
+  try {
+    strategy = validateWorkspaceDocumentValue("strategy", rawByKind.strategy, scope);
+    capabilities = validateWorkspaceDocumentValue("capabilities", rawByKind.capabilities, scope);
+    brief = validateWorkspaceDocumentValue("brief", rawByKind.brief, scope);
+    budget = validateWorkspaceDocumentValue("budget", rawByKind.budget, scope);
+  } catch (cause) {
+    throw new StrategyPackServiceError("strategy_pack_unavailable", { cause });
+  }
+  if (
+    strategy.schemaVersion !== 2 ||
+    strategy.value.lifecycleState === "unbound" ||
+    strategy.value.bindingRevision !== request.expectedBindingRevision
+  ) {
+    throw new StrategyPackServiceError("strategy_pack_mutation_conflict");
+  }
+  const binding = strategy.value;
+  const allMonitors = await listWorkspaceMonitors(scope, dependencies.monitorClient);
+  let managedMonitors: WorkspaceMonitor[];
+  try {
+    managedMonitors = resolveWorkspaceStrategyManagedMonitors(binding, allMonitors);
+  } catch (cause) {
+    throw new StrategyPackServiceError("strategy_pack_unavailable", { cause });
+  }
+  const monitorRaws = new Map<string, string>();
+  for (const monitor of managedMonitors) {
+    const raw = storedRaw(await transactionClient.get(
+      workspaceMonitorRecordStorageKey(scope, monitor.monitorId),
+    ));
+    if (raw === null || raw !== JSON.stringify(monitor)) {
+      throw new StrategyPackServiceError("strategy_pack_mutation_conflict");
+    }
+    monitorRaws.set(monitor.monitorId, raw);
+  }
+
+  const now = input.now ?? new Date();
+  const nowIso = now.toISOString();
+  const nextBindingRevision = binding.bindingRevision + 1;
+  const rolled = preparePhotonWorkspaceGenerationRollover({
+    current: registryRecord.registry,
+    expectedGeneration: sourceAssignment.data.generation,
+    now,
+    workspaceId: sourceAssignment.data.workspaceId,
+  });
+  let nextBinding: WorkspaceStrategyBindingValue;
+  let nextCapabilities: WorkspaceCapabilityManifestValue;
+  let nextBrief = brief.value;
+  let nextBudget = budget.value;
+  let preparedMonitors;
+
+  if (action === "configure") {
+    if (
+      binding.lifecycleState !== "active" ||
+      !binding.pack?.contentDigest ||
+      binding.effectiveCapabilityManifestRevision !== capabilities.revision
+    ) {
+      throw new StrategyPackServiceError("strategy_pack_unavailable");
+    }
+    const pack = (dependencies.catalog ?? strategyPackCatalog).resolve({
+      contentDigest: binding.pack.contentDigest,
+      id: binding.pack.id,
+      version: binding.pack.version,
+    });
+    if (
+      !pack ||
+      pack.availability !== "available" ||
+      !hasExactStrategyPackCapabilities(capabilities.value, pack)
+    ) {
+      throw new StrategyPackServiceError("strategy_pack_unavailable");
+    }
+    const suppliedConfiguration = (request as z.infer<typeof configureRequestSchema>).configuration;
+    for (const key of Object.keys(suppliedConfiguration)) {
+      const field = pack.configuration.find((candidate) => candidate.key === key);
+      if (!field?.mutableAfterInstall) {
+        throw new StrategyPackServiceError("strategy_pack_invalid_request");
+      }
+    }
+    const configured = effectiveConfiguration(pack, {
+      ...binding.ownerOverrides,
+      ...suppliedConfiguration,
+    });
+    const currentSnapshot = binding.pendingSnapshot ?? binding.lastActiveSnapshot;
+    if (!currentSnapshot) {
+      throw new StrategyPackServiceError("strategy_pack_unavailable");
+    }
+    const snapshot = {
+      bindingRevision: nextBindingRevision,
+      capabilityManifestRevision: capabilities.revision,
+      packContentDigest: pack.contentDigest,
+      packId: pack.id,
+      packVersion: pack.version,
+      workspaceGeneration: rolled.workspace.generation,
+    };
+    nextBinding = {
+      ...binding,
+      bindingRevision: nextBindingRevision,
+      configuration: configured.configuration,
+      health: { checkedAt: nowIso, code: null, status: "healthy" },
+      lastActiveSnapshot: currentSnapshot,
+      ownerOverrides: configured.ownerOverrides,
+      pendingSnapshot: snapshot,
+      timestamps: {
+        ...binding.timestamps,
+        configuredAt: nowIso,
+        generationRolloverAt: nowIso,
+      },
+    };
+    nextCapabilities = capabilities.value;
+    nextBrief = {
+      ...brief.value,
+      strategyConfigurationRevision: nextBindingRevision,
+    };
+    const timezoneField = pack.configuration.find((field) => field.kind === "iana_timezone");
+    const ownerTimezone = timezoneField
+      ? configured.configuration[timezoneField.key]
+      : budget.value.ownerTimezone;
+    nextBudget = {
+      ...budget.value,
+      effectiveAt: nowIso,
+      ownerTimezone: typeof ownerTimezone === "string" ? ownerTimezone : budget.value.ownerTimezone,
+    };
+    preparedMonitors = managedMonitors.map((monitor) => {
+      const resourceId = monitor.managedBy!.resourceId;
+      const prepared = prepareWorkspaceManagedMonitorUpdate({
+        current: monitor,
+        lifecycleState: "paused",
+        managedBy: {
+          ...monitor.managedBy!,
+          bindingRevision: nextBindingRevision,
+        },
+        now,
+        pauseReason: "strategy_pack_configuration",
+        schedule: lifecycleMonitorSchedule(pack, configured.configuration, resourceId),
+        scope,
+      });
+      return { ...prepared, expectedRaw: monitorRaws.get(monitor.monitorId)! };
+    });
+  } else {
+    nextCapabilities = unboundCapabilities(capabilities.value);
+    nextBrief = {
+      ...brief.value,
+      sourcePolicy: {
+        allowedSourceIds: [],
+        maximumAccessClassification: "public",
+      },
+      strategyConfigurationRevision: nextBindingRevision,
+    };
+    nextBinding = {
+      bindingRevision: nextBindingRevision,
+      configuration: {},
+      effectiveCapabilityManifestRevision: null,
+      health: { checkedAt: nowIso, code: null, status: "unbound" },
+      lastActiveSnapshot: binding.pendingSnapshot ?? binding.lastActiveSnapshot,
+      lifecycleState: "unbound",
+      managedResources: {},
+      ownerOverrides: {},
+      pack: null,
+      pendingSnapshot: null,
+      timestamps: {
+        ...binding.timestamps,
+        generationRolloverAt: nowIso,
+      },
+    };
+    preparedMonitors = managedMonitors.map((monitor) => {
+      const prepared = prepareWorkspaceManagedMonitorUpdate({
+        current: monitor,
+        lifecycleState: "retired",
+        now,
+        pauseReason: "strategy_pack_removed",
+        scope,
+      });
+      return { ...prepared, expectedRaw: monitorRaws.get(monitor.monitorId)! };
+    });
+  }
+
+  const preparedStrategy = prepareWorkspaceStrategyBindingUpdate({
+    current: strategy,
+    now,
+    scope,
+    value: nextBinding,
+  });
+  const preparedBrief = prepareWorkspaceDocumentUpdate("brief", {
+    current: brief,
+    now,
+    scope,
+    value: nextBrief,
+  });
+  const preparedRecords = action === "configure"
+    ? [
+        { expectedRaw: rawByKind.strategy, key: preparedStrategy.key, nextRaw: preparedStrategy.raw },
+        { expectedRaw: rawByKind.capabilities, key: workspaceDocumentStorageKey("capabilities", scope), nextRaw: rawByKind.capabilities },
+        { expectedRaw: rawByKind.brief, key: preparedBrief.key, nextRaw: preparedBrief.raw },
+        (() => {
+          const prepared = prepareWorkspaceDocumentUpdate("budget", {
+            current: budget,
+            now,
+            scope,
+            value: nextBudget,
+          });
+          return { expectedRaw: rawByKind.budget, key: prepared.key, nextRaw: prepared.raw };
+        })(),
+      ]
+    : [
+        { expectedRaw: rawByKind.strategy, key: preparedStrategy.key, nextRaw: preparedStrategy.raw },
+        (() => {
+          const prepared = prepareWorkspaceDocumentUpdate("capabilities", {
+            current: capabilities,
+            now,
+            scope,
+            value: nextCapabilities,
+          });
+          return { expectedRaw: rawByKind.capabilities, key: prepared.key, nextRaw: prepared.raw };
+        })(),
+        { expectedRaw: rawByKind.brief, key: preparedBrief.key, nextRaw: preparedBrief.raw },
+        { expectedRaw: rawByKind.budget, key: workspaceDocumentStorageKey("budget", scope), nextRaw: rawByKind.budget },
+      ];
+  const outcome = action === "configure" ? "configured" as const : "removed" as const;
+  const receipt: StrategyPackMutationReceipt = Object.freeze({
+    bindingRevision: nextBindingRevision,
+    createdAt: nowIso,
+    monitorIds: preparedMonitors.map(({ monitor }) => monitor.monitorId),
+    mutationId,
+    outcome,
+    payloadDigest: parsed.payloadDigest,
+    recordType: "strategy_pack_mutation_receipt",
+    registryRevision: rolled.registry.revision,
+    rejectionCode: null,
+    requestIdentityDigest,
+    schemaVersion: 1,
+    targetWorkspaceId: workspace.id,
+  });
+  const transactionInput: StrategyPackLifecycleTransactionInput = {
+    ...replayInput,
+    expectedRegistryRaw: registryRecord.raw,
+    expectedRegistryRevision: request.expectedRegistryRevision,
+    monitors: preparedMonitors.map((monitor) => ({
+      dueAtMs: monitor.dueAtMs,
+      dueKey: monitor.dueKey,
+      expectedRaw: monitor.expectedRaw,
+      nextRaw: monitor.nextRaw,
+      recordKey: monitor.recordKey,
+    })),
+    nextRegistryRaw: JSON.stringify(rolled.registry),
+    receiptRaw: JSON.stringify(receipt),
+    records: preparedRecords,
+    registryKey: photonWorkspaceRegistryStorageKey(input.principalId, input.threadId),
+  };
+  try {
+    const committed = await transactionClient.commitLifecycle(transactionInput);
+    if (committed.status === "committed") {
+      return receiptResult(committed.receiptRaw, false, expectedReceipt);
+    }
+    if (committed.status === "replayed") {
+      return receiptResult(committed.receiptRaw, true, expectedReceipt);
+    }
+    transactionError(committed.status);
+  } catch (error) {
+    const recovered = await transactionClient.readReplay(replayInput);
+    if (recovered.status === "replayed") {
+      return receiptResult(recovered.receiptRaw, true, expectedReceipt);
+    }
+    throw error;
+  }
+}
+
+export async function configureStrategyPackWorkspace(
+  input: {
+    now?: Date;
+    principalId: string;
+    request: unknown;
+    requestIdentity: unknown;
+    sourceAssignment: { generation: number; workspaceId: string };
+    threadId: string;
+  },
+  dependencies: StrategyPackServiceDependencies,
+) {
+  try {
+    const result = await mutateStrategyPackWorkspace("configure", input, dependencies);
+    emitStrategyPackObservation({
+      counter: "strategy_pack_configuration_total",
+      outcome: result.replayed ? "replayed" : "committed",
+    }, dependencies.observationSink);
+    return result;
+  } catch (error) {
+    emitStrategyPackObservation({
+      counter: error instanceof StrategyPackServiceError &&
+          (error.code === "strategy_pack_mutation_conflict" ||
+            error.code === "strategy_pack_mutation_payload_conflict" ||
+            error.code === "strategy_pack_source_assignment_stale")
+        ? "strategy_pack_mutation_conflict_total"
+        : error instanceof StrategyPackServiceError && error.code === "strategy_pack_unavailable"
+          ? "strategy_pack_binding_unavailable_total"
+          : "strategy_pack_mutation_failure_total",
+      reasonCode: safeStrategyPackReasonCode(error),
+    }, dependencies.observationSink);
+    throw error;
+  }
+}
+
+export async function configureStrategyPackWorkspaceFromSelection(
+  input: {
+    confirmedConsequences: true;
+    configuration: Readonly<Record<string, unknown>>;
+    expectedBindingRevision: number;
+    expectedRegistryRevision: number;
+    now?: Date;
+    principalId: string;
+    requestIdentity: unknown;
+    sourceAssignment: { generation: number; workspaceId: string };
+    threadId: string;
+  },
+  dependencies: StrategyPackServiceDependencies,
+) {
+  return configureStrategyPackWorkspace({
+    ...input,
+    request: strategyPackConfigureSelectionRequest(input),
+  }, dependencies);
+}
+
+export async function removeStrategyPackWorkspace(
+  input: {
+    now?: Date;
+    principalId: string;
+    request: unknown;
+    requestIdentity: unknown;
+    sourceAssignment: { generation: number; workspaceId: string };
+    threadId: string;
+  },
+  dependencies: StrategyPackServiceDependencies,
+) {
+  try {
+    const result = await mutateStrategyPackWorkspace("remove", input, dependencies);
+    emitStrategyPackObservation({
+      counter: "strategy_pack_removal_total",
+      outcome: result.replayed ? "replayed" : "committed",
+    }, dependencies.observationSink);
+    return result;
+  } catch (error) {
+    emitStrategyPackObservation({
+      counter: error instanceof StrategyPackServiceError &&
+          (error.code === "strategy_pack_mutation_conflict" ||
+            error.code === "strategy_pack_mutation_payload_conflict" ||
+            error.code === "strategy_pack_source_assignment_stale")
+        ? "strategy_pack_mutation_conflict_total"
+        : error instanceof StrategyPackServiceError && error.code === "strategy_pack_unavailable"
+          ? "strategy_pack_binding_unavailable_total"
+          : "strategy_pack_mutation_failure_total",
+      reasonCode: safeStrategyPackReasonCode(error),
+    }, dependencies.observationSink);
+    throw error;
+  }
+}
+
+export async function removeStrategyPackWorkspaceFromSelection(
+  input: {
+    confirmedConsequences: true;
+    expectedBindingRevision: number;
+    expectedRegistryRevision: number;
+    now?: Date;
+    principalId: string;
+    requestIdentity: unknown;
+    sourceAssignment: { generation: number; workspaceId: string };
+    threadId: string;
+  },
+  dependencies: StrategyPackServiceDependencies,
+) {
+  return removeStrategyPackWorkspace({
+    ...input,
+    request: strategyPackRemoveSelectionRequest(input),
+  }, dependencies);
 }

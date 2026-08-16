@@ -89,9 +89,9 @@ The completed feature must support this experience:
 - [x] Installing a pack does not silently activate preset monitors. Background
   work starts only when the owner's request or manager action explicitly enables
   the resulting monitor and schedule.
-- [ ] Removing a pack does not rewrite or delete workspace findings. Managed
+- [x] Removing a pack does not rewrite or delete workspace findings. Managed
   resources are paused or retired for owner review.
-- [ ] Pack mutations use the existing workspace lifecycle and advance the session
+- [x] Pack mutations use the existing workspace lifecycle and advance the session
   generation so old instructions and capabilities cannot remain active.
 - [x] User-facing copy continues to say **session**. **Strategy pack** is the
   user-facing term for the reusable recipe installed in a session.
@@ -210,18 +210,18 @@ must promote the smallest necessary prerequisite into its own sprint.
   source-fencing, budget, privacy, or financial rules.
 - [x] Background pack workers never receive private chat history, interactive
   HITL, user OAuth, shell, filesystem, or broker-mutation tools.
-- [ ] Installing, configuring, or removing a pack never deletes workspace findings,
+- [x] Installing, configuring, or removing a pack never deletes workspace findings,
   alerts, audit records, or retained monitor history.
 - [x] Pack-managed records retain stable pack resource IDs and workspace IDs so
   an atomic mutation cannot confuse one resource with another or cross
   workspaces.
-- [ ] Every pack mutation is revision-checked, atomic, and idempotent. Failure
+- [x] Every pack mutation is revision-checked, atomic, and idempotent. Failure
   changes no durable key and creates no duplicate monitor or repeated paid work.
 - [ ] A missing, invalid, blocked, or digest-mismatched pack fails closed. Its
   pack-managed monitors pause before another worker starts.
 - [x] Pack configuration and instruction sizes remain bounded. Raw research
   documents never become durable conversation state or default prompt content.
-- [ ] Logs and metrics contain no message text, instructions, configuration
+- [x] Logs and metrics contain no message text, instructions, configuration
   values, owner IDs, workspace IDs, source URLs, watchlists, or high-cardinality
   pack digests.
 
@@ -467,9 +467,9 @@ active -> unavailable
 unavailable -> active | unbound
 ```
 
-- [ ] Use one bounded multi-key compare-and-write on expected workspace,
+- [x] Use one bounded multi-key compare-and-write on expected workspace,
   binding, capability, monitor, and selection revisions for every transition.
-- [ ] Use one stable mutation ID for every install/configure/remove attempt and
+- [x] Use one stable mutation ID for every install/configure/remove attempt and
   return the prior receipt on replay.
 - [x] Keep at most one active binding per workspace.
 - [x] Derive owner, conversation, and source assignment from authenticated
@@ -491,14 +491,14 @@ state change plus immutable receipt against expected revisions.
   best-effort.
 - [x] Keep newly materialized monitor templates paused unless the same explicit
   owner request supplies and enables their schedule.
-- [ ] Validate configuration before committing it, pause affected monitors when
+- [x] Validate configuration before committing it, pause affected monitors when
   required, and advance the session generation with the binding revision.
 - [x] Resolve runtime state by the exact workspace, generation, binding
   revision, pack digest, capability revision, and reciprocal managed-resource
   provenance. An unmatched tuple fails closed.
-- [ ] Removal pauses or retires pack-managed resources and preserves findings,
+- [x] Removal pauses or retires pack-managed resources and preserves findings,
   checkpoints, alerts, and audit history.
-- [ ] Derive stable request identity in application code so Photon/Eve/Spectrum
+- [x] Derive stable request identity in application code so Photon/Eve/Spectrum
   replay reaches the same receipt while a later intentional request receives a
   new ID. The ID is never a bearer capability.
 
@@ -521,7 +521,7 @@ dynamically composing capabilities from the authenticated workspace binding.
 - [x] Use Eve's dynamic-capability APIs at a lifecycle boundary compatible with
   durable replay. If dynamic tools are emitted, their `execute` functions follow
   Eve's inline-function requirement so replayed steps retain the executor.
-- [ ] Pack install, configuration, and removal create a new workspace session
+- [x] Pack install, configuration, and removal create a new workspace session
   generation rather than altering an already-running generation's identity.
 - [x] Keep pack catalog browsing a compact control-plane operation; it must not
   load all pack instructions into the model prompt.
@@ -561,7 +561,7 @@ Required application-owned operations:
 - explain missing capabilities or configuration without pretending the pack or
   provider lacks them.
 
-- [ ] Use Eve call IDs and explicit request IDs as idempotency keys.
+- [x] Use Eve call IDs and explicit request IDs as idempotency keys.
 - [x] Resolve ambiguous pack names by presenting compact candidates; never pick
   the nearest string match silently.
 - [x] A request such as “create an IPO agent that checks at 9 AM and 4 PM” may
@@ -578,7 +578,7 @@ Required application-owned operations:
   the existing manager. A concrete pack-plus-configuration request reaches the
   pack-aware path or a prefilled manager flow. Both surfaces call the same
   owner-authorized application service.
-- [ ] Configuration and removal requests identify affected resources before
+- [x] Configuration and removal requests identify affected resources before
   application and require an explicit owner confirmation that managed work will
   pause and future messages will start a fresh conversation generation. Durable
   brief and findings remain.
@@ -615,9 +615,9 @@ plus the immutable receipt or bounded error.
   **session** terminology.
 - [x] Keep catalog list responses compact and paginate or bound them even though
   the first catalog is small.
-- [ ] Bind every mutation to owner, conversation, workspace, generation,
+- [x] Bind every mutation to owner, conversation, workspace, generation,
   expected binding revision, mutation ID, and one-time request ID.
-- [ ] Make stale, repeated, cross-workspace, and expired actions harmless.
+- [x] Make stale, repeated, cross-workspace, and expired actions harmless.
 - [ ] Do not reuse financial approval copy or state for strategy-pack changes.
 - [x] Keep pack details progressively disclosed so monitor controls remain easy
   to reach on mobile.
@@ -682,11 +682,11 @@ and source provenance.
 
 ### Removal and unavailable-version fixtures
 
-- [ ] Removal pauses or retires pack-managed resources without deleting their
+- [x] Removal pauses or retires pack-managed resources without deleting their
   checkpoints, findings, alerts, or history.
 - [ ] A digest mismatch, missing version, or blocked version pauses managed
   monitors and fails closed before another worker executes.
-- [ ] Replaying a removal returns the original receipt and creates no duplicate
+- [x] Replaying a removal returns the original receipt and creates no duplicate
   resource mutations.
 
 
@@ -701,11 +701,11 @@ and source provenance.
   allowed mutation.
 - [ ] Missing required capability: keep the binding inactive or unavailable and
   report the precise unavailable-capability reason.
-- [ ] Duplicate install/configure/remove request: return the original mutation
+- [x] Duplicate install/configure/remove request: return the original mutation
   receipt and never create duplicate resources or generations.
-- [ ] Concurrent workspace mutation: reject the stale expected revision; do not
+- [x] Concurrent workspace mutation: reject the stale expected revision; do not
   merge blindly.
-- [ ] Atomic mutation failure: change no durable key and create no success
+- [x] Atomic mutation failure: change no durable key and create no success
   receipt.
 - [ ] Deployment rollback: continue using the exact compiled historical version
   when present; otherwise fail closed as unavailable rather than substituting a
@@ -753,10 +753,10 @@ inventory.
 - [ ] Emit low-cardinality counters for catalog validation, install,
   configuration, removal, mutation conflict/failure, binding unavailable,
   pack run stale, and capability unavailable.
-- [ ] Use pack ID only where its catalog cardinality is deliberately bounded;
+- [x] Use pack ID only where its catalog cardinality is deliberately bounded;
   never tag metrics with owner/workspace IDs, versions, digests, config values,
   source URLs, watchlists, or instructions.
-- [ ] Emit bounded error codes rather than manifest bodies, prompts, owner
+- [x] Emit bounded error codes rather than manifest bodies, prompts, owner
   configuration, or source data.
 - [ ] Add operator reports for installed version counts, unavailable/blocked
   bindings, failed mutations, and retired resources without private
@@ -797,7 +797,7 @@ This specification is complete only when:
   instruction, skill, tool, configuration, or finding leakage.
 - [x] Natural-language and Spectrum operations agree on the authoritative
   binding, health, configuration, and mutation status.
-- [ ] Non-destructive removal preserves findings, alerts, checkpoints, history,
+- [x] Non-destructive removal preserves findings, alerts, checkpoints, history,
   and owner-created resources.
 - [ ] Spec 1 regressions, builds, privacy and redirect gates, owner-authorized
   production acceptance, and feature rollback all pass before rollout.

@@ -40,6 +40,8 @@
     "verify:strategy-pack-mutations:redis": "jiti scripts/verify-strategy-pack-mutations-redis.mjs",
     "verify:strategy-pack-runtime": "jiti scripts/verify-strategy-pack-runtime.ts",
     "verify:strategy-pack-owner-surfaces": "jiti scripts/verify-strategy-pack-owner-surfaces.ts",
+    "verify:strategy-pack-observability": "jiti scripts/verify-strategy-pack-observability.mjs",
+    "verify:strategy-pack-spectrum-browser": "jiti scripts/verify-strategy-pack-spectrum-browser.mjs",
     "verify:workspace-runtime:contracts": "node scripts/verify-workspace-runtime-contracts.mjs",
     "verify:workspace-runtime:failures": "node scripts/verify-workspace-runtime-failures.mjs",
     "verify:workspace-runtime:photon-harness": "node scripts/verify-workspace-photon-harness.mjs",

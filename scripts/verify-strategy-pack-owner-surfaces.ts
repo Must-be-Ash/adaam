@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import {
   inspectStrategyPack,
   listStrategyPacks,
+  strategyPackConfigureSelectionRequest,
   strategyPackCreateSelectionRequest,
+  strategyPackRemoveSelectionRequest,
 } from "../agent/lib/strategy-pack-service";
 
 const environment = {
@@ -52,6 +54,26 @@ const spectrumRequest = strategyPackCreateSelectionRequest({
 }, { environment });
 assert.deepEqual(eveRequest, spectrumRequest);
 assert.equal(eveRequest.pack.contentDigest, inspected.pack.contentDigest);
+
+const configureInput = {
+  confirmedConsequences: true as const,
+  configuration: { dailyTimes: ["08:30"], timezone: "America/Vancouver" },
+  expectedBindingRevision: 3,
+  expectedRegistryRevision: 7,
+};
+assert.deepEqual(
+  strategyPackConfigureSelectionRequest(configureInput),
+  strategyPackConfigureSelectionRequest(configureInput),
+);
+const removeInput = {
+  confirmedConsequences: true as const,
+  expectedBindingRevision: 4,
+  expectedRegistryRevision: 8,
+};
+assert.deepEqual(
+  strategyPackRemoveSelectionRequest(removeInput),
+  strategyPackRemoveSelectionRequest(removeInput),
+);
 
 assert.throws(
   () => listStrategyPacks({ environment: {} }),

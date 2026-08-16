@@ -554,6 +554,16 @@ function parseDocument<K extends WorkspaceDocumentKind>(
   }
 }
 
+export function validateWorkspaceDocumentValue<K extends WorkspaceDocumentKind>(
+  kind: K,
+  value: unknown,
+  scope: AuthorizedWorkspaceStoreScope,
+): WorkspaceDocument<K> {
+  assertAuthorizedWorkspaceStoreScope(scope);
+  const raw = typeof value === "string" ? value : JSON.stringify(value);
+  return parseDocument(kind, raw, scope);
+}
+
 export async function readWorkspaceDocument<K extends WorkspaceDocumentKind>(
   kind: K,
   scope: AuthorizedWorkspaceStoreScope,
@@ -650,6 +660,44 @@ export function prepareInitialWorkspaceDocument<
   };
 }
 
+export function prepareWorkspaceDocumentUpdate<
+  K extends Exclude<WorkspaceDocumentKind, "strategy">,
+>(
+  kind: K,
+  input: {
+    current: WorkspaceDocument<K>;
+    now: Date;
+    scope: AuthorizedWorkspaceStoreScope;
+    value: WorkspaceDocument<K>["value"];
+  },
+): { document: WorkspaceDocument<K>; key: string; raw: string } {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  if (
+    input.current.ownerId !== input.scope.ownerId ||
+    input.current.workspaceId !== input.scope.workspaceId
+  ) {
+    throw new WorkspaceStateValidationError("workspace_state_invalid");
+  }
+  const candidate = schemas[kind].safeParse({
+    ...input.current,
+    revision: input.current.revision + 1,
+    updatedAt: input.now.toISOString(),
+    value: input.value,
+  });
+  if (!candidate.success) {
+    throw new WorkspaceStateValidationError("workspace_state_invalid");
+  }
+  const raw = JSON.stringify(candidate.data);
+  if (Buffer.byteLength(raw, "utf8") > WORKSPACE_DOCUMENT_BYTE_LIMITS[kind]) {
+    throw new WorkspaceStateValidationError("workspace_state_invalid");
+  }
+  return {
+    document: candidate.data as WorkspaceDocument<K>,
+    key: workspaceDocumentStorageKey(kind, input.scope),
+    raw,
+  };
+}
+
 function strategyBindingCandidate(input: {
   current: WorkspaceDocument<"strategy"> | null;
   now: string;
@@ -680,6 +728,44 @@ export function prepareInitialWorkspaceStrategyBinding(input: {
   assertAuthorizedWorkspaceStoreScope(input.scope);
   const candidate = strategyBindingCandidate({
     current: null,
+    now: input.now.toISOString(),
+    scope: input.scope,
+    value: input.value,
+  });
+  if (!candidate.success) {
+    throw new WorkspaceStateValidationError("workspace_state_invalid");
+  }
+  const raw = JSON.stringify(candidate.data);
+  if (Buffer.byteLength(raw, "utf8") > WORKSPACE_DOCUMENT_BYTE_LIMITS.strategy) {
+    throw new WorkspaceStateValidationError("workspace_state_invalid");
+  }
+  return {
+    document: candidate.data,
+    key: workspaceDocumentStorageKey("strategy", input.scope),
+    raw,
+  };
+}
+
+export function prepareWorkspaceStrategyBindingUpdate(input: {
+  current: WorkspaceDocument<"strategy">;
+  now: Date;
+  scope: AuthorizedWorkspaceStoreScope;
+  value: WorkspaceStrategyBindingValue;
+}): {
+  document: z.infer<typeof workspaceStrategyBindingDocumentSchema>;
+  key: string;
+  raw: string;
+} {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  if (
+    input.current.schemaVersion !== 2 ||
+    input.current.ownerId !== input.scope.ownerId ||
+    input.current.workspaceId !== input.scope.workspaceId
+  ) {
+    throw new WorkspaceStateValidationError("workspace_state_invalid");
+  }
+  const candidate = strategyBindingCandidate({
+    current: input.current,
     now: input.now.toISOString(),
     scope: input.scope,
     value: input.value,

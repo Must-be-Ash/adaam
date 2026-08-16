@@ -18,6 +18,8 @@ for (const required of [
   "listStrategyPacks",
   "inspectStrategyPackWorkspace",
   "createStrategyPackWorkspaceFromSelection",
+  "configureStrategyPackWorkspaceFromSelection",
+  "removeStrategyPackWorkspaceFromSelection",
   "verifySpectrumStrategyPackMutationIdentity",
   'POST(`${PHOTON_WORKSPACE_APP_PATH}/pack-action`',
   "strategyPack",
@@ -26,7 +28,18 @@ for (const required of [
   "Create pack session",
   "packMutationIdentity",
   'document.querySelectorAll("form input, form select, form button")',
-  "Creating strategy-pack session…",
+  "Applying strategy-pack ",
+  'action: z.literal("strategy-pack-configure")',
+  'action: z.literal("strategy-pack-remove")',
+  "confirmedConsequences: z.literal(true)",
+  "Affected managed work:",
+  "future messages will start a fresh conversation generation",
+  "durable research will remain",
+  "Pack summary",
+  "No reviewed strategy packs are currently available.",
+  "Strategy-pack update completed.",
+  '". Receipt " + receipt.mutationId.slice(0, 12)',
+  '" · binding revision " + receipt.bindingRevision',
   "crypto.randomUUID()",
   "monitor.nextOccurrenceAt",
   "monitor.lastRunAt",
@@ -89,8 +102,16 @@ assert.equal(
 );
 assert.match(
   source,
-  /runtime\.append\(strategyPackRow\(workspace\.strategyPack\)\);\s*for \(const monitor/u,
+  /runtime\.append\(strategyPackRow\(workspace\)\);\s*for \(const monitor/u,
   "Pack identity and health should render before the managed monitor controls.",
 );
+assert.match(
+  source,
+  /for \(const monitor[\s\S]+const packSummary = strategyPackSummary/u,
+  "Managed monitor controls should render before the collapsed pack summary.",
+);
+assert.match(source, /className = "pack-danger"/u);
+assert.match(source, /element\.disabled = busy/u);
+assert.match(source, /if \(error && error\.status === 409\) await load\(\)/u);
 
 console.info("Photon workspace runtime manager verification passed.");

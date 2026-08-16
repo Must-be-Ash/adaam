@@ -9,8 +9,10 @@ import { photonApprovalGuardKey } from "../agent/lib/photon-approval-store.ts";
 import { getPhotonWorkspaceState } from "../agent/lib/photon-workspace-store.ts";
 import { createStrategyPackCatalog } from "../agent/lib/strategy-pack-catalog.ts";
 import {
+  configureStrategyPackWorkspaceFromSelection,
   createStrategyPackWorkspace,
   deriveEveStrategyPackMutationIdentity,
+  removeStrategyPackWorkspaceFromSelection,
   StrategyPackServiceError,
 } from "../agent/lib/strategy-pack-service.ts";
 import { STRATEGY_PACK_TRANSACTION_REDIS_SCRIPTS } from "../agent/lib/strategy-pack-transaction.ts";
@@ -132,6 +134,46 @@ return 1`;
     }
     return { status: result };
   }
+
+  async commitLifecycle(input) {
+    const keys = [
+      input.approvalGuardKey,
+      input.mappingKey,
+      input.receiptKey,
+      input.registryKey,
+      ...input.records.map((record) => record.key),
+      ...input.monitors.flatMap((monitor) => [monitor.recordKey, monitor.dueKey]),
+    ];
+    const args = [
+      input.mappingRaw,
+      input.receiptRaw,
+      input.expectedRegistryRaw,
+      String(input.expectedRegistryRevision),
+      input.nextRegistryRaw,
+      String(input.records.length),
+      String(input.monitors.length),
+      ...input.records.flatMap((record) => [record.expectedRaw, record.nextRaw]),
+      ...input.monitors.flatMap((monitor) => [
+        monitor.expectedRaw,
+        monitor.nextRaw,
+        monitor.dueAtMs === null ? "" : String(monitor.dueAtMs),
+      ]),
+    ];
+    const result = await redis(
+      "EVAL",
+      STRATEGY_PACK_TRANSACTION_REDIS_SCRIPTS.commitLifecycle,
+      String(keys.length),
+      ...keys,
+      ...args,
+    );
+    if (result.startsWith("committed:")) {
+      return { receiptRaw: result.slice("committed:".length), status: "committed" };
+    }
+    if (result.startsWith("replayed:")) {
+      return { receiptRaw: result.slice("replayed:".length), status: "replayed" };
+    }
+    return { status: result };
+  }
 }
 
 const server = spawn("redis-server", [
@@ -222,6 +264,9 @@ try {
     catalog,
     environment,
     idFactory: () => "723e4567-e89b-42d3-a456-426614174000",
+    monitorClient: client,
+    observationSink() {},
+    stateClient: client,
     transactionClient: client,
     workspaceClient: client,
   };
@@ -245,6 +290,41 @@ try {
   }, environment);
   assert.equal((await readWorkspaceDocument("strategy", scope, client))?.revision, 1);
   assert.equal((await listWorkspaceMonitors(scope, client))[0]?.lifecycleState, "enabled");
+
+  const configured = await configureStrategyPackWorkspaceFromSelection({
+    ...routing,
+    confirmedConsequences: true,
+    configuration: { dailyTimes: ["10:00"], timezone: "UTC" },
+    expectedBindingRevision: 1,
+    expectedRegistryRevision: 1,
+    now: new Date("2026-08-15T17:01:00.000Z"),
+    requestIdentity: deriveEveStrategyPackMutationIdentity({
+      ingressId: `ingress_${"8".repeat(64)}`,
+      operationOrdinal: 0,
+      stepId: "step_redis_configure",
+      turnId: "turn_redis_configure",
+    }),
+    sourceAssignment: { generation: 1, workspaceId: created.receipt.targetWorkspaceId },
+  }, dependencies);
+  assert.equal(configured.receipt.outcome, "configured");
+  assert.equal((await listWorkspaceMonitors(scope, client))[0]?.lifecycleState, "paused");
+  const removed = await removeStrategyPackWorkspaceFromSelection({
+    ...routing,
+    confirmedConsequences: true,
+    expectedBindingRevision: 2,
+    expectedRegistryRevision: 2,
+    now: new Date("2026-08-15T17:02:00.000Z"),
+    requestIdentity: deriveEveStrategyPackMutationIdentity({
+      ingressId: `ingress_${"9".repeat(64)}`,
+      operationOrdinal: 0,
+      stepId: "step_redis_remove",
+      turnId: "turn_redis_remove",
+    }),
+    sourceAssignment: { generation: 2, workspaceId: created.receipt.targetWorkspaceId },
+  }, dependencies);
+  assert.equal(removed.receipt.outcome, "removed");
+  assert.equal((await readWorkspaceDocument("strategy", scope, client))?.value.lifecycleState, "unbound");
+  assert.equal((await listWorkspaceMonitors(scope, client))[0]?.lifecycleState, "retired");
 
   await redis("SET", photonApprovalGuardKey(routing), "pending");
   await assert.rejects(

@@ -700,6 +700,40 @@ export function preparePhotonWorkspaceRegistryCreation(input: {
   };
 }
 
+export function preparePhotonWorkspaceGenerationRollover(input: {
+  current: PhotonWorkspaceRegistry;
+  expectedGeneration: number;
+  now: Date;
+  workspaceId: string;
+}): { registry: PhotonWorkspaceRegistry; workspace: PhotonWorkspace } {
+  const currentWorkspace = input.current.workspaces.find(
+    (workspace) => workspace.id === input.workspaceId,
+  );
+  if (
+    !currentWorkspace ||
+    currentWorkspace.status !== "active" ||
+    currentWorkspace.generation !== input.expectedGeneration
+  ) {
+    throw new PhotonWorkspaceConflictError();
+  }
+  const workspace = workspaceSchema.parse({
+    ...currentWorkspace,
+    continuation: "isolated",
+    generation: currentWorkspace.generation + 1,
+    sessionId: undefined,
+    updatedAtMs: input.now.getTime(),
+  });
+  return {
+    registry: registrySchema.parse(updatedRegistry(
+      input.current,
+      input.current.workspaces.map((candidate) =>
+        candidate.id === workspace.id ? workspace : candidate,
+      ),
+    )),
+    workspace,
+  };
+}
+
 export async function getPhotonWorkspaceState(
   input: { principalId: string; threadId: string },
   client: PhotonWorkspaceStoreClient = store(),
