@@ -39,7 +39,7 @@ architecture. Keep them distinct:
 | Research | Direct sources, public feeds, FMP/SEC-oriented skills, and guarded Masterkey fallback | Durable private ingestion of every paid or temporary result |
 | Trading | Allowlisted Coinbase reads and preview-bound spot-order approval | A generally safe live-trading surface or account-wide reconciliation |
 | Deliverables | Public-data reports and media on stable Eve URLs | Owner-private artifacts for portfolio, account, or personal data |
-| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, and real Specs 1–2 Photon production acceptance | Spec 3 source events and deferred crash/operations hardening |
+| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, and real Specs 1–2 Photon production acceptance | Spec 3 public-source adapters/facts; push source events and crash/operations hardening remain deferred |
 | Authorization | Fail-closed deployment-owner mapping for Photon workspace paths plus a separate Coinbase allowlist | Owner-global enforcement across Telegram, HTTP, and every remaining private capability |
 
 `NORTH_STAR.md` describes the intended strategy-workspace architecture; it is

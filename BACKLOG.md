@@ -329,7 +329,10 @@ ordinary-path failure:
   acceptance, event-stream inspection, and recorded rollback evidence under
   Spec 1 Sprint 6.
 
-Source-event/RSS/WebSub work is not in this bucket; it moved to Spec 3 Sprint 4.
+- [ ] When a selected public source has a documented production push contract,
+  add authenticated source-event/RSS/WebSub ingress on Spec 1 occurrence and
+  Spec 3 adapter/fact contracts, including identity-bound verification, replay
+  windows, rate/concurrency limits, deduplication, fallback, and rollback.
 
 ## 3. Event-trigger work
 
