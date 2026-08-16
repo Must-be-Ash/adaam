@@ -429,6 +429,7 @@ const sourcePlaneFiles = [
   new URL("../agent/lib/public-source-registry.ts", import.meta.url),
   new URL("../agent/lib/sec-public-source-adapter.ts", import.meta.url),
   new URL("../agent/lib/house-public-source-feasibility.ts", import.meta.url),
+  new URL("../agent/lib/house-public-source-adapter.ts", import.meta.url),
 ];
 for (const sourceFile of sourcePlaneFiles) {
   const source = await readFile(sourceFile, "utf8");

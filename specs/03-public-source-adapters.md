@@ -375,16 +375,24 @@ Exit: SEC is a complete shared-acquisition-to-isolated-workspace vertical path.
 
 ### Sprint 3 — House index and PTR vertical
 
-- [ ] Implement bounded House ZIP/XML index acquisition and
-  baseline/new/corrected filing selection.
-- [ ] Implement exact PTR retrieval and deterministic PDF extraction for the
-  supported v1 corpus.
-- [ ] Emit immutable House filing and transaction fact revisions with public
+- [x] Implement bounded House ZIP/XML index acquisition and
+  baseline/new/corrected filing selection. The reviewed 2026 source now uses
+  strict archive/XML bounds and durable logical-key heads for correction lookup.
+- [x] Implement exact PTR retrieval and deterministic PDF extraction for the
+  supported v1 corpus. The caller derives only the validated official DocID URL,
+  cross-checks the disclosed filing identity, and uses bounded text-layer parsing.
+- [x] Emit immutable House filing and transaction fact revisions with public
   provenance, range-preserving amounts, unknown/partial states, and corrections.
-- [ ] Prove baseline, one new filing, multi-row, amendment, no-transaction,
-  replay, partial/scanned, malformed ZIP/XML/PDF, and resource bounds.
-- [ ] Run focused House tests, typecheck, Eve build, update this ledger, and
-  commit Sprint 3.
+  Partial and scanned documents emit only explicit filing states and never
+  invented transaction rows.
+- [x] Prove baseline, one new filing, multi-row, amendment, no-transaction,
+  replay, partial/scanned, malformed ZIP/XML/PDF, and resource bounds. The
+  checked-in real-layout corpus plus bounded synthetic index variants cover the
+  production caller and correction lineage.
+- [x] Run focused House tests, typecheck, Eve build, update this ledger, and
+  commit Sprint 3. House/contracts, SEC/kernel regression, guarded transport,
+  strategy-pack/monitor checks, TypeScript, and the compiled Eve build passed on
+  2026-08-15 without a live source read or production flag change.
 
 Exit: a representative checked-in House PTR travels through the production
 caller from index to canonical facts that meet Spec 4's input contract.

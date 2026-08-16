@@ -45,6 +45,7 @@
     "verify:strategy-pack-spectrum-browser": "jiti scripts/verify-strategy-pack-spectrum-browser.mjs",
     "verify:strategy-packs:acceptance": "jiti scripts/verify-strategy-pack-acceptance.ts",
     "verify:public-source-adapters:contracts": "jiti scripts/verify-public-source-adapter-contracts.ts",
+    "verify:public-source-adapters:house": "jiti scripts/verify-public-source-house-acquisition.ts",
     "verify:public-source-adapters:sec": "jiti scripts/verify-public-source-sec-acquisition.ts",
     "verify:workspace-runtime:contracts": "node scripts/verify-workspace-runtime-contracts.mjs",
     "verify:workspace-runtime:failures": "node scripts/verify-workspace-runtime-failures.mjs",

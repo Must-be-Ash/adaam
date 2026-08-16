@@ -5,7 +5,7 @@ fixture_dir="$(CDPATH= cd -- "$(dirname -- "$0")/fixtures/public-source-adapters
 work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
 
-for source in ptr-single-row ptr-multi-page-amended ptr-no-transactions ptr-ambiguous; do
+for source in ptr-single-row ptr-multi-page-amended ptr-multi-page-amended-corrected ptr-no-transactions ptr-ambiguous; do
   soffice --headless --convert-to pdf --outdir "$work_dir" "$fixture_dir/$source.html" >/dev/null
   mv "$work_dir/$source.pdf" "$fixture_dir/$source.pdf"
 done

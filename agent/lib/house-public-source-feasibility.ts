@@ -55,6 +55,23 @@ function safeArchivePath(filename: string): boolean {
   );
 }
 
+function assertBoundedHouseXmlShape(xml: string): void {
+  const tags = xml.match(/<[^>]+>/gu) ?? [];
+  if (tags.length > PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition * 12 + 10) {
+    throw new HouseFeasibilityError("xml_bounds_exceeded");
+  }
+  let depth = 0;
+  for (const tag of tags) {
+    if (/^<\?/u.test(tag)) continue;
+    if (/^<\//u.test(tag)) depth -= 1;
+    else if (!/\/>$/u.test(tag)) depth += 1;
+    if (depth < 0 || depth > 3) {
+      throw new HouseFeasibilityError("xml_bounds_exceeded");
+    }
+  }
+  if (depth !== 0) throw new HouseFeasibilityError("xml_invalid");
+}
+
 export interface HouseIndexArchiveInspection {
   readonly archiveDigest: string;
   readonly entryCount: number;
@@ -122,6 +139,7 @@ export async function inspectHouseIndexArchive(
     if (/<!DOCTYPE|<!ENTITY/iu.test(xml)) {
       throw new HouseFeasibilityError("xml_external_entity_forbidden");
     }
+    assertBoundedHouseXmlShape(xml);
     if (XMLValidator.validate(xml) !== true) {
       throw new HouseFeasibilityError("xml_invalid");
     }
@@ -173,6 +191,11 @@ export interface HousePtrPdfInspection {
   readonly transactionRowCount: number;
 }
 
+export interface HousePtrPdfTextExtraction extends HousePtrPdfInspection {
+  /** Ephemeral normalized text used only by the deterministic House parser. */
+  readonly text: string;
+}
+
 function countTransactionRows(text: string): number {
   return text.match(/\$\s*[\d,]+\s*-\s*\$\s*[\d,]+|Over\s+\$\s*[\d,]+/giu)?.length ?? 0;
 }
@@ -196,7 +219,9 @@ async function withinPdfExecutionLimit<T>(startedAt: number, work: Promise<T>): 
   }
 }
 
-export async function inspectHousePtrPdf(bytes: Uint8Array): Promise<HousePtrPdfInspection> {
+export async function extractHousePtrPdfText(
+  bytes: Uint8Array,
+): Promise<HousePtrPdfTextExtraction> {
   if (bytes.byteLength > PUBLIC_SOURCE_LIMITS.maximumPdfBytes) {
     throw new HouseFeasibilityError("transport_response_oversized");
   }
@@ -244,6 +269,7 @@ export async function inspectHousePtrPdf(bytes: Uint8Array): Promise<HousePtrPdf
         extractionState: "unsupported",
         layout: "unknown",
         pageCount: document.numPages,
+        text,
         transactionRowCount: 0,
       });
     }
@@ -267,6 +293,7 @@ export async function inspectHousePtrPdf(bytes: Uint8Array): Promise<HousePtrPdf
         extractionState: "partial",
         layout: "unknown",
         pageCount: document.numPages,
+        text,
         transactionRowCount,
       });
     }
@@ -284,6 +311,7 @@ export async function inspectHousePtrPdf(bytes: Uint8Array): Promise<HousePtrPdf
       extractionState: "complete",
       layout,
       pageCount: document.numPages,
+      text,
       transactionRowCount,
     });
   } catch (error) {
@@ -292,4 +320,11 @@ export async function inspectHousePtrPdf(bytes: Uint8Array): Promise<HousePtrPdf
   } finally {
     await loadingTask.destroy();
   }
+}
+
+export async function inspectHousePtrPdf(
+  bytes: Uint8Array,
+): Promise<HousePtrPdfInspection> {
+  const { text: _text, ...inspection } = await extractHousePtrPdfText(bytes);
+  return Object.freeze(inspection);
 }

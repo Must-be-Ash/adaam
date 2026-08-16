@@ -102,6 +102,7 @@ function recordKey(
     | "acquisition-eligibility"
     | "correction"
     | "fact"
+    | "fact-head"
     | "journal"
     | "source-instance",
   id: string,
@@ -243,6 +244,57 @@ export async function readPublicSourceFactRevision(
   return raw === null
     ? null
     : parseRaw(raw, (value) => canonicalPublicFactRevisionSchema.parse(value));
+}
+
+interface PublicSourceFactHead {
+  readonly logicalKey: string;
+  readonly revisionId: string;
+  readonly schemaVersion: 1;
+}
+
+function parseFactHead(raw: string): PublicSourceFactHead {
+  return parseRaw(raw, (value) => {
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Reflect.get(value, "schemaVersion") !== 1 ||
+      typeof Reflect.get(value, "logicalKey") !== "string" ||
+      typeof Reflect.get(value, "revisionId") !== "string"
+    ) {
+      throw new PublicSourceAcquisitionStoreError("public_source_record_corrupt");
+    }
+    return Object.freeze({
+      logicalKey: Reflect.get(value, "logicalKey") as string,
+      revisionId: Reflect.get(value, "revisionId") as string,
+      schemaVersion: 1 as const,
+    });
+  });
+}
+
+async function readFactHead(
+  logicalKey: string,
+  client: PublicSourceAcquisitionStoreClient,
+): Promise<{ readonly head: PublicSourceFactHead; readonly raw: string } | null> {
+  const raw = await readRaw(recordKey("fact-head", logicalKey), client);
+  if (raw === null) return null;
+  const head = parseFactHead(raw);
+  if (head.logicalKey !== logicalKey) {
+    throw new PublicSourceAcquisitionStoreError("public_source_record_corrupt");
+  }
+  return Object.freeze({ head, raw });
+}
+
+export async function readLatestPublicSourceFactRevision(
+  logicalKey: string,
+  client: PublicSourceAcquisitionStoreClient = store(),
+): Promise<CanonicalPublicFactRevision | null> {
+  const current = await readFactHead(logicalKey, client);
+  if (current === null) return null;
+  const fact = await readPublicSourceFactRevision(current.head.revisionId, client);
+  if (!fact || fact.logicalKey !== logicalKey) {
+    throw new PublicSourceAcquisitionStoreError("public_source_record_corrupt");
+  }
+  return fact;
 }
 
 export async function readPublicSourceAcquisitionResult(
@@ -390,6 +442,37 @@ async function writeCorrection(
     throw new PublicSourceAcquisitionStoreError("fact_conflict");
   }
   return "reused";
+}
+
+async function advanceFactHead(input: {
+  readonly correction: PublicSourceCorrection | null;
+  readonly fact: CanonicalPublicFactRevision;
+}, client: PublicSourceAcquisitionStoreClient): Promise<void> {
+  const key = recordKey("fact-head", input.fact.logicalKey);
+  const next = serialize({
+    logicalKey: input.fact.logicalKey,
+    revisionId: input.fact.revisionId,
+    schemaVersion: 1,
+  });
+  const current = await readFactHead(input.fact.logicalKey, client);
+
+  if (input.correction === null) {
+    if (current?.head.revisionId === input.fact.revisionId) return;
+    if (current !== null) throw new PublicSourceAcquisitionStoreError("fact_conflict");
+    if (await client.compareAndSet(key, null, next)) return;
+    const raced = await readFactHead(input.fact.logicalKey, client);
+    if (raced?.head.revisionId === input.fact.revisionId) return;
+    throw new PublicSourceAcquisitionStoreError("fact_conflict");
+  }
+
+  if (current?.head.revisionId === input.fact.revisionId) return;
+  if (current?.head.revisionId !== input.correction.fromRevisionId) {
+    throw new PublicSourceAcquisitionStoreError("fact_conflict");
+  }
+  if (await client.compareAndSet(key, current.raw, next)) return;
+  const raced = await readFactHead(input.fact.logicalKey, client);
+  if (raced?.head.revisionId === input.fact.revisionId) return;
+  throw new PublicSourceAcquisitionStoreError("fact_conflict");
 }
 
 function journalIdentity(journal: PublicSourceAcquisitionJournal) {
@@ -575,6 +658,16 @@ export async function commitPublicSourceAcquisition(input: {
     (outcome) => outcome === "created",
   ).length;
   const correctionsReused = correctionOutcomes.length - correctionsCreated;
+
+  const correctionsByRevision = new Map(
+    corrections.map((correction) => [correction.toRevisionId, correction] as const),
+  );
+  for (const fact of facts) {
+    await advanceFactHead({
+      correction: correctionsByRevision.get(fact.revisionId) ?? null,
+      fact,
+    }, client);
+  }
 
   const journal = await commitJournal(prepared, result.observedAt, client);
   const currentSource = await readPublicSourceInstance(result.sourceInstanceId, client);

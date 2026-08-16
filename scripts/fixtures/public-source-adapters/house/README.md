@@ -8,6 +8,10 @@ gains columns, amendment marker, continuation-page shape, and no-transaction
 language mirror the public form while names, document IDs, and securities are
 fictional.
 
+The corrected-amendment variant changes only disclosed filer metadata while
+retaining the same transaction rows. Sprint 3 uses it to prove an immutable
+filing revision and explicit correction without manufacturing row changes.
+
 The older `baseline-index.xml`, `one-new-index.xml`, `valid-ptr.txt`, and
 `partial-ptr.txt` files are retained as small parser-development seeds. They do
 not satisfy the feasibility gate; `real-layout/corpus.json` is the authoritative
