@@ -1,0 +1,663 @@
+{
+  "authority": "House Clerk",
+  "documents": [
+    {
+      "byteLength": 40130,
+      "disclosedFiler": {
+        "firstName": "Tracey Robert",
+        "lastName": "Mann",
+        "prefix": "Hon.",
+        "stateDistrict": "KS01",
+        "suffix": null
+      },
+      "docId": "9116292",
+      "filingDate": "2026-08-13",
+      "independentExtractor": {
+        "errorCode": "pdf_scanned_unsupported",
+        "extractionState": "unsupported",
+        "layout": "unknown",
+        "pageCount": 2,
+        "transactionRowCount": 0
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": null,
+        "acquisitionStatus": "complete",
+        "filingExtraction": {
+          "errorCode": "pdf_scanned_unsupported",
+          "state": "unsupported"
+        },
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/9116292.pdf",
+      "retainedFile": "ptr-01.pdf",
+      "sampleOrder": 1,
+      "sha256": "7bc49307a68e1dcfc8676fb885118da00f7fcf5b51a297eae214a65e564f209d",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 66710,
+      "disclosedFiler": {
+        "firstName": "Derek",
+        "lastName": "Tran",
+        "prefix": "Hon.",
+        "stateDistrict": "CA45",
+        "suffix": null
+      },
+      "docId": "20035183",
+      "filingDate": "2026-08-13",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "multi_row",
+        "pageCount": 1,
+        "transactionRowCount": 2
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035183.pdf",
+      "retainedFile": "ptr-02.pdf",
+      "sampleOrder": 2,
+      "sha256": "2088113d5df2abfe0f09a817b3b019720f8cf1b3f9fae82e2f1e0d66dc597dfa",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 66315,
+      "disclosedFiler": {
+        "firstName": "William R.",
+        "lastName": "Keating",
+        "prefix": "Hon.",
+        "stateDistrict": "MA09",
+        "suffix": null
+      },
+      "docId": "20034898",
+      "filingDate": "2026-08-13",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "multi_row",
+        "pageCount": 1,
+        "transactionRowCount": 2
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20034898.pdf",
+      "retainedFile": "ptr-03.pdf",
+      "sampleOrder": 3,
+      "sha256": "bf8ed44991b7e245276dfb5fa887b658e3258b8400c83f21ab7c50cc8eb4e24c",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 62547,
+      "disclosedFiler": {
+        "firstName": "Shri",
+        "lastName": "Thanedar",
+        "prefix": "Hon.",
+        "stateDistrict": "MI13",
+        "suffix": null
+      },
+      "docId": "20033910",
+      "filingDate": "2026-08-13",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "multi_row",
+        "pageCount": 1,
+        "transactionRowCount": 2
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20033910.pdf",
+      "retainedFile": "ptr-04.pdf",
+      "sampleOrder": 4,
+      "sha256": "128834ec39dac3fcd2135cbd087f0c2d2bd7a98879c59c8f92e4adac629ccecc",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 69566,
+      "disclosedFiler": {
+        "firstName": "Carol Devine",
+        "lastName": "Miller",
+        "prefix": "Hon.",
+        "stateDistrict": "WV01",
+        "suffix": null
+      },
+      "docId": "20033779",
+      "filingDate": "2026-08-13",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "multi_row",
+        "pageCount": 2,
+        "transactionRowCount": 4
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20033779.pdf",
+      "retainedFile": "ptr-05.pdf",
+      "sampleOrder": 5,
+      "sha256": "5eb2ad55cbddf6537f7fd410ff69a0d313e8752e396363cc5989b5944f835930",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 46848,
+      "disclosedFiler": {
+        "firstName": "Charles J. \"Chuck\"",
+        "lastName": "Fleischmann",
+        "prefix": "Hon.",
+        "stateDistrict": "TN03",
+        "suffix": null
+      },
+      "docId": "9116290",
+      "filingDate": "2026-08-12",
+      "independentExtractor": {
+        "errorCode": "pdf_scanned_unsupported",
+        "extractionState": "unsupported",
+        "layout": "unknown",
+        "pageCount": 2,
+        "transactionRowCount": 0
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": null,
+        "acquisitionStatus": "complete",
+        "filingExtraction": {
+          "errorCode": "pdf_scanned_unsupported",
+          "state": "unsupported"
+        },
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/9116290.pdf",
+      "retainedFile": "ptr-06.pdf",
+      "sampleOrder": 6,
+      "sha256": "7cc36ca57a26ba0331fff01f6210d58d41719f074017442c14fc47983b27b42d",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 64113,
+      "disclosedFiler": {
+        "firstName": "Rob",
+        "lastName": "Bresnahan",
+        "prefix": "Hon.",
+        "stateDistrict": "PA08",
+        "suffix": null
+      },
+      "docId": "20035216",
+      "filingDate": "2026-08-12",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "single_row",
+        "pageCount": 1,
+        "transactionRowCount": 1
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035216.pdf",
+      "retainedFile": "ptr-07.pdf",
+      "sampleOrder": 7,
+      "sha256": "6e5b2f96da59704c5033f0b0b61a5c33a20641e626247e0422e2ed6bdc4777b6",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 65895,
+      "disclosedFiler": {
+        "firstName": "Mike",
+        "lastName": "Kelly",
+        "prefix": "Hon.",
+        "stateDistrict": "PA16",
+        "suffix": null
+      },
+      "docId": "20035209",
+      "filingDate": "2026-08-12",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "single_row",
+        "pageCount": 1,
+        "transactionRowCount": 1
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035209.pdf",
+      "retainedFile": "ptr-08.pdf",
+      "sampleOrder": 8,
+      "sha256": "5c856cad5c698539eb8abbc99aa8e97cb8bc551a4993d7b912ac1c5fcbdd243a",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 69404,
+      "disclosedFiler": {
+        "firstName": "Mike",
+        "lastName": "Kelly",
+        "prefix": "Hon.",
+        "stateDistrict": "PA16",
+        "suffix": null
+      },
+      "docId": "20035203",
+      "filingDate": "2026-08-12",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "multi_row",
+        "pageCount": 2,
+        "transactionRowCount": 5
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035203.pdf",
+      "retainedFile": "ptr-09.pdf",
+      "sampleOrder": 9,
+      "sha256": "d6c6ffc892ffeaa7210f4d4a3c85e1d77723426fccbf2ea6f8503781cbdec854",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 67813,
+      "disclosedFiler": {
+        "firstName": "Kevin",
+        "lastName": "Hern",
+        "prefix": "Hon.",
+        "stateDistrict": "OK01",
+        "suffix": null
+      },
+      "docId": "20035196",
+      "filingDate": "2026-08-12",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "multi_row",
+        "pageCount": 1,
+        "transactionRowCount": 2
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035196.pdf",
+      "retainedFile": "ptr-10.pdf",
+      "sampleOrder": 10,
+      "sha256": "951740000ede6c5cb506bb14de74c7a8ce7d17d082d35f46ee4c24915583e677",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 63338,
+      "disclosedFiler": {
+        "firstName": "Suzan K.",
+        "lastName": "DelBene",
+        "prefix": "Hon.",
+        "stateDistrict": "WA01",
+        "suffix": null
+      },
+      "docId": "20035175",
+      "filingDate": "2026-08-11",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "single_row",
+        "pageCount": 1,
+        "transactionRowCount": 1
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035175.pdf",
+      "retainedFile": "ptr-11.pdf",
+      "sampleOrder": 11,
+      "sha256": "bf9043d9724ba4b0304bc848493a729e802b7ad52c6184ac301468c67f519f57",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 76710,
+      "disclosedFiler": {
+        "firstName": "Josh",
+        "lastName": "Gottheimer",
+        "prefix": "Hon.",
+        "stateDistrict": "NJ05",
+        "suffix": null
+      },
+      "docId": "20035186",
+      "filingDate": "2026-08-10",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "multi_row",
+        "pageCount": 3,
+        "transactionRowCount": 13
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035186.pdf",
+      "retainedFile": "ptr-12.pdf",
+      "sampleOrder": 12,
+      "sha256": "7f4dfcb3afdcb255245165c0e3b59c58882db758c2079107be3b80f70dedd7d8",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 68023,
+      "disclosedFiler": {
+        "firstName": "John J Mr",
+        "lastName": "McGuire",
+        "prefix": "Hon.",
+        "stateDistrict": "VA05",
+        "suffix": "III"
+      },
+      "docId": "20035180",
+      "filingDate": "2026-08-10",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "multi_row",
+        "pageCount": 2,
+        "transactionRowCount": 4
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035180.pdf",
+      "retainedFile": "ptr-13.pdf",
+      "sampleOrder": 13,
+      "sha256": "a702055d09f3bd1a1c6b9f3dc5487988590641cebbe332d9c6c3bcfbdf637cd9",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 80288,
+      "disclosedFiler": {
+        "firstName": "Kevin",
+        "lastName": "Hern",
+        "prefix": "Hon.",
+        "stateDistrict": "OK01",
+        "suffix": null
+      },
+      "docId": "20035134",
+      "filingDate": "2026-08-10",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "multi_row",
+        "pageCount": 3,
+        "transactionRowCount": 14
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035134.pdf",
+      "retainedFile": "ptr-14.pdf",
+      "sampleOrder": 14,
+      "sha256": "ad182ec8d9b632115329f229f9144c0390affbf4a77ae52e7debe1352ddfb81e",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 475638,
+      "disclosedFiler": {
+        "firstName": "Rohit",
+        "lastName": "Khanna",
+        "prefix": "Hon.",
+        "stateDistrict": "CA17",
+        "suffix": null
+      },
+      "docId": "9116267",
+      "filingDate": "2026-08-07",
+      "independentExtractor": {
+        "errorCode": "pdf_page_limit_exceeded",
+        "extractionState": "malformed",
+        "layout": "unknown",
+        "pageCount": null,
+        "transactionRowCount": 0
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "pdf_page_limit_exceeded",
+        "acquisitionStatus": "terminal_failure",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/9116267.pdf",
+      "retainedFile": "ptr-15.pdf",
+      "sampleOrder": 15,
+      "sha256": "05081479c7a1e25becfb7035cbc0107c3d56aedcd82eeff50d4a8f26b9e026a5",
+      "independentReviewEvidence": "visual_pages_1_to_3"
+    },
+    {
+      "byteLength": 65469,
+      "disclosedFiler": {
+        "firstName": "Christian D.",
+        "lastName": "Menefee",
+        "prefix": "Hon.",
+        "stateDistrict": "TX18",
+        "suffix": null
+      },
+      "docId": "20035157",
+      "filingDate": "2026-08-07",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "single_row",
+        "pageCount": 1,
+        "transactionRowCount": 1
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035157.pdf",
+      "retainedFile": "ptr-16.pdf",
+      "sampleOrder": 16,
+      "sha256": "7a8c1c6a67bc738d70127ea2fe636e3bc9af7bf172c2d45b65a0db9529e8e312",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 92763,
+      "disclosedFiler": {
+        "firstName": "Michael",
+        "lastName": "Rulli",
+        "prefix": "Hon.",
+        "stateDistrict": "OH06",
+        "suffix": null
+      },
+      "docId": "20035147",
+      "filingDate": "2026-08-07",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "multi_row",
+        "pageCount": 5,
+        "transactionRowCount": 32
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035147.pdf",
+      "retainedFile": "ptr-17.pdf",
+      "sampleOrder": 17,
+      "sha256": "3ec9dfcd147796236fdb7686f7d992cbe749709934a723e1625d0a9de8f8709f",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 69337,
+      "disclosedFiler": {
+        "firstName": "Maria Elvira",
+        "lastName": "Salazar",
+        "prefix": "Hon.",
+        "stateDistrict": "FL27",
+        "suffix": null
+      },
+      "docId": "20035138",
+      "filingDate": "2026-08-07",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "multi_row",
+        "pageCount": 2,
+        "transactionRowCount": 6
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035138.pdf",
+      "retainedFile": "ptr-18.pdf",
+      "sampleOrder": 18,
+      "sha256": "d066d317e7742aeb5721dc3bef11164800ca4228ee35a063b39d6ad2c295de6c",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 93112,
+      "disclosedFiler": {
+        "firstName": "David J.",
+        "lastName": "Taylor",
+        "prefix": "Hon.",
+        "stateDistrict": "OH02",
+        "suffix": null
+      },
+      "docId": "20035146",
+      "filingDate": "2026-08-06",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "multi_row",
+        "pageCount": 2,
+        "transactionRowCount": 10
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035146.pdf",
+      "retainedFile": "ptr-19.pdf",
+      "sampleOrder": 19,
+      "sha256": "15894132e3c60e58939f9e3f7192e39dee17101299d62089fd59ebdb54f225fe",
+      "independentReviewEvidence": "visual_first_page"
+    },
+    {
+      "byteLength": 63183,
+      "disclosedFiler": {
+        "firstName": "Lloyd",
+        "lastName": "Doggett",
+        "prefix": "Hon.",
+        "stateDistrict": "TX37",
+        "suffix": null
+      },
+      "docId": "20035136",
+      "filingDate": "2026-08-05",
+      "independentExtractor": {
+        "errorCode": null,
+        "extractionState": "complete",
+        "layout": "single_row",
+        "pageCount": 1,
+        "transactionRowCount": 1
+      },
+      "independentReviewClassification": "transaction_bearing",
+      "productionParser": {
+        "acquisitionErrorCode": "parser_incomplete",
+        "acquisitionStatus": "partial",
+        "filingExtraction": null,
+        "transactionFactCount": 0
+      },
+      "publicUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035136.pdf",
+      "retainedFile": "ptr-20.pdf",
+      "sampleOrder": 20,
+      "sha256": "447b1fcc6f6bb848d002bd47efeba371f3d8ed51bb33b5a09e750f5e3b52d588",
+      "independentReviewEvidence": "visual_first_page"
+    }
+  ],
+  "index": {
+    "archiveDigest": "5b3ce10fe839abed08e14e0cd79dda573e7b9c9c2abc77ee55ac2007dd0536f0",
+    "memberCount": 1547,
+    "ptrCount": 351,
+    "retainedFile": "2026FD.zip",
+    "sha256": "5b3ce10fe839abed08e14e0cd79dda573e7b9c9c2abc77ee55ac2007dd0536f0",
+    "sourceUrl": "https://disclosures-clerk.house.gov/public_disc/financial-pdfs/2026FD.zip"
+  },
+  "observedAt": "2026-08-16T16:35:52.811Z",
+  "schemaVersion": 1,
+  "selection": {
+    "distinctMemberCount": 18,
+    "minimumDistinctMembers": 10,
+    "newestFilingDate": "2026-08-13",
+    "oldestFilingDate": "2026-08-05",
+    "rule": "literal newest PTR rows by filing date then DocID descending",
+    "sampleSize": 20
+  },
+  "sourceInstanceId": "house-financial-disclosures-2026",
+  "year": 2026,
+  "viabilityGate": {
+    "coverage": 0,
+    "minimumCoverage": 0.8,
+    "passed": false,
+    "productionTransactionBearingDocuments": 0,
+    "reviewedTransactionBearingDocuments": 20,
+    "unsupportedLayouts": {
+      "currentDigitalEfilingParserIncomplete": 17,
+      "scannedLegacyImageOnly": 2,
+      "scannedAttachedSchedulePageLimit": 1
+    }
+  }
+}

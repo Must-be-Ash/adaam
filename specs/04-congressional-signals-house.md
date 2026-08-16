@@ -1,6 +1,6 @@
 # Spec 4: Congressional Signals v1 — House disclosures
 
-Status: Ready for sprint implementation after Specs 1–3
+Status: Sprint 0 blocked at the measured House extraction viability gate
 
 Date: 2026-08-16
 
@@ -363,8 +363,16 @@ shows evidence and caveats without exposing unrelated workspace history.
 
 ### Sprint 0 — prove viability and close dependencies
 
-- [ ] Run the owner-authorized real-PTR source viability gate and record the
-  bounded corpus result. Stop here if extraction coverage is below the gate.
+- [x] Run the owner-authorized real-PTR source viability gate and record the
+  bounded corpus result. On 2026-08-16 the literal newest 20 official current-
+  year PTRs spanned 18 members; independent visual review found transactions in
+  all 20, while the production parser produced transaction facts from 0/20.
+  Seventeen current text-backed e-filing tables returned `parser_incomplete`,
+  two scanned legacy forms returned `pdf_scanned_unsupported`, and one 13-page
+  scanned attached-schedule form returned `pdf_page_limit_exceeded`. The
+  retained corpus and hashes are under
+  `scripts/fixtures/public-source-adapters/house/live-review-2026-08-16/`.
+  Stop here: measured coverage is 0%, below the required 80%.
 - [ ] If required, implement and verify the focused Spec 3 extraction extension,
   without adding extraction to the strategy layer.
 - [ ] Add the Spec 3 transaction retraction/tombstone projection required for
