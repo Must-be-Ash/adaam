@@ -13,7 +13,13 @@ export const SEC_IPO_SOURCE_CONTRACT_VERSION = "1.0.0";
 export const SEC_IPO_SOURCE_ALLOWED_ORIGINS = Object.freeze(["https://www.sec.gov"]);
 export const SEC_IPO_SOURCE_CONTRACT_DIGEST = createHash("sha256")
   .update(
-    `sec-ipo-source-contract\0${SEC_IPO_SOURCE_ID}\0${SEC_IPO_SOURCE_CONTRACT_VERSION}\0${SEC_IPO_SOURCE_URL}\0${SEC_IPO_SOURCE_ALLOWED_ORIGINS.join("\0")}`,
+    [
+      "sec-ipo-source-contract",
+      SEC_IPO_SOURCE_ID,
+      SEC_IPO_SOURCE_CONTRACT_VERSION,
+      SEC_IPO_SOURCE_URL,
+      ...SEC_IPO_SOURCE_ALLOWED_ORIGINS,
+    ].join(String.fromCharCode(0)),
   )
   .digest("hex");
 export const STAGE_WORKSPACE_ALERT_TOOL_ID = "stage_workspace_alert";

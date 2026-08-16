@@ -11,7 +11,6 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
-  EMPTY_STRATEGY_PACK_REFERENCE_CATALOG,
   STRATEGY_PACK_CATALOG_ENTRY_LIMIT,
   STRATEGY_PACK_CORE_SCHEMA_VERSION,
   STRATEGY_PACK_FILE_LIMITS,
@@ -22,6 +21,7 @@ import {
   strategyPackEvaluationsSchema,
   strategyPackManifestSchema,
 } from "../agent/lib/strategy-pack-schema.ts";
+import { STRATEGY_PACK_REFERENCE_CATALOG } from "../agent/lib/strategy-pack-reference-catalog.ts";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const defaultPackRoot = resolve(projectRoot, "strategy-packs");
@@ -395,7 +395,7 @@ export async function generateStrategyPackCatalog({
   checkOnly = false,
   outputPath = defaultOutputPath,
   packRoot = defaultPackRoot,
-  references = EMPTY_STRATEGY_PACK_REFERENCE_CATALOG,
+  references = STRATEGY_PACK_REFERENCE_CATALOG,
 } = {}) {
   const entries = [];
   const seen = new Set();

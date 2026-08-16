@@ -4,8 +4,12 @@ import type {
   PhotonWorkspace,
   PhotonWorkspaceState,
 } from "./photon-workspace-store";
-
 const WORKSPACE_THREAD_MARKER = ":eve-workspace:v1:";
+const STRATEGY_PACK_CREATE_REQUEST_ALIASES = Object.freeze([
+  "ipo filings",
+  "ipo-filings",
+  "ipo-filings@1.0.0",
+]);
 const WORKSPACE_SUFFIX =
   /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):(\d+)$/iu;
 
@@ -31,13 +35,30 @@ const THREAD_ID_METHODS = new Set<PropertyKey>([
   "stream",
 ]);
 
-export function isPhotonSessionManagerRequest(text: string): boolean {
-  const request = text
+function normalizedControlText(text: string): string {
+  return text
     .normalize("NFKC")
     .trim()
     .toLowerCase()
     .replace(/[.!?]+$/u, "")
     .replace(/\s+/gu, " ");
+}
+
+function isConcreteStrategyPackSessionRequest(request: string): boolean {
+  if (
+    !/\b(?:create|start|open|add|make)\b/u.test(request) ||
+    !/\b(?:session|workspace|conversation|chat|context)\b/u.test(request)
+  ) {
+    return false;
+  }
+  if (/\bstrategy[- ]pack\b/u.test(request)) return true;
+  return STRATEGY_PACK_CREATE_REQUEST_ALIASES.some((alias) =>
+    request.includes(alias));
+}
+
+export function isPhotonSessionManagerRequest(text: string): boolean {
+  const request = normalizedControlText(text);
+  if (isConcreteStrategyPackSessionRequest(request)) return false;
   if (
     /^(?:sessions?|workspaces?|session manager|workspace manager|session settings|workspace settings|(?:current|active) (?:session|workspace))$/u.test(
       request,

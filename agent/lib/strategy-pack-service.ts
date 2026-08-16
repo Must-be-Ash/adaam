@@ -28,16 +28,24 @@ import {
 } from "./strategy-pack-transaction";
 import {
   prepareWorkspaceMonitorCreate,
+  listWorkspaceMonitors,
   type PreparedWorkspaceMonitorCreate,
+  type WorkspaceMonitorStoreClient,
 } from "./workspace-monitor-store";
 import { nextWorkspaceMonitorOccurrence } from "./workspace-monitor-schedule";
 import {
   prepareInitialWorkspaceDocument,
   prepareInitialWorkspaceStrategyBinding,
+  readWorkspaceDocument,
   type WorkspaceBudgetPolicyValue,
   type WorkspaceCapabilityManifestValue,
+  type WorkspaceStateStoreClient,
   type WorkspaceStrategyBindingValue,
 } from "./workspace-state-store";
+import {
+  resolveInteractiveStrategyPackRuntime,
+  StrategyPackRuntimeError,
+} from "./strategy-pack-runtime";
 import {
   authorizePhotonWorkspaceControlPlaneStore,
   type AuthorizedWorkspaceStoreScope,
@@ -126,6 +134,7 @@ export interface StrategyPackServiceDependencies {
 export class StrategyPackServiceError extends Error {
   readonly code:
     | "strategy_pack_authority_expansion"
+    | "strategy_pack_catalog_disabled"
     | "strategy_pack_financial_approval_pending"
     | "strategy_pack_invalid_request"
     | "strategy_pack_mutation_conflict"
@@ -140,6 +149,288 @@ export class StrategyPackServiceError extends Error {
     this.code = code;
     this.name = "StrategyPackServiceError";
   }
+}
+
+type StrategyPackCatalog = typeof strategyPackCatalog;
+
+export interface StrategyPackServiceReadDependencies {
+  readonly catalog?: StrategyPackCatalog;
+  readonly environment?: NodeJS.ProcessEnv;
+}
+
+function requireStrategyPackCatalog(
+  dependencies: StrategyPackServiceReadDependencies,
+): StrategyPackCatalog {
+  if (!resolveStrategyPackFlags(dependencies.environment ?? process.env).catalog) {
+    throw new StrategyPackServiceError("strategy_pack_catalog_disabled");
+  }
+  return dependencies.catalog ?? strategyPackCatalog;
+}
+
+export function listStrategyPacks(
+  dependencies: StrategyPackServiceReadDependencies = {},
+): {
+  readonly count: number;
+  readonly packs: ReturnType<StrategyPackCatalog["listModelSafe"]>;
+} {
+  const packs = requireStrategyPackCatalog(dependencies).listModelSafe();
+  return Object.freeze({ count: packs.length, packs });
+}
+
+function packInspection(pack: StrategyPackCatalogEntry) {
+  return Object.freeze({
+    availability: pack.availability,
+    capabilities: Object.freeze({
+      hardDenied: Object.freeze([...pack.capabilities.hardDenied]),
+      required: Object.freeze([...pack.capabilities.required]),
+    }),
+    configuration: Object.freeze(pack.configuration.map((field) =>
+      Object.freeze({
+        default: Array.isArray(field.default)
+          ? Object.freeze([...field.default])
+          : field.default,
+        description: field.description,
+        key: field.key,
+        kind: field.kind,
+        label: field.label,
+        required: field.required,
+      }))),
+    contentDigest: pack.contentDigest,
+    description: pack.description,
+    displayName: pack.displayName,
+    evaluations: Object.freeze({ suiteId: pack.evaluations.suiteId }),
+    id: pack.id,
+    instructionsIncluded: false as const,
+    maturity: pack.maturity,
+    monitors: Object.freeze(pack.monitors.map((monitor) => Object.freeze({
+      activationDefault: monitor.activationDefault,
+      displayName: monitor.displayName,
+      resourceId: monitor.resourceId,
+      sourceIds: Object.freeze([...monitor.sourceIds]),
+    }))),
+    sources: Object.freeze(pack.sources.map((source) => Object.freeze({
+      accessClassification: source.accessClassification,
+      allowedOrigins: Object.freeze([...source.allowedOrigins]),
+      canonicalUrl: source.canonicalUrl,
+      contractDigest: source.contractDigest,
+      contractVersion: source.contractVersion,
+      sourceId: source.sourceId,
+    }))),
+    version: pack.version,
+  });
+}
+
+export function inspectStrategyPack(
+  input: { readonly id: string; readonly version: string },
+  dependencies: StrategyPackServiceReadDependencies = {},
+): { readonly pack: ReturnType<typeof packInspection> } {
+  const pack = requireStrategyPackCatalog(dependencies).resolve(input);
+  if (!pack) throw new StrategyPackServiceError("strategy_pack_unavailable");
+  return Object.freeze({ pack: packInspection(pack) });
+}
+
+export function strategyPackCreateSelectionRequest(
+  input: {
+    readonly activateMonitorResourceIds?: readonly string[];
+    readonly configuration?: Readonly<Record<string, unknown>>;
+    readonly expectedRegistryRevision: number;
+    readonly name: string;
+    readonly packId: string;
+    readonly packVersion: string;
+  },
+  dependencies: StrategyPackServiceReadDependencies = {},
+) {
+  const pack = requireStrategyPackCatalog(dependencies).resolve({
+    id: input.packId,
+    version: input.packVersion,
+  });
+  if (!pack || pack.availability !== "available") {
+    throw new StrategyPackServiceError("strategy_pack_unavailable");
+  }
+  return Object.freeze({
+    ...(input.activateMonitorResourceIds
+      ? { activateMonitorResourceIds: [...input.activateMonitorResourceIds] }
+      : {}),
+    ...(input.configuration ? { configuration: { ...input.configuration } } : {}),
+    expectedRegistryRevision: input.expectedRegistryRevision,
+    name: input.name,
+    pack: Object.freeze({
+      contentDigest: pack.contentDigest,
+      id: pack.id,
+      version: pack.version,
+    }),
+  });
+}
+
+export async function createStrategyPackWorkspaceFromSelection(
+  input: {
+    readonly activateMonitorResourceIds?: readonly string[];
+    readonly configuration?: Readonly<Record<string, unknown>>;
+    readonly expectedRegistryRevision: number;
+    readonly name: string;
+    readonly now?: Date;
+    readonly packId: string;
+    readonly packVersion: string;
+    readonly principalId: string;
+    readonly requestIdentity: unknown;
+    readonly sourceAssignment: { readonly generation: number; readonly workspaceId: string };
+    readonly threadId: string;
+  },
+  dependencies: StrategyPackServiceDependencies,
+): Promise<{ receipt: StrategyPackMutationReceipt; replayed: boolean }> {
+  const request = strategyPackCreateSelectionRequest(input, dependencies);
+  return createStrategyPackWorkspace({
+    now: input.now,
+    principalId: input.principalId,
+    request,
+    requestIdentity: input.requestIdentity,
+    sourceAssignment: input.sourceAssignment,
+    threadId: input.threadId,
+  }, dependencies);
+}
+
+export interface StrategyPackWorkspaceInspectionDependencies
+  extends StrategyPackServiceReadDependencies {
+  readonly monitorClient?: WorkspaceMonitorStoreClient;
+  readonly stateClient?: WorkspaceStateStoreClient;
+}
+
+function availableCapabilityIds(
+  capabilities: WorkspaceCapabilityManifestValue | null,
+): Set<string> {
+  if (!capabilities) return new Set();
+  return new Set([
+    ...capabilities.controlPlaneToolIds,
+    ...capabilities.financialToolIds,
+    ...capabilities.researchToolIds,
+    ...capabilities.providerTools.map(({ toolId }) => toolId),
+    ...capabilities.skills.map(({ id }) => `skill.${id}`),
+  ]);
+}
+
+export async function inspectStrategyPackWorkspace(
+  input: {
+    readonly scope: AuthorizedWorkspaceStoreScope;
+    readonly workspaceGeneration: number;
+  },
+  dependencies: StrategyPackWorkspaceInspectionDependencies = {},
+) {
+  const environment = dependencies.environment ?? process.env;
+  const catalog = requireStrategyPackCatalog({
+    catalog: dependencies.catalog,
+    environment,
+  });
+  const [strategy, capabilities, monitors] = await Promise.all([
+    readWorkspaceDocument("strategy", input.scope, dependencies.stateClient),
+    readWorkspaceDocument("capabilities", input.scope, dependencies.stateClient),
+    listWorkspaceMonitors(input.scope, dependencies.monitorClient),
+  ]);
+  if (!strategy) {
+    return Object.freeze({
+      reasonCode: "strategy_pack_state_missing" as const,
+      state: "unavailable" as const,
+    });
+  }
+  if (strategy.schemaVersion === 1) {
+    if (
+      strategy.value.strategyPack === null &&
+      Object.keys(strategy.value.configuration).length === 0
+    ) {
+      return Object.freeze({ reasonCode: null, state: "unbound" as const });
+    }
+    return Object.freeze({
+      legacyPack: strategy.value.strategyPack,
+      reasonCode: "legacy_unverified" as const,
+      state: "unavailable" as const,
+    });
+  }
+  const binding = strategy.value;
+  if (binding.lifecycleState === "unbound") {
+    return Object.freeze({ reasonCode: null, state: "unbound" as const });
+  }
+  const packReference = binding.pack;
+  const exactPack = packReference?.contentDigest
+    ? catalog.resolve({
+        contentDigest: packReference.contentDigest,
+        id: packReference.id,
+        version: packReference.version,
+      })
+    : null;
+  let runtimeReason: string | null = null;
+  try {
+    await resolveInteractiveStrategyPackRuntime({
+      catalog,
+      environment,
+      scope: input.scope,
+      stateClient: dependencies.stateClient,
+      workspaceGeneration: input.workspaceGeneration,
+    });
+  } catch (error) {
+    if (!(error instanceof StrategyPackRuntimeError)) throw error;
+    runtimeReason = error.code;
+  }
+  const capabilityIds = availableCapabilityIds(capabilities?.value ?? null);
+  const monitorById = new Map(monitors.map((monitor) => [monitor.monitorId, monitor]));
+  const managedMonitors = Object.entries(binding.managedResources).map(
+    ([resourceId, resource]) => {
+      const monitor = monitorById.get(resource.monitorId);
+      return Object.freeze({
+        configurationRevision: monitor?.configurationRevision ?? null,
+        lastCompletedAt: monitor?.lastCompletedAt ?? null,
+        lastErrorCode: monitor?.lastErrorCode ?? "managed_monitor_missing",
+        lastRunAt: monitor?.lastRunAt ?? null,
+        lifecycleState: monitor?.lifecycleState ?? "unavailable",
+        monitorId: resource.monitorId,
+        name: monitor?.name ?? resourceId,
+        nextOccurrenceAt: monitor?.nextOccurrenceAt ?? null,
+        resourceId,
+        schedule: monitor?.schedule ?? null,
+        sourceIds: Object.freeze([...resource.sourceIds]),
+      });
+    },
+  );
+  const healthy =
+    binding.lifecycleState === "active" &&
+    binding.health.status === "healthy" &&
+    binding.health.code === null &&
+    exactPack?.availability === "available" &&
+    runtimeReason === null;
+  return Object.freeze({
+    bindingRevision: binding.bindingRevision,
+    capabilities: Object.freeze((exactPack?.capabilities.required ?? []).map((id) =>
+      Object.freeze({ id, status: capabilityIds.has(id) ? "available" as const : "denied" as const }))),
+    configuration: Object.freeze(structuredClone(binding.configuration)),
+    health: Object.freeze({
+      checkedAt: binding.health.checkedAt,
+      status: healthy ? "healthy" as const : "unavailable" as const,
+    }),
+    managedMonitors: Object.freeze(managedMonitors),
+    pack: exactPack
+      ? packInspection(exactPack)
+      : packReference
+        ? Object.freeze({
+            contentDigest: packReference.contentDigest,
+            id: packReference.id,
+            version: packReference.version,
+          })
+        : null,
+    reasonCode: healthy
+      ? null
+      : binding.health.code ?? runtimeReason ?? "strategy_pack_exact_version_unavailable",
+    sources: Object.freeze((exactPack?.sources ?? []).map((source) => {
+      const available = capabilities?.value.sources.some((candidate) =>
+        candidate.sourceId === source.sourceId &&
+        "contractDigest" in candidate &&
+        candidate.contractDigest === source.contractDigest,
+      ) ?? false;
+      return Object.freeze({
+        canonicalUrl: source.canonicalUrl,
+        sourceId: source.sourceId,
+        status: available ? "available" as const : "denied" as const,
+      });
+    })),
+    state: healthy ? "active" as const : "unavailable" as const,
+  });
 }
 
 function sha256(value: string): string {

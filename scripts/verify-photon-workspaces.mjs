@@ -52,6 +52,18 @@ for (const request of [
 }
 
 for (const request of [
+  "Create an IPO-filings session at 9 AM and 4 PM",
+  "Create a session with the IPO Filings strategy pack",
+  "Start a workspace from ipo-filings@1.0.0",
+]) {
+  assert.equal(
+    isPhotonSessionManagerRequest(request),
+    false,
+    `Expected concrete pack creation to reach Eve: ${request}`,
+  );
+}
+
+for (const request of [
   "create images of a sunset",
   "Create a durable daily monitor named Spec 1 Acceptance Replay Monitor in the current workspace. Run it at 23:59 America/Vancouver. Watch the exact public SEC latest S-1 filings source for new registration filings. Use no paid research and the default token limits.",
   "Create a report in the current workspace",

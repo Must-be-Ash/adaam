@@ -14,6 +14,17 @@ import {
 } from "../lib/photon-app-icon";
 import { getCurrentPhotonApprovalActivity } from "../lib/photon-approval-store";
 import { PHOTON_WORKSPACE_APP_PATH } from "../lib/photon-mini-app";
+import { STRATEGY_PACK_CAPABILITY_INVENTORY } from "../lib/strategy-pack-reference-catalog";
+import {
+  createStrategyPackWorkspaceFromSelection,
+  inspectStrategyPack,
+  inspectStrategyPackWorkspace,
+  listStrategyPacks,
+  mintSpectrumStrategyPackMutationIdentity,
+  StrategyPackServiceError,
+  verifySpectrumStrategyPackMutationIdentity,
+} from "../lib/strategy-pack-service";
+import { resolveStrategyPackFlags } from "../lib/strategy-pack-flags";
 import { workspaceMonitorManagerSourcesSchema } from "../lib/workspace-monitor-input";
 import {
   formatWorkspacePaidMicros,
@@ -66,6 +77,29 @@ const PHOTON_SESSION_MANIFEST_PATH = `${PHOTON_WORKSPACE_APP_PATH}/${PHOTON_APP_
 const stateRequestSchema = z.object({
   managerToken: tokenSchema,
 });
+const packMutationIdentitySchema = z.object({
+  actionId: z.string().min(1).max(200),
+  issuedAt: z.string().datetime({ offset: true }),
+  nonce: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/u),
+  signature: z.string().regex(/^[a-f0-9]{64}$/u),
+  transport: z.literal("spectrum"),
+}).strict();
+const packActionRequestSchema = z.object({
+  action: z.literal("strategy-pack-create"),
+  activateMonitorResourceIds: z.array(z.string().min(2).max(80)).max(16),
+  configuration: z.object({
+    dailyTimes: z.array(z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u)).min(1).max(16),
+    timezone: z.string().min(1).max(80),
+  }).strict(),
+  expectedRoutingRevision: z.number().int().nonnegative(),
+  managerToken: tokenSchema,
+  name: z.string().trim().min(1).max(80),
+  packId: z.string().min(2).max(64),
+  packMutationIdentity: packMutationIdentitySchema,
+  packVersion: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u),
+  sourceWorkspaceGeneration: z.number().int().positive(),
+  sourceWorkspaceId: workspaceIdSchema,
+}).strict();
 const actionRequestSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("archive"),
@@ -223,18 +257,38 @@ async function publicManagerState(
   state: PhotonWorkspaceState,
 ) {
   const base = publicState(state);
+  const flags = resolveStrategyPackFlags();
+  const strategyPackCatalog = flags.catalog
+    ? listStrategyPacks().packs.map((summary) =>
+        inspectStrategyPack({ id: summary.id, version: summary.version }).pack)
+    : [];
+  const packMutationIdentity = flags.mutations
+    ? mintSpectrumStrategyPackMutationIdentity({
+        actionId: randomBytes(24).toString("base64url"),
+        issuedAt: new Date(),
+        nonce: randomBytes(24).toString("base64url"),
+      }, strategyPackActionSecret())
+    : null;
   return {
     ...base,
+    packMutationIdentity,
+    strategyPackCatalog,
     workspaces: await Promise.all(base.workspaces.map(async (workspace) => {
       const scope = authorizePhotonWorkspaceControlPlaneStore({
         principalId,
         resource: "manager",
         workspaceId: workspace.id,
       });
-      const [monitors, budget, budgetLedger] = await Promise.all([
+      const [monitors, budget, budgetLedger, strategyPack] = await Promise.all([
         listWorkspaceMonitors(scope),
         readWorkspaceDocument("budget", scope),
         readWorkspaceBudgetLedger(scope).catch(() => null),
+        flags.catalog
+          ? inspectStrategyPackWorkspace({
+              scope,
+              workspaceGeneration: workspace.generation,
+            })
+          : Promise.resolve(null),
       ]);
       const budgetUsage = budget && budgetLedger
         ? summarizeWorkspaceBudgetUsage(
@@ -257,6 +311,7 @@ async function publicManagerState(
               ),
             }
           : null,
+        strategyPack,
         monitors: monitors.map((monitor) => ({
           configurationRevision: monitor.configurationRevision,
           lastCompletedAt: monitor.lastCompletedAt,
@@ -272,6 +327,14 @@ async function publicManagerState(
       };
     })),
   };
+}
+
+function strategyPackActionSecret(): string {
+  const secret = process.env.EVE_OWNER_ALIAS_HMAC_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new StrategyPackServiceError("strategy_pack_mutations_disabled");
+  }
+  return secret;
 }
 
 async function resetRetiredSession(
@@ -378,12 +441,12 @@ function workspaceHtml(nonce: string, origin: string): string {
       border-radius: 16px;
       background: var(--surface);
     }
-    input, button {
+    input, select, button {
       min-height: 44px;
       border-radius: 12px;
       font: inherit;
     }
-    input {
+    input, select {
       width: 100%;
       min-width: 0;
       border: 1px solid transparent;
@@ -393,11 +456,37 @@ function workspaceHtml(nonce: string, origin: string): string {
       font-size: 16px;
       outline: none;
     }
+    select { appearance: none; }
     input::placeholder { color: var(--muted); opacity: .78; }
-    input:focus-visible {
+    input:focus-visible, select:focus-visible {
       border-color: #5a5a5a;
       background: #252525;
     }
+    .pack-form {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      padding: 12px;
+    }
+    .pack-field { display: grid; gap: 5px; }
+    .pack-field.full { grid-column: 1 / -1; }
+    .pack-field label, .pack-toggle span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .pack-field input, .pack-field select {
+      border-color: var(--line);
+      background: #252525;
+    }
+    .pack-toggle {
+      grid-column: 1 / -1;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-inline: 4px;
+    }
+    .pack-toggle input { width: 20px; min-height: 20px; height: 20px; }
+    .pack-form button { grid-column: 1 / -1; }
     button {
       border: 1px solid var(--line);
       padding: 0 13px;
@@ -456,6 +545,21 @@ function workspaceHtml(nonce: string, origin: string): string {
     .runtime { display: grid; gap: 9px; }
     .runtime-row { padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; }
     .runtime-detail { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+    .pack-details { margin-top: 7px; }
+    .pack-details summary {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 680;
+    }
+    .pack-details summary:focus-visible {
+      outline: 3px solid #686868;
+      outline-offset: 2px;
+      border-radius: 8px;
+    }
     .runtime-row .actions { margin-top: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .runtime-row .actions button { grid-column: auto; }
     .actions {
@@ -504,6 +608,8 @@ function workspaceHtml(nonce: string, origin: string): string {
       .actions button,
       .workspace.active .actions button { grid-column: auto; }
       .actions button.primary { grid-column: 1 / -1; }
+      .pack-form { grid-template-columns: 1fr; }
+      .pack-field.full, .pack-toggle, .pack-form button { grid-column: auto; }
     }
   </style>
 </head>
@@ -520,6 +626,32 @@ function workspaceHtml(nonce: string, origin: string): string {
         <button class="primary" type="submit">Create</button>
       </form>
     </section>
+    <section class="create-section" id="pack-create-section" hidden>
+      <label class="form-label" for="pack-select">Strategy pack</label>
+      <form id="pack-create-form" class="pack-form">
+        <div class="pack-field full">
+          <label for="pack-select">Pack</label>
+          <select id="pack-select"></select>
+        </div>
+        <div class="pack-field full">
+          <label for="pack-name">Session name</label>
+          <input id="pack-name" maxlength="40" autocomplete="off" value="IPO Filings">
+        </div>
+        <div class="pack-field">
+          <label for="pack-timezone">Timezone</label>
+          <input id="pack-timezone" maxlength="80" autocomplete="off" value="UTC">
+        </div>
+        <div class="pack-field">
+          <label for="pack-times">Daily times</label>
+          <input id="pack-times" maxlength="95" autocomplete="off" value="09:00, 16:00">
+        </div>
+        <label class="pack-toggle" for="pack-activate">
+          <input id="pack-activate" type="checkbox">
+          <span>Start this schedule now</span>
+        </label>
+        <button class="primary" type="submit">Create pack session</button>
+      </form>
+    </section>
     <section>
       <div id="workspaces"></div>
     </section>
@@ -532,6 +664,13 @@ function workspaceHtml(nonce: string, origin: string): string {
       const list = document.querySelector("#workspaces");
       const form = document.querySelector("#create-form");
       const nameInput = document.querySelector("#new-name");
+      const packSection = document.querySelector("#pack-create-section");
+      const packForm = document.querySelector("#pack-create-form");
+      const packSelect = document.querySelector("#pack-select");
+      const packName = document.querySelector("#pack-name");
+      const packTimezone = document.querySelector("#pack-timezone");
+      const packTimes = document.querySelector("#pack-times");
+      const packActivate = document.querySelector("#pack-activate");
       let state = null;
       let busy = false;
 
@@ -584,8 +723,90 @@ function workspaceHtml(nonce: string, origin: string): string {
 
       const paidLimit = (value) => value === null ? "deployment cap" : "$" + value;
 
+      const strategyPackRow = (strategyPack) => {
+        const row = document.createElement("div");
+        row.className = "runtime-row";
+        const name = document.createElement("p");
+        name.className = "name";
+        name.textContent = "Strategy pack";
+        const identity = document.createElement("p");
+        identity.className = "meta";
+        if (!strategyPack || strategyPack.state === "unbound") {
+          identity.textContent = "None installed";
+          row.append(name, identity);
+          return row;
+        }
+        const pack = strategyPack.pack || strategyPack.legacyPack;
+        const packLabel = pack
+          ? (pack.displayName || pack.id) + " · " + pack.version
+          : "Unknown pack";
+        identity.textContent = packLabel + " · " + strategyPack.state;
+        const health = document.createElement("p");
+        health.className = "runtime-detail";
+        health.textContent = strategyPack.state === "active"
+          ? "Health · " + strategyPack.health.status + " · maturity " + (pack?.maturity || "unknown")
+          : "Unavailable · " + (strategyPack.reasonCode || "unknown reason");
+        const purpose = document.createElement("p");
+        purpose.className = "runtime-detail";
+        purpose.textContent = pack?.description ? "Purpose · " + pack.description : "Purpose unavailable";
+        const details = document.createElement("details");
+        details.className = "pack-details";
+        const detailsSummary = document.createElement("summary");
+        detailsSummary.textContent = "Pack details";
+        details.append(detailsSummary);
+        row.append(name, identity, health, purpose, details);
+        if (strategyPack.configuration) {
+          const configuration = document.createElement("p");
+          configuration.className = "runtime-detail";
+          configuration.textContent = "Configuration · " + Object.entries(strategyPack.configuration)
+            .map(([key, value]) => key + ": " + (Array.isArray(value) ? value.join(", ") : value))
+            .join(" · ");
+          details.append(configuration);
+        }
+        if (strategyPack.capabilities && strategyPack.capabilities.length) {
+          const capabilities = document.createElement("p");
+          capabilities.className = "runtime-detail";
+          capabilities.textContent = "Capabilities · " + strategyPack.capabilities
+            .map((capability) => capability.id + ": " + capability.status).join(" · ");
+          details.append(capabilities);
+        }
+        if (strategyPack.sources && strategyPack.sources.length) {
+          const sources = document.createElement("p");
+          sources.className = "runtime-detail";
+          sources.textContent = "Sources · " + strategyPack.sources
+            .map((source) => source.sourceId + ": " + source.status + " · " + source.canonicalUrl)
+            .join(" · ");
+          details.append(sources);
+        }
+        for (const monitor of strategyPack.managedMonitors || []) {
+          const managed = document.createElement("p");
+          managed.className = "runtime-detail";
+          managed.textContent = "Managed monitor · " + monitor.name + " · " + monitor.lifecycleState +
+            " · next " + (monitor.nextOccurrenceAt || "none") +
+            (monitor.lastErrorCode ? " · " + monitor.lastErrorCode : "");
+          details.append(managed);
+        }
+        return row;
+      };
+
+      const renderPackCatalog = () => {
+        packSelect.replaceChildren();
+        const catalog = state && state.strategyPackCatalog || [];
+        packSection.hidden = catalog.length === 0 || !state.packMutationIdentity;
+        for (const pack of catalog) {
+          const option = document.createElement("option");
+          option.value = pack.id + "@" + pack.version;
+          option.textContent = pack.displayName + " · " + pack.version + " · " + pack.maturity;
+          option.disabled = pack.availability !== "available";
+          packSelect.append(option);
+        }
+      };
+
       const render = () => {
         list.replaceChildren();
+        for (const control of document.querySelectorAll("form input, form select, form button")) {
+          control.disabled = busy;
+        }
         if (!state) return;
         for (const workspace of state.workspaces) {
           const card = document.createElement("article");
@@ -627,6 +848,7 @@ function workspaceHtml(nonce: string, origin: string): string {
 
           const runtime = document.createElement("div");
           runtime.className = "runtime";
+          runtime.append(strategyPackRow(workspace.strategyPack));
           for (const monitor of workspace.monitors || []) {
             const row = document.createElement("div");
             row.className = "runtime-row";
@@ -733,6 +955,7 @@ function workspaceHtml(nonce: string, origin: string): string {
           state = await request("${PHOTON_WORKSPACE_APP_PATH}/state", {
             managerToken: token,
           });
+          renderPackCatalog();
           status.textContent =
             "Active session: " +
             state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId).name;
@@ -794,6 +1017,35 @@ function workspaceHtml(nonce: string, origin: string): string {
         }
       };
 
+      const packMutate = async (action) => {
+        if (!state || busy || !state.packMutationIdentity) return;
+        busy = true;
+        render();
+        status.classList.remove("error");
+        status.textContent = "Creating strategy-pack session…";
+        try {
+          state = await request("${PHOTON_WORKSPACE_APP_PATH}/pack-action", {
+            ...action,
+            action: "strategy-pack-create",
+            expectedRoutingRevision: state.revision,
+            managerToken: token,
+            packMutationIdentity: state.packMutationIdentity,
+          });
+          renderPackCatalog();
+          status.textContent = "Active session: " +
+            state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId).name;
+        } catch (error) {
+          status.classList.add("error");
+          status.textContent = error instanceof Error
+            ? error.message
+            : "Could not create the strategy-pack session.";
+          if (error && error.status === 409) await load();
+        } finally {
+          busy = false;
+          render();
+        }
+      };
+
       const handleRuntime = async (action, workspace, monitor) => {
         if (action === "workspace-budget") {
           const runs = Number(prompt("Maximum scheduled runs per day", workspace.budget.value.maximumScheduledRunsPerDay));
@@ -842,6 +1094,33 @@ function workspaceHtml(nonce: string, origin: string): string {
         if (!name) return;
         await mutate({ action: "create", name, select: true });
         nameInput.value = "";
+      });
+
+      packForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!state) return;
+        const selected = state.strategyPackCatalog.find(
+          (pack) => pack.id + "@" + pack.version === packSelect.value,
+        );
+        const sourceWorkspace = state.workspaces.find(
+          (workspace) => workspace.id === state.activeWorkspaceId,
+        );
+        const name = packName.value.trim();
+        const timezone = packTimezone.value.trim();
+        const dailyTimes = [...new Set(packTimes.value.split(",")
+          .map((value) => value.trim()).filter(Boolean))].sort();
+        if (!selected || !sourceWorkspace || !name || !timezone || dailyTimes.length === 0) return;
+        await packMutate({
+          activateMonitorResourceIds: packActivate.checked
+            ? selected.monitors.map((monitor) => monitor.resourceId)
+            : [],
+          configuration: { dailyTimes, timezone },
+          name,
+          packId: selected.id,
+          packVersion: selected.version,
+          sourceWorkspaceGeneration: sourceWorkspace.generation,
+          sourceWorkspaceId: sourceWorkspace.id,
+        });
       });
 
       void load();
@@ -1022,6 +1301,101 @@ export default defineChannel({
         }
       },
     ),
+    POST(`${PHOTON_WORKSPACE_APP_PATH}/pack-action`, async (request) => {
+      const body = await readJson(request, packActionRequestSchema);
+      if (body instanceof Response) return body;
+      const managerScope = await getPhotonWorkspaceManagerScope(body.managerToken);
+      if (!managerScope) {
+        return json({ error: "This session manager link expired." }, 410);
+      }
+      try {
+        if (resolvePhotonIngressRolloutMode() !== "durable") {
+          return json({ error: "Strategy packs require durable session routing." }, 403);
+        }
+        requirePhotonOwnerAccess({
+          principalId: managerScope.principalId,
+          resource: "manager",
+        });
+        const approvalActivity = await getCurrentPhotonApprovalActivity(
+          managerScope,
+        ).catch(() => "active" as const);
+        if (approvalActivity) {
+          return json({
+            error: "Finish or cancel the pending financial approval before creating a session.",
+          }, 409);
+        }
+        const routing = await getPhotonWorkspaceManagerState(body.managerToken);
+        if (!routing) {
+          return json({ error: "This session manager link expired." }, 410);
+        }
+        if (routing.revision !== body.expectedRoutingRevision) {
+          return json({ error: "The session state changed. Refresh and try again." }, 409);
+        }
+        const sourceWorkspace = routing.workspaces.find((workspace) =>
+          workspace.id === body.sourceWorkspaceId &&
+          workspace.generation === body.sourceWorkspaceGeneration &&
+          workspace.status === "active",
+        );
+        if (!sourceWorkspace || routing.activeWorkspace.id !== sourceWorkspace.id) {
+          return json({ error: "The source session changed. Refresh and try again." }, 409);
+        }
+        const packMutationIdentity = verifySpectrumStrategyPackMutationIdentity(
+          body.packMutationIdentity,
+          strategyPackActionSecret(),
+        );
+        const result = await createStrategyPackWorkspaceFromSelection({
+          activateMonitorResourceIds: body.activateMonitorResourceIds,
+          configuration: body.configuration,
+          expectedRegistryRevision: body.expectedRoutingRevision,
+          name: body.name,
+          packId: body.packId,
+          packVersion: body.packVersion,
+          principalId: managerScope.principalId,
+          requestIdentity: packMutationIdentity,
+          sourceAssignment: {
+            generation: sourceWorkspace.generation,
+            workspaceId: sourceWorkspace.id,
+          },
+          threadId: managerScope.threadId,
+        }, {
+          capabilityInventory: STRATEGY_PACK_CAPABILITY_INVENTORY,
+        });
+        const refreshed = await getPhotonWorkspaceManagerState(body.managerToken);
+        if (!refreshed) {
+          return json({ error: "This session manager link expired." }, 410);
+        }
+        return json({
+          ...(await publicManagerState(managerScope.principalId, refreshed)),
+          packMutation: result,
+        });
+      } catch (error) {
+        if (error instanceof OwnerIdentityDeniedError) {
+          return json({ error: "This identity is not authorized." }, 403);
+        }
+        if (error instanceof PhotonIngressRolloutError) {
+          return json({ error: "Eve's iMessage rollout configuration is incomplete." }, 503);
+        }
+        if (error instanceof StrategyPackServiceError) {
+          const status = error.code === "strategy_pack_mutation_conflict" ||
+              error.code === "strategy_pack_mutation_payload_conflict" ||
+              error.code === "strategy_pack_source_assignment_stale"
+            ? 409
+            : error.code === "strategy_pack_invalid_request"
+              ? 400
+              : error.code === "strategy_pack_unavailable"
+                ? 422
+                : 403;
+          return json({ error: error.code }, status);
+        }
+        console.error("[photon.workspace] Strategy pack action failed", {
+          action: body.action,
+          error_type: error instanceof Error ? error.name : typeof error,
+        });
+        return json({
+          error: "Eve could not confirm the strategy-pack session. Refresh before trying again.",
+        }, 503);
+      }
+    }),
     POST(`${PHOTON_WORKSPACE_APP_PATH}/runtime-action`, async (request) => {
       const body = await readJson(request, runtimeActionRequestSchema);
       if (body instanceof Response) return body;

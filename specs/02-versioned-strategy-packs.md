@@ -93,11 +93,11 @@ The completed feature must support this experience:
   resources are paused or retired for owner review.
 - [ ] Pack mutations use the existing workspace lifecycle and advance the session
   generation so old instructions and capabilities cannot remain active.
-- [ ] User-facing copy continues to say **session**. **Strategy pack** is the
+- [x] User-facing copy continues to say **session**. **Strategy pack** is the
   user-facing term for the reusable recipe installed in a session.
 - [x] The first catalog is local and repository-owned. Do not build a public
   marketplace, remote download service, or automatic update service.
-- [ ] The reference pack uses public SEC data only. No owner-private artifact
+- [x] The reference pack uses public SEC data only. No owner-private artifact
   system is needed or introduced by this specification.
 - [x] No pack can enable live broker mutations. Trading remains governed by a
   later workspace-aware financial control-plane specification.
@@ -277,12 +277,12 @@ The exact filenames may change, but these rules do not:
   research procedure. Its description is a bounded routing hint.
 - [x] Each monitor instruction is a separate bounded file so a worker receives
   only the instructions for its claimed monitor, not the complete pack.
-- [ ] The pack references the application-owned SEC eval-suite ID. It does not
+- [x] The pack references the application-owned SEC eval-suite ID. It does not
   copy the existing fixture corpus into the version directory or expose fixture
   bodies to production model sessions.
 - [x] All referenced paths stay inside the exact version directory, reject path
   traversal and symlink escape, and have per-file and aggregate byte ceilings.
-- [ ] Pack files contain no secret placeholders that encourage credentials in
+- [x] Pack files contain no secret placeholders that encourage credentials in
   tracked configuration. Provider connections are referenced by stable IDs and
   configured outside the pack.
 - [x] Reject credential fields and credential-bearing URLs in the bounded v1
@@ -359,7 +359,7 @@ The definition lists stable references to:
   contractDigest, allowedOrigins}`. Spec 3 owns the generalized source-adapter
   implementation; this specification only establishes the minimum stable
   reference needed by the IPO pack.
-- [ ] Before a pack-managed source can activate, the exact-fenced fetch path
+- [x] Before a pack-managed source can activate, the exact-fenced fetch path
   rejects redirects before a second request and covers private and undeclared
   redirect targets with deterministic fixtures.
 - [x] Reject every broker mutation, transfer, withdrawal, leverage, credential,
@@ -562,19 +562,19 @@ Required application-owned operations:
   provider lacks them.
 
 - [ ] Use Eve call IDs and explicit request IDs as idempotency keys.
-- [ ] Resolve ambiguous pack names by presenting compact candidates; never pick
+- [x] Resolve ambiguous pack names by presenting compact candidates; never pick
   the nearest string match silently.
-- [ ] A request such as “create an IPO agent that checks at 9 AM and 4 PM” may
+- [x] A request such as “create an IPO agent that checks at 9 AM and 4 PM” may
   atomically create the workspace, install the pack, configure the times, and
   enable the exact requested monitor because activation was explicit.
-- [ ] A request such as “show me the IPO pack” or “install the IPO pack” may
+- [x] A request such as “show me the IPO pack” or “install the IPO pack” may
   inspect it or create a new bound session, but cannot infer an active schedule
   the owner did not request; templates remain paused.
-- [ ] The creation response completes in the source workspace continuation.
+- [x] The creation response completes in the source workspace continuation.
   Selecting the new workspace affects only the next owner message, which starts
   the target workspace's initial generation. Later configuration or removal
   advances that generation.
-- [ ] Generic session-management language such as “create a new session” opens
+- [x] Generic session-management language such as “create a new session” opens
   the existing manager. A concrete pack-plus-configuration request reaches the
   pack-aware path or a prefilled manager flow. Both surfaces call the same
   owner-authorized application service.
@@ -582,7 +582,7 @@ Required application-owned operations:
   application and require an explicit owner confirmation that managed work will
   pause and future messages will start a fresh conversation generation. Durable
   brief and findings remain.
-- [ ] Pack-management tools cannot authorize financial actions or bypass the
+- [x] Pack-management tools cannot authorize financial actions or bypass the
   Spectrum manager's owner-bound mutation capabilities.
 
 ## Spectrum session-manager additions
@@ -611,7 +611,7 @@ binding states. Disable conflicting controls while the request is pending;
 afterward render only authoritative `unbound`, `active`, or `unavailable` state
 plus the immutable receipt or bounded error.
 
-- [ ] Preserve the manager's accepted grayscale visual language and user-facing
+- [x] Preserve the manager's accepted grayscale visual language and user-facing
   **session** terminology.
 - [x] Keep catalog list responses compact and paginate or bound them even though
   the first catalog is small.
@@ -619,7 +619,7 @@ plus the immutable receipt or bounded error.
   expected binding revision, mutation ID, and one-time request ID.
 - [ ] Make stale, repeated, cross-workspace, and expired actions harmless.
 - [ ] Do not reuse financial approval copy or state for strategy-pack changes.
-- [ ] Keep pack details progressively disclosed so monitor controls remain easy
+- [x] Keep pack details progressively disclosed so monitor controls remain easy
   to reach on mobile.
 
 Information priority is fixed: session identity and health first, monitor
@@ -658,26 +658,26 @@ and source provenance.
 
 ### Installation fixture
 
-- [ ] From a general-purpose conversation, create a new workspace bound to
+- [x] From a general-purpose conversation, create a new workspace bound to
   `ipo-filings@1.0.0` with
   timezone `America/Vancouver` and daily times `09:00` and `16:00`.
-- [ ] Verify one pack binding, one pack-managed monitor, one exact version/digest,
+- [x] Verify one pack binding, one pack-managed monitor, one exact version/digest,
   and no duplicate resources on replay.
-- [ ] Verify the monitor is enabled only when the fixture owner request explicitly
+- [x] Verify the monitor is enabled only when the fixture owner request explicitly
   asks to begin that schedule; an inspect/install-only fixture leaves it paused.
-- [ ] Verify another workspace sees neither the IPO skill nor its scoped tools,
+- [x] Verify another workspace sees neither the IPO skill nor its scoped tools,
   sources, configuration, or findings.
 
 ### Behavior fixtures
 
-- [ ] Reuse Spec 1's initial-checkpoint, one-new-S-1, replay, S-1/A, malformed,
+- [x] Reuse Spec 1's initial-checkpoint, one-new-S-1, replay, S-1/A, malformed,
   oversized, stale, redirected, incomplete-source, and concurrent-workspace
   fixtures rather than creating conflicting source semantics.
-- [ ] Assert the pack-specific skill is available in the installed workspace and
+- [x] Assert the pack-specific skill is available in the installed workspace and
   unavailable in a general-purpose or differently packed workspace.
-- [ ] Assert the worker receives only `detect-new-s1` instructions and exact SEC
+- [x] Assert the worker receives only `detect-new-s1` instructions and exact SEC
   capabilities, not the full catalog or other strategy research.
-- [ ] Assert every finding matches `ipo-registration-filing/v1` and records the
+- [x] Assert every finding matches `ipo-registration-filing/v1` and records the
   exact pack version and digest.
 
 ### Removal and unavailable-version fixtures
@@ -712,7 +712,7 @@ and source provenance.
   different version.
 - [ ] Pack blocked after activation: prevent new runs immediately, pause managed
   monitors, show a bounded owner-visible reason, and preserve evidence.
-- [ ] Instruction or tool resolution failure: fail the turn/run before model or
+- [x] Instruction or tool resolution failure: fail the turn/run before model or
   source execution; do not fall back to all global instructions or tools.
 
 ## Implementation plan
@@ -769,7 +769,7 @@ inventory.
 
 ## Rollout and rollback
 
-- [ ] Keep the pack catalog visible only to the configured deployment owner.
+- [x] Keep the pack catalog visible only to the configured deployment owner.
 - [ ] Enable catalog inspection first, then installation in fixture/dev, then
   runtime composition, then Spectrum controls, and finally the Photon live smoke.
 - [ ] Keep general-purpose sessions and Spec 1 monitor behavior available while
@@ -787,15 +787,15 @@ This specification is complete only when:
 
 - [ ] Every implementation-plan unit passes and a clean fork produces the same
   validated catalog and reference-pack digest.
-- [ ] A general-purpose session remains valid with no pack.
-- [ ] The owner can create a new IPO Filings session, pin its exact pack and
+- [x] A general-purpose session remains valid with no pack.
+- [x] The owner can create a new IPO Filings session, pin its exact pack and
   source-contract digests, and explicitly configure and enable its 9 AM/4 PM
   monitor.
-- [ ] Inspect/install-only starts no background work, while forbidden or missing
+- [x] Inspect/install-only starts no background work, while forbidden or missing
   capabilities and pack/source mismatches fail closed.
-- [ ] Concurrent pack-bound and general sessions show no cross-workspace
+- [x] Concurrent pack-bound and general sessions show no cross-workspace
   instruction, skill, tool, configuration, or finding leakage.
-- [ ] Natural-language and Spectrum operations agree on the authoritative
+- [x] Natural-language and Spectrum operations agree on the authoritative
   binding, health, configuration, and mutation status.
 - [ ] Non-destructive removal preserves findings, alerts, checkpoints, history,
   and owner-created resources.

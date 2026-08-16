@@ -15,6 +15,15 @@ import {
   resolveStrategyPackBindingAvailability,
   resolveStrategyPackFlags,
 } from "../agent/lib/strategy-pack-flags.ts";
+import { STRATEGY_PACK_REFERENCE_CATALOG } from "../agent/lib/strategy-pack-reference-catalog.ts";
+import {
+  EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
+  SEC_IPO_SOURCE_ALLOWED_ORIGINS,
+  SEC_IPO_SOURCE_CONTRACT_DIGEST,
+  SEC_IPO_SOURCE_CONTRACT_VERSION,
+  SEC_IPO_SOURCE_ID,
+  SEC_IPO_SOURCE_URL,
+} from "../agent/lib/sec-ipo-reference.ts";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const fixtureRoot = resolve(scriptDirectory, "fixtures", "strategy-packs", "valid");
@@ -358,8 +367,33 @@ const productionCheck = await generateStrategyPackCatalog({
   checkOnly: true,
   outputPath: committedOutput,
   packRoot: productionRoot,
+  references: STRATEGY_PACK_REFERENCE_CATALOG,
 });
 assert.equal(productionCheck.outputMatches, true);
+assert.deepEqual(
+  productionCheck.entries.map(({ id, version }) => `${id}@${version}`),
+  ["ipo-filings@1.0.0"],
+);
+const productionPack = productionCheck.entries[0];
+assert.equal(productionPack?.maturity, "reference");
+assert.equal(productionPack?.sources[0]?.sourceId, "sec-latest-s1-filings");
+assert.equal(productionPack?.monitors[0]?.resourceId, "detect-new-s1");
+assert.equal(productionPack?.evaluations.suiteId, "eval.sec-ipo/v1");
+assert.deepEqual(
+  STRATEGY_PACK_REFERENCE_CATALOG.sourceContracts[SEC_IPO_SOURCE_ID],
+  {
+    allowedOrigins: SEC_IPO_SOURCE_ALLOWED_ORIGINS,
+    canonicalUrl: SEC_IPO_SOURCE_URL,
+    contractDigest: SEC_IPO_SOURCE_CONTRACT_DIGEST,
+    contractVersion: SEC_IPO_SOURCE_CONTRACT_VERSION,
+  },
+);
+assert.equal(
+  STRATEGY_PACK_REFERENCE_CATALOG.capabilityIds.includes(
+    EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
+  ),
+  true,
+);
 
 const [environmentExample, packageJson] = await Promise.all([
   readFile(resolve(scriptDirectory, "..", ".env.example"), "utf8"),

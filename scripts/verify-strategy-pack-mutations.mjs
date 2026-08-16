@@ -9,9 +9,14 @@ import {
   createPhotonWorkspace,
   getPhotonWorkspaceState,
 } from "../agent/lib/photon-workspace-store.ts";
-import { createStrategyPackCatalog } from "../agent/lib/strategy-pack-catalog.ts";
+import {
+  createStrategyPackCatalog,
+  strategyPackCatalog,
+} from "../agent/lib/strategy-pack-catalog.ts";
+import { STRATEGY_PACK_CAPABILITY_INVENTORY } from "../agent/lib/strategy-pack-reference-catalog.ts";
 import {
   createStrategyPackWorkspace,
+  createStrategyPackWorkspaceFromSelection,
   deriveEveStrategyPackMutationIdentity,
   mintSpectrumStrategyPackMutationIdentity,
   StrategyPackServiceError,
@@ -572,6 +577,114 @@ try {
   assert.equal(capacity.receipt.outcome, "rejected");
   assert.equal(capacity.receipt.rejectionCode, "capacity_exhausted");
   assert.equal((await getPhotonWorkspaceState(routing, client)).workspaces.length, 12);
+
+  const ipoClient = new MemoryStore();
+  const ipoInitial = await getPhotonWorkspaceState(routing, ipoClient);
+  const ipoIdentity = deriveEveStrategyPackMutationIdentity({
+    ingressId: `ingress_${"7".repeat(64)}`,
+    operationOrdinal: 0,
+    stepId: "call_create_ipo_session",
+    turnId: "turn_create_ipo_session",
+  });
+  const ipoDependencies = {
+    capabilityInventory: STRATEGY_PACK_CAPABILITY_INVENTORY,
+    catalog: strategyPackCatalog,
+    environment,
+    idFactory: (() => {
+      const ids = [
+        "723e4567-e89b-42d3-a456-426614174000",
+        "823e4567-e89b-42d3-a456-426614174000",
+        "923e4567-e89b-42d3-a456-426614174000",
+        "a23e4567-e89b-42d3-a456-426614174000",
+      ];
+      return () => ids.shift() ?? "b23e4567-e89b-42d3-a456-426614174000";
+    })(),
+    transactionClient: ipoClient,
+    workspaceClient: ipoClient,
+  };
+  const ipoCreateInput = {
+    activateMonitorResourceIds: ["detect-new-s1"],
+    configuration: {
+      dailyTimes: ["09:00", "16:00"],
+      timezone: "America/Vancouver",
+    },
+    expectedRegistryRevision: ipoInitial.revision,
+    name: "IPO Filings",
+    now: new Date("2026-08-15T18:00:00.000Z"),
+    packId: "ipo-filings",
+    packVersion: "1.0.0",
+    principalId: routing.principalId,
+    requestIdentity: ipoIdentity,
+    sourceAssignment: {
+      generation: ipoInitial.activeWorkspace.generation,
+      workspaceId: ipoInitial.activeWorkspace.id,
+    },
+    threadId: routing.threadId,
+  };
+  const ipoCreated = await createStrategyPackWorkspaceFromSelection(
+    ipoCreateInput,
+    ipoDependencies,
+  );
+  const ipoReplay = await createStrategyPackWorkspaceFromSelection(
+    ipoCreateInput,
+    ipoDependencies,
+  );
+  assert.equal(ipoCreated.replayed, false);
+  assert.equal(ipoReplay.replayed, true);
+  assert.deepEqual(ipoReplay.receipt, ipoCreated.receipt);
+  const ipoState = await getPhotonWorkspaceState(routing, ipoClient);
+  assert.equal(ipoState.workspaces.length, 2);
+  assert.equal(ipoState.activeWorkspace.id, ipoCreated.receipt.targetWorkspaceId);
+  assert.equal(
+    ipoState.workspaces.some(({ id }) => id === ipoInitial.activeWorkspace.id),
+    true,
+  );
+  const ipoScope = authorizeDeploymentWorkspaceStore({
+    ownerId: environment.EVE_DEPLOYMENT_OWNER_ID,
+    workspaceId: ipoCreated.receipt.targetWorkspaceId,
+  }, environment);
+  const [ipoStrategy, ipoMonitors] = await Promise.all([
+    readWorkspaceDocument("strategy", ipoScope, ipoClient),
+    listWorkspaceMonitors(ipoScope, ipoClient),
+  ]);
+  assert.equal(ipoStrategy?.schemaVersion, 2);
+  assert.equal(ipoStrategy?.value.pack?.id, "ipo-filings");
+  assert.equal(ipoStrategy?.value.pack?.version, "1.0.0");
+  assert.equal(ipoMonitors.length, 1);
+  assert.equal(ipoMonitors[0]?.lifecycleState, "enabled");
+  assert.deepEqual(ipoMonitors[0]?.schedule, {
+    kind: "daily_local",
+    times: ["09:00", "16:00"],
+    timezone: "America/Vancouver",
+  });
+  const ipoInstallOnly = await createStrategyPackWorkspaceFromSelection({
+    activateMonitorResourceIds: [],
+    expectedRegistryRevision: ipoState.revision,
+    name: "IPO Pack Inspect Only",
+    packId: "ipo-filings",
+    packVersion: "1.0.0",
+    principalId: routing.principalId,
+    requestIdentity: deriveEveStrategyPackMutationIdentity({
+      ingressId: `ingress_${"8".repeat(64)}`,
+      operationOrdinal: 0,
+      stepId: "call_install_ipo_session",
+      turnId: "turn_install_ipo_session",
+    }),
+    sourceAssignment: {
+      generation: ipoState.activeWorkspace.generation,
+      workspaceId: ipoState.activeWorkspace.id,
+    },
+    threadId: routing.threadId,
+  }, ipoDependencies);
+  const ipoInstallOnlyScope = authorizeDeploymentWorkspaceStore({
+    ownerId: environment.EVE_DEPLOYMENT_OWNER_ID,
+    workspaceId: ipoInstallOnly.receipt.targetWorkspaceId,
+  }, environment);
+  assert.equal(
+    (await listWorkspaceMonitors(ipoInstallOnlyScope, ipoClient))[0]?.lifecycleState,
+    "paused",
+  );
+  assert.equal(ipoClient.due.size, 1);
 
   console.log("Strategy pack memory mutation verification passed.");
 } finally {

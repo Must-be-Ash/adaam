@@ -15,6 +15,18 @@ for (const required of [
   "expectedBudgetRevision",
   "expectedRoutingRevision",
   "claimPhotonWorkspaceManagerRequest",
+  "listStrategyPacks",
+  "inspectStrategyPackWorkspace",
+  "createStrategyPackWorkspaceFromSelection",
+  "verifySpectrumStrategyPackMutationIdentity",
+  'POST(`${PHOTON_WORKSPACE_APP_PATH}/pack-action`',
+  "strategyPack",
+  "strategyPackCatalog",
+  "Strategy pack",
+  "Create pack session",
+  "packMutationIdentity",
+  'document.querySelectorAll("form input, form select, form button")',
+  "Creating strategy-pack session…",
   "crypto.randomUUID()",
   "monitor.nextOccurrenceAt",
   "monitor.lastRunAt",
@@ -62,5 +74,23 @@ assert.match(
 assert.match(source, /authorizePhotonWorkspaceControlPlaneStore/u);
 assert.match(source, /nextWorkspaceMonitorOccurrence/u);
 assert.equal(source.includes("innerHTML"), false);
+const packActionStart = source.indexOf(
+  'POST(`${PHOTON_WORKSPACE_APP_PATH}/pack-action`',
+);
+const runtimeActionStart = source.indexOf(
+  'POST(`${PHOTON_WORKSPACE_APP_PATH}/runtime-action`',
+);
+assert.ok(packActionStart >= 0 && runtimeActionStart > packActionStart);
+assert.equal(
+  source.slice(packActionStart, runtimeActionStart)
+    .includes("claimPhotonWorkspaceManagerRequest"),
+  false,
+  "Pack create must use its durable mutation identity, not consume the manager claim.",
+);
+assert.match(
+  source,
+  /runtime\.append\(strategyPackRow\(workspace\.strategyPack\)\);\s*for \(const monitor/u,
+  "Pack identity and health should render before the managed monitor controls.",
+);
 
 console.info("Photon workspace runtime manager verification passed.");
