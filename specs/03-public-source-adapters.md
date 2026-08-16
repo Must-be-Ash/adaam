@@ -360,15 +360,15 @@ persists equivalent canonical behavior without enabling production traffic.
 
 ### Sprint 2 — subscriptions, isolation, and SEC migration
 
-- [ ] Extend pack bindings and monitors with resolved source-instance and
+- [x] Extend pack bindings and monitors with resolved source-instance and
   subscription references, including migration for existing SEC records.
-- [ ] Implement source-global acquisition reuse and independent per-subscription
+- [x] Implement source-global acquisition reuse and independent per-subscription
   projections/delivery cursors.
-- [ ] Prove two overlapping workspaces perform one eligible SEC acquisition,
+- [x] Prove two overlapping workspaces perform one eligible SEC acquisition,
   receive their own projections exactly once, and cannot read each other's data.
-- [ ] Route the SEC workspace evaluator through authorized projections while
+- [x] Route the SEC workspace evaluator through authorized projections while
   preserving Spec 1 finding, alert, Discuss, and checkpoint behavior.
-- [ ] Prove rollback, run focused integration tests, typecheck, affected builds,
+- [x] Prove rollback, run focused integration tests, typecheck, affected builds,
   update this ledger, and commit Sprint 2.
 
 Exit: SEC is a complete shared-acquisition-to-isolated-workspace vertical path.

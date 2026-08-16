@@ -22,6 +22,7 @@ import {
 import {
   acquireSecPublicSource,
   runSecPublicSourceAcquisition,
+  runSharedSecPublicSourceAcquisition,
 } from "../agent/lib/sec-public-source-adapter";
 import { resolveSecPublicSourceRuntimePath } from "../agent/lib/public-source-flags";
 import {
@@ -96,6 +97,7 @@ assert.equal(resolveSecPublicSourceRuntimePath({}), "legacy_sec_workspace_worker
 assert.equal(
   resolveSecPublicSourceRuntimePath({
     EVE_PUBLIC_SOURCE_ACQUISITION_ENABLED: "1",
+    EVE_PUBLIC_SOURCE_PROJECTIONS_ENABLED: "1",
     EVE_SEC_PUBLIC_SOURCE_ADAPTER_ENABLED: "1",
   }),
   "public_source_adapter",
@@ -103,6 +105,14 @@ assert.equal(
 assert.equal(
   resolveSecPublicSourceRuntimePath({
     EVE_PUBLIC_SOURCE_ACQUISITION_ENABLED: "1",
+    EVE_SEC_PUBLIC_SOURCE_ADAPTER_ENABLED: "1",
+  }),
+  "legacy_sec_workspace_worker",
+);
+assert.equal(
+  resolveSecPublicSourceRuntimePath({
+    EVE_PUBLIC_SOURCE_ACQUISITION_ENABLED: "1",
+    EVE_PUBLIC_SOURCE_PROJECTIONS_ENABLED: "1",
     EVE_SEC_PUBLIC_SOURCE_ADAPTER_ENABLED: "0",
   }),
   "legacy_sec_workspace_worker",
@@ -124,6 +134,19 @@ assert.equal(baseline.commit.journal.status, "committed");
 assert.equal(baseline.commit.sourceInstance.cursor.revision, 1);
 assert.equal(baseline.commit.factsCreated, 2);
 assert.equal(JSON.stringify(baseline.acquisition.facts).includes("workspaceId"), false);
+let reusedWindowFetches = 0;
+const reusedWindow = await runSharedSecPublicSourceAcquisition({
+  client,
+  fetchResponse: async () => {
+    reusedWindowFetches += 1;
+    throw new Error("committed acquisition must be reused without fetching");
+  },
+  sourceId: SEC_IPO_SOURCE_ID,
+  window: window(baselineResponse.observedAt),
+});
+assert.equal(reusedWindowFetches, 0);
+assert.equal(reusedWindow.reused, true);
+assert.equal(reusedWindow.acquisition.acquisitionId, baseline.acquisition.result.acquisitionId);
 
 const legacyInitialPage = normalizeSecIpoFetch(baselineResponse);
 const legacyInitial = evaluateSecIpoPage(

@@ -606,3 +606,5 @@ export type PublicSourceAcquisitionJournal = z.infer<typeof publicSourceAcquisit
 export type CanonicalPublicFactRevision = z.infer<typeof canonicalPublicFactRevisionSchema>;
 export type PublicSourceCorrection = z.infer<typeof publicSourceCorrectionSchema>;
 export type PublicSourceInstance = z.infer<typeof publicSourceInstanceSchema>;
+export type PublicSourceProjection = z.infer<typeof publicSourceProjectionSchema>;
+export type PublicSourceSubscription = z.infer<typeof publicSourceSubscriptionSchema>;

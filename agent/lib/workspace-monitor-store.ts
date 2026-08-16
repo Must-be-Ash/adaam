@@ -18,6 +18,11 @@ import {
   workspaceMonitorSourcesSchema,
 } from "./workspace-monitor-input";
 import type { WorkspaceStrategyBindingValue } from "./workspace-state-store";
+import {
+  publicSourceWorkspaceReferenceSchema,
+  resolvePublicSourceWorkspaceReference,
+  type PublicSourceWorkspaceReference,
+} from "./public-source-workspace-reference";
 
 const KEY_PREFIX = "eve:workspace-runtime:v1:monitor:";
 const DUE_KEY = `${KEY_PREFIX}due`;
@@ -234,6 +239,10 @@ const monitorSchema = z
     ownerId: z.string().regex(/^[a-z][a-z0-9_-]{2,63}$/u),
     pauseReason: z.string().max(64).nullable(),
     pausedAt: timestampSchema.nullable(),
+    publicSourceSubscriptions: z
+      .array(publicSourceWorkspaceReferenceSchema)
+      .max(WORKSPACE_MONITOR_SOURCE_LIMIT)
+      .optional(),
     requiredCapabilityIds: z.array(idSchema).max(32),
     schedule: workspaceMonitorScheduleSchema,
     schemaVersion: z.literal(1),
@@ -272,6 +281,15 @@ const monitorSchema = z
     }
     if (monitor.endAt && monitor.endAt <= monitor.createdAt) {
       context.addIssue({ code: "custom", message: "Monitor end must follow creation." });
+    }
+    if (
+      monitor.publicSourceSubscriptions &&
+      (new Set(monitor.publicSourceSubscriptions.map(({ sourceId }) => sourceId)).size !==
+        monitor.publicSourceSubscriptions.length ||
+        monitor.publicSourceSubscriptions.some(({ sourceId }) =>
+          !monitor.sources.some((source) => source.sourceId === sourceId)))
+    ) {
+      context.addIssue({ code: "custom", message: "Public-source references must match monitor sources." });
     }
   });
 
@@ -763,6 +781,7 @@ export interface WorkspaceMonitorCreateInput {
     name: string;
     nextOccurrenceAt: string | null;
     now?: Date;
+    publicSourceIds?: string[];
     requiredCapabilityIds?: string[];
     schedule: WorkspaceMonitorSchedule;
     scope: AuthorizedWorkspaceStoreScope;
@@ -860,6 +879,12 @@ export function prepareWorkspaceMonitorCreate(
       })()
     : randomUUID();
   const enabled = !input.managedBy || input.activateManagedMonitor === true;
+  const publicSourceSubscriptions = input.publicSourceIds?.map((sourceId) =>
+    resolvePublicSourceWorkspaceReference({
+      monitorId,
+      sourceId,
+      workspaceId: input.scope.workspaceId,
+    }));
   const candidate = monitorSchema.safeParse({
     configurationRevision: 1,
     consecutiveFailures: 0,
@@ -878,6 +903,9 @@ export function prepareWorkspaceMonitorCreate(
     ownerId: input.scope.ownerId,
     pauseReason: enabled ? null : "strategy_pack_install_only",
     pausedAt: enabled ? null : now,
+    ...(publicSourceSubscriptions === undefined
+      ? {}
+      : { publicSourceSubscriptions }),
     requiredCapabilityIds: input.requiredCapabilityIds ?? [],
     schedule: input.schedule,
     schemaVersion: 1,
@@ -1047,6 +1075,44 @@ export async function getWorkspaceMonitor(
   assertAuthorizedWorkspaceStoreScope(scope);
   const raw = rawValue(await client.get(workspaceMonitorRecordStorageKey(scope, monitorId)));
   return raw === null ? null : parseMonitor(raw, scope);
+}
+
+export async function migrateWorkspaceMonitorPublicSourceSubscriptions(input: {
+  monitorId: string;
+  now?: Date;
+  publicSourceSubscriptions: readonly PublicSourceWorkspaceReference[];
+  scope: AuthorizedWorkspaceStoreScope;
+}, client: WorkspaceMonitorStoreClient = store()): Promise<WorkspaceMonitor> {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  const key = workspaceMonitorRecordStorageKey(input.scope, input.monitorId);
+  const currentRaw = rawValue(await client.get(key));
+  if (currentRaw === null) throw new WorkspaceMonitorError("monitor_not_found");
+  const current = parseMonitor(currentRaw, input.scope);
+  const references = input.publicSourceSubscriptions.map((reference) =>
+    publicSourceWorkspaceReferenceSchema.parse(reference));
+  if (JSON.stringify(current.publicSourceSubscriptions) === JSON.stringify(references)) {
+    return current;
+  }
+  const candidate = monitorSchema.safeParse({
+    ...current,
+    publicSourceSubscriptions: references,
+    updatedAt: (input.now ?? new Date()).toISOString(),
+  });
+  if (!candidate.success) throw new WorkspaceMonitorError("monitor_invalid");
+  const next = JSON.stringify(candidate.data);
+  if (Buffer.byteLength(next, "utf8") > MAX_RECORD_BYTES) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  if (!(await client.update({
+    dueAtMs: dueAt(candidate.data),
+    dueKey: DUE_KEY,
+    expected: currentRaw,
+    next,
+    recordKey: key,
+  }))) {
+    throw new WorkspaceMonitorError("monitor_conflict");
+  }
+  return candidate.data;
 }
 
 export async function listWorkspaceMonitors(

@@ -67,6 +67,7 @@ import {
   authorizePhotonWorkspaceControlPlaneStore,
   type AuthorizedWorkspaceStoreScope,
 } from "./workspace-store-authorization";
+import { isReviewedPublicSource } from "./public-source-registry";
 
 const REQUEST_BYTE_LIMIT = 16_384;
 const SHARED_HARD_DENIALS = Object.freeze([
@@ -906,6 +907,7 @@ function monitorPreparations(input: {
       name: monitor.displayName,
       nextOccurrenceAt: next?.scheduledAt ?? null,
       now: input.now,
+      publicSourceIds: monitor.sourceIds.filter(isReviewedPublicSource),
       requiredCapabilityIds: [...monitor.requiredCapabilityIds],
       schedule,
       scope: input.scope,
@@ -1125,6 +1127,12 @@ async function executeCreateStrategyPackWorkspace(
       monitor.resourceId,
       {
         monitorId: monitors[index]!.monitor.monitorId,
+        ...(monitors[index]!.monitor.publicSourceSubscriptions === undefined
+          ? {}
+          : {
+              publicSourceSubscriptions:
+                monitors[index]!.monitor.publicSourceSubscriptions,
+            }),
         sourceIds: [...monitor.sourceIds].sort(),
       },
     ]),

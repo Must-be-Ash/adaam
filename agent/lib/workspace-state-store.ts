@@ -7,6 +7,7 @@ import {
   assertAuthorizedWorkspaceStoreScope,
   type AuthorizedWorkspaceStoreScope,
 } from "./workspace-store-authorization";
+import { publicSourceWorkspaceReferenceSchema } from "./public-source-workspace-reference";
 
 export const WORKSPACE_DOCUMENT_BYTE_LIMITS = Object.freeze({
   brief: 32_768,
@@ -151,6 +152,10 @@ export const workspaceStrategySnapshotSchema = z
 const strategyManagedResourceSchema = z
   .object({
     monitorId: z.string().uuid(),
+    publicSourceSubscriptions: z
+      .array(publicSourceWorkspaceReferenceSchema)
+      .max(8)
+      .optional(),
     sourceIds: z.array(identifierSchema).min(1).max(8),
   })
   .strict()
@@ -159,9 +164,14 @@ const strategyManagedResourceSchema = z
       new Set(resource.sourceIds).size !== resource.sourceIds.length ||
       resource.sourceIds.some(
         (sourceId, index) => index > 0 && resource.sourceIds[index - 1]! > sourceId,
-      )
+      ) ||
+      (resource.publicSourceSubscriptions !== undefined &&
+        (new Set(resource.publicSourceSubscriptions.map(({ sourceId }) => sourceId)).size !==
+          resource.publicSourceSubscriptions.length ||
+          resource.publicSourceSubscriptions.some(({ sourceId }) =>
+            !resource.sourceIds.includes(sourceId))))
     ) {
-      context.addIssue({ code: "custom", message: "Managed source IDs must be sorted and unique." });
+      context.addIssue({ code: "custom", message: "Managed source references must match sorted unique sources." });
     }
   });
 

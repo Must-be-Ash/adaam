@@ -19,6 +19,21 @@ export class ReviewedPublicSourceRegistryError extends Error {
 type ReviewedSourceContract =
   (typeof STRATEGY_PACK_REFERENCE_CATALOG.sourceContracts)[keyof typeof STRATEGY_PACK_REFERENCE_CATALOG.sourceContracts];
 
+export function isReviewedPublicSource(sourceId: string): boolean {
+  try {
+    resolveReviewedPublicSource(sourceId);
+    return true;
+  } catch (error) {
+    if (
+      error instanceof ReviewedPublicSourceRegistryError &&
+      error.code === "public_source_not_reviewed"
+    ) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 export function resolveReviewedPublicSource(sourceId: string) {
   const sourceContracts: Readonly<Record<string, ReviewedSourceContract>> =
     STRATEGY_PACK_REFERENCE_CATALOG.sourceContracts;

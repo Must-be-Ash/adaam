@@ -97,11 +97,64 @@ function store(): PublicSourceAcquisitionStoreClient {
 }
 
 function recordKey(
-  kind: "acquisition" | "correction" | "fact" | "journal" | "source-instance",
+  kind:
+    | "acquisition"
+    | "acquisition-eligibility"
+    | "correction"
+    | "fact"
+    | "journal"
+    | "source-instance",
   id: string,
 ): string {
   const digest = createHash("sha256").update(id).digest("hex");
   return `${KEY_PREFIX}${kind}:${digest}`;
+}
+
+export interface PublicSourceAcquisitionEligibility {
+  readonly accessClassification: "public";
+  readonly adapterDefinitionDigest: string;
+  readonly expectedCursorRevision: number;
+  readonly sourceInstanceId: string;
+  readonly window: { readonly endAt: string; readonly startAt: string };
+}
+
+export interface ReusablePublicSourceAcquisition {
+  readonly journal: PublicSourceAcquisitionJournal;
+  readonly result: PublicSourceAcquisitionResult;
+}
+
+export type PublicSourceAcquisitionWindow = Omit<
+  PublicSourceAcquisitionEligibility,
+  "expectedCursorRevision"
+>;
+
+export function derivePublicSourceAcquisitionEligibilityId(
+  eligibility: PublicSourceAcquisitionEligibility,
+): string {
+  return createHash("sha256")
+    .update(JSON.stringify([
+      eligibility.sourceInstanceId,
+      eligibility.adapterDefinitionDigest,
+      eligibility.window.startAt,
+      eligibility.window.endAt,
+      eligibility.accessClassification,
+      eligibility.expectedCursorRevision,
+    ]))
+    .digest("hex");
+}
+
+function derivePublicSourceAcquisitionWindowId(
+  window: PublicSourceAcquisitionWindow,
+): string {
+  return createHash("sha256")
+    .update(JSON.stringify([
+      window.sourceInstanceId,
+      window.adapterDefinitionDigest,
+      window.window.startAt,
+      window.window.endAt,
+      window.accessClassification,
+    ]))
+    .digest("hex");
 }
 
 function rawValue(value: unknown): string | null {
@@ -200,6 +253,105 @@ export async function readPublicSourceAcquisitionResult(
   return raw === null
     ? null
     : parseRaw(raw, (value) => publicSourceAcquisitionResultSchema.parse(value));
+}
+
+async function readIndexedPublicSourceAcquisition(input: {
+  readonly identityField: "eligibilityId" | "windowId";
+  readonly identityValue: string;
+  readonly recordId: string;
+  readonly validateJournal: (journal: PublicSourceAcquisitionJournal) => boolean;
+}, client: PublicSourceAcquisitionStoreClient): Promise<ReusablePublicSourceAcquisition | null> {
+  const raw = await readRaw(
+    recordKey("acquisition-eligibility", input.recordId),
+    client,
+  );
+  if (raw === null) return null;
+  let acquisitionId: string;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Reflect.get(parsed, input.identityField) !== input.identityValue ||
+      typeof Reflect.get(parsed, "acquisitionId") !== "string"
+    ) {
+      throw new Error("invalid acquisition index");
+    }
+    acquisitionId = Reflect.get(parsed, "acquisitionId") as string;
+  } catch {
+    throw new PublicSourceAcquisitionStoreError("public_source_record_corrupt");
+  }
+  const [journal, result] = await Promise.all([
+    readPublicSourceAcquisitionJournal(acquisitionId, client),
+    readPublicSourceAcquisitionResult(acquisitionId, client),
+  ]);
+  if (!journal || journal.status !== "committed" || !result || !input.validateJournal(journal)) {
+    throw new PublicSourceAcquisitionStoreError("public_source_record_corrupt");
+  }
+  return Object.freeze({ journal, result });
+}
+
+export async function readReusablePublicSourceAcquisition(
+  eligibility: PublicSourceAcquisitionEligibility,
+  client: PublicSourceAcquisitionStoreClient = store(),
+): Promise<ReusablePublicSourceAcquisition | null> {
+  const eligibilityId = derivePublicSourceAcquisitionEligibilityId(eligibility);
+  return readIndexedPublicSourceAcquisition({
+    identityField: "eligibilityId",
+    identityValue: eligibilityId,
+    recordId: eligibilityId,
+    validateJournal: (journal) =>
+      journal.sourceInstanceId === eligibility.sourceInstanceId &&
+      journal.adapterDefinitionDigest === eligibility.adapterDefinitionDigest &&
+      journal.expectedCursorRevision === eligibility.expectedCursorRevision &&
+      JSON.stringify(journal.window) === JSON.stringify(eligibility.window),
+  }, client);
+}
+
+export async function readCommittedPublicSourceAcquisitionForWindow(
+  window: PublicSourceAcquisitionWindow,
+  client: PublicSourceAcquisitionStoreClient = store(),
+): Promise<ReusablePublicSourceAcquisition | null> {
+  const windowId = derivePublicSourceAcquisitionWindowId(window);
+  return readIndexedPublicSourceAcquisition({
+    identityField: "windowId",
+    identityValue: windowId,
+    recordId: `window.${windowId}`,
+    validateJournal: (journal) =>
+      journal.sourceInstanceId === window.sourceInstanceId &&
+      journal.adapterDefinitionDigest === window.adapterDefinitionDigest &&
+      JSON.stringify(journal.window) === JSON.stringify(window.window),
+  }, client);
+}
+
+async function publishPublicSourceAcquisition(
+  eligibility: PublicSourceAcquisitionEligibility,
+  acquisitionId: string,
+  client: PublicSourceAcquisitionStoreClient,
+): Promise<void> {
+  const eligibilityId = derivePublicSourceAcquisitionEligibilityId(eligibility);
+  const key = recordKey("acquisition-eligibility", eligibilityId);
+  const raw = serialize({ acquisitionId, eligibilityId, schemaVersion: 1 });
+  if (!(await client.compareAndSet(key, null, raw))) {
+    const current = await readRaw(key, client);
+    if (current !== raw) {
+      throw new PublicSourceAcquisitionStoreError("journal_conflict");
+    }
+  }
+  const window = {
+    accessClassification: eligibility.accessClassification,
+    adapterDefinitionDigest: eligibility.adapterDefinitionDigest,
+    sourceInstanceId: eligibility.sourceInstanceId,
+    window: eligibility.window,
+  };
+  const windowId = derivePublicSourceAcquisitionWindowId(window);
+  const windowKey = recordKey("acquisition-eligibility", `window.${windowId}`);
+  const windowRaw = serialize({ acquisitionId, schemaVersion: 1, windowId });
+  if (await client.compareAndSet(windowKey, null, windowRaw)) return;
+  const currentWindow = await readRaw(windowKey, client);
+  if (currentWindow !== windowRaw) {
+    throw new PublicSourceAcquisitionStoreError("journal_conflict");
+  }
 }
 
 async function writeFact(
@@ -429,6 +581,13 @@ export async function commitPublicSourceAcquisition(input: {
   if (!currentSource) throw new PublicSourceAcquisitionStoreError("source_instance_conflict");
   const sourceInstance = await advanceCursor(currentSource, result, client);
   await writeAcquisitionResult(result, client);
+  await publishPublicSourceAcquisition({
+    accessClassification: "public",
+    adapterDefinitionDigest: result.adapterDefinitionDigest,
+    expectedCursorRevision: result.proposedNextCursor.expectedRevision,
+    sourceInstanceId: result.sourceInstanceId,
+    window: input.acquisition.window,
+  }, result.acquisitionId, client);
   return Object.freeze({
     correctionsCreated,
     correctionsReused,

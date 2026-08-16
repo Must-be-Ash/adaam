@@ -1,6 +1,10 @@
 import {
   commitPublicSourceAcquisition,
+  derivePublicSourceAcquisitionEligibilityId,
   ensurePublicSourceInstance,
+  readCommittedPublicSourceAcquisitionForWindow,
+  readPublicSourceAcquisitionJournal,
+  readReusablePublicSourceAcquisition,
   recordPublicSourceAcquisitionOutcome,
   type PublicSourceAcquisitionCommit,
   type PublicSourceAcquisitionStoreClient,
@@ -14,6 +18,7 @@ import {
   publicSourceAcquisitionResultSchema,
   publicSourceInstanceSchema,
   type CanonicalPublicFactRevision,
+  type PublicSourceAcquisitionJournal,
   type PublicSourceInstance,
 } from "./public-source-adapter-schema";
 import { resolveReviewedPublicSource } from "./public-source-registry";
@@ -42,6 +47,18 @@ export interface SecPublicSourceResponse {
 export interface SecPublicSourceAcquisition extends PublicSourcePreparedAcquisition {
   readonly baselineEstablished: boolean;
 }
+
+export interface SharedSecPublicSourceAcquisitionResult {
+  readonly acquisition: SecPublicSourceAcquisition["result"];
+  readonly baselineEstablished: boolean;
+  readonly journal: PublicSourceAcquisitionJournal | null;
+  readonly reused: boolean;
+}
+
+const sharedAcquisitions = new Map<
+  string,
+  Promise<Omit<SharedSecPublicSourceAcquisitionResult, "reused">>
+>();
 
 function acquisitionId(input: {
   bodyDigest: string;
@@ -336,4 +353,88 @@ export async function runSecPublicSourceAcquisition(input: {
     client: input.client,
   });
   return Object.freeze({ acquisition, commit });
+}
+
+export async function runSharedSecPublicSourceAcquisition(input: {
+  readonly client?: PublicSourceAcquisitionStoreClient;
+  readonly fetchResponse: () => Promise<SecPublicSourceResponse>;
+  readonly sourceId: string;
+  readonly window: { readonly endAt: string; readonly startAt: string };
+}): Promise<SharedSecPublicSourceAcquisitionResult> {
+  const reviewed = resolveReviewedPublicSource(input.sourceId);
+  const committedForWindow = await readCommittedPublicSourceAcquisitionForWindow({
+    accessClassification: "public",
+    adapterDefinitionDigest: reviewed.sourceInstance.adapterDefinitionDigest,
+    sourceInstanceId: reviewed.sourceInstance.sourceInstanceId,
+    window: input.window,
+  }, input.client);
+  if (committedForWindow) {
+    return Object.freeze({
+      acquisition: committedForWindow.result,
+      baselineEstablished: committedForWindow.journal.expectedCursorRevision === 0,
+      journal: committedForWindow.journal,
+      reused: true,
+    });
+  }
+  const sourceInstance = await ensurePublicSourceInstance(
+    reviewed.sourceInstance,
+    input.client,
+  );
+  const eligibility = {
+    accessClassification: "public" as const,
+    adapterDefinitionDigest: sourceInstance.adapterDefinitionDigest,
+    expectedCursorRevision: sourceInstance.cursor.revision,
+    sourceInstanceId: sourceInstance.sourceInstanceId,
+    window: input.window,
+  };
+  const reusable = await readReusablePublicSourceAcquisition(eligibility, input.client);
+  if (reusable) {
+    return Object.freeze({
+      acquisition: reusable.result,
+      baselineEstablished: reusable.journal.expectedCursorRevision === 0,
+      journal: reusable.journal,
+      reused: true,
+    });
+  }
+  const eligibilityId = derivePublicSourceAcquisitionEligibilityId(eligibility);
+  const active = sharedAcquisitions.get(eligibilityId);
+  if (active) {
+    const joined = await active;
+    return Object.freeze({ ...joined, reused: true });
+  }
+  const started = (async (): Promise<Omit<SharedSecPublicSourceAcquisitionResult, "reused">> => {
+    const raced = await readReusablePublicSourceAcquisition(eligibility, input.client);
+    if (raced) {
+      return Object.freeze({
+        acquisition: raced.result,
+        baselineEstablished: raced.journal.expectedCursorRevision === 0,
+        journal: raced.journal,
+      });
+    }
+    const response = await input.fetchResponse();
+    const completed = await runSecPublicSourceAcquisition({
+      client: input.client,
+      response,
+      sourceId: input.sourceId,
+      window: input.window,
+    });
+    const journal = completed.commit?.journal ?? await readPublicSourceAcquisitionJournal(
+      completed.acquisition.result.acquisitionId,
+      input.client,
+    );
+    return Object.freeze({
+      acquisition: completed.acquisition.result,
+      baselineEstablished: completed.acquisition.baselineEstablished,
+      journal,
+    });
+  })();
+  sharedAcquisitions.set(eligibilityId, started);
+  try {
+    const completed = await started;
+    return Object.freeze({ ...completed, reused: false });
+  } finally {
+    if (sharedAcquisitions.get(eligibilityId) === started) {
+      sharedAcquisitions.delete(eligibilityId);
+    }
+  }
 }
