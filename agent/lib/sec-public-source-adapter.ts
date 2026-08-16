@@ -51,6 +51,7 @@ export interface SecPublicSourceAcquisition extends PublicSourcePreparedAcquisit
 export interface SharedSecPublicSourceAcquisitionResult {
   readonly acquisition: SecPublicSourceAcquisition["result"];
   readonly baselineEstablished: boolean;
+  readonly commit: PublicSourceAcquisitionCommit | null;
   readonly journal: PublicSourceAcquisitionJournal | null;
   readonly reused: boolean;
 }
@@ -372,6 +373,7 @@ export async function runSharedSecPublicSourceAcquisition(input: {
     return Object.freeze({
       acquisition: committedForWindow.result,
       baselineEstablished: committedForWindow.journal.expectedCursorRevision === 0,
+      commit: null,
       journal: committedForWindow.journal,
       reused: true,
     });
@@ -392,6 +394,7 @@ export async function runSharedSecPublicSourceAcquisition(input: {
     return Object.freeze({
       acquisition: reusable.result,
       baselineEstablished: reusable.journal.expectedCursorRevision === 0,
+      commit: null,
       journal: reusable.journal,
       reused: true,
     });
@@ -408,6 +411,7 @@ export async function runSharedSecPublicSourceAcquisition(input: {
       return Object.freeze({
         acquisition: raced.result,
         baselineEstablished: raced.journal.expectedCursorRevision === 0,
+        commit: null,
         journal: raced.journal,
       });
     }
@@ -425,6 +429,7 @@ export async function runSharedSecPublicSourceAcquisition(input: {
     return Object.freeze({
       acquisition: completed.acquisition.result,
       baselineEstablished: completed.acquisition.baselineEstablished,
+      commit: completed.commit,
       journal,
     });
   })();

@@ -14,6 +14,10 @@ import {
   type PublicSourceCorrection,
   type PublicSourceInstance,
 } from "./public-source-adapter-schema";
+import {
+  publicSourceHealthRecordSchema,
+  type PublicSourceHealthRecord,
+} from "./public-source-observability";
 
 const KEY_PREFIX = "eve:public-source:v1:";
 const MAX_RECORD_BYTES = 128 * 1_024;
@@ -103,6 +107,7 @@ function recordKey(
     | "correction"
     | "fact"
     | "fact-head"
+    | "source-health"
     | "journal"
     | "source-instance",
   id: string,
@@ -195,6 +200,88 @@ export async function readPublicSourceInstance(
   return raw === null
     ? null
     : parseRaw(raw, (value) => publicSourceInstanceSchema.parse(value));
+}
+
+export async function readPublicSourceHealthRecord(
+  sourceInstanceId: string,
+  client: PublicSourceAcquisitionStoreClient = store(),
+): Promise<PublicSourceHealthRecord | null> {
+  const raw = await readRaw(recordKey("source-health", sourceInstanceId), client);
+  return raw === null
+    ? null
+    : parseRaw(raw, (value) => publicSourceHealthRecordSchema.parse(value));
+}
+
+function extractionSummary(input: {
+  readonly facts: readonly CanonicalPublicFactRevision[];
+  readonly result: PublicSourceAcquisitionResult;
+}, previous: PublicSourceHealthRecord | null): PublicSourceHealthRecord["extraction"] {
+  const counts = {
+    complete: input.facts.filter((fact) => fact.extraction.state === "complete").length,
+    partial: input.facts.filter((fact) => fact.extraction.state === "partial").length,
+    unsupported: input.facts.filter((fact) => fact.extraction.state === "unsupported").length,
+  };
+  const degradedReceipt = input.result.stageReceipts.find(
+    (receipt) => receipt.status === "partial" || receipt.status === "unsupported",
+  );
+  if (input.facts.length === 0 && !degradedReceipt && previous) return previous.extraction;
+  return Object.freeze({
+    ...counts,
+    state: counts.unsupported > 0 || degradedReceipt?.status === "unsupported"
+      ? "unsupported" as const
+      : counts.partial > 0 || degradedReceipt?.status === "partial" ||
+          input.result.coverage !== "complete"
+        ? "partial" as const
+        : "complete" as const,
+  });
+}
+
+async function publishPublicSourceHealth(input: {
+  readonly facts: readonly CanonicalPublicFactRevision[];
+  readonly result: PublicSourceAcquisitionResult;
+  readonly source: PublicSourceInstance;
+}, client: PublicSourceAcquisitionStoreClient): Promise<void> {
+  const key = recordKey("source-health", input.source.sourceInstanceId);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const previousRaw = await readRaw(key, client);
+    const previous = previousRaw === null
+      ? null
+      : parseRaw(previousRaw, (value) => publicSourceHealthRecordSchema.parse(value));
+    if (
+      previous &&
+      previous.lastOutcome.observedAt > input.result.observedAt
+    ) return;
+    const degraded = input.result.stageReceipts.find(
+      (receipt) => receipt.status !== "complete" && receipt.errorCode !== null,
+    );
+    const successful = input.result.status === "complete" || input.result.status === "no_change";
+    const next = publicSourceHealthRecordSchema.parse({
+      adapterId: input.result.adapterId,
+      adapterVersion: input.result.adapterVersion,
+      cursor: input.source.cursor,
+      extraction: extractionSummary(input, previous),
+      lastCompleteAcquisition: successful
+        ? {
+            acquisitionId: input.result.acquisitionId,
+            observedAt: input.result.observedAt,
+            status: input.result.status,
+          }
+        : previous?.lastCompleteAcquisition ?? null,
+      lastOutcome: {
+        acquisitionId: input.result.acquisitionId,
+        coverage: input.result.coverage,
+        errorCode: degraded?.errorCode ?? input.result.errorCode,
+        failureStage: degraded?.stage ?? null,
+        observedAt: input.result.observedAt,
+        status: input.result.status,
+      },
+      lifecycleState: input.source.lifecycleState,
+      recordType: "public_source_health",
+      schemaVersion: 1,
+      sourceInstanceId: input.source.sourceInstanceId,
+    });
+    if (await client.compareAndSet(key, previousRaw, serialize(next))) return;
+  }
 }
 
 export async function ensurePublicSourceInstance(
@@ -571,7 +658,11 @@ export async function recordPublicSourceAcquisitionOutcome(
   result: PublicSourceAcquisitionResult,
   client: PublicSourceAcquisitionStoreClient = store(),
 ): Promise<PublicSourceAcquisitionResult> {
-  return writeAcquisitionResult(result, client);
+  const written = await writeAcquisitionResult(result, client);
+  const source = await readPublicSourceInstance(written.sourceInstanceId, client);
+  if (!source) throw new PublicSourceAcquisitionStoreError("source_instance_conflict");
+  await publishPublicSourceHealth({ facts: [], result: written, source }, client);
+  return written;
 }
 
 export async function commitPublicSourceAcquisition(input: {
@@ -681,6 +772,7 @@ export async function commitPublicSourceAcquisition(input: {
     sourceInstanceId: result.sourceInstanceId,
     window: input.acquisition.window,
   }, result.acquisitionId, client);
+  await publishPublicSourceHealth({ facts, result, source: sourceInstance }, client);
   return Object.freeze({
     correctionsCreated,
     correctionsReused,

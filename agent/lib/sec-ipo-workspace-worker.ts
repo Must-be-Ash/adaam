@@ -45,10 +45,9 @@ import {
 } from "./workspace-finding-facts";
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
 import { resolveSecPublicSourceRuntimePath } from "./public-source-flags";
-import { runSharedSecPublicSourceAcquisition } from "./sec-public-source-adapter";
+import { coordinatePublicSourceOccurrence } from "./public-source-coordinator";
 import { migrateSecPublicSourceWorkspace } from "./sec-public-source-migration";
 import {
-  projectPublicSourceAcquisition,
   type AuthorizedPublicSourceProjection,
   type PublicSourceSubscriptionStoreClient,
 } from "./public-source-subscription-store";
@@ -83,7 +82,8 @@ export class SecIpoWorkspaceWorkerError extends Error {
   readonly code:
     | "sec_ipo_capability_denied"
     | "sec_ipo_monitor_invalid"
-    | "sec_ipo_monitor_not_found";
+    | "sec_ipo_monitor_not_found"
+    | "sec_ipo_public_source_misconfigured";
 
   constructor(code: SecIpoWorkspaceWorkerError["code"]) {
     super(code);
@@ -364,6 +364,10 @@ export async function evaluateSecIpoSourceForWorker(input: {
     input.clients?.monitor,
   );
   assertIpoMonitor(monitor, envelope);
+  const publicSourcePath = resolveSecPublicSourceRuntimePath(input.environment);
+  if (publicSourcePath === "public_source_misconfigured") {
+    throw new SecIpoWorkspaceWorkerError("sec_ipo_public_source_misconfigured");
+  }
   const source = await authorizeWorkspaceSourceFetch({
     runId: envelope.runId,
     scope,
@@ -377,7 +381,7 @@ export async function evaluateSecIpoSourceForWorker(input: {
     sourceId: source.sourceId,
   }, input.clients?.sourceCoverage);
   let evaluated: SecIpoEvaluation;
-  if (resolveSecPublicSourceRuntimePath(input.environment) === "public_source_adapter") {
+  if (publicSourcePath === "public_source_adapter") {
     const migrated = await migrateSecPublicSourceWorkspace({
       monitor,
       monitorId: monitor.monitorId,
@@ -388,37 +392,38 @@ export async function evaluateSecIpoSourceForWorker(input: {
       state: input.clients?.state,
       subscription: input.clients?.subscription,
     });
-    const shared = await runSharedSecPublicSourceAcquisition({
-      client: input.clients?.acquisition,
-      fetchResponse: async () => ({
-        ...(input.clients?.fetchSource
-          ? await input.clients.fetchSource(SEC_IPO_SOURCE_URL)
-          : await fetchOfficialPublicSourceText(SEC_IPO_SOURCE_URL, source)),
-        observedAt: now.toISOString(),
-      }),
+    const coordinated = await coordinatePublicSourceOccurrence({
+      clients: {
+        acquisition: input.clients?.acquisition,
+        subscription: input.clients?.subscription,
+      },
+      environment: input.environment,
+      fetch: {
+        adapterId: "sec-latest-filings",
+        fetchResponse: async () => ({
+          ...(input.clients?.fetchSource
+            ? await input.clients.fetchSource(SEC_IPO_SOURCE_URL)
+            : await fetchOfficialPublicSourceText(SEC_IPO_SOURCE_URL, source)),
+          observedAt: now.toISOString(),
+        }),
+      },
+      monitor: migrated.monitor,
+      observedAt: now,
+      scope,
       sourceId: SEC_IPO_SOURCE_ID,
       window: envelope.window,
     });
-    const nextCursor = shared.acquisition.proposedNextCursor;
-    if (!shared.journal || nextCursor === null) {
+    const nextCursor = coordinated.acquisition.proposedNextCursor;
+    if (!coordinated.projection || nextCursor === null) {
       throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
     }
-    const projected = await projectPublicSourceAcquisition({
-      acquisition: shared.acquisition,
-      projectedAt: now,
-      scope,
-      subscriptionId: migrated.subscription.subscriptionId,
-    }, {
-      acquisition: input.clients?.acquisition,
-      subscription: input.clients?.subscription,
-    });
     evaluated = evaluationFromProjections({
-      baselineEstablished: shared.baselineEstablished,
+      baselineEstablished: coordinated.baselineEstablished,
       checkpoint: {
         contentDigest: nextCursor.contentDigest,
         watermark: nextCursor.watermark,
       },
-      projections: projected.projections,
+      projections: coordinated.projection.projections,
       scope,
     });
   } else {

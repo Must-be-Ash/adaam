@@ -399,17 +399,27 @@ caller from index to canonical facts that meet Spec 4's input contract.
 
 ### Sprint 4 — runtime integration and operator visibility
 
-- [ ] Route Spec 1 occurrences for SEC and House through the coordinator without
-  adding a scheduler or channel dependency.
-- [ ] Expose bounded adapter/source health, last complete acquisition, cursor
+- [x] Route Spec 1 occurrences for SEC and House through the coordinator without
+  adding a scheduler or channel dependency. The SEC worker delegates its flagged
+  path to the channel-neutral coordinator, whose reviewed occurrence contract
+  also runs the House vertical and reuses one acquisition across workspaces.
+- [x] Expose bounded adapter/source health, last complete acquisition, cursor
   state, partial/unsupported state, and subscription lag in the workspace
-  manager without exposing global or private records.
-- [ ] Add fixed counters for acquisition outcomes, fact revisions/corrections,
-  reused acquisitions, projections, and fixed failure stages/codes.
-- [ ] Prove disabled and partial flag configurations fail safely and do not
-  regress ordinary Spec 1/2 behavior.
-- [ ] Run focused runtime/manager tests, typecheck, affected builds, update this
-  ledger, and commit Sprint 4.
+  manager without exposing global or private records. The authorized health DTO
+  omits acquisition IDs, URLs, facts, payloads, and workspace identities and
+  degrades to a bounded unavailable state when storage cannot be read.
+- [x] Add fixed counters for acquisition outcomes, fact revisions/corrections,
+  reused acquisitions, projections, and fixed failure stages/codes. Strict
+  observation schemas reject dynamic identifiers and arbitrary labels.
+- [x] Prove disabled and partial flag configurations fail safely and do not
+  regress ordinary Spec 1/2 behavior. Disabled SEC retains the legacy worker;
+  an enabled adapter with incomplete shared flags stops before acquisition,
+  projection, or fetch.
+- [x] Run focused runtime/manager tests, typecheck, affected builds, update this
+  ledger, and commit Sprint 4. Coordinator/health, SEC/House adapters, SEC
+  worker, manager, monitor-store, strategy-pack catalog/runtime, TypeScript,
+  compiled Eve, and Next.js builds passed fixture-backed on 2026-08-15 with no
+  live source read or production flag change.
 
 Exit: both adapters participate in the normal runtime and can be diagnosed
 without inspecting payloads or channel logs.

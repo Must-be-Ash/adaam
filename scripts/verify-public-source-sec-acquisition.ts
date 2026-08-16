@@ -107,7 +107,7 @@ assert.equal(
     EVE_PUBLIC_SOURCE_ACQUISITION_ENABLED: "1",
     EVE_SEC_PUBLIC_SOURCE_ADAPTER_ENABLED: "1",
   }),
-  "legacy_sec_workspace_worker",
+  "public_source_misconfigured",
 );
 assert.equal(
   resolveSecPublicSourceRuntimePath({
