@@ -170,6 +170,7 @@ function normalizeScopeForReuse(scope: z.infer<typeof hybridEvidenceScopeSchema>
 export function deriveHybridEvidenceInputDigest(input: {
   artifacts: readonly EvidenceArtifactManifest[];
   definition: HybridEvidenceJobDefinition;
+  inputContextDigest?: string;
   locators: readonly EvidenceLocator[];
   modelId: string;
   scope: z.infer<typeof hybridEvidenceScopeSchema>;
@@ -177,6 +178,7 @@ export function deriveHybridEvidenceInputDigest(input: {
   return digestHybridEvidenceValue({
     artifactDigests: input.artifacts.map(({ contentDigest }) => contentDigest).sort(),
     definitionDigest: input.definition.definitionDigest,
+    inputContextDigest: input.inputContextDigest ?? null,
     locatorDigests: input.locators.map(digestHybridEvidenceValue).sort(),
     modelId: input.modelId,
     scope: normalizeScopeForReuse(input.scope),
@@ -186,6 +188,7 @@ export function deriveHybridEvidenceInputDigest(input: {
 export async function prepareHybridEvidenceJob(input: {
   artifacts: readonly EvidenceArtifactManifest[];
   definition: HybridEvidenceJobDefinition;
+  inputContextDigest?: string;
   locators: readonly EvidenceLocator[];
   modelId: string;
   now?: Date;
@@ -215,6 +218,7 @@ export async function prepareHybridEvidenceJob(input: {
   const inputDigest = deriveHybridEvidenceInputDigest({
     artifacts,
     definition,
+    inputContextDigest: input.inputContextDigest,
     locators,
     modelId: input.modelId,
     scope,

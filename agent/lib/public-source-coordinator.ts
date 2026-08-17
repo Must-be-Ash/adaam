@@ -3,6 +3,13 @@ import type {
   PublicSourceSubscription,
 } from "./public-source-adapter-schema";
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
+import type { HybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
+import type { HybridEvidenceJobStoreClient } from "./hybrid-evidence-job-store";
+import type { HybridEvidenceLineageStoreClient } from "./hybrid-evidence-lineage-store";
+import { resolveHybridEvidenceFlags } from "./hybrid-evidence-flags";
+import { createHouseHybridEvidenceRecovery } from "./house-hybrid-evidence-recovery";
+import type { WorkspaceBudgetLedgerClient } from "./workspace-budget-ledger";
+import type { WorkspaceGlobalBudgetClient } from "./workspace-dispatch-budget";
 import {
   resolveHousePublicSourceRuntimePath,
   resolveSecPublicSourceRuntimePath,
@@ -132,6 +139,11 @@ function emitWriteCount(input: {
 export async function coordinatePublicSourceOccurrence(input: {
   readonly clients?: {
     readonly acquisition?: PublicSourceAcquisitionStoreClient;
+    readonly hybridArtifacts?: HybridEvidenceArtifactStore;
+    readonly hybridGlobalBudget?: WorkspaceGlobalBudgetClient;
+    readonly hybridJobs?: HybridEvidenceJobStoreClient;
+    readonly hybridLineage?: HybridEvidenceLineageStoreClient;
+    readonly hybridWorkspaceBudget?: WorkspaceBudgetLedgerClient;
     readonly subscription?: PublicSourceSubscriptionStoreClient;
   };
   readonly deferProjectionAcknowledgement?: boolean;
@@ -155,6 +167,16 @@ export async function coordinatePublicSourceOccurrence(input: {
     throw new PublicSourceCoordinatorError("public_source_reference_invalid");
   }
   const reference = requireReference(input);
+  const hybridFlags = resolveHybridEvidenceFlags(environment);
+  const recoveryModelId = environment.EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)[0];
+  if (
+    input.fetch.adapterId === "house-financial-disclosures" &&
+    hybridFlags.extractionRecovery &&
+    !recoveryModelId
+  ) throw new PublicSourceCoordinatorError("public_source_misconfigured");
   const subscription = await ensurePublicSourceSubscription(
     input.scope,
     createPublicSourceSubscription({
@@ -184,6 +206,21 @@ export async function coordinatePublicSourceOccurrence(input: {
         client: input.clients?.acquisition,
         fetchDocument: input.fetch.fetchDocument,
         fetchIndex: input.fetch.fetchIndex,
+        hybridLineageClient: input.clients?.hybridLineage,
+        recovery: hybridFlags.extractionRecovery
+          ? createHouseHybridEvidenceRecovery({
+              clients: {
+                artifacts: input.clients?.hybridArtifacts,
+                globalBudget: input.clients?.hybridGlobalBudget,
+                jobs: input.clients?.hybridJobs,
+                lineage: input.clients?.hybridLineage,
+                workspaceBudget: input.clients?.hybridWorkspaceBudget,
+              },
+              environment,
+              initiatingWorkspaceId: input.scope.workspaceId,
+              modelId: recoveryModelId!,
+            })
+          : undefined,
         sourceId: input.sourceId,
         window,
       });

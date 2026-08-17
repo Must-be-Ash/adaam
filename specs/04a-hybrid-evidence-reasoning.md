@@ -1,6 +1,6 @@
 # Spec 4A: Hybrid evidence and reasoning foundation
 
-Status: In progress; Sprint 1 complete, Sprint 2 next
+Status: In progress; Sprint 2 complete, Sprint 3 next
 
 Date: 2026-08-16
 
@@ -558,19 +558,33 @@ strategy result.
 
 ### Sprint 2 — extraction recovery verticals
 
-- [ ] Integrate recovery eligibility after a reviewed deterministic parser's
+- [x] Integrate recovery eligibility after a reviewed deterministic parser's
   allowlisted partial/unsupported/suspicious result, without adding a second
   acquisition or schedule path.
-- [ ] Implement PDF page rendering/content parts and the reviewed document-row
+- [x] Implement PDF page rendering/content parts and the reviewed document-row
   extraction definition plus independent bounded OCR and deterministic
   citation/domain validation.
-- [ ] Implement bounded workbook-to-cell-grid projection and the reviewed
+- [x] Implement bounded workbook-to-cell-grid projection and the reviewed
   spreadsheet-role mapping definition plus its deterministic validator.
-- [ ] Promote only independently verified House PDF candidates into immutable
+- [x] Promote only independently verified House PDF candidates into immutable
   canonical fact revisions with promotion/invalidation lineage. Spreadsheet
   fixtures stop at the accepted hybrid-result boundary.
-- [ ] Pass the PDF and spreadsheet proof scenarios, deterministic-success bypass,
+- [x] Pass the PDF and spreadsheet proof scenarios, deterministic-success bypass,
   reuse, correction/revision, bounds, injection, and negative fixtures.
+
+Local evidence: the Sprint 2 gate drives a retained scanned House PDF through
+bounded PDF rendering, Eve image content parts, the signed worker read/commit
+boundary, independent bounded OCR, deterministic citations/domain validation,
+and the existing House acquisition commit. It proves deterministic bypass,
+cross-workspace source-global reuse, corrections, retractions, immutable
+promotion/invalidation lineage, invalid-citation quarantine with no cursor
+advance, hostile PDF/injection/bounds failures, and a second worker job over a
+bounded hostile-workbook decoder. The spreadsheet mapping accepts renamed and
+reordered columns, rejects duplicate/missing/conflicting columns, formulas,
+external content, and injection, and creates no canonical fact or promotion.
+Sprint 0/1, existing House acquisition/runtime and compiled worker-tool
+regressions, TypeScript, the Eve build, and the diff check pass without a
+production model, source call, message, deployment, or flag change.
 
 Exit: two different document shapes use the same job/evidence foundation, and
 only deterministically validated model candidates become source facts.

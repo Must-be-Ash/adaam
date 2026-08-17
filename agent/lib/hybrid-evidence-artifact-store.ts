@@ -12,6 +12,14 @@ import {
   type EvidenceArtifactManifest,
   type EvidenceLocator,
 } from "./hybrid-evidence-schema";
+import {
+  projectHybridEvidencePdf,
+  readHybridEvidencePdfPage,
+} from "./hybrid-evidence-pdf";
+import {
+  projectHybridEvidenceWorkbook,
+  readHybridEvidenceCellRange,
+} from "./hybrid-evidence-spreadsheet";
 
 const INDEX_KEY = "eve:hybrid-evidence:v1:artifact-index";
 const MAX_CAS_ATTEMPTS = 8;
@@ -111,8 +119,9 @@ export interface HybridEvidenceSlice {
   readonly artifactDigest: string;
   readonly byteCount: number;
   readonly content: string;
+  readonly contentKind: "image" | "text";
   readonly locatorDigest: string;
-  readonly mediaType: EvidenceArtifactManifest["mediaType"];
+  readonly mediaType: EvidenceArtifactManifest["mediaType"] | "image/png";
 }
 
 export class HybridEvidenceArtifactStoreError extends Error {
@@ -485,22 +494,50 @@ export function createHybridEvidenceArtifactStore(options: {
         throw new HybridEvidenceArtifactStoreError("artifact_digest_mismatch");
       }
       let content: string;
+      let contentKind: HybridEvidenceSlice["contentKind"] = "text";
+      let mediaType: HybridEvidenceSlice["mediaType"] = entry.manifest.mediaType;
       if (locator.kind === "text_span") {
         const full = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
         content = full.slice(locator.start, locator.end);
         if (digestBytes(Buffer.from(content, "utf8")) !== locator.spanDigest) {
           throw new HybridEvidenceArtifactStoreError("artifact_digest_mismatch");
         }
-      } else throw new HybridEvidenceArtifactStoreError("unsupported_layout");
-      if (Buffer.byteLength(content, "utf8") > input.maximumBytes) {
+      } else if (locator.kind === "pdf_page") {
+        const projection = await projectHybridEvidencePdf(bytes);
+        const page = await readHybridEvidencePdfPage({
+          evidenceDigest: locator.evidenceDigest,
+          page: locator.page,
+          projection,
+          region: locator.region,
+        });
+        content = page.imageBase64;
+        contentKind = "image";
+        mediaType = page.mediaType;
+      } else {
+        const projection = await projectHybridEvidenceWorkbook(bytes);
+        const range = readHybridEvidenceCellRange({
+          projection,
+          range: locator.range,
+          sheetId: locator.sheetId,
+        });
+        if (range.digest !== locator.normalizedRangeDigest) {
+          throw new HybridEvidenceArtifactStoreError("artifact_digest_mismatch");
+        }
+        content = JSON.stringify({ range: locator.range, rows: range.rows, sheetId: locator.sheetId });
+      }
+      const byteCount = contentKind === "image"
+        ? Buffer.from(content, "base64").byteLength
+        : Buffer.byteLength(content, "utf8");
+      if (byteCount > input.maximumBytes) {
         throw new HybridEvidenceArtifactStoreError("artifact_bounds_exceeded");
       }
       return Object.freeze({
         artifactDigest: entry.manifest.contentDigest,
-        byteCount: Buffer.byteLength(content, "utf8"),
+        byteCount,
         content,
+        contentKind,
         locatorDigest: digestHybridEvidenceValue(locator),
-        mediaType: entry.manifest.mediaType,
+        mediaType,
       });
     },
 

@@ -582,6 +582,8 @@ export type HybridEvidenceJobDefinition = z.infer<typeof hybridEvidenceJobDefini
 export type HybridEvidenceJob = z.infer<typeof hybridEvidenceJobSchema>;
 export type HybridAcceptedResult = z.infer<typeof hybridAcceptedResultSchema>;
 export type HybridEvidenceObservation = z.infer<typeof hybridEvidenceObservationSchema>;
+export type HybridPromotionRecord = z.infer<typeof hybridPromotionRecordSchema>;
+export type HybridInvalidationRecord = z.infer<typeof hybridInvalidationRecordSchema>;
 
 export function parseHybridEvidenceRecord(value: unknown) {
   if (typeof value !== "object" || value === null) {

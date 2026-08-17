@@ -1,5 +1,5 @@
 import type { SessionAuthContext, SessionContext } from "eve/context";
-import { defineTool } from "eve/tools";
+import { defineTool, toolOutput, toolOutputPart } from "eve/tools";
 import { z } from "zod";
 
 import type { ChannelAdapter } from "../../node_modules/eve/dist/src/channel/adapter.js";
@@ -256,6 +256,14 @@ export const readHybridEvidenceSliceTool = defineTool({
   async execute({ locator }, ctx) {
     const artifacts = createDefaultHybridEvidenceArtifactStore();
     return readHybridEvidenceSliceForWorker({ clients: { artifacts }, ctx, locator });
+  },
+  toModelOutput(output) {
+    return output.contentKind === "image"
+      ? toolOutput.content([
+          toolOutputPart.text(`Bounded public PDF evidence for locator ${output.locatorDigest}:`),
+          toolOutputPart.file(output.content, { mediaType: "image/png" }),
+        ])
+      : toolOutput.text(output.content);
   },
 });
 
