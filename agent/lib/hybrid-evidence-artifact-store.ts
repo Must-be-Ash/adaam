@@ -44,6 +44,7 @@ const referenceSchema = z.object({
   referenceId: z.string().min(3).max(200),
 }).strict();
 const artifactEntrySchema = z.object({
+  deletionToken: z.string().regex(/^[a-f0-9]{64}$/u).nullable().default(null),
   manifest: evidenceArtifactManifestSchema,
   references: z.array(referenceSchema).max(128),
 }).strict();
@@ -335,32 +336,81 @@ export function createHybridEvidenceArtifactStore(options: {
 
   const readEntry = async (digest: string) => {
     const index = parseIndex(rawValue(await indexClient.get(INDEX_KEY)));
-    return index.artifacts.find(({ manifest }) => manifest.contentDigest === digest) ?? null;
+    return index.artifacts.find(({ deletionToken, manifest }) =>
+      !deletionToken && manifest.contentDigest === digest) ?? null;
   };
 
   const artifactStore: HybridEvidenceArtifactStore = {
     async collectExpired(input: { now?: Date } = {}) {
       const now = input.now ?? new Date();
-      const deleted = await updateIndex(indexClient, (current) => {
-        const removable = current.artifacts.filter(({ manifest, references }) =>
+      const claimed = await updateIndex(indexClient, (current) => {
+        const removable = current.artifacts.filter(({ deletionToken, manifest, references }) =>
+          !deletionToken &&
           references.every(({ active }) => !active) &&
           manifest.retention.expiresAt !== null &&
           Date.parse(manifest.retention.expiresAt) <= now.getTime()
         );
-        const digests = new Set(removable.map(({ manifest }) => manifest.contentDigest));
+        const claims = removable.map(({ manifest }) => ({
+          digest: manifest.contentDigest,
+          storageKey: manifest.storageKey,
+          token: digestHybridEvidenceValue([
+            "artifact-deletion",
+            manifest.contentDigest,
+            current.revision + 1,
+            now.toISOString(),
+          ]),
+        }));
+        const tokens = new Map(claims.map(({ digest, token }) => [digest, token]));
         return {
           index: {
             ...current,
-            artifacts: current.artifacts.filter(
-              ({ manifest }) => !digests.has(manifest.contentDigest),
-            ),
+            artifacts: current.artifacts.map((entry) => ({
+              ...entry,
+              deletionToken: tokens.get(entry.manifest.contentDigest) ?? entry.deletionToken,
+            })),
             revision: removable.length === 0 ? current.revision : current.revision + 1,
           },
-          result: [...digests],
+          result: claims,
         };
       });
-      await Promise.all(deleted.map((digest) => blobs.delete(storageKey(digest))));
-      return deleted;
+      const deletions = await Promise.allSettled(
+        claimed.map(({ storageKey: key }) => blobs.delete(key)),
+      );
+      if (deletions.some(({ status }) => status === "rejected")) {
+        await updateIndex(indexClient, (current) => {
+          const tokens = new Map(claimed.map(({ digest, token }) => [digest, token]));
+          return {
+            index: {
+              ...current,
+              artifacts: current.artifacts.map((entry) => {
+                const token = tokens.get(entry.manifest.contentDigest);
+                return token !== undefined && entry.deletionToken === token
+                  ? { ...entry, deletionToken: null }
+                  : entry;
+              }),
+              revision: claimed.length === 0 ? current.revision : current.revision + 1,
+            },
+            result: undefined,
+          };
+        });
+        throw new HybridEvidenceArtifactStoreError("storage_unavailable");
+      }
+      return updateIndex(indexClient, (current) => {
+        const tokens = new Map(claimed.map(({ digest, token }) => [digest, token]));
+        const matchesClaim = (entry: ArtifactIndex["artifacts"][number]) => {
+          const token = tokens.get(entry.manifest.contentDigest);
+          return token !== undefined && entry.deletionToken === token;
+        };
+        const deleted = current.artifacts.filter(matchesClaim);
+        return {
+          index: {
+            ...current,
+            artifacts: current.artifacts.filter((entry) => !matchesClaim(entry)),
+            revision: deleted.length === 0 ? current.revision : current.revision + 1,
+          },
+          result: deleted.map(({ manifest }) => manifest.contentDigest),
+        };
+      });
     },
 
     async persist(input: PersistHybridEvidenceArtifactInput) {
@@ -401,6 +451,9 @@ export function createHybridEvidenceArtifactStore(options: {
           ({ manifest: candidate }) => candidate.contentDigest === digest,
         );
         if (existing) {
+          if (existing.deletionToken) {
+            throw new HybridEvidenceArtifactStoreError("artifact_store_conflict");
+          }
           if (
             existing.manifest.byteCount !== manifest.byteCount ||
             existing.manifest.mediaType !== manifest.mediaType
@@ -430,7 +483,7 @@ export function createHybridEvidenceArtifactStore(options: {
         return {
           index: {
             ...current,
-            artifacts: [...current.artifacts, { manifest, references: [] }],
+            artifacts: [...current.artifacts, { deletionToken: null, manifest, references: [] }],
             revision: current.revision + 1,
             usage: [
               ...current.usage.filter((entry) => entry.calendarDay >= day),
@@ -553,6 +606,9 @@ export function createHybridEvidenceArtifactStore(options: {
         );
         if (index < 0) throw new HybridEvidenceArtifactStoreError("artifact_not_found");
         const entry = current.artifacts[index]!;
+        if (entry.deletionToken) {
+          throw new HybridEvidenceArtifactStoreError("artifact_store_conflict");
+        }
         const references = entry.references.filter(
           ({ referenceId }) => referenceId !== input.referenceId,
         );
@@ -575,6 +631,9 @@ export function createHybridEvidenceArtifactStore(options: {
         );
         if (index < 0) throw new HybridEvidenceArtifactStoreError("artifact_not_found");
         const entry = current.artifacts[index]!;
+        if (entry.deletionToken) {
+          throw new HybridEvidenceArtifactStoreError("artifact_store_conflict");
+        }
         if (input.state !== "active" && entry.references.some(({ active }) => active)) {
           throw new HybridEvidenceArtifactStoreError("artifact_store_conflict");
         }

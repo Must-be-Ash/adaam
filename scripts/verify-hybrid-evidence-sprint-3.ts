@@ -6,10 +6,15 @@ import {
   createHybridEvidenceArtifactStore,
   type HybridEvidenceArtifactIndexClient,
   type HybridEvidenceBlobClient,
+  type HybridEvidenceArtifactStore,
 } from "../agent/lib/hybrid-evidence-artifact-store";
 import {
   createSemanticPublicTextDefinition,
+  createWorkspaceSemanticDefinition,
+  createWorkspaceSemanticValidationRegistry,
   SEMANTIC_PUBLIC_TEXT_DEFINITION_ID,
+  semanticPublicTextValidationContract,
+  type WorkspaceSemanticValidationContract,
 } from "../agent/lib/hybrid-evidence-definition-registry";
 import type { HybridEvidenceJobStoreClient } from "../agent/lib/hybrid-evidence-job-store";
 import type { HybridEvidenceLineageStoreClient } from "../agent/lib/hybrid-evidence-lineage-store";
@@ -22,7 +27,11 @@ import {
   type WorkspaceSemanticAuthorizationProjection,
 } from "../agent/lib/hybrid-evidence-semantic";
 import type { WorkspaceSemanticEvidenceStoreClient } from "../agent/lib/hybrid-evidence-semantic-store";
-import { readWorkspaceSemanticEvidence } from "../agent/lib/hybrid-evidence-semantic-store";
+import {
+  advanceWorkspaceSemanticHead,
+  listWorkspaceSemanticJobSummaries,
+  readWorkspaceSemanticEvidence,
+} from "../agent/lib/hybrid-evidence-semantic-store";
 import {
   digestHybridEvidenceValue,
   type EvidenceLocator,
@@ -77,6 +86,13 @@ const workspaceC = "123e4567-e89b-42d3-a456-426614174302";
 const workspaceD = "123e4567-e89b-42d3-a456-426614174303";
 const workspaceE = "123e4567-e89b-42d3-a456-426614174304";
 const workspaceF = "123e4567-e89b-42d3-a456-426614174305";
+const workspaceG = "123e4567-e89b-42d3-a456-426614174306";
+const workspaceH = "123e4567-e89b-42d3-a456-426614174307";
+const workspaceI = "123e4567-e89b-42d3-a456-426614174308";
+const workspaceJ = "123e4567-e89b-42d3-a456-426614174309";
+const workspaceK = "123e4567-e89b-42d3-a456-426614174310";
+const workspaceL = "123e4567-e89b-42d3-a456-426614174311";
+const workspaceM = "123e4567-e89b-42d3-a456-426614174312";
 const modelId = "fixture/semantic-model";
 const environment = {
   EVE_DEPLOYMENT_OWNER_ID: ownerId,
@@ -315,12 +331,26 @@ seedWorkspace({ state: memory, workspaceId: workspaceC });
 seedWorkspace({ maximumInputTokensPerRun: 100, state: memory, workspaceId: workspaceD });
 seedWorkspace({ capabilityBindingRevision: 2, state: memory, workspaceId: workspaceE });
 seedWorkspace({ allowedModelIds: ["fixture/other-model"], state: memory, workspaceId: workspaceF });
+seedWorkspace({ state: memory, workspaceId: workspaceG });
+seedWorkspace({ state: memory, workspaceId: workspaceH });
+seedWorkspace({ state: memory, workspaceId: workspaceI });
+seedWorkspace({ state: memory, workspaceId: workspaceJ });
+seedWorkspace({ state: memory, workspaceId: workspaceK });
+seedWorkspace({ state: memory, workspaceId: workspaceL });
 const notifications: string[] = [];
 let dispatches = 0;
 
 async function runFixture(fixture: any, workspaceId = workspaceA, options: {
+  afterComplete?: () => Promise<void> | void;
+  artifacts?: HybridEvidenceArtifactStore;
+  catalog?: typeof fixtureCatalog;
+  definition?: typeof definition;
+  failExecution?: boolean;
+  notifyHealth?: (notification: any) => Promise<void>;
+  omitUsage?: boolean;
   pack?: ReturnType<typeof fixturePack>;
   projection?: WorkspaceSemanticAuthorizationProjection;
+  validationRegistry?: ReturnType<typeof createWorkspaceSemanticValidationRegistry>;
 } = {}) {
   const text = fixture.evidence.text as string;
   const manifest = await artifacts.persist({
@@ -343,6 +373,7 @@ async function runFixture(fixture: any, workspaceId = workspaceA, options: {
     start: 0,
   };
   const projection = options.projection ?? authorizationProjection(workspaceId);
+  const selectedDefinition = options.definition ?? definition;
   const sourceLocator: EvidenceLocator = {
     factRevisionId: projection.fact.revisionId,
     kind: "source_fact",
@@ -350,7 +381,7 @@ async function runFixture(fixture: any, workspaceId = workspaceA, options: {
   };
   return runWorkspaceSemanticEvidenceJob({
     artifact: manifest,
-    definition,
+    definition: selectedDefinition,
     environment,
     locators: [sourceLocator, textLocator],
     modelId,
@@ -364,9 +395,9 @@ async function runFixture(fixture: any, workspaceId = workspaceA, options: {
     scope: scope(workspaceId),
     workspaceGeneration: 1,
   }, {
-    artifacts,
+    artifacts: options.artifacts ?? artifacts,
     budget: memory,
-    catalog: fixtureCatalog,
+    catalog: options.catalog ?? fixtureCatalog,
     jobs: memory,
     lineage: memory,
     resolveProjection: async () => projection,
@@ -374,6 +405,7 @@ async function runFixture(fixture: any, workspaceId = workspaceA, options: {
     state: memory,
     async execute(prepared) {
       dispatches += 1;
+      if (options.failExecution) throw new Error("fixture_execution_failed");
       const ctx = { session: { auth: { current: prepared.request.auth, initiator: prepared.request.auth } } };
       const factSlice = await readHybridEvidenceSliceForWorker({
         clients: {
@@ -411,8 +443,15 @@ async function runFixture(fixture: any, workspaceId = workspaceA, options: {
         jobClient: memory,
         now,
       });
+      await options.afterComplete?.();
+      return options.omitUsage
+        ? undefined
+        : { inputTokens: 120, outputTokens: 30, paidCostUsd: "0.0025" };
     },
-    notifyHealth: async (notification) => { notifications.push(`${notification.kind}:${notification.notificationId}`); },
+    notifyHealth: options.notifyHealth ?? (async (notification) => {
+      notifications.push(`${notification.kind}:${notification.notificationId}`);
+    }),
+    validationRegistry: options.validationRegistry,
   });
 }
 
@@ -421,6 +460,11 @@ assert.equal(accepted.record.job.state, "accepted");
 assert.equal(accepted.evidence?.result.disposition, "accepted");
 assert.equal(accepted.evidence?.result.payload.label, "more_cautious");
 assert.equal(accepted.evidence?.source.factRevisionId, accepted.projection.fact.revisionId);
+assert.deepEqual(accepted.evidence?.result.usage, {
+  inputTokens: 120,
+  outputTokens: 30,
+  paidCostUsd: "0.0025",
+});
 
 const positiveB = await runFixture(
   semanticCases.find(({ fixtureId }) => fixtureId.endsWith("indirect-positive.accepted"))!,
@@ -446,6 +490,11 @@ assert.equal(counterevidence.evidence?.result.disposition, "abstained");
 const injected = await runFixture(semanticCases.find(({ fixtureId }) => fixtureId.endsWith("prompt-injection.quarantined"))!);
 assert.equal(injected.record.job.state, "quarantined");
 assert.deepEqual(injected.record.quarantineCodes, ["prompt_injection_detected"]);
+assert.deepEqual(
+  (await listWorkspaceSemanticJobSummaries(scopeA, memory)).find(({ jobId }) =>
+    jobId === injected.record.job.jobId)?.usage,
+  { inputTokens: 120, outputTokens: 30, paidCostUsd: "0.0025" },
+);
 const injectionReplay = await runFixture(semanticCases.find(({ fixtureId }) => fixtureId.endsWith("prompt-injection.quarantined"))!);
 assert.equal(injectionReplay.record.job.jobId, injected.record.job.jobId);
 assert.equal(notifications.length, 1);
@@ -458,6 +507,152 @@ for (let index = 1; index <= 3; index += 1) {
 }
 assert.equal(notifications.length, 2);
 assert.equal(notifications[1]?.startsWith("persistent:"), true);
+
+let healthDeliveryAttempts = 0;
+const retryFixture = {
+  ...semanticCases.find(({ fixtureId }) => fixtureId.endsWith("prompt-injection.quarantined"))!,
+  fixtureId: "semantic.prompt-injection.delivery-retry.quarantined",
+};
+await assert.rejects(() => runFixture(retryFixture, workspaceG, {
+  notifyHealth: async () => {
+    healthDeliveryAttempts += 1;
+    throw new Error("fixture_health_delivery_failed");
+  },
+}), /fixture_health_delivery_failed/u);
+const healthRetry = await runFixture(retryFixture, workspaceG, {
+  notifyHealth: async () => { healthDeliveryAttempts += 1; },
+});
+assert.equal(healthRetry.record.job.state, "quarantined");
+assert.equal(healthDeliveryAttempts, 2);
+
+await assert.rejects(() => runFixture(
+  semanticCases.find(({ fixtureId }) => fixtureId.endsWith("indirect-positive.accepted"))!,
+  workspaceH,
+  { failExecution: true },
+), /fixture_execution_failed/u);
+const failedExecutionInspection = await inspectWorkspaceHybridEvidence({
+  environment,
+  scope: scope(workspaceH),
+}, { semantic: memory, state: memory });
+assert.equal(failedExecutionInspection.counts.uncertain, 1);
+assert.equal(failedExecutionInspection.usage.inputTokens, definition.limits.maximumInputTokens);
+
+await assert.rejects(() => runFixture(
+  semanticCases.find(({ fixtureId }) => fixtureId.endsWith("indirect-positive.accepted"))!,
+  workspaceI,
+  {
+    afterComplete() {
+      seedWorkspace({ bindingRevision: 2, state: memory, workspaceId: workspaceI });
+    },
+  },
+), /workspace_scope_mismatch/u);
+const staleAcceptanceInspection = await inspectWorkspaceHybridEvidence({
+  environment,
+  scope: scope(workspaceI),
+}, { semantic: memory, state: memory });
+assert.equal(staleAcceptanceInspection.counts.accepted, 0);
+assert.equal(staleAcceptanceInspection.counts.completed, 1);
+seedWorkspace({ state: memory, workspaceId: workspaceI });
+const resumedCompleted = await runFixture(
+  semanticCases.find(({ fixtureId }) => fixtureId.endsWith("indirect-positive.accepted"))!,
+  workspaceI,
+);
+assert.equal(resumedCompleted.record.job.state, "accepted");
+assert.deepEqual(resumedCompleted.evidence?.result.usage, {
+  inputTokens: 120,
+  outputTokens: 30,
+  paidCostUsd: "0.0025",
+});
+
+let failReferenceOnce = true;
+const replayArtifacts: HybridEvidenceArtifactStore = {
+  collectExpired: (input) => artifacts.collectExpired(input),
+  persist: (input) => artifacts.persist(input),
+  readManifest: (artifactDigest) => artifacts.readManifest(artifactDigest),
+  readSlice: (input) => artifacts.readSlice(input),
+  async setReference(input) {
+    if (failReferenceOnce) {
+      failReferenceOnce = false;
+      throw new Error("fixture_reference_interrupted");
+    }
+    return artifacts.setReference(input);
+  },
+  setRetention: (input) => artifacts.setRetention(input),
+};
+const replayFixture = semanticCases.find(({ fixtureId }) => fixtureId.endsWith("indirect-positive.accepted"))!;
+await assert.rejects(() => runFixture(replayFixture, workspaceJ, { artifacts: replayArtifacts }), /fixture_reference_interrupted/u);
+const replayDispatches = dispatches;
+const convergedReplay = await runFixture(replayFixture, workspaceJ, { artifacts: replayArtifacts });
+assert.equal(convergedReplay.record.job.state, "accepted");
+assert.equal(convergedReplay.evidence?.result.resultId, convergedReplay.record.acceptedResult?.resultId);
+assert.equal(dispatches, replayDispatches);
+
+const alternateDefinition = createWorkspaceSemanticDefinition({
+  allowedAdapterIds: ["house-financial-disclosures"],
+  definitionId: "fixture-semantic-public-text-alternate",
+  instruction: "Return the fixture semantic classification with exact citations.",
+  modelIds: [modelId],
+  outputSchemaId: "fixture-semantic-alternate-result",
+  promptId: "fixture-semantic-alternate",
+  validatorId: "fixture-semantic-alternate-validator",
+});
+const alternateContract: WorkspaceSemanticValidationContract = Object.freeze({
+  definitionId: alternateDefinition.definitionId,
+  outputSchema: alternateDefinition.outputSchema,
+  requiredValidator: alternateDefinition.requiredValidator,
+  validate(input) {
+    const claims = input.fields.claims;
+    if (!Array.isArray(claims)) throw new Error("model_output_invalid");
+    const assertionCitations = claims.flatMap((claim) =>
+      typeof claim === "object" && claim !== null && Array.isArray((claim as any).citations)
+        ? (claim as any).citations
+        : []);
+    return Object.freeze({ assertionCitations, payload: Object.freeze({ ...input.fields, contract: "alternate" }) });
+  },
+});
+const alternateValidationRegistry = createWorkspaceSemanticValidationRegistry([
+  semanticPublicTextValidationContract,
+  alternateContract,
+]);
+const alternatePack = Object.freeze({
+  ...fixturePack(),
+  evidenceContracts: Object.freeze([{
+    digest: alternateDefinition.definitionDigest,
+    id: alternateDefinition.definitionId,
+    version: alternateDefinition.definitionVersion,
+  }]),
+});
+const alternateCatalog = Object.freeze({
+  resolve(input: { contentDigest?: string; id: string; version: string }) {
+    return input.id === alternatePack.id && input.version === alternatePack.version &&
+      (input.contentDigest === undefined || input.contentDigest === alternatePack.contentDigest)
+      ? alternatePack
+      : null;
+  },
+});
+const alternate = await runFixture(
+  semanticCases.find(({ fixtureId }) => fixtureId.endsWith("indirect-caution.accepted"))!,
+  workspaceK,
+  {
+    catalog: alternateCatalog,
+    definition: alternateDefinition,
+    pack: alternatePack,
+    validationRegistry: alternateValidationRegistry,
+  },
+);
+assert.equal(alternate.record.job.definitionId, alternateDefinition.definitionId);
+assert.equal(alternate.evidence?.result.payload.contract, "alternate");
+
+const conservativelyAccounted = await runFixture(
+  semanticCases.find(({ fixtureId }) => fixtureId.endsWith("indirect-positive.accepted"))!,
+  workspaceL,
+  { omitUsage: true },
+);
+assert.deepEqual(conservativelyAccounted.evidence?.result.usage, {
+  inputTokens: definition.limits.maximumInputTokens,
+  outputTokens: definition.limits.maximumOutputTokens,
+  paidCostUsd: definition.limits.maximumPaidCostUsd,
+});
 
 const dispatchesBeforeReplay = dispatches;
 const acceptedReplay = await runFixture(semanticCases.find(({ fixtureId }) => fixtureId.endsWith("indirect-caution.accepted"))!);
@@ -667,6 +862,7 @@ const corrected = await runWorkspaceSemanticEvidenceJob({
       jobClient: memory,
       now: new Date(now.getTime() + 1_000),
     });
+    return { inputTokens: 140, outputTokens: 35, paidCostUsd: "0.0030" };
   },
 });
 assert.ok(corrected.invalidation);
@@ -685,6 +881,44 @@ const retraction = await invalidateCurrentWorkspaceSemanticEvidence({
 assert.equal(retraction?.supersedingResultId, null);
 assert.equal(await readCurrentWorkspaceSemanticEvidence({ lineageKey: corrected.lineageKey, scope: scopeA }, memory), null);
 
+const replayLineageScope = scope(workspaceM);
+const replayLineageKey = "semantic-lineage.fixture-replay-repair";
+await advanceWorkspaceSemanticHead({
+  cause: { digest: sha256("initial"), kind: "source_revision", revision: "source.1" },
+  lineageKey: replayLineageKey,
+  now,
+  resultId: "hybrid-result.fixture-replay-one",
+  scope: replayLineageScope,
+}, { lineage: memory, semantic: memory });
+let failLineageWrite = true;
+const flakyLineage: HybridEvidenceLineageStoreClient = {
+  get: (key) => memory.get(key),
+  async compareAndSet(key, expected, next) {
+    if (failLineageWrite) {
+      failLineageWrite = false;
+      throw new Error("fixture_lineage_interrupted");
+    }
+    return memory.compareAndSet(key, expected, next);
+  },
+};
+const replayAdvance = {
+  cause: { digest: sha256("superseding"), kind: "source_revision" as const, revision: "source.2" },
+  lineageKey: replayLineageKey,
+  now: new Date(now.getTime() + 3_000),
+  resultId: "hybrid-result.fixture-replay-two",
+  scope: replayLineageScope,
+};
+await assert.rejects(() => advanceWorkspaceSemanticHead(replayAdvance, {
+  lineage: flakyLineage,
+  semantic: memory,
+}), /fixture_lineage_interrupted/u);
+const repairedInvalidation = await advanceWorkspaceSemanticHead(replayAdvance, {
+  lineage: flakyLineage,
+  semantic: memory,
+});
+assert.equal(repairedInvalidation?.resultId, "hybrid-result.fixture-replay-one");
+assert.equal(repairedInvalidation?.supersedingResultId, "hybrid-result.fixture-replay-two");
+
 const inspection = await inspectWorkspaceHybridEvidence({
   environment,
   now,
@@ -698,5 +932,18 @@ assert.equal(inspection.quarantines[0]?.reasonCodes.includes("prompt_injection_d
 assert.equal(JSON.stringify(inspection).includes("SYSTEM:"), false);
 assert.equal(JSON.stringify(inspection).includes(workspaceB), false);
 assert.equal([...memory.values.values()].some((raw) => raw.includes('"recordType":"canonical_public_fact_revision"')), false);
+
+const extractionOnlyInspection = await inspectWorkspaceHybridEvidence({
+  environment: {
+    ...environment,
+    EVE_HYBRID_EXTRACTION_RECOVERY_ENABLED: "1",
+    EVE_HYBRID_SEMANTIC_REASONING_ENABLED: "0",
+  },
+  scope: scopeA,
+}, { semantic: memory, state: memory });
+assert.equal(extractionOnlyInspection.state, "available");
+assert.equal(extractionOnlyInspection.lanes.sourceGlobalExtraction.state, "available");
+assert.equal(extractionOnlyInspection.lanes.workspaceSemantic.state, "disabled");
+assert.ok(extractionOnlyInspection.history.workspaceSemantic.length > 0);
 
 console.log("hybrid evidence Sprint 3 verification passed");

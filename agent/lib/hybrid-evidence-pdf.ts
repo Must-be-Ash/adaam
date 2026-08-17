@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 
-import { createCanvas, DOMMatrix, ImageData, loadImage, Path2D } from "@napi-rs/canvas";
+import { z } from "zod";
 
+import {
+  HybridEvidenceDecoderProcessError,
+  runHybridEvidenceDecoderProcess,
+} from "./hybrid-evidence-decoder-process";
+import { HYBRID_EVIDENCE_PDF_DECODER_SOURCE } from "./hybrid-evidence-pdf-decoder-source";
 import { HYBRID_EVIDENCE_LIMITS } from "./hybrid-evidence-schema";
 
 const MAX_RENDER_BYTES = 2_500_000;
@@ -9,45 +14,8 @@ const MAX_RENDER_EDGE = 1_600;
 const MAX_OCR_CHARACTERS_PER_PAGE = 16_000;
 const MAX_PDF_RUNTIME_MS = 15_000;
 
-let pdfJsModule: Promise<typeof import("pdfjs-dist/legacy/build/pdf.mjs")> | undefined;
-let pdfJsWorkerModule: Promise<typeof import("pdfjs-dist/legacy/build/pdf.worker.mjs")> | undefined;
-
 function digestBytes(value: Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
-}
-
-function installCanvasPrimitives(): void {
-  const primitives = { DOMMatrix, ImageData, Path2D };
-  for (const [name, value] of Object.entries(primitives)) {
-    if (!Reflect.get(globalThis, name)) {
-      Object.defineProperty(globalThis, name, { configurable: true, value, writable: true });
-    }
-  }
-}
-
-async function loadPdfJs() {
-  installCanvasPrimitives();
-  await (pdfJsWorkerModule ??= import("pdfjs-dist/legacy/build/pdf.worker.mjs"));
-  return (pdfJsModule ??= import("pdfjs-dist/legacy/build/pdf.mjs"));
-}
-
-async function bounded<T>(startedAt: number, work: Promise<T>): Promise<T> {
-  const remaining = MAX_PDF_RUNTIME_MS - (Date.now() - startedAt);
-  if (remaining <= 0) throw new HybridEvidencePdfError("evidence_bounds_exceeded");
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      work,
-      new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(
-          () => reject(new HybridEvidencePdfError("evidence_bounds_exceeded")),
-          remaining,
-        );
-      }),
-    ]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
 }
 
 function assertPdfContainer(bytes: Uint8Array): void {
@@ -94,6 +62,32 @@ export interface HybridEvidencePdfProjection {
   readonly pages: readonly HybridEvidencePdfPage[];
 }
 
+const pdfPageSchema = z.object({
+  byteCount: z.number().int().positive().max(MAX_RENDER_BYTES),
+  evidenceDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+  height: z.number().int().positive().max(MAX_RENDER_EDGE),
+  imageBase64: z.string().max(Math.ceil(MAX_RENDER_BYTES * 4 / 3) + 8),
+  mediaType: z.literal("image/png"),
+  page: z.number().int().positive().max(HYBRID_EVIDENCE_LIMITS.maximumArtifactPages),
+  text: z.string().max(MAX_OCR_CHARACTERS_PER_PAGE),
+  textDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+  width: z.number().int().positive().max(MAX_RENDER_EDGE),
+}).strict();
+
+const pdfProjectionSchema = z.object({
+  documentDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+  pageCount: z.number().int().positive().max(HYBRID_EVIDENCE_LIMITS.maximumArtifactPages),
+  pages: z.array(pdfPageSchema).min(1).max(HYBRID_EVIDENCE_LIMITS.maximumArtifactPages),
+}).strict();
+
+function decoderError(error: unknown): HybridEvidencePdfError {
+  return new HybridEvidencePdfError(
+    error instanceof HybridEvidenceDecoderProcessError && error.code === "evidence_bounds_exceeded"
+      ? "evidence_bounds_exceeded"
+      : "hostile_document",
+  );
+}
+
 export async function readHybridEvidencePdfPage(input: {
   readonly evidenceDigest: string;
   readonly page: number;
@@ -113,27 +107,34 @@ export async function readHybridEvidencePdfPage(input: {
     }
     return page;
   }
-  const source = await loadImage(Buffer.from(page.imageBase64, "base64"));
-  const sourceX = Math.floor(input.region.x * page.width);
-  const sourceY = Math.floor(input.region.y * page.height);
-  const width = Math.max(1, Math.ceil(input.region.width * page.width));
-  const height = Math.max(1, Math.ceil(input.region.height * page.height));
-  const canvas = createCanvas(width, height);
-  canvas.getContext("2d").drawImage(source, sourceX, sourceY, width, height, 0, 0, width, height);
-  const png = canvas.toBuffer("image/png");
-  const evidenceDigest = digestBytes(png);
-  if (png.byteLength > MAX_RENDER_BYTES) throw new HybridEvidencePdfError("evidence_bounds_exceeded");
-  if (evidenceDigest !== input.evidenceDigest) {
-    throw new HybridEvidencePdfError("artifact_digest_mismatch");
+  try {
+    const region = await runHybridEvidenceDecoderProcess<unknown>({
+      payload: {
+        height: page.height,
+        imageBase64: page.imageBase64,
+        maximumRenderBytes: MAX_RENDER_BYTES,
+        operation: "region",
+        region: input.region,
+        width: page.width,
+      },
+      source: HYBRID_EVIDENCE_PDF_DECODER_SOURCE,
+      timeoutMs: MAX_PDF_RUNTIME_MS,
+    });
+    const parsed = pdfPageSchema.pick({
+      byteCount: true,
+      evidenceDigest: true,
+      height: true,
+      imageBase64: true,
+      width: true,
+    }).parse(region);
+    if (parsed.evidenceDigest !== input.evidenceDigest) {
+      throw new HybridEvidencePdfError("artifact_digest_mismatch");
+    }
+    return Object.freeze({ ...page, ...parsed });
+  } catch (error) {
+    if (error instanceof HybridEvidencePdfError) throw error;
+    throw decoderError(error);
   }
-  return Object.freeze({
-    ...page,
-    byteCount: png.byteLength,
-    evidenceDigest,
-    height,
-    imageBase64: png.toString("base64"),
-    width,
-  });
 }
 
 export interface IndependentPdfOcr {
@@ -141,7 +142,23 @@ export interface IndependentPdfOcr {
     readonly image: Uint8Array;
     readonly mediaType: "image/png";
     readonly page: number;
-  }): Promise<string>;
+  }): Promise<string | Readonly<{
+    text: string;
+    usage: Readonly<{
+      inputTokens?: number;
+      outputTokens?: number;
+      paidCostUsd?: string;
+    }>;
+  }>>;
+}
+
+export interface IndependentPdfTextResult {
+  readonly textByPage: ReadonlyMap<number, string>;
+  readonly usage: Readonly<{
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly paidCostUsd: string | null;
+  }>;
 }
 
 function normalizedText(value: string): string {
@@ -152,77 +169,29 @@ export async function projectHybridEvidencePdf(
   bytes: Uint8Array,
 ): Promise<HybridEvidencePdfProjection> {
   assertPdfContainer(bytes);
-  const startedAt = Date.now();
-  const { getDocument } = await loadPdfJs();
-  const loadingTask = getDocument({ data: bytes.slice(), useSystemFonts: true });
   try {
-    const document = await bounded(startedAt, loadingTask.promise);
-    if (
-      document.numPages < 1 ||
-      document.numPages > HYBRID_EVIDENCE_LIMITS.maximumArtifactPages ||
-      await bounded(startedAt, document.getAttachments()) !== null ||
-      await bounded(startedAt, document.getJSActions()) !== null
-    ) throw new HybridEvidencePdfError("hostile_document");
-
-    const pages: HybridEvidencePdfPage[] = [];
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      const page = await bounded(startedAt, document.getPage(pageNumber));
-      const annotations = await bounded(startedAt, page.getAnnotations());
-      if (annotations.some((annotation) =>
-        Boolean(annotation.url || annotation.unsafeUrl || annotation.file || annotation.attachment || annotation.action))) {
-        throw new HybridEvidencePdfError("hostile_document");
-      }
-      const content = await bounded(startedAt, page.getTextContent());
-      const text = normalizedText(content.items.flatMap((item) => "str" in item ? [item.str] : []).join(" "));
-      if (text.length > MAX_OCR_CHARACTERS_PER_PAGE) {
-        throw new HybridEvidencePdfError("evidence_bounds_exceeded");
-      }
-
-      const initial = page.getViewport({ scale: 1 });
-      let scale = Math.min(2, MAX_RENDER_EDGE / Math.max(initial.width, initial.height));
-      let png: Buffer | undefined;
-      let width = 0;
-      let height = 0;
-      for (let attempt = 0; attempt < 4; attempt += 1) {
-        const viewport = page.getViewport({ scale });
-        width = Math.max(1, Math.ceil(viewport.width));
-        height = Math.max(1, Math.ceil(viewport.height));
-        const canvas = createCanvas(width, height);
-        const context = canvas.getContext("2d");
-        await bounded(startedAt, page.render({
-          canvas: canvas as never,
-          canvasContext: context as never,
-          viewport,
-        }).promise);
-        png = canvas.toBuffer("image/png");
-        if (png.byteLength <= MAX_RENDER_BYTES) break;
-        scale *= 0.7;
-      }
-      if (!png || png.byteLength > MAX_RENDER_BYTES) {
-        throw new HybridEvidencePdfError("evidence_bounds_exceeded");
-      }
-      pages.push(Object.freeze({
-        byteCount: png.byteLength,
-        evidenceDigest: digestBytes(png),
-        height,
-        imageBase64: png.toString("base64"),
-        mediaType: "image/png" as const,
-        page: pageNumber,
-        text,
-        textDigest: digestBytes(Buffer.from(text, "utf8")),
-        width,
-      }));
+    const decoded = pdfProjectionSchema.parse(await runHybridEvidenceDecoderProcess<unknown>({
+      payload: {
+        bytesBase64: Buffer.from(bytes).toString("base64"),
+        maximumCharactersPerPage: MAX_OCR_CHARACTERS_PER_PAGE,
+        maximumPages: HYBRID_EVIDENCE_LIMITS.maximumArtifactPages,
+        maximumRenderBytes: MAX_RENDER_BYTES,
+        maximumRenderEdge: MAX_RENDER_EDGE,
+        operation: "project",
+      },
+      source: HYBRID_EVIDENCE_PDF_DECODER_SOURCE,
+      timeoutMs: MAX_PDF_RUNTIME_MS,
+    }));
+    if (decoded.documentDigest !== digestBytes(bytes) || decoded.pageCount !== decoded.pages.length) {
+      throw new HybridEvidencePdfError("artifact_digest_mismatch");
     }
     return Object.freeze({
-      documentDigest: digestBytes(bytes),
-      pageCount: document.numPages,
-      pages: Object.freeze(pages),
+      ...decoded,
+      pages: Object.freeze(decoded.pages.map((page) => Object.freeze(page))),
     });
   } catch (error) {
     if (error instanceof HybridEvidencePdfError) throw error;
-    throw new HybridEvidencePdfError("hostile_document");
-  } finally {
-    await loadingTask.destroy().catch(() => undefined);
+    throw decoderError(error);
   }
 }
 
@@ -230,23 +199,63 @@ export async function readIndependentPdfText(input: {
   readonly ocr?: IndependentPdfOcr;
   readonly projection: HybridEvidencePdfProjection;
 }): Promise<ReadonlyMap<number, string>> {
+  return (await readIndependentPdfTextWithUsage(input)).textByPage;
+}
+
+function decimalMicros(value: string): bigint {
+  const match = /^(\d+)(?:\.(\d{1,6}))?$/u.exec(value);
+  if (!match) throw new HybridEvidencePdfError("evidence_bounds_exceeded");
+  return BigInt(match[1]!) * 1_000_000n + BigInt((match[2] ?? "").padEnd(6, "0"));
+}
+
+function decimalUsd(value: bigint): string {
+  const remainder = value % 1_000_000n;
+  return `${value / 1_000_000n}${remainder === 0n
+    ? ""
+    : `.${remainder.toString().padStart(6, "0").replace(/0+$/u, "")}`}`;
+}
+
+export async function readIndependentPdfTextWithUsage(input: {
+  readonly ocr?: IndependentPdfOcr;
+  readonly projection: HybridEvidencePdfProjection;
+}): Promise<IndependentPdfTextResult> {
   const values = new Map<number, string>();
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let paidMicros = 0n;
+  let paidCostKnown = true;
   for (const page of input.projection.pages) {
-    const value = page.text.length > 0
+    const recognized = page.text.length > 0
       ? page.text
       : input.ocr
-        ? normalizedText(await input.ocr.recognize({
+        ? await input.ocr.recognize({
             image: Buffer.from(page.imageBase64, "base64"),
             mediaType: page.mediaType,
             page: page.page,
-          }))
+          })
         : "";
+    const value = normalizedText(typeof recognized === "string" ? recognized : recognized.text);
+    if (typeof recognized !== "string") {
+      inputTokens += recognized.usage.inputTokens ?? 0;
+      outputTokens += recognized.usage.outputTokens ?? 0;
+      if (recognized.usage.paidCostUsd === undefined) paidCostKnown = false;
+      else paidMicros += decimalMicros(recognized.usage.paidCostUsd);
+    } else if (page.text.length === 0 && input.ocr) {
+      paidCostKnown = false;
+    }
     if (value.length > MAX_OCR_CHARACTERS_PER_PAGE) {
       throw new HybridEvidencePdfError("evidence_bounds_exceeded");
     }
     values.set(page.page, value);
   }
-  return values;
+  return Object.freeze({
+    textByPage: values,
+    usage: Object.freeze({
+      inputTokens,
+      outputTokens,
+      paidCostUsd: paidCostKnown ? decimalUsd(paidMicros) : null,
+    }),
+  });
 }
 
 export function assertIndependentPdfValue(input: {

@@ -75,6 +75,13 @@ function headKey(lineageKey: string): string {
   return `${KEY_PREFIX}result-head:${createHash("sha256").update(lineageKey).digest("hex")}`;
 }
 
+interface HybridSourceResultHead {
+  readonly pendingInvalidation: HybridInvalidationRecord | null;
+  readonly resultId: string;
+  readonly sourceDigest: string;
+  readonly sourceRevision: string;
+}
+
 function raw(value: unknown): string | null {
   if (value === undefined || value === null) return null;
   return typeof value === "string" ? value : JSON.stringify(value);
@@ -86,6 +93,50 @@ function serialize(value: unknown): string {
     throw new HybridEvidenceLineageStoreError("lineage_corrupt");
   }
   return output;
+}
+
+function parseHead(value: string): HybridSourceResultHead {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    if (
+      typeof parsed.resultId !== "string" ||
+      typeof parsed.sourceDigest !== "string" ||
+      typeof parsed.sourceRevision !== "string"
+    ) throw new Error("invalid");
+    const pendingInvalidation = parsed.pendingInvalidation === undefined ||
+        parsed.pendingInvalidation === null
+      ? null
+      : hybridInvalidationRecordSchema.parse(parsed.pendingInvalidation);
+    if (
+      pendingInvalidation &&
+      (pendingInvalidation.cause.digest !== parsed.sourceDigest ||
+        pendingInvalidation.cause.kind !== "source_revision" ||
+        pendingInvalidation.cause.revision !== parsed.sourceRevision ||
+        pendingInvalidation.supersedingResultId !== parsed.resultId)
+    ) throw new Error("invalid");
+    return {
+      pendingInvalidation,
+      resultId: parsed.resultId,
+      sourceDigest: parsed.sourceDigest,
+      sourceRevision: parsed.sourceRevision,
+    };
+  } catch {
+    throw new HybridEvidenceLineageStoreError("lineage_corrupt");
+  }
+}
+
+function serializeHead(
+  head: Omit<HybridSourceResultHead, "pendingInvalidation"> & {
+    readonly pendingInvalidation?: HybridInvalidationRecord;
+  },
+): string {
+  return serialize({
+    ...(head.pendingInvalidation ? { pendingInvalidation: head.pendingInvalidation } : {}),
+    resultId: head.resultId,
+    schemaVersion: 1,
+    sourceDigest: head.sourceDigest,
+    sourceRevision: head.sourceRevision,
+  });
 }
 
 async function putImmutable<T>(input: {
@@ -163,52 +214,54 @@ export async function advanceHybridSourceResultLineage(input: {
   const recordKey = headKey(input.lineageKey);
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const currentRaw = raw(await client.get(recordKey));
-    let current: { resultId: string; sourceDigest: string; sourceRevision: string } | null = null;
-    if (currentRaw !== null) {
-      try {
-        const value = JSON.parse(currentRaw) as Record<string, unknown>;
-        if (
-          typeof value.resultId !== "string" ||
-          typeof value.sourceDigest !== "string" ||
-          typeof value.sourceRevision !== "string"
-        ) throw new Error("invalid");
-        current = {
-          resultId: value.resultId,
-          sourceDigest: value.sourceDigest,
-          sourceRevision: value.sourceRevision,
-        };
-      } catch {
-        throw new HybridEvidenceLineageStoreError("lineage_corrupt");
-      }
+    const current = currentRaw === null ? null : parseHead(currentRaw);
+    if (current?.pendingInvalidation) {
+      await writeHybridInvalidation(current.pendingInvalidation, client);
+      const finalized = serializeHead({
+        resultId: current.resultId,
+        sourceDigest: current.sourceDigest,
+        sourceRevision: current.sourceRevision,
+      });
+      if (!(await client.compareAndSet(recordKey, currentRaw, finalized))) continue;
+      if (current.resultId === input.resultId) return current.pendingInvalidation;
+      continue;
     }
     if (current?.resultId === input.resultId) return null;
-    const next = serialize({
+    const invalidation = current
+      ? hybridInvalidationRecordSchema.parse({
+          cause: {
+            digest: input.sourceDigest,
+            kind: "source_revision",
+            revision: input.sourceRevision,
+          },
+          createdAt: input.now.toISOString(),
+          invalidationId: `hybrid-invalidation.${digestHybridEvidenceValue([
+            current.resultId,
+            input.resultId,
+            input.sourceDigest,
+            input.sourceRevision,
+          ])}`,
+          recordType: "hybrid_evidence_invalidation",
+          resultId: current.resultId,
+          schemaVersion: 1,
+          supersedingResultId: input.resultId,
+        })
+      : null;
+    const next = serializeHead({
+      ...(invalidation ? { pendingInvalidation: invalidation } : {}),
       resultId: input.resultId,
-      schemaVersion: 1,
       sourceDigest: input.sourceDigest,
       sourceRevision: input.sourceRevision,
     });
     if (!(await client.compareAndSet(recordKey, currentRaw, next))) continue;
     if (!current) return null;
-    const invalidation = hybridInvalidationRecordSchema.parse({
-      cause: {
-        digest: input.sourceDigest,
-        kind: "source_revision",
-        revision: input.sourceRevision,
-      },
-      createdAt: input.now.toISOString(),
-      invalidationId: `hybrid-invalidation.${digestHybridEvidenceValue([
-        current.resultId,
-        input.resultId,
-        input.sourceDigest,
-        input.sourceRevision,
-      ])}`,
-      recordType: "hybrid_evidence_invalidation",
-      resultId: current.resultId,
-      schemaVersion: 1,
-      supersedingResultId: input.resultId,
-    });
-    return writeHybridInvalidation(invalidation, client);
+    await writeHybridInvalidation(invalidation!, client);
+    await client.compareAndSet(recordKey, next, serializeHead({
+      resultId: input.resultId,
+      sourceDigest: input.sourceDigest,
+      sourceRevision: input.sourceRevision,
+    }));
+    return invalidation;
   }
   throw new HybridEvidenceLineageStoreError("lineage_conflict");
 }

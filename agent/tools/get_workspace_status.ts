@@ -11,10 +11,13 @@ export default defineTool({
   inputSchema: z.object({}).strict(),
   async execute(_input, ctx) {
     const scope = authorizePhotonWorkspaceToolStore(ctx);
-    const [monitors, budget, hybridEvidence] = await Promise.all([
-      listWorkspaceMonitors(scope),
+    const monitors = await listWorkspaceMonitors(scope);
+    const [budget, hybridEvidence] = await Promise.all([
       readWorkspaceDocument("budget", scope),
-      inspectWorkspaceHybridEvidence({ scope }),
+      inspectWorkspaceHybridEvidence({
+        scope,
+        sourceReferences: monitors.flatMap((monitor) => monitor.publicSourceSubscriptions ?? []),
+      }),
     ]);
     return {
       budget,

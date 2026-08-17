@@ -7,7 +7,10 @@ import type { HybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-sto
 import type { HybridEvidenceJobStoreClient } from "./hybrid-evidence-job-store";
 import type { HybridEvidenceLineageStoreClient } from "./hybrid-evidence-lineage-store";
 import { resolveHybridEvidenceFlags } from "./hybrid-evidence-flags";
-import { createHouseHybridEvidenceRecovery } from "./house-hybrid-evidence-recovery";
+import {
+  HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION,
+  type HouseHybridEvidenceRecoveryClients,
+} from "./house-hybrid-evidence-recovery";
 import type { WorkspaceBudgetLedgerClient } from "./workspace-budget-ledger";
 import type { WorkspaceGlobalBudgetClient } from "./workspace-dispatch-budget";
 import {
@@ -32,6 +35,7 @@ import {
 } from "./public-source-subscription-store";
 import {
   runSharedHousePublicSourceAcquisition,
+  type HouseHybridRecovery,
   type HousePublicSourceBinaryResponse,
 } from "./house-public-source-adapter";
 import {
@@ -60,6 +64,28 @@ type CoordinatorFetch =
       readonly fetchDocument: (url: string) => Promise<HousePublicSourceBinaryResponse>;
       readonly fetchIndex: (url: string) => Promise<HousePublicSourceBinaryResponse>;
     };
+
+export interface PublicSourceHybridRecoveryExtension {
+  readonly adapterId: "house-financial-disclosures";
+  create(input: {
+    readonly clients?: HouseHybridEvidenceRecoveryClients;
+    readonly environment?: NodeJS.ProcessEnv;
+    readonly initiatingWorkspaceId: string;
+    readonly modelIds: readonly [extraction: string, independentOcr: string];
+  }): HouseHybridRecovery;
+}
+
+const DEFAULT_HYBRID_RECOVERY_EXTENSIONS: readonly PublicSourceHybridRecoveryExtension[] =
+  Object.freeze([HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION]);
+
+function resolveHybridRecoveryExtension(input: {
+  readonly adapterId: "house-financial-disclosures";
+  readonly extensions?: readonly PublicSourceHybridRecoveryExtension[];
+}): PublicSourceHybridRecoveryExtension | null {
+  const matches = (input.extensions ?? DEFAULT_HYBRID_RECOVERY_EXTENSIONS)
+    .filter((extension) => extension.adapterId === input.adapterId);
+  return matches.length === 1 ? matches[0]! : null;
+}
 
 export interface PublicSourceCoordinatorResult {
   readonly acquisition: PublicSourceAcquisitionResult;
@@ -149,6 +175,7 @@ export async function coordinatePublicSourceOccurrence(input: {
   readonly deferProjectionAcknowledgement?: boolean;
   readonly environment?: NodeJS.ProcessEnv;
   readonly fetch: CoordinatorFetch;
+  readonly hybridRecoveryExtensions?: readonly PublicSourceHybridRecoveryExtension[];
   readonly monitor: PublicSourceMonitor;
   readonly observedAt?: Date;
   readonly scope: AuthorizedWorkspaceStoreScope;
@@ -168,14 +195,24 @@ export async function coordinatePublicSourceOccurrence(input: {
   }
   const reference = requireReference(input);
   const hybridFlags = resolveHybridEvidenceFlags(environment);
-  const recoveryModelId = environment.EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS
+  const recoveryModelIds = environment.EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS
     ?.split(",")
     .map((value) => value.trim())
-    .filter(Boolean)[0];
+    .filter(Boolean) ?? [];
+  const recoveryExtension = input.fetch.adapterId === "house-financial-disclosures"
+    ? resolveHybridRecoveryExtension({
+        adapterId: input.fetch.adapterId,
+        extensions: input.hybridRecoveryExtensions,
+      })
+    : null;
   if (
     input.fetch.adapterId === "house-financial-disclosures" &&
     hybridFlags.extractionRecovery &&
-    !recoveryModelId
+    (
+      recoveryModelIds.length < 2 ||
+      recoveryModelIds[0] === recoveryModelIds[1] ||
+      !recoveryExtension
+    )
   ) throw new PublicSourceCoordinatorError("public_source_misconfigured");
   const subscription = await ensurePublicSourceSubscription(
     input.scope,
@@ -208,7 +245,7 @@ export async function coordinatePublicSourceOccurrence(input: {
         fetchIndex: input.fetch.fetchIndex,
         hybridLineageClient: input.clients?.hybridLineage,
         recovery: hybridFlags.extractionRecovery
-          ? createHouseHybridEvidenceRecovery({
+          ? recoveryExtension!.create({
               clients: {
                 artifacts: input.clients?.hybridArtifacts,
                 globalBudget: input.clients?.hybridGlobalBudget,
@@ -218,7 +255,7 @@ export async function coordinatePublicSourceOccurrence(input: {
               },
               environment,
               initiatingWorkspaceId: input.scope.workspaceId,
-              modelId: recoveryModelId!,
+              modelIds: [recoveryModelIds[0]!, recoveryModelIds[1]!],
             })
           : undefined,
         sourceId: input.sourceId,

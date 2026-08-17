@@ -1,7 +1,7 @@
 # Eve backlog and parked work
 
 Snapshot date: 2026-08-16
-Application baseline: Specs 1–4 are production accepted; global workspace
+Application baseline: Specs 1–4A are production accepted; global workspace
 dispatch, pack-managed dispatch, Photon alerts, and Congressional execution are
 rolled back off.
 
@@ -30,7 +30,10 @@ No user-tested core path was reported broken at handoff. These were working:
 - the production-accepted Spec 4 `Congressional Signals` House strategy,
   official roster, deterministic history/evidence policy, and verified real
   Photon alert/Discuss path, with scheduled execution and alerts rolled back
-  off.
+  off; and
+- the production-accepted Spec 4A deterministic-first hybrid evidence
+  foundation, with bounded source-global recovery and workspace semantic lanes,
+  repeated real-model acceptance, and all hybrid child flags rolled back off.
 
 The items below are product, safety, testing, and operational gaps around that
 working baseline.
@@ -369,6 +372,22 @@ ordinary-path failure:
   legislation/voting/valuation evidence as separate reviewed source and policy
   extensions rather than silently widening House v1 coverage.
 
+### Spec 4A follow-on consumers and hardening
+
+- [ ] Implement Spec 4B Earnings Call Changes as the first real transcript
+  consumer of the shared workspace semantic lane; its connector, strategy,
+  schema, corpus, and rollout remain owned by Spec 4B.
+- [ ] Select Spec 4C's different connector/content shape only after source
+  viability, terms, cost, and acceptance data are known; reuse the shared job,
+  artifact, budget, provenance, and quarantine APIs without widening them by
+  default.
+- [ ] Keep broader OCR layouts, parser fuzzing, long archive replay, and new
+  document/content types in their owning connector specs unless an observed
+  shared-layer failure justifies a bounded Spec 4A hardening change.
+- [ ] Keep the parent and both hybrid children off until a consumer-specific
+  production smoke is owner-authorized; the accepted foundation is not a silent
+  strategy rollout.
+
 ## 3. Event-trigger work
 
 - [x] Bind each new workspace monitor and alert reply target to an immutable
@@ -419,7 +438,7 @@ and replacements remain deferred until the owner selects that product work.
 
 ### Candidate packs documented but not implemented
 
-- [ ] Earnings-call language analysis as a versioned pack.
+- [ ] Spec 4B Earnings Call Changes as a versioned transcript-backed pack.
 - [ ] Insider-buying clusters.
 - [x] Congressional trading signals — House v1 is production accepted; Senate
   or broader congressional coverage remains a separate source/policy extension.

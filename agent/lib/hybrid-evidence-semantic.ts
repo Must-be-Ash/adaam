@@ -5,6 +5,10 @@ import {
   type StrategyPackCatalogEntry,
 } from "./strategy-pack-catalog";
 import {
+  workspaceSemanticValidationRegistry,
+  type WorkspaceSemanticValidationRegistry,
+} from "./hybrid-evidence-definition-registry";
+import {
   reconcileHybridEvidenceAttempt,
   reserveHybridEvidenceAttempt,
   type HybridEvidenceBudgetReservation,
@@ -12,6 +16,7 @@ import {
 import { resolveHybridEvidenceFlags } from "./hybrid-evidence-flags";
 import {
   acceptHybridEvidenceJob,
+  markHybridEvidenceJobUncertain,
   prepareHybridEvidenceJob,
   quarantineHybridEvidenceJob,
   readHybridEvidenceJob,
@@ -20,12 +25,12 @@ import {
 } from "./hybrid-evidence-job-store";
 import type { HybridEvidenceLineageStoreClient } from "./hybrid-evidence-lineage-store";
 import {
+  acknowledgeWorkspaceSemanticHealthNotification,
   advanceWorkspaceSemanticHead,
   createWorkspaceSemanticSource,
   invalidateWorkspaceSemanticHead,
   listWorkspaceSemanticJobSummaries,
   readCurrentWorkspaceSemanticEvidence as readCurrentSemanticEvidence,
-  readWorkspaceSemanticEvidence,
   recordWorkspaceSemanticJob,
   stageWorkspaceSemanticQuarantineHealth,
   writeWorkspaceSemanticEvidence,
@@ -64,6 +69,7 @@ import {
 } from "./public-source-subscription-store";
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
 import type { WorkspaceBudgetLedgerClient } from "./workspace-budget-ledger";
+import { reconcileWorkspaceRunBudget } from "./workspace-budget-ledger";
 import {
   getWorkspaceMonitor,
   recordWorkspaceMonitorFailure,
@@ -74,20 +80,13 @@ import {
   type WorkspaceStateStoreClient,
 } from "./workspace-state-store";
 import type { AuthorizedWorkspaceStoreScope } from "./workspace-store-authorization";
+import {
+  readPublicSourceWorkspaceHealth,
+  unavailablePublicSourceWorkspaceHealth,
+  type PublicSourceWorkspaceHealth,
+} from "./public-source-health";
+import type { PublicSourceWorkspaceReference } from "./public-source-workspace-reference";
 
-const semanticCitationSchema = evidenceLocatorSchema.refine(
-  (locator) => locator.kind === "text_span",
-  "semantic_claim_requires_text_span",
-);
-const semanticAssertionSchema = z.object({
-  citations: z.array(semanticCitationSchema).min(1).max(8),
-  summary: z.string().trim().min(1).max(500),
-}).strict();
-const semanticPayloadSchema = z.object({
-  claims: z.array(semanticAssertionSchema).min(1).max(16),
-  counterevidence: z.array(semanticAssertionSchema).max(16),
-  label: z.enum(["improving", "mixed", "more_cautious", "unknown"]),
-}).strict();
 const semanticCandidateSchema = z.object({
   citations: z.array(evidenceLocatorSchema).min(1).max(HYBRID_EVIDENCE_LIMITS.maximumCitations),
   disposition: z.enum(["accepted", "abstained", "quarantined"]),
@@ -122,6 +121,12 @@ export interface WorkspaceSemanticEvidenceRunResult extends PreparedWorkspaceSem
   readonly evidence: WorkspaceSemanticEvidence | null;
   readonly invalidation: HybridInvalidationRecord | null;
   readonly strategyEvidence: WorkspaceSemanticEvidence | null;
+}
+
+export interface WorkspaceSemanticModelUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly paidCostUsd: string;
 }
 
 export class WorkspaceSemanticEvidenceError extends Error {
@@ -262,6 +267,7 @@ export async function prepareWorkspaceSemanticEvidenceJob(input: {
     projection.subscription.workspaceId !== input.scope.workspaceId ||
     projection.projection.subscriptionId !== projection.subscription.subscriptionId ||
     projection.projection.factRevisionId !== projection.fact.revisionId ||
+    projection.projection.acquisitionId !== projection.subscription.deliveryCursor.lastAcquisitionId ||
     projection.projection.monitorId !== projection.subscription.monitorId ||
     projection.subscription.lifecycleState !== "active" ||
     !exactPackBinding({
@@ -342,10 +348,12 @@ function sameLocator(left: EvidenceLocator, right: EvidenceLocator): boolean {
 async function validateSemanticCandidate(input: {
   artifacts: HybridEvidenceArtifactStore;
   candidate: unknown;
+  contractRegistry: WorkspaceSemanticValidationRegistry;
+  definition: HybridEvidenceJobDefinition;
   locators: readonly EvidenceLocator[];
 }): Promise<{
   disposition: "accepted" | "abstained";
-  payload: z.infer<typeof semanticPayloadSchema>;
+  payload: Readonly<Record<string, unknown>>;
   citations: readonly EvidenceLocator[];
   unknowns: readonly string[];
 }> {
@@ -359,33 +367,34 @@ async function validateSemanticCandidate(input: {
   if (candidate.disposition === "quarantined") {
     throw new WorkspaceSemanticEvidenceError("model_output_invalid");
   }
-  const payload = semanticPayloadSchema.parse(candidate.fields);
-  const assertions = [...payload.claims, ...payload.counterevidence];
+  const contract = input.contractRegistry.resolve(input.definition);
+  if (!contract) throw new WorkspaceSemanticEvidenceError("definition_digest_mismatch");
+  let validated: {
+    readonly assertionCitations: readonly EvidenceLocator[];
+    readonly payload: Readonly<Record<string, unknown>>;
+  };
+  try {
+    validated = contract.validate({
+      disposition: candidate.disposition,
+      fields: candidate.fields,
+      unknowns: candidate.unknowns,
+    });
+  } catch {
+    throw new WorkspaceSemanticEvidenceError("model_output_invalid");
+  }
   if (
-    assertions.some(({ citations }) => citations.some((citation) =>
+    validated.assertionCitations.some((citation) =>
       !candidate.citations.some((candidateCitation) => sameLocator(candidateCitation, citation)) ||
-      !textLocators.some((allowed) => sameLocator(allowed, citation)))) ||
+      !textLocators.some((allowed) => sameLocator(allowed, citation))) ||
     candidate.citations.some((citation) =>
       !input.locators.some((allowed) => sameLocator(allowed, citation)))
   ) throw new WorkspaceSemanticEvidenceError("citation_invalid");
-  await Promise.all(assertions.flatMap(({ citations }) => citations).map((locator) =>
+  await Promise.all(validated.assertionCitations.map((locator) =>
     input.artifacts.readSlice({ locator, maximumBytes: 64 * 1_024 })));
-  const accepted = candidate.disposition === "accepted";
-  if (
-    (accepted && (
-      !["improving", "more_cautious"].includes(payload.label) ||
-      payload.counterevidence.length > 0 ||
-      candidate.unknowns.length > 0
-    )) ||
-    (!accepted && (
-      !["mixed", "unknown"].includes(payload.label) ||
-      candidate.unknowns.length === 0
-    ))
-  ) throw new WorkspaceSemanticEvidenceError("model_output_invalid");
   return Object.freeze({
     citations: Object.freeze(candidate.citations),
     disposition: candidate.disposition,
-    payload: Object.freeze(payload),
+    payload: Object.freeze(validated.payload),
     unknowns: Object.freeze(candidate.unknowns),
   });
 }
@@ -395,7 +404,7 @@ function createAcceptedSemanticResult(input: {
   definition: HybridEvidenceJobDefinition;
   now: Date;
   record: HybridEvidenceJobRecord;
-  usage?: { inputTokens: number; outputTokens: number; paidCostUsd: string };
+  usage: WorkspaceSemanticModelUsage;
 }): HybridAcceptedResult {
   if (input.record.job.state !== "completed" || !input.record.candidateDigest) {
     throw new WorkspaceSemanticEvidenceError("input_projection_invalid");
@@ -432,7 +441,7 @@ function createAcceptedSemanticResult(input: {
       coverage: input.candidate.disposition === "accepted" ? "complete" : "partial",
       unknowns: input.candidate.unknowns,
     },
-    usage: input.usage ?? { inputTokens: 0, outputTokens: 0, paidCostUsd: "0" },
+    usage: input.usage,
     validatedAt: input.now.toISOString(),
     validationTrace: [{
       errorCode: null,
@@ -441,6 +450,23 @@ function createAcceptedSemanticResult(input: {
       validatorVersion: input.definition.requiredValidator.version,
     }],
   });
+}
+
+const semanticUsageSchema = z.object({
+  inputTokens: z.number().int().nonnegative().max(200_000),
+  outputTokens: z.number().int().nonnegative().max(20_000),
+  paidCostUsd: z.string().regex(/^(?:0|[1-9]\d{0,3})(?:\.\d{1,4})?$/u),
+}).strict();
+
+function accountedUsage(
+  definition: HybridEvidenceJobDefinition,
+  usage: WorkspaceSemanticModelUsage | void,
+): WorkspaceSemanticModelUsage {
+  return Object.freeze(semanticUsageSchema.parse(usage ?? {
+    inputTokens: definition.limits.maximumInputTokens,
+    outputTokens: definition.limits.maximumOutputTokens,
+    paidCostUsd: definition.limits.maximumPaidCostUsd,
+  }));
 }
 
 function invalidationCause(
@@ -510,13 +536,47 @@ async function defaultHealthNotification(input: {
   }, monitorClient);
 }
 
+async function deliverHealthNotification(input: {
+  notification: WorkspaceSemanticHealthNotification;
+  scope: AuthorizedWorkspaceStoreScope;
+}, clients: {
+  monitor?: WorkspaceMonitorStoreClient;
+  notifyHealth?(notification: WorkspaceSemanticHealthNotification): Promise<void>;
+  semantic?: WorkspaceSemanticEvidenceStoreClient;
+}): Promise<void> {
+  if (clients.notifyHealth) await clients.notifyHealth(input.notification);
+  else await defaultHealthNotification(input, clients.monitor);
+  await acknowledgeWorkspaceSemanticHealthNotification({
+    notificationId: input.notification.notificationId,
+    scope: input.scope,
+  }, clients.semantic);
+}
+
+async function reconcileAcceptedSemanticUsage(input: {
+  job: HybridEvidenceJobRecord["job"];
+  now?: Date;
+  scope: AuthorizedWorkspaceStoreScope;
+  usage: WorkspaceSemanticModelUsage;
+}, client?: WorkspaceBudgetLedgerClient): Promise<void> {
+  await reconcileWorkspaceRunBudget({
+    actualInputTokens: input.usage.inputTokens,
+    actualOutputTokens: input.usage.outputTokens,
+    actualPaidCost: input.usage.paidCostUsd,
+    now: input.now,
+    outcome: "reconciled",
+    runId: input.job.budgetReservation.key,
+    scope: input.scope,
+  }, client);
+}
+
 export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
   typeof prepareWorkspaceSemanticEvidenceJob
 >[0] & { environment?: NodeJS.ProcessEnv }, clients: {
+  acquisition?: PublicSourceAcquisitionStoreClient;
   artifacts: HybridEvidenceArtifactStore;
   budget?: WorkspaceBudgetLedgerClient;
   catalog?: SemanticPackCatalog;
-  execute(prepared: PreparedHybridEvidenceWorkerRun): Promise<void>;
+  execute(prepared: PreparedHybridEvidenceWorkerRun): Promise<WorkspaceSemanticModelUsage | void>;
   jobs?: HybridEvidenceJobStoreClient;
   lineage?: HybridEvidenceLineageStoreClient;
   monitor?: WorkspaceMonitorStoreClient;
@@ -524,15 +584,83 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
   resolveProjection?: typeof defaultProjection;
   semantic?: WorkspaceSemanticEvidenceStoreClient;
   state?: WorkspaceStateStoreClient;
+  subscription?: PublicSourceSubscriptionStoreClient;
+  validationRegistry?: WorkspaceSemanticValidationRegistry;
 }): Promise<WorkspaceSemanticEvidenceRunResult> {
   const flags = resolveHybridEvidenceFlags(input.environment);
   if (!flags.semanticReasoning) throw new WorkspaceSemanticEvidenceError("workspace_scope_mismatch");
   const prepared = await prepareWorkspaceSemanticEvidenceJob(input, {
+    acquisition: clients.acquisition,
     catalog: clients.catalog,
     jobs: clients.jobs,
     resolveProjection: clients.resolveProjection,
     state: clients.state,
+    subscription: clients.subscription,
   });
+  const revalidate = async () => {
+    const current = await prepareWorkspaceSemanticEvidenceJob(input, {
+      acquisition: clients.acquisition,
+      catalog: clients.catalog,
+      jobs: clients.jobs,
+      resolveProjection: clients.resolveProjection,
+      state: clients.state,
+      subscription: clients.subscription,
+    });
+    if (
+      current.record.job.jobId !== prepared.record.job.jobId ||
+      current.source.artifactDigest !== prepared.source.artifactDigest ||
+      current.source.factPayloadDigest !== prepared.source.factPayloadDigest ||
+      current.source.factRevisionId !== prepared.source.factRevisionId ||
+      current.source.projectionId !== prepared.source.projectionId ||
+      current.source.subscriptionId !== prepared.source.subscriptionId
+    ) authorizationError();
+    return current;
+  };
+  const convergeAccepted = async (
+    accepted: HybridEvidenceJobRecord,
+    result: HybridAcceptedResult,
+  ) => {
+    await revalidate();
+    const committedAt = new Date(result.validatedAt);
+    const previous = await readCurrentSemanticEvidence({
+      lineageKey: prepared.lineageKey,
+      scope: input.scope,
+    }, clients.semantic);
+    const evidence = await writeWorkspaceSemanticEvidence({
+      lineageKey: prepared.lineageKey,
+      now: committedAt,
+      result,
+      scope: input.scope,
+      source: prepared.source,
+    }, clients.semantic);
+    await revalidate();
+    const invalidation = await advanceWorkspaceSemanticHead({
+      cause: invalidationCause(previous, result, prepared.source),
+      lineageKey: prepared.lineageKey,
+      now: committedAt,
+      resultId: result.resultId,
+      scope: input.scope,
+    }, { lineage: clients.lineage, semantic: clients.semantic });
+    await clients.artifacts.setReference({
+      active: true,
+      artifactDigest: prepared.artifact.contentDigest,
+      kind: "accepted_result",
+      referenceId: result.resultId,
+    });
+    await recordWorkspaceSemanticJob({
+      job: accepted.job,
+      result,
+      scope: input.scope,
+      source: prepared.source,
+    }, clients.semantic);
+    await reconcileAcceptedSemanticUsage({
+      job: accepted.job,
+      now: input.now,
+      scope: input.scope,
+      usage: result.usage,
+    }, clients.budget);
+    return { evidence, invalidation };
+  };
   await recordWorkspaceSemanticJob({
     job: prepared.record.job,
     quarantineCodes: prepared.record.quarantineCodes,
@@ -541,14 +669,14 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
     source: prepared.source,
   }, clients.semantic);
   if (prepared.record.job.state === "accepted" && prepared.record.acceptedResult) {
-    const evidence = await readWorkspaceSemanticEvidence({
-      resultId: prepared.record.acceptedResult.resultId,
-      scope: input.scope,
-    }, clients.semantic);
+    const { evidence, invalidation } = await convergeAccepted(
+      prepared.record,
+      prepared.record.acceptedResult,
+    );
     return Object.freeze({
       ...prepared,
       evidence,
-      invalidation: null,
+      invalidation,
       record: prepared.record,
       strategyEvidence: evidence?.result.disposition === "accepted" ? evidence : null,
     });
@@ -563,8 +691,7 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
       sourceInstanceId: prepared.source.sourceInstanceId,
     }, clients.semantic);
     if (notification) {
-      if (clients.notifyHealth) await clients.notifyHealth(notification);
-      else await defaultHealthNotification({ notification, scope: input.scope }, clients.monitor);
+      await deliverHealthNotification({ notification, scope: input.scope }, clients);
     }
     return Object.freeze({
       ...prepared,
@@ -577,6 +704,9 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
 
   let reservation: HybridEvidenceBudgetReservation | null = null;
   let record = prepared.record;
+  let executionUsage: WorkspaceSemanticModelUsage | void = undefined;
+  let modelAttempted = false;
+  let budgetSettled = false;
   try {
     if (record.job.state === "prepared") {
       reservation = await reserveHybridEvidenceAttempt({
@@ -597,17 +727,80 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
       });
       record = worker.record;
       await recordWorkspaceSemanticJob({ job: record.job, scope: input.scope, source: prepared.source }, clients.semantic);
-      await clients.execute(worker);
+      try {
+        modelAttempted = true;
+        executionUsage = await clients.execute(worker);
+      } catch (error) {
+        record = (await readHybridEvidenceJob(record.job.jobId, clients.jobs)) ?? record;
+        if (record.job.state !== "completed") {
+          if (record.job.state === "running" || record.job.state === "prepared") {
+            record = await markHybridEvidenceJobUncertain({
+              jobId: record.job.jobId,
+              now: input.now,
+            }, clients.jobs);
+          }
+          const usage = accountedUsage(prepared.definition, executionUsage);
+          await recordWorkspaceSemanticJob({
+            job: record.job,
+            scope: input.scope,
+            source: prepared.source,
+            usage,
+          }, clients.semantic);
+          if (reservation) {
+            await reconcileHybridEvidenceAttempt({
+              ...(executionUsage ? {
+                actualInputTokens: usage.inputTokens,
+                actualOutputTokens: usage.outputTokens,
+                actualPaidCost: usage.paidCostUsd,
+              } : {}),
+              now: input.now,
+              outcome: executionUsage ? "reconciled" : "uncertain",
+              reservation,
+            }, { workspace: clients.budget });
+            budgetSettled = true;
+          }
+          throw error;
+        }
+      }
       record = (await readHybridEvidenceJob(record.job.jobId, clients.jobs)) ?? record;
     }
     if (record.job.state !== "completed" || !record.candidate) {
+      if (record.job.state === "running" || record.job.state === "prepared") {
+        record = await markHybridEvidenceJobUncertain({ jobId: record.job.jobId, now: input.now }, clients.jobs);
+        await recordWorkspaceSemanticJob({
+          job: record.job,
+          scope: input.scope,
+          source: prepared.source,
+          usage: accountedUsage(prepared.definition, executionUsage),
+        }, clients.semantic);
+      }
       throw new WorkspaceSemanticEvidenceError("model_output_invalid");
     }
+    const persistedUsage = executionUsage === undefined
+      ? (await listWorkspaceSemanticJobSummaries(input.scope, clients.semantic)).find(({ jobId }) =>
+          jobId === record.job.jobId)?.usage
+      : undefined;
+    const usage = accountedUsage(
+      prepared.definition,
+      executionUsage ?? (persistedUsage && (
+        persistedUsage.inputTokens > 0 ||
+        persistedUsage.outputTokens > 0 ||
+        persistedUsage.paidCostUsd !== "0"
+      ) ? persistedUsage : undefined),
+    );
+    await recordWorkspaceSemanticJob({
+      job: record.job,
+      scope: input.scope,
+      source: prepared.source,
+      usage,
+    }, clients.semantic);
     let validated: Awaited<ReturnType<typeof validateSemanticCandidate>>;
     try {
       validated = await validateSemanticCandidate({
         artifacts: clients.artifacts,
         candidate: record.candidate,
+        contractRegistry: clients.validationRegistry ?? workspaceSemanticValidationRegistry,
+        definition: prepared.definition,
         locators: prepared.locators,
       });
     } catch (error) {
@@ -624,16 +817,18 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
         quarantineCodes: quarantined.quarantineCodes,
         scope: input.scope,
         source: prepared.source,
+        usage,
       }, clients.semantic);
       if (reservation) {
         await reconcileHybridEvidenceAttempt({
-          actualInputTokens: 0,
-          actualOutputTokens: 0,
-          actualPaidCost: "0",
+          actualInputTokens: usage.inputTokens,
+          actualOutputTokens: usage.outputTokens,
+          actualPaidCost: usage.paidCostUsd,
           now: input.now,
           outcome: "reconciled",
           reservation,
         }, { workspace: clients.budget });
+        budgetSettled = true;
       }
       const notification = await stageWorkspaceSemanticQuarantineHealth({
         definitionVersion: prepared.definition.definitionVersion,
@@ -644,8 +839,7 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
         sourceInstanceId: prepared.source.sourceInstanceId,
       }, clients.semantic);
       if (notification) {
-        if (clients.notifyHealth) await clients.notifyHealth(notification);
-        else await defaultHealthNotification({ notification, scope: input.scope }, clients.monitor);
+        await deliverHealthNotification({ notification, scope: input.scope }, clients);
       }
       return Object.freeze({
         ...prepared,
@@ -660,47 +854,16 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
       definition: prepared.definition,
       now: input.now ?? new Date(),
       record,
+      usage,
     });
+    await revalidate();
     const accepted = await acceptHybridEvidenceJob({
       jobId: record.job.jobId,
       now: input.now,
       result,
     }, clients.jobs);
-    const previous = await readCurrentSemanticEvidence({
-      lineageKey: prepared.lineageKey,
-      scope: input.scope,
-    }, clients.semantic);
-    const evidence = await writeWorkspaceSemanticEvidence({
-      lineageKey: prepared.lineageKey,
-      now: input.now ?? new Date(),
-      result,
-      scope: input.scope,
-      source: prepared.source,
-    }, clients.semantic);
-    const invalidation = await advanceWorkspaceSemanticHead({
-      cause: invalidationCause(previous, result, prepared.source),
-      lineageKey: prepared.lineageKey,
-      now: input.now ?? new Date(),
-      resultId: result.resultId,
-      scope: input.scope,
-    }, { lineage: clients.lineage, semantic: clients.semantic });
-    await clients.artifacts.setReference({
-      active: true,
-      artifactDigest: prepared.artifact.contentDigest,
-      kind: "accepted_result",
-      referenceId: result.resultId,
-    });
-    await recordWorkspaceSemanticJob({ job: accepted.job, result, scope: input.scope, source: prepared.source }, clients.semantic);
-    if (reservation) {
-      await reconcileHybridEvidenceAttempt({
-        actualInputTokens: result.usage.inputTokens,
-        actualOutputTokens: result.usage.outputTokens,
-        actualPaidCost: result.usage.paidCostUsd,
-        now: input.now,
-        outcome: "reconciled",
-        reservation,
-      }, { workspace: clients.budget });
-    }
+    const { evidence, invalidation } = await convergeAccepted(accepted, result);
+    budgetSettled = true;
     return Object.freeze({
       ...prepared,
       evidence,
@@ -709,10 +872,29 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
       strategyEvidence: result.disposition === "accepted" ? evidence : null,
     });
   } catch (error) {
-    if (reservation) {
+    if (reservation && !budgetSettled) {
+      const latest = (await readHybridEvidenceJob(record.job.jobId, clients.jobs)) ?? record;
+      record = latest.job.state === "running" || latest.job.state === "prepared"
+        ? await markHybridEvidenceJobUncertain({ jobId: latest.job.jobId, now: input.now }, clients.jobs)
+        : latest;
+      if (record.job.state === "uncertain") {
+        await recordWorkspaceSemanticJob({
+          job: record.job,
+          scope: input.scope,
+          source: prepared.source,
+          usage: accountedUsage(prepared.definition, executionUsage),
+        }, clients.semantic);
+      }
       await reconcileHybridEvidenceAttempt({
+        ...(modelAttempted && executionUsage ? {
+          actualInputTokens: executionUsage.inputTokens,
+          actualOutputTokens: executionUsage.outputTokens,
+          actualPaidCost: executionUsage.paidCostUsd,
+        } : {}),
         now: input.now,
-        outcome: record.job.state === "running" ? "uncertain" : "released",
+        outcome: modelAttempted
+          ? executionUsage ? "reconciled" : "uncertain"
+          : "released",
         reservation,
       }, { workspace: clients.budget });
     }
@@ -753,25 +935,29 @@ export async function inspectWorkspaceHybridEvidence(input: {
   environment?: NodeJS.ProcessEnv;
   now?: Date;
   scope: AuthorizedWorkspaceStoreScope;
+  sourceReferences?: readonly PublicSourceWorkspaceReference[];
 }, clients: {
+  acquisition?: PublicSourceAcquisitionStoreClient;
   semantic?: WorkspaceSemanticEvidenceStoreClient;
   state?: WorkspaceStateStoreClient;
+  subscription?: PublicSourceSubscriptionStoreClient;
 } = {}) {
   const flags = resolveHybridEvidenceFlags(input.environment);
-  if (!flags.enabled || !flags.semanticReasoning) {
-    return Object.freeze({
-      counts: { accepted: 0, completed: 0, failed: 0, prepared: 0, quarantined: 0, running: 0, uncertain: 0 },
-      quarantines: Object.freeze([]),
-      reasonCode: flags.configuration === "misconfigured" ? "hybrid_configuration_invalid" : null,
-      results: Object.freeze([]),
-      state: flags.configuration === "misconfigured" ? "blocked" as const : "disabled" as const,
-      usage: { inputTokens: 0, outputTokens: 0, paidCostUsd: "0" },
-    });
-  }
-  const [budget, capabilities, jobs] = await Promise.all([
+  const references = [...new Map((input.sourceReferences ?? []).map((reference) => [
+    `${reference.sourceInstanceId}\0${reference.subscriptionId}`,
+    reference,
+  ])).values()];
+  const [budget, capabilities, jobs, sourceHealth] = await Promise.all([
     readWorkspaceDocument("budget", input.scope, clients.state),
     readWorkspaceDocument("capabilities", input.scope, clients.state),
     listWorkspaceSemanticJobSummaries(input.scope, clients.semantic),
+    Promise.all(references.map((reference) =>
+      readPublicSourceWorkspaceHealth({
+        clients: { acquisition: clients.acquisition, subscription: clients.subscription },
+        environment: input.environment,
+        reference,
+        scope: input.scope,
+      }).catch(() => unavailablePublicSourceWorkspaceHealth(reference, input.environment)))),
   ]);
   const counts = { accepted: 0, completed: 0, failed: 0, prepared: 0, quarantined: 0, running: 0, uncertain: 0 };
   let paidCostUsd = "0";
@@ -783,7 +969,9 @@ export async function inspectWorkspaceHybridEvidence(input: {
     outputTokens += job.usage.outputTokens;
     paidCostUsd = addPaid(paidCostUsd, job.usage.paidCostUsd);
   }
-  const blocked = !budget || !capabilities || capabilities.value.workerModelPolicy.allowedModelIds.length === 0;
+  const blocked = flags.semanticReasoning && (
+    !budget || !capabilities || capabilities.value.workerModelPolicy.allowedModelIds.length === 0
+  );
   const quarantines = jobs.filter(({ state }) => state === "quarantined").slice(0, 16).map((job) => Object.freeze({
     definitionVersion: job.definitionVersion,
     reasonCodes: Object.freeze(job.quarantineCodes),
@@ -804,16 +992,58 @@ export async function inspectWorkspaceHybridEvidence(input: {
     unknowns: Object.freeze(job.unknowns),
     validationStatus: "accepted" as const,
   }));
+  const semanticState = flags.configuration === "misconfigured"
+    ? "blocked" as const
+    : !flags.semanticReasoning
+      ? "disabled" as const
+      : blocked
+        ? "blocked" as const
+        : counts.quarantined > 0
+          ? "degraded" as const
+          : "available" as const;
+  const sourceHistory = sourceHealth.slice(0, 16).map((health: PublicSourceWorkspaceHealth) => Object.freeze({
+    adapterId: health.adapterId,
+    adapterVersion: health.adapterVersion,
+    extraction: Object.freeze({ ...health.extraction }),
+    healthState: health.healthState,
+    lastOutcome: health.lastOutcome ? Object.freeze({ ...health.lastOutcome }) : null,
+    sourceId: health.sourceId,
+  }));
+  const sourceState = flags.configuration === "misconfigured"
+    ? "blocked" as const
+    : !flags.extractionRecovery
+      ? "disabled" as const
+      : sourceHealth.some(({ healthState }) => healthState === "degraded" || healthState === "unavailable")
+        ? "degraded" as const
+        : "available" as const;
+  const state = flags.configuration === "misconfigured" || semanticState === "blocked" || sourceState === "blocked"
+    ? "blocked" as const
+    : semanticState === "disabled" && sourceState === "disabled"
+      ? "disabled" as const
+      : semanticState === "degraded" || sourceState === "degraded"
+        ? "degraded" as const
+        : "available" as const;
   return Object.freeze({
     counts: Object.freeze(counts),
+    history: Object.freeze({
+      sourceGlobalExtraction: Object.freeze(sourceHistory),
+      workspaceSemantic: Object.freeze([...results, ...quarantines].slice(0, 16)),
+    }),
+    lanes: Object.freeze({
+      sourceGlobalExtraction: Object.freeze({ history: Object.freeze(sourceHistory), state: sourceState }),
+      workspaceSemantic: Object.freeze({
+        counts: Object.freeze({ ...counts }),
+        history: Object.freeze([...results, ...quarantines].slice(0, 16)),
+        state: semanticState,
+        usage: Object.freeze({ inputTokens, outputTokens, paidCostUsd }),
+      }),
+    }),
     quarantines: Object.freeze(quarantines),
-    reasonCode: blocked ? "hybrid_workspace_policy_unavailable" : null,
+    reasonCode: flags.configuration === "misconfigured"
+      ? "hybrid_configuration_invalid"
+      : blocked ? "hybrid_workspace_policy_unavailable" : null,
     results: Object.freeze(results),
-    state: blocked
-      ? "blocked" as const
-      : counts.quarantined > 0
-        ? "degraded" as const
-        : "available" as const,
+    state,
     usage: Object.freeze({ inputTokens, outputTokens, paidCostUsd }),
   });
 }

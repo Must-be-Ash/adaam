@@ -1,14 +1,11 @@
-import { createHash } from "node:crypto";
+import { z } from "zod";
 
 import {
-  Uint8ArrayReader,
-  Uint8ArrayWriter,
-  ZipReader,
-  type Entry,
-} from "@zip.js/zip.js";
-import { XMLParser, XMLValidator } from "fast-xml-parser";
-
+  HybridEvidenceDecoderProcessError,
+  runHybridEvidenceDecoderProcess,
+} from "./hybrid-evidence-decoder-process";
 import { HYBRID_EVIDENCE_LIMITS, digestHybridEvidenceValue } from "./hybrid-evidence-schema";
+import { HYBRID_EVIDENCE_SPREADSHEET_DECODER_SOURCE } from "./hybrid-evidence-spreadsheet-decoder-source";
 
 const MAX_ARCHIVE_ENTRIES = 128;
 const MAX_EXPANDED_BYTES = 20 * 1_024 * 1_024;
@@ -45,148 +42,28 @@ export interface HybridEvidenceWorkbookProjection {
   readonly sheets: readonly HybridEvidenceCellGrid[];
 }
 
-type XmlObject = Record<string, unknown>;
-
-function safePath(path: string): boolean {
-  return path.length > 0 && path.length <= 240 && !path.startsWith("/") &&
-    !path.includes("\\") && !path.split("/").some((part) => part === "" || part === "..");
-}
-
-function array<T>(value: T | readonly T[] | undefined): readonly T[] {
-  return value === undefined ? [] : Array.isArray(value) ? value : [value as T];
-}
-
-function object(value: unknown): XmlObject {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new HybridEvidenceSpreadsheetError("unsupported_layout");
-  }
-  return value as XmlObject;
-}
-
-function text(value: unknown): string {
-  if (value === undefined || value === null) return "";
-  if (typeof value === "string" || typeof value === "number") return String(value);
-  if (typeof value === "object" && !Array.isArray(value)) {
-    const candidate = Reflect.get(value, "#text");
-    return typeof candidate === "string" || typeof candidate === "number" ? String(candidate) : "";
-  }
-  return "";
-}
-
 function columnIndex(reference: string): number {
   const match = /^([A-Z]{1,3})[1-9]\d*$/u.exec(reference);
   if (!match) throw new HybridEvidenceSpreadsheetError("unsupported_layout");
   return [...match[1]!].reduce((total, letter) => total * 26 + letter.charCodeAt(0) - 64, 0);
 }
 
-function rowIndex(reference: string): number {
-  const match = /^[A-Z]{1,3}([1-9]\d*)$/u.exec(reference);
-  if (!match) throw new HybridEvidenceSpreadsheetError("unsupported_layout");
-  return Number(match[1]);
-}
+const cellGridSchema = z.object({
+  columnCount: z.number().int().nonnegative().max(HYBRID_EVIDENCE_LIMITS.maximumArtifactColumns),
+  rowCount: z.number().int().nonnegative().max(HYBRID_EVIDENCE_LIMITS.maximumArtifactRows),
+  rows: z.array(z.array(z.string().max(MAX_CELL_CHARACTERS))
+    .max(HYBRID_EVIDENCE_LIMITS.maximumArtifactColumns))
+    .max(HYBRID_EVIDENCE_LIMITS.maximumArtifactRows),
+  sheetId: z.string().min(1).max(80),
+}).strict();
 
-function parseXml(bytes: Uint8Array): XmlObject {
-  let source: string;
-  try {
-    source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    throw new HybridEvidenceSpreadsheetError("hostile_document");
-  }
-  if (
-    /<!DOCTYPE|<!ENTITY/iu.test(source) ||
-    /<(?:[A-Za-z_][\w.-]*:)?f(?:\s|>)/iu.test(source) ||
-    /TargetMode\s*=\s*["']External["']/iu.test(source) ||
-    XMLValidator.validate(source) !== true
-  ) throw new HybridEvidenceSpreadsheetError("hostile_document");
-  try {
-    return object(new XMLParser({
-      attributeNamePrefix: "@_",
-      ignoreAttributes: false,
-      parseAttributeValue: false,
-      parseTagValue: false,
-      trimValues: false,
-    }).parse(source));
-  } catch (error) {
-    if (error instanceof HybridEvidenceSpreadsheetError) throw error;
-    throw new HybridEvidenceSpreadsheetError("unsupported_layout");
-  }
-}
-
-async function entryBytes(entry: Entry | undefined): Promise<Uint8Array> {
-  if (!entry || entry.directory || !("getData" in entry)) {
-    throw new HybridEvidenceSpreadsheetError("unsupported_layout");
-  }
-  return entry.getData(new Uint8ArrayWriter());
-}
-
-function sharedStringValue(value: unknown): string {
-  const item = object(value);
-  const direct = text(item.t);
-  if (direct) return direct;
-  return array(item.r as XmlObject | readonly XmlObject[] | undefined)
-    .map((run) => text(object(run).t))
-    .join("");
-}
-
-function normalizeCell(value: string): string {
-  const normalized = value.replaceAll("\0", "").replace(/\r\n?/gu, "\n").trim();
-  if (normalized.length > MAX_CELL_CHARACTERS) {
-    throw new HybridEvidenceSpreadsheetError("evidence_bounds_exceeded");
-  }
-  return normalized;
-}
-
-function parseSheet(
-  sheetId: string,
-  document: XmlObject,
-  sharedStrings: readonly string[],
-): HybridEvidenceCellGrid {
-  const worksheet = object(document.worksheet);
-  if (worksheet.hyperlinks !== undefined || worksheet.oleObjects !== undefined) {
-    throw new HybridEvidenceSpreadsheetError("hostile_document");
-  }
-  const sheetData = object(worksheet.sheetData);
-  const rows = array(sheetData.row as XmlObject | readonly XmlObject[] | undefined);
-  const grid: string[][] = [];
-  let columnCount = 0;
-  for (const rawRow of rows) {
-    const row = object(rawRow);
-    const cells = array(row.c as XmlObject | readonly XmlObject[] | undefined);
-    for (const rawCell of cells) {
-      const cell = object(rawCell);
-      if (cell.f !== undefined) throw new HybridEvidenceSpreadsheetError("hostile_document");
-      const reference = String(cell["@_r"] ?? "");
-      const rowNumber = rowIndex(reference);
-      const columnNumber = columnIndex(reference);
-      if (
-        rowNumber > HYBRID_EVIDENCE_LIMITS.maximumArtifactRows ||
-        columnNumber > HYBRID_EVIDENCE_LIMITS.maximumArtifactColumns
-      ) throw new HybridEvidenceSpreadsheetError("evidence_bounds_exceeded");
-      const kind = String(cell["@_t"] ?? "n");
-      const rawValue = kind === "inlineStr"
-        ? text(object(cell.is).t)
-        : text(cell.v);
-      const value = kind === "s"
-        ? sharedStrings[Number(rawValue)]
-        : rawValue;
-      if (value === undefined || !["n", "s", "str", "inlineStr", "b"].includes(kind)) {
-        throw new HybridEvidenceSpreadsheetError("unsupported_layout");
-      }
-      grid[rowNumber - 1] ??= [];
-      grid[rowNumber - 1]![columnNumber - 1] = normalizeCell(value);
-      columnCount = Math.max(columnCount, columnNumber);
-    }
-  }
-  const rowCount = grid.length;
-  const normalizedRows = Array.from({ length: rowCount }, (_, row) =>
-    Object.freeze(Array.from({ length: columnCount }, (_, column) => grid[row]?.[column] ?? "")));
-  return Object.freeze({
-    columnCount,
-    rowCount,
-    rows: Object.freeze(normalizedRows),
-    sheetId,
-  });
-}
+const workbookProjectionSchema = z.object({
+  columnCount: z.number().int().nonnegative().max(HYBRID_EVIDENCE_LIMITS.maximumArtifactColumns),
+  digest: z.string().regex(/^[a-f0-9]{64}$/u),
+  rowCount: z.number().int().nonnegative().max(HYBRID_EVIDENCE_LIMITS.maximumArtifactRows),
+  sheetCount: z.number().int().positive().max(HYBRID_EVIDENCE_LIMITS.maximumArtifactSheets),
+  sheets: z.array(cellGridSchema).min(1).max(HYBRID_EVIDENCE_LIMITS.maximumArtifactSheets),
+}).strict();
 
 export async function projectHybridEvidenceWorkbook(
   bytes: Uint8Array,
@@ -196,87 +73,40 @@ export async function projectHybridEvidenceWorkbook(
     bytes.byteLength > HYBRID_EVIDENCE_LIMITS.maximumArtifactBytes ||
     bytes[0] !== 0x50 || bytes[1] !== 0x4b || bytes[2] !== 0x03 || bytes[3] !== 0x04
   ) throw new HybridEvidenceSpreadsheetError("hostile_document");
-  const startedAt = Date.now();
-  const reader = new ZipReader(new Uint8ArrayReader(bytes));
   try {
-    const entries = await reader.getEntries();
-    if (entries.length > MAX_ARCHIVE_ENTRIES || entries.some((entry) => !safePath(entry.filename))) {
+    const decoded = workbookProjectionSchema.parse(await runHybridEvidenceDecoderProcess<unknown>({
+      payload: {
+        bytesBase64: Buffer.from(bytes).toString("base64"),
+        maximumCellCharacters: MAX_CELL_CHARACTERS,
+        maximumColumns: HYBRID_EVIDENCE_LIMITS.maximumArtifactColumns,
+        maximumCompressionRatio: MAX_COMPRESSION_RATIO,
+        maximumEntries: MAX_ARCHIVE_ENTRIES,
+        maximumExpandedBytes: MAX_EXPANDED_BYTES,
+        maximumRows: HYBRID_EVIDENCE_LIMITS.maximumArtifactRows,
+        maximumSheets: HYBRID_EVIDENCE_LIMITS.maximumArtifactSheets,
+      },
+      source: HYBRID_EVIDENCE_SPREADSHEET_DECODER_SOURCE,
+      timeoutMs: MAX_RUNTIME_MS,
+    }));
+    if (decoded.sheetCount !== decoded.sheets.length || decoded.sheets.some((sheet) =>
+      sheet.rowCount !== sheet.rows.length ||
+      sheet.rows.some((row) => row.length !== sheet.columnCount))) {
       throw new HybridEvidenceSpreadsheetError("hostile_document");
     }
-    let expandedBytes = 0;
-    for (const entry of entries) {
-      expandedBytes += entry.uncompressedSize;
-      if (
-        expandedBytes > MAX_EXPANDED_BYTES ||
-        (entry.uncompressedSize > 0 && (
-          entry.compressedSize === 0 || entry.uncompressedSize / entry.compressedSize > MAX_COMPRESSION_RATIO
-        )) ||
-        /(?:^|\/)(?:vbaProject\.bin|embeddings|activeX|printerSettings)(?:\/|$)/iu.test(entry.filename) ||
-        /\.(?:bin|exe|dll|js|vbs)$/iu.test(entry.filename)
-      ) throw new HybridEvidenceSpreadsheetError("hostile_document");
-    }
-    const byName = new Map(entries.map((entry) => [entry.filename, entry]));
-    for (const relationship of entries.filter((entry) =>
-      !entry.directory && entry.filename.endsWith(".rels"))) {
-      parseXml(await entryBytes(relationship));
-    }
-    const workbook = parseXml(await entryBytes(byName.get("xl/workbook.xml")));
-    const relationships = parseXml(await entryBytes(byName.get("xl/_rels/workbook.xml.rels")));
-    const relationRows = array(object(relationships.Relationships).Relationship as XmlObject | readonly XmlObject[] | undefined);
-    const relationMap = new Map<string, string>();
-    for (const relationValue of relationRows) {
-      const relation = object(relationValue);
-      if (String(relation["@_TargetMode"] ?? "") === "External") {
-        throw new HybridEvidenceSpreadsheetError("hostile_document");
-      }
-      const id = String(relation["@_Id"] ?? "");
-      const target = String(relation["@_Target"] ?? "");
-      if (!id || !target || target.startsWith("/") || target.includes("..") || target.includes(":")) {
-        throw new HybridEvidenceSpreadsheetError("hostile_document");
-      }
-      relationMap.set(id, target.startsWith("xl/") ? target : `xl/${target}`);
-    }
-    const workbookRoot = object(workbook.workbook);
-    const sheetRows = array(object(workbookRoot.sheets).sheet as XmlObject | readonly XmlObject[] | undefined);
-    if (sheetRows.length < 1 || sheetRows.length > HYBRID_EVIDENCE_LIMITS.maximumArtifactSheets) {
-      throw new HybridEvidenceSpreadsheetError("evidence_bounds_exceeded");
-    }
-    const sharedStringsDocument = byName.has("xl/sharedStrings.xml")
-      ? parseXml(await entryBytes(byName.get("xl/sharedStrings.xml")))
-      : null;
-    const sharedStrings = sharedStringsDocument
-      ? array(object(sharedStringsDocument.sst).si as XmlObject | readonly XmlObject[] | undefined)
-          .map(sharedStringValue)
-      : [];
-    const sheets: HybridEvidenceCellGrid[] = [];
-    for (const sheetValue of sheetRows) {
-      if (Date.now() - startedAt > MAX_RUNTIME_MS) {
-        throw new HybridEvidenceSpreadsheetError("evidence_bounds_exceeded");
-      }
-      const sheet = object(sheetValue);
-      const sheetId = normalizeCell(String(sheet["@_name"] ?? ""));
-      const relationId = String(sheet["@_r:id"] ?? "");
-      if (!sheetId || sheetId.length > 80 || sheets.some((candidate) => candidate.sheetId === sheetId)) {
-        throw new HybridEvidenceSpreadsheetError("column_mapping_ambiguous");
-      }
-      sheets.push(parseSheet(
-        sheetId,
-        parseXml(await entryBytes(byName.get(relationMap.get(relationId) ?? ""))),
-        sharedStrings,
-      ));
-    }
     return Object.freeze({
-      columnCount: Math.max(0, ...sheets.map((sheet) => sheet.columnCount)),
-      digest: createHash("sha256").update(bytes).digest("hex"),
-      rowCount: Math.max(0, ...sheets.map((sheet) => sheet.rowCount)),
-      sheetCount: sheets.length,
-      sheets: Object.freeze(sheets),
+      ...decoded,
+      sheets: Object.freeze(decoded.sheets.map((sheet) => Object.freeze({
+        ...sheet,
+        rows: Object.freeze(sheet.rows.map((row) => Object.freeze(row))),
+      }))),
     });
   } catch (error) {
     if (error instanceof HybridEvidenceSpreadsheetError) throw error;
-    throw new HybridEvidenceSpreadsheetError("hostile_document");
-  } finally {
-    await reader.close().catch(() => undefined);
+    throw new HybridEvidenceSpreadsheetError(
+      error instanceof HybridEvidenceDecoderProcessError && error.code === "evidence_bounds_exceeded"
+        ? "evidence_bounds_exceeded"
+        : "hostile_document",
+    );
   }
 }
 

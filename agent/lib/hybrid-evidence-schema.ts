@@ -334,6 +334,7 @@ export const hybridEvidenceJobDefinitionSchema = z.object({
   definitionVersion: semverSchema,
   inputProjection: schemaReferenceSchema,
   instructionTemplate: z.object({
+    content: z.string().trim().min(1).max(16 * 1_024).optional(),
     delimiterPolicy: identifierSchema,
     digest: digestSchema,
     templateId: slugSchema,

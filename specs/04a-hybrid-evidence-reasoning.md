@@ -1,6 +1,6 @@
 # Spec 4A: Hybrid evidence and reasoning foundation
 
-Status: In progress; Sprint 3 complete, Sprint 4 next
+Status: Sprint 4 acceptance complete; GitHub landing in progress
 
 Date: 2026-08-16
 
@@ -624,33 +624,76 @@ hard-coded keywords, while ambiguous meaning remains explicit and isolated.
 
 ### Sprint 4 — final acceptance, rollout, and landing
 
-- [ ] Run one independent diff-scoped review; fix validated blockers and move
+- [x] Run one independent diff-scoped review; fix validated blockers and move
   nonblocking hardening or later connector/strategy work to `BACKLOG.md` or its
   owning future spec.
-- [ ] Run the focused three-scenario suite, relevant Specs 1–4 regressions,
+- [x] Run the focused three-scenario suite, relevant Specs 1–4 regressions,
   typecheck, Eve build, application build, and diff check once after code review
   fixes settle.
-- [ ] Prove the ordinary end-to-end boundaries: deterministic bypass; one
+- [x] Prove the ordinary end-to-end boundaries: deterministic bypass; one
   source-global extraction reused by two workspaces; workspace semantic
   isolation; quarantine; correction/revision; fixed logs; budget settlement;
   extension registration without shared-layer edits; and financial-capability
   denial.
-- [ ] With owner authorization, run a versioned real-model corpus at least twice
+- [x] With owner authorization, run a versioned real-model corpus at least twice
   per case across all three proof shapes. Require zero false accepted material
   fields, invalid accepted citations, unsafe accepts, or forbidden tool use;
   at least 80% accepted recovery on reviewed supported cases in both runs; and
   100% abstention/quarantine on ambiguous, prohibited, and adversarial cases.
   Record run-to-run variance before enabling either child flag. No broker,
   private data, external message, or complete strategy rollout is required.
-- [ ] Stage the parent/extraction/semantic flags independently, prove rollback,
+- [x] Stage the parent/extraction/semantic flags independently, prove rollback,
   and leave production in the owner-approved state.
-- [ ] Mark this ledger accurately, record exact acceptance/flag evidence, move
+- [x] Mark this ledger accurately, record exact acceptance/flag evidence, move
   only deferred hardening to `BACKLOG.md`, and update `HANDOFF.md` and
   `NORTH_STAR.md` where implementation changed reality.
 - [ ] Commit and push the final branch, open and merge its PR, confirm GitHub
   `main` contains the exact accepted commit, and verify the resulting production
   deployment/health when the merge triggers one. Do not repeat the already-green
   broad suite unless landing changed code.
+
+Acceptance evidence (2026-08-16): independent review run
+`20260816-182623-5fc08538` used eight diff-scoped review lenses plus the
+agent-native lens. Cross-model execution was unavailable and disclosed; separate
+independent Codex contexts completed the review. Sixteen validated findings were
+fixed and one false-positive coverage report was dropped. The final review
+receipt is under
+`/tmp/compound-engineering-501/ce-code-review/20260816-182623-5fc08538`.
+
+The single broad gate passed 31/31 stages after review fixes settled: Sprints
+0–3, SEC/House public-source contracts and runtimes, Congressional Signals
+Sprints 0–5, strategy/runtime owner surfaces, workspace budget/capability/auth/
+isolation/compiled-worker boundaries, TypeScript, the compiled Eve build, the
+Next production build, and `git diff --check`. Later fixes were limited to
+affected checks: the lockfile integrity correction, definition-specific worker
+prompt contract, corpus contract, compiled worker, TypeScript, and Eve build all
+passed. The broad gate was not repeated.
+
+The versioned `hybrid-evidence-core@1.0.0` corpus ran twice through Vercel AI
+Gateway model `openai/gpt-5.4` at `2026-08-17T02:50:02.222Z` (UTC), covering all
+16 PDF, spreadsheet, and semantic cases. Both runs achieved 100% accepted
+recovery on reviewed supported cases and 100% abstention/quarantine on safety
+cases, with zero false accepted material fields, invalid accepted citations,
+unsafe accepts, or forbidden tool calls. Run 1 used 5,561 input/861 output
+tokens; run 2 used 5,561 input/922 output tokens. Variance was limited to safe
+abstention/quarantine payload wording in eight cases.
+
+Production staging used bounded configuration with extractor
+`openai/gpt-5.4`, independent OCR `google/gemini-3-flash`, two workers, 100,000
+input and 20,000 output tokens/day, and USD 1/call, 10/day, 100/month ceilings.
+The healthy sequence was all-off `dpl_3bNfvpDYyyBJWbg6iSaiPvXAXpXo`, parent-only
+`dpl_2SBDDcTd6LhEmAhWHDwv2WzT67hz`, extraction-only
+`dpl_96rwcus4tGCcEJZFqJFPkjkK4Jni`, extraction rollback
+`dpl_13HDhiNP7iXgZbJY5veyyp5mnLD9`, semantic-only
+`dpl_Dio9ukpn4mx8jET1ErfUhTbWK2fs`, semantic rollback
+`dpl_EtCRRC91p8v7KQCiAcEAzon7ak3Z`, parent rollback
+`dpl_GYkL7P66wo4Sk3aaFfNdW7Sc1Fgc`, and dependency rollback/final all-off
+`dpl_8oAhy3xys7pCjhCAQQ4QaVPSe5eT`. Every promoted stage returned HTTP 200 for
+`/` and `/skill` with empty bounded error logs. Final production values are
+exactly `0` for the parent and both hybrid children and the temporarily enabled
+workspace dispatch dependency; the signing secret remains sensitive. No Photon
+message, private data, broker call, strategy rollout, or financial mutation was
+used.
 
 Exit: the shared hybrid foundation is implemented, accepted, merged to `main`,
 and ready for Specs 4B and 4C without either strategy recreating its evidence,

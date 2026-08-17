@@ -6,7 +6,7 @@ tracing the implementation, checking the installed Eve and Next.js semantics,
 and reviewing the regression coverage. Use it to form the initial system model;
 then verify task-specific details against current code before making a change.
 
-> **Specification status:** Specs 1–4 are implemented and production accepted.
+> **Specification status:** Specs 1–4 and Spec 4A are implemented and production accepted.
 > Specs 1 and 2 are on `main`; Spec 3 was deployed from the exact reviewed
 > source commit `9b6e01f` on `codex/spec-03` without pushing or merging it.
 > Spec 2's versioned strategy-pack framework and
@@ -16,7 +16,11 @@ then verify task-specific details against current code before making a change.
 > and rollback controls passed staged production acceptance on 2026-08-16. The
 > Spec 4 `Congressional Signals` strategy, official current House roster,
 > deterministic history/evidence policy, real Photon alert/Discuss route, and
-> kill-switch rollback passed staged production acceptance on 2026-08-16. The
+> kill-switch rollback passed staged production acceptance on 2026-08-16. Spec
+> 4A's shared deterministic-first hybrid evidence jobs, bounded Eve worker,
+> extraction recovery, workspace semantic lane, repeated real-model corpus,
+> and child-first rollback passed final acceptance on 2026-08-16; all hybrid
+> flags remain off until a later consumer is separately accepted. The
 > spec files remain the authoritative split between production evidence and
 > deliberately deferred work.
 
@@ -50,7 +54,7 @@ architecture. Keep them distinct:
 | Research | Direct sources, public feeds, FMP/SEC-oriented skills, and guarded Masterkey fallback | Durable private ingestion of every paid or temporary result |
 | Trading | Allowlisted Coinbase reads and preview-bound spot-order approval | A generally safe live-trading surface or account-wide reconciliation |
 | Deliverables | Public-data reports and media on stable Eve URLs | Owner-private artifacts for portfolio, account, or personal data |
-| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC and Congressional findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, source-global SEC/House adapters, immutable canonical facts, isolated workspace projections, and real Specs 1–4 production acceptance | Push source events and crash/operations hardening remain deferred |
+| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC and Congressional findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, source-global SEC/House adapters, immutable canonical facts, isolated workspace projections, bounded hybrid recovery/semantic evidence, and real Specs 1–4A production acceptance | Push source events, real Spec 4B/4C consumers, and crash/operations hardening remain deferred |
 | Authorization | Fail-closed deployment-owner mapping for Photon workspace paths plus a separate Coinbase allowlist | Owner-global enforcement across Telegram, HTTP, and every remaining private capability |
 
 `NORTH_STAR.md` describes the intended strategy-workspace architecture; it is
@@ -362,6 +366,47 @@ requirements: `pdfjs-dist` must load its explicitly traced native canvas and
 worker modules in Next server functions, and new pack-managed monitors must bind
 the authenticated Photon conversation subscription rather than a placeholder.
 
+### Hybrid evidence and reasoning
+
+Spec 4A adds two deterministic-first lanes over one shared foundation. Lane A
+can recover only allowlisted partial, suspicious, or unsupported public-source
+inputs, is deployment-funded and source-global, and may promote a House result
+only after independent document, row, and OCR validation. Lane B is
+workspace-funded, authorized from exact pack, binding, capability, source, and
+definition revisions, and persists model-derived semantic evidence without
+mutating canonical facts or another workspace. Both lanes use immutable
+content-addressed artifacts, expiring signed single-job envelopes, exact
+locators, durable lifecycle, budget, and lineage records, quarantine, and fixed
+observability.
+
+The fresh Eve task worker exposes only signed evidence-read and controlled
+completion tools. Its reviewed job definition carries bounded, digested
+definition-specific instructions; production House, spreadsheet, and semantic
+contracts therefore do not depend on model knowledge of schema identifiers.
+PDF and workbook decoding runs in permission-restricted, memory/output-bounded
+child processes with hard timeout/reap behavior. Owner inspection combines
+bounded source-global and workspace state while preserving scope isolation.
+
+Independent review run `20260816-182623-5fc08538` closed 16 validated findings.
+The one broad gate passed 31/31 stages. The real Gateway corpus
+`hybrid-evidence-core@1.0.0` ran twice on `openai/gpt-5.4`; both runs achieved
+100% supported recovery and 100% safety, with zero false material fields,
+invalid accepted citations, unsafe accepts, or forbidden tool calls. Production
+staged all-off, parent-only, extraction-only, extraction rollback,
+semantic-only, semantic rollback, parent rollback, and dependency rollback.
+Final artifact `dpl_8oAhy3xys7pCjhCAQQ4QaVPSe5eT` is Ready; `adaam.vercel.app`
+and `/skill` returned HTTP 200 and bounded error logs were empty.
+
+Final production values are `0` for `EVE_HYBRID_EVIDENCE_ENABLED`,
+`EVE_HYBRID_EXTRACTION_RECOVERY_ENABLED`,
+`EVE_HYBRID_SEMANTIC_REASONING_ENABLED`, and the temporarily enabled
+`EVE_WORKSPACE_DISPATCH_ENABLED`. The distinct configured models are
+`openai/gpt-5.4` for extraction and `google/gemini-3-flash` for independent OCR;
+budget ceilings are two workers, 100,000 input/20,000 output tokens per day,
+USD 1 per call, USD 10 per day, and USD 100 per month. Specs 4B and 4C own any
+consumer-specific connector, strategy, and rollout; do not enable a child merely
+because the foundation exists.
+
 ### Approval state machine
 
 Photon's financial approval is durable application state, not model prose. The
@@ -591,11 +636,11 @@ The most important differences between the working app and `NORTH_STAR.md` are:
 1. **Owner and workspace parity is Photon-only.** Durable owner mapping,
    assignment, runtimes, monitors, alerts, and manager controls exist for
    Photon's durable mode. Telegram and HTTP do not use that broker.
-2. **Hybrid evidence reasoning and later strategies remain.** The versioned pack
+2. **Real hybrid consumers and later strategies remain.** The versioned pack
    framework, IPO reference pack, canonical SEC/House public-source adapters,
    and Congressional Signals are production accepted.
-   [`Spec 4A`](specs/04a-hybrid-evidence-reasoning.md) now defines the shared
-   deterministic-first/model-recovery foundation; Specs 4B and 4C prove it with
+   [`Spec 4A`](specs/04a-hybrid-evidence-reasoning.md) implements the shared
+   deterministic-first/model-recovery foundation; Specs 4B and 4C must prove it with
    two real consumers before Insider Clusters and shared signals resume in Specs
    5–6.
 3. **Artifacts are public-only.** Private portfolio/account deliverables and

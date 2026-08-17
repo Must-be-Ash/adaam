@@ -1145,9 +1145,9 @@ export async function runHousePublicSourceAcquisition(input: {
     await recordPublicSourceAcquisitionOutcome(acquisition.result, input.client);
     return Object.freeze({ acquisition, commit: null });
   }
+  const commit = await commitPublicSourceAcquisition({ acquisition, client: input.client });
   await Promise.all(acquisition.hybridPromotions.map((promotion) =>
     writeHybridPromotion(promotion, input.hybridLineageClient)));
-  const commit = await commitPublicSourceAcquisition({ acquisition, client: input.client });
   return Object.freeze({ acquisition, commit });
 }
 

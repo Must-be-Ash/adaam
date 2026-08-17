@@ -11,6 +11,7 @@ import {
   hybridEvidenceWorkerExecutionAuth,
   requireHybridEvidenceWorkerAuth,
   signHybridEvidenceWorkerEnvelope,
+  verifyHybridEvidenceWorkerToken,
 } from "./hybrid-evidence-auth";
 import type { HybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
 import { createHybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
@@ -32,12 +33,13 @@ import {
   type EvidenceLocator,
   type HybridEvidenceJobDefinition,
 } from "./hybrid-evidence-schema";
+import { resolveHybridEvidenceWorkerFixtureClients } from "./hybrid-evidence-worker-test-fixtures";
 
 export const HYBRID_EVIDENCE_WORKER_NODE_ID = "subagents/hybrid-evidence-worker";
 export const HYBRID_EVIDENCE_CAPABILITY_REVISION = 1;
 const MAX_PROMPT_BYTES = 48 * 1_024;
 
-const workerCandidateSchema = z.object({
+export const workerCandidateSchema = z.object({
   citations: z.array(evidenceLocatorSchema).max(HYBRID_EVIDENCE_LIMITS.maximumCitations),
   disposition: z.enum(["accepted", "abstained", "quarantined"]),
   fields: z.record(z.string().min(1).max(120), z.unknown()),
@@ -131,6 +133,9 @@ function typedPrompt(input: {
     "Do not fetch URLs, use financial tools, inspect sessions, run shell commands, or write files.",
     "Read only the signed locators, then submit one structured candidate through the completion tool.",
     "A prose response does not complete the job.",
+    "Follow this reviewed definition-specific instruction:",
+    input.definition.instructionTemplate.content ??
+      "Return only material fields supported by exact signed locators. Preserve unknowns and fail closed on ambiguity.",
     "<hybrid-evidence-job-v1>",
     JSON.stringify({
       definition: input.definition,
@@ -282,8 +287,13 @@ export const readHybridEvidenceSliceTool = defineTool({
   description: "Read one bounded public evidence slice authorized by this signed single-job scope.",
   inputSchema: z.object({ locator: evidenceLocatorSchema }).strict(),
   async execute({ locator }, ctx) {
-    const artifacts = createDefaultHybridEvidenceArtifactStore();
-    return readHybridEvidenceSliceForWorker({ clients: { artifacts }, ctx, locator });
+    const fixture = resolveHybridEvidenceWorkerFixtureClients();
+    const artifacts = fixture?.artifacts ?? createDefaultHybridEvidenceArtifactStore();
+    return readHybridEvidenceSliceForWorker({
+      clients: { artifacts, jobs: fixture?.jobs },
+      ctx,
+      locator,
+    });
   },
   toModelOutput(output) {
     return output.contentKind === "image"
@@ -300,7 +310,11 @@ export const completeHybridEvidenceJobTool = defineTool({
   inputSchema: workerCandidateSchema,
   outputSchema: z.object({ jobId: z.string(), state: z.literal("completed") }).strict(),
   async execute(candidate, ctx) {
-    return completeHybridEvidenceJobForWorker({ candidate, ctx });
+    return completeHybridEvidenceJobForWorker({
+      candidate,
+      ctx,
+      jobClient: resolveHybridEvidenceWorkerFixtureClients()?.jobs,
+    });
   },
 });
 
@@ -315,7 +329,22 @@ const adapter: ChannelAdapter = Object.freeze({ kind: "schedule" });
 export async function startHybridEvidenceWorkerTask(
   request: HybridEvidenceWorkerTaskRequest,
 ): Promise<RunHandle> {
-  const runtime = await createNodeTargetedWorkflowRuntime({ nodeId: request.nodeId });
+  const token = request.auth.attributes.hybrid_evidence_runtime_token;
+  if (typeof token !== "string") throw new HybridEvidenceWorkerError("capability_denied");
+  const envelope = verifyHybridEvidenceWorkerToken(token);
+  const runtime = await createNodeTargetedWorkflowRuntime({
+    dynamicSubagentAgentConfig: {
+      description: "Execute one bounded public hybrid-evidence task with no conversational history.",
+      limits: {
+        maxInputTokensPerSession: envelope.budget.inputTokens,
+        maxOutputTokensPerSession: envelope.budget.outputTokens,
+        sessionTimeoutMs: 15 * 60_000,
+      },
+      model: envelope.modelId,
+      reasoning: "high",
+    },
+    nodeId: request.nodeId,
+  });
   return runtime.createSession({
     adapter,
     auth: request.auth,

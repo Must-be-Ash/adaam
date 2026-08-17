@@ -14,6 +14,11 @@ import {
   reserveHybridEvidenceAttempt,
 } from "../agent/lib/hybrid-evidence-budget";
 import {
+  advanceHybridSourceResultLineage,
+  readHybridInvalidation,
+  type HybridEvidenceLineageStoreClient,
+} from "../agent/lib/hybrid-evidence-lineage-store";
+import {
   acceptHybridEvidenceJob,
   claimHybridEvidenceJob,
   completeHybridEvidenceJob,
@@ -84,6 +89,18 @@ class MemoryBlob implements HybridEvidenceBlobClient {
   async put(storageKey: string, bytes: Uint8Array) {
     this.puts += 1;
     this.values.set(storageKey, Uint8Array.from(bytes));
+  }
+}
+
+class FaultInjectingLineageCas extends MemoryCas implements HybridEvidenceLineageStoreClient {
+  failNextInvalidationWrite = false;
+
+  override async compareAndSet(key: string, expected: string | null, next: string) {
+    if (this.failNextInvalidationWrite && key.includes(":invalidation:")) {
+      this.failNextInvalidationWrite = false;
+      throw new Error("injected_invalidation_write_failure");
+    }
+    return super.compareAndSet(key, expected, next);
   }
 }
 
@@ -265,6 +282,72 @@ await artifacts.setRetention({ artifactDigest: expiring.contentDigest, now, stat
 assert.deepEqual(await artifacts.collectExpired({ now: new Date(now.getTime() + 29 * 24 * 60 * 60_000) }), []);
 assert.deepEqual(await artifacts.collectExpired({ now: new Date(now.getTime() + 31 * 24 * 60 * 60_000) }), [expiring.contentDigest]);
 assert.deepEqual(blobs.deleted, [expiring.storageKey]);
+
+const interleavedIndex = new MemoryCas();
+let releaseStaleDelete!: () => void;
+let staleDeleteStarted!: () => void;
+const staleDeleteReady = new Promise<void>((resolve) => { staleDeleteStarted = resolve; });
+const staleDeleteRelease = new Promise<void>((resolve) => { releaseStaleDelete = resolve; });
+const interleavedBlobs = new MemoryBlob();
+const originalDelete = interleavedBlobs.delete.bind(interleavedBlobs);
+interleavedBlobs.delete = async (key) => {
+  staleDeleteStarted();
+  await staleDeleteRelease;
+  await originalDelete(key);
+};
+const interleavedArtifacts = createHybridEvidenceArtifactStore({
+  blob: interleavedBlobs,
+  index: interleavedIndex,
+  quota: {
+    deploymentBytesPerDay: 4096,
+    deploymentCountPerDay: 4,
+    sourceBytesPerDay: 4096,
+    sourceCountPerDay: 4,
+  },
+});
+const interleavedText = "repersisted while stale garbage collection is paused";
+const staleArtifact = await persistText(
+  interleavedArtifacts,
+  interleavedText,
+  "acquisition.fixture.gc-stale",
+);
+await interleavedArtifacts.setRetention({
+  artifactDigest: staleArtifact.contentDigest,
+  now,
+  state: "orphaned",
+});
+const staleCollection = interleavedArtifacts.collectExpired({
+  now: new Date(now.getTime() + 31 * 24 * 60 * 60_000),
+});
+await staleDeleteReady;
+await assert.rejects(
+  persistText(
+    interleavedArtifacts,
+    interleavedText,
+    "acquisition.fixture.gc-repersisted",
+  ),
+  (error) => error instanceof HybridEvidenceArtifactStoreError &&
+    error.code === "artifact_store_conflict",
+);
+releaseStaleDelete();
+assert.deepEqual(await staleCollection, [staleArtifact.contentDigest]);
+const repersistedArtifact = await persistText(
+  interleavedArtifacts,
+  interleavedText,
+  "acquisition.fixture.gc-repersisted",
+);
+assert.equal((await interleavedArtifacts.readManifest(staleArtifact.contentDigest))?.storageKey, repersistedArtifact.storageKey);
+assert.equal((await interleavedArtifacts.readSlice({
+  locator: {
+    artifactDigest: repersistedArtifact.contentDigest,
+    end: interleavedText.length,
+    kind: "text_span",
+    spanDigest: sha256(interleavedText),
+    start: 0,
+  },
+  maximumBytes: 4096,
+})).content, interleavedText, "GC tombstones must fence a concurrent digest repersist");
+
 const quarantinedArtifact = await persistText(
   artifacts,
   "quarantined evidence",
@@ -275,6 +358,41 @@ assert.deepEqual(await artifacts.collectExpired({ now: new Date(now.getTime() + 
 assert.deepEqual(
   await artifacts.collectExpired({ now: new Date(now.getTime() + 91 * 24 * 60 * 60_000) }),
   [quarantinedArtifact.contentDigest],
+);
+
+const lineage = new FaultInjectingLineageCas();
+const firstLineageResult = {
+  lineageKey: "source.fixture:document.fixture:fixture-extraction",
+  now,
+  resultId: "hybrid-result.fixture.lineage-1",
+  sourceDigest: sha256("source revision 1"),
+  sourceRevision: "source-revision.fixture.1",
+};
+assert.equal(await advanceHybridSourceResultLineage(firstLineageResult, lineage), null);
+const secondLineageResult = {
+  ...firstLineageResult,
+  now: new Date(now.getTime() + 1_000),
+  resultId: "hybrid-result.fixture.lineage-2",
+  sourceDigest: sha256("source revision 2"),
+  sourceRevision: "source-revision.fixture.2",
+};
+lineage.failNextInvalidationWrite = true;
+await assert.rejects(
+  advanceHybridSourceResultLineage(secondLineageResult, lineage),
+  /injected_invalidation_write_failure/u,
+);
+const recoveredInvalidation = await advanceHybridSourceResultLineage(secondLineageResult, lineage);
+assert.ok(recoveredInvalidation, "replay must recover the pending invalidation");
+assert.equal(recoveredInvalidation.resultId, firstLineageResult.resultId);
+assert.equal(recoveredInvalidation.supersedingResultId, secondLineageResult.resultId);
+assert.deepEqual(
+  await readHybridInvalidation(recoveredInvalidation.invalidationId, lineage),
+  recoveredInvalidation,
+);
+assert.equal(
+  await advanceHybridSourceResultLineage(secondLineageResult, lineage),
+  null,
+  "a converged lineage replay must be inert",
 );
 
 const jobs = new MemoryCas();
@@ -585,7 +703,10 @@ const compiledWorker = manifest.subagents.find(
   ({ nodeId }: { nodeId: string }) => nodeId === "subagents/hybrid-evidence-worker",
 );
 assert.ok(compiledWorker, "compiled hybrid evidence worker missing");
-assert.deepEqual(compiledWorker.agent.dynamicTools.map(({ slug }: { slug: string }) => slug), ["capabilities"]);
+assert.deepEqual(
+  compiledWorker.agent.dynamicTools.map(({ slug }: { slug: string }) => slug),
+  ["capabilities"],
+);
 for (const denied of ["bash", "read_file", "write_file", "glob", "grep", "web_fetch", "web_search", "todo"]) {
   assert.ok(compiledWorker.agent.disabledFrameworkTools.includes(denied));
 }

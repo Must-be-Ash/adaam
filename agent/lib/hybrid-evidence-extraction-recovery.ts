@@ -14,7 +14,6 @@ import {
 } from "./hybrid-evidence-schema";
 import {
   HybridEvidencePdfError,
-  assertIndependentPdfValue,
   type HybridEvidencePdfProjection,
 } from "./hybrid-evidence-pdf";
 import {
@@ -129,6 +128,106 @@ function range(label: string) {
   });
 }
 
+function independentValueVariants(value: string): readonly string[] {
+  const normalized = value.replace(/\s+/gu, " ").trim().toLocaleLowerCase("en-US");
+  const date = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(normalized);
+  return date
+    ? Object.freeze([
+        normalized,
+        `${date[2]}/${date[3]}/${date[1]}`,
+        `${Number(date[2])}/${Number(date[3])}/${date[1]}`,
+      ])
+    : Object.freeze([normalized]);
+}
+
+function findIndependentValue(
+  text: string,
+  value: string,
+  startAt = 0,
+): Readonly<{ end: number; start: number }> | null {
+  let found: { end: number; start: number } | null = null;
+  for (const variant of independentValueVariants(value)) {
+    let start = text.indexOf(variant, startAt);
+    while (start !== -1) {
+      const before = start === 0 ? "" : text[start - 1]!;
+      const after = text[start + variant.length] ?? "";
+      const bounded = !/[a-z0-9]/iu.test(before) && !/[a-z0-9]/iu.test(after);
+      if (bounded) {
+        if (!found || start < found.start) found = { end: start + variant.length, start };
+        break;
+      }
+      start = text.indexOf(variant, start + 1);
+    }
+  }
+  return found === null ? null : Object.freeze(found);
+}
+
+function assertIndependentDocument(input: {
+  readonly document: z.infer<typeof houseCandidateSchema>["fields"]["document"];
+  readonly textByPage: ReadonlyMap<number, string>;
+}): void {
+  const text = [...input.textByPage.values()]
+    .join(" ")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .toLocaleLowerCase("en-US");
+  for (const value of [
+    input.document.docId,
+    input.document.filerName,
+    input.document.filingDate,
+    input.document.stateDistrict,
+  ]) {
+    if (!findIndependentValue(text, value)) {
+      throw new HybridEvidencePdfError("independent_value_mismatch");
+    }
+  }
+  const amendment = /\bamend(?:ed|ment)\b/iu.test(text);
+  if (input.document.isAmendment !== amendment) {
+    throw new HybridEvidencePdfError("independent_value_mismatch");
+  }
+  if (!input.document.isAmendment && !/\bperiodic transaction report\b/iu.test(text)) {
+    throw new HybridEvidencePdfError("independent_value_mismatch");
+  }
+}
+
+function assertedTicker(assetDescription: string): string | null {
+  return /\(([A-Z0-9.-]{1,20})\)\s*\[[A-Z]{1,8}\]/u.exec(assetDescription)?.[1] ?? null;
+}
+
+function assertIndependentRow(input: {
+  readonly page: number;
+  readonly row: z.infer<typeof houseCandidateSchema>["fields"]["rows"][number];
+  readonly textByPage: ReadonlyMap<number, string>;
+}): void {
+  const evidence = input.textByPage.get(input.page)
+    ?.replace(/\s+/gu, " ")
+    .trim()
+    .toLocaleLowerCase("en-US");
+  if (evidence === undefined) throw new HybridEvidencePdfError("citation_invalid");
+  if (assertedTicker(input.row.assetDescription) !== input.row.reportedTicker) {
+    throw new Error("source_relationship_invalid");
+  }
+  const values = [
+    input.row.ownerCode,
+    input.row.assetDescription,
+    input.row.transactionType,
+    input.row.transactionDate,
+    input.row.notificationDate,
+    input.row.amountRange,
+    input.row.capitalGainsIndicator === "unknown"
+      ? null
+      : input.row.capitalGainsIndicator,
+  ].filter((value): value is string => value !== null);
+  let cursor: number | null = null;
+  for (const value of values) {
+    const found = findIndependentValue(evidence, value, cursor ?? 0);
+    if (!found || (cursor !== null && found.start - cursor > 600)) {
+      throw new Error("source_relationship_invalid");
+    }
+    cursor = found.end;
+  }
+}
+
 export interface ValidatedHouseDocumentCandidate {
   readonly document: z.infer<typeof houseCandidateSchema>["fields"]["document"];
   readonly rows: readonly Readonly<{
@@ -189,21 +288,24 @@ export function validateHouseDocumentRowCandidate(input: {
       !page || citation.evidenceDigest !== page.evidenceDigest
     ) throw new HybridEvidencePdfError("citation_invalid");
   }
-  const rows = candidate.fields.rows.map((row, index) => {
+  assertIndependentDocument({
+    document: candidate.fields.document,
+    textByPage: input.independentTextByPage,
+  });
+  if (
+    candidate.fields.rows.length === 0 &&
+    ![...input.independentTextByPage.values()].some((text) =>
+      /\bno reportable transactions\b/iu.test(text))
+  ) throw new Error("source_relationship_invalid");
+  const rows = candidate.fields.rows.map((row) => {
     if (!citations.has(row.page)) throw new HybridEvidencePdfError("citation_invalid");
-    for (const value of [
-      row.amountRange,
-      row.assetDescription,
-      row.notificationDate,
-      row.transactionDate,
-    ]) assertIndependentPdfValue({ page: row.page, textByPage: input.independentTextByPage, value });
+    assertIndependentRow({ page: row.page, row, textByPage: input.independentTextByPage });
     return Object.freeze({
       ...row,
       amountRange: range(row.amountRange),
       rowEvidenceDigest: digestHybridEvidenceValue([
         input.artifactDigest,
         row.page,
-        index,
         row,
       ]),
     });
@@ -254,7 +356,7 @@ export function createAcceptedExtractionResult(input: {
   readonly job: HybridEvidenceJobRecord;
   readonly now: Date;
   readonly payload: Readonly<Record<string, unknown>>;
-  readonly usage?: {
+  readonly usage: {
     readonly inputTokens: number;
     readonly outputTokens: number;
     readonly paidCostUsd: string;
@@ -292,7 +394,7 @@ export function createAcceptedExtractionResult(input: {
     schemaVersion: 1,
     scope: input.job.job.scope,
     uncertainty: { confidence: null, coverage: "complete", unknowns: [] },
-    usage: input.usage ?? { inputTokens: 0, outputTokens: 0, paidCostUsd: "0" },
+    usage: input.usage,
     validatedAt: input.now.toISOString(),
     validationTrace: [{
       errorCode: null,

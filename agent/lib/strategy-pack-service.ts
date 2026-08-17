@@ -71,6 +71,8 @@ import {
 import { isReviewedPublicSource } from "./public-source-registry";
 import { inspectWorkspaceHybridEvidence } from "./hybrid-evidence-semantic";
 import type { WorkspaceSemanticEvidenceStoreClient } from "./hybrid-evidence-semantic-store";
+import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
+import type { PublicSourceSubscriptionStoreClient } from "./public-source-subscription-store";
 
 const REQUEST_BYTE_LIMIT = 16_384;
 const SHARED_HARD_DENIALS = Object.freeze([
@@ -388,6 +390,8 @@ export interface StrategyPackWorkspaceInspectionDependencies
   extends StrategyPackServiceReadDependencies {
   readonly hybridSemanticClient?: WorkspaceSemanticEvidenceStoreClient;
   readonly monitorClient?: WorkspaceMonitorStoreClient;
+  readonly publicSourceAcquisitionClient?: PublicSourceAcquisitionStoreClient;
+  readonly publicSourceSubscriptionClient?: PublicSourceSubscriptionStoreClient;
   readonly stateClient?: WorkspaceStateStoreClient;
 }
 
@@ -416,16 +420,19 @@ export async function inspectStrategyPackWorkspace(
     catalog: dependencies.catalog,
     environment,
   });
-  const [strategy, capabilities, monitors, hybridEvidence] = await Promise.all([
+  const monitors = await listWorkspaceMonitors(input.scope, dependencies.monitorClient);
+  const [strategy, capabilities, hybridEvidence] = await Promise.all([
     readWorkspaceDocument("strategy", input.scope, dependencies.stateClient),
     readWorkspaceDocument("capabilities", input.scope, dependencies.stateClient),
-    listWorkspaceMonitors(input.scope, dependencies.monitorClient),
     inspectWorkspaceHybridEvidence({
       environment,
       scope: input.scope,
+      sourceReferences: monitors.flatMap((monitor) => monitor.publicSourceSubscriptions ?? []),
     }, {
+      acquisition: dependencies.publicSourceAcquisitionClient,
       semantic: dependencies.hybridSemanticClient,
       state: dependencies.stateClient,
+      subscription: dependencies.publicSourceSubscriptionClient,
     }),
   ]);
   if (!strategy) {

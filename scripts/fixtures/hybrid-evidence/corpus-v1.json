@@ -8,7 +8,7 @@
       "lane": "source_global_extraction",
       "inputDigest": "1111111111111111111111111111111111111111111111111111111111111111",
       "deterministicParser": { "state": "unsupported", "errorCode": "pdf_layout_unsupported" },
-      "evidence": { "shape": "pdf", "byteCount": 4096, "imageOnly": true, "pageCount": 2, "slices": ["Page 1 region A", "Page 2 region B"] },
+      "evidence": { "shape": "pdf", "byteCount": 4096, "imageOnly": true, "pageCount": 2, "slices": ["Page 1 changed-layout region A: asset=Fixture Corp; owner=Self; transactionType=Purchase; transactionDate=2026-08-01.", "Page 2 changed-layout region B: amountRange=$1,001-$15,000."] },
       "mockCandidate": { "disposition": "accepted", "fields": { "asset": "Fixture Corp", "amountRange": "$1,001-$15,000" }, "citations": ["pdf:1:region-a", "pdf:2:region-b"], "unknowns": [] },
       "expected": { "outcome": "accepted", "errorCode": null, "modelRequired": true, "canonicalFactCreated": true, "sourceCursorAdvances": true },
       "tags": ["accepted"]
@@ -68,7 +68,7 @@
       "lane": "source_global_extraction",
       "inputDigest": "7777777777777777777777777777777777777777777777777777777777777777",
       "deterministicParser": { "state": "suspicious", "errorCode": "deterministic_false_success" },
-      "evidence": { "shape": "pdf", "byteCount": 4200, "imageOnly": false, "pageCount": 2, "slices": ["Schema-valid fields belong to mismatched rows"] },
+      "evidence": { "shape": "pdf", "byteCount": 4200, "imageOnly": false, "pageCount": 2, "slices": ["The deterministic parser joined two mismatched rows. The complete supported row is explicitly identified as rowIdentity: row-2."] },
       "mockCandidate": { "disposition": "accepted", "fields": { "rowIdentity": "row-2" }, "citations": ["pdf:2:row-2"], "unknowns": [] },
       "expected": { "outcome": "accepted", "errorCode": null, "modelRequired": true, "canonicalFactCreated": true, "sourceCursorAdvances": true },
       "tags": ["accepted", "false_success_layout"]
@@ -118,7 +118,7 @@
       "lane": "workspace_semantic",
       "inputDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "deterministicParser": { "state": "unsupported", "errorCode": "semantic_interpretation_required" },
-      "evidence": { "shape": "semantic_text", "text": "We are widening the range of outcomes we prepare for, even though demand remains healthy." },
+      "evidence": { "shape": "semantic_text", "text": "Although current demand remains healthy, uncertainty has increased, so we are taking a more defensive posture and widening downside contingencies." },
       "mockCandidate": { "disposition": "accepted", "fields": { "stance": "more_cautious" }, "citations": ["text:0:94"], "unknowns": [] },
       "expected": { "outcome": "accepted", "errorCode": null, "modelRequired": true, "canonicalFactCreated": false, "sourceCursorAdvances": false },
       "tags": ["accepted"]

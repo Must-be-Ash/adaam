@@ -88,13 +88,21 @@ const jobSummarySchema = z.object({
     paidCostUsd: z.string().regex(/^(?:0|[1-9]\d{0,3})(?:\.\d{1,4})?$/u),
   }).strict(),
 }).strict();
-const headSchema = z.object({ lineageKey: idSchema, resultId: idSchema }).strict();
+const headSchema = z.object({
+  advancedAt: z.string().datetime({ offset: true }).optional(),
+  cause: hybridInvalidationRecordSchema.shape.cause.optional(),
+  lineageKey: idSchema,
+  previousResultId: idSchema.nullable().optional(),
+  resultId: idSchema,
+}).strict();
 const healthConditionSchema = z.object({
   blockingNotified: z.boolean(),
+  blockingPending: z.boolean().optional(),
   count: z.number().int().nonnegative().max(1_000_000),
   conditionKey: digestSchema,
   lastJobId: idSchema,
   persistentNotified: z.boolean(),
+  persistentPending: z.boolean().optional(),
 }).strict();
 const indexSchema = z.object({
   healthConditions: z.array(healthConditionSchema).max(128),
@@ -333,6 +341,7 @@ export async function recordWorkspaceSemanticJob(input: {
   result?: HybridAcceptedResult | null;
   scope: AuthorizedWorkspaceStoreScope;
   source: WorkspaceSemanticSource;
+  usage?: Readonly<{ inputTokens: number; outputTokens: number; paidCostUsd: string }>;
 }, client: WorkspaceSemanticEvidenceStoreClient = store()): Promise<WorkspaceSemanticJobSummary> {
   const job = hybridEvidenceJobSchema.parse(input.job);
   if (job.scope.kind !== "workspace") {
@@ -356,16 +365,19 @@ export async function recordWorkspaceSemanticJob(input: {
     state: job.state,
     unknowns: result?.uncertainty.unknowns ?? [],
     updatedAt: job.updatedAt,
-    usage: result?.usage ?? { inputTokens: 0, outputTokens: 0, paidCostUsd: "0" },
+    usage: result?.usage ?? input.usage ?? { inputTokens: 0, outputTokens: 0, paidCostUsd: "0" },
   });
   return updateIndex(input.scope, client, (current) => {
     const index = current.jobs.findIndex(({ jobId }) => jobId === job.jobId);
     const jobs = [...current.jobs];
-    if (index >= 0) jobs[index] = summary;
+    const durableSummary = index >= 0 && !input.result && !input.usage
+      ? jobSummarySchema.parse({ ...summary, usage: jobs[index]!.usage })
+      : summary;
+    if (index >= 0) jobs[index] = durableSummary;
     else jobs.push(summary);
     return {
       next: { ...current, jobs: jobs.slice(-256), revision: current.revision + 1 },
-      result: Object.freeze(summary),
+      result: Object.freeze(durableSummary),
     };
   });
 }
@@ -381,16 +393,29 @@ export async function advanceWorkspaceSemanticHead(input: {
   semantic?: WorkspaceSemanticEvidenceStoreClient;
 } = {}): Promise<HybridInvalidationRecord | null> {
   let previousResultId: string | null = null;
+  let cause = input.cause;
+  let advancedAt = input.now.toISOString();
   await updateIndex(input.scope, clients.semantic ?? store(), (current) => {
     const currentHead = current.heads.find(({ lineageKey }) => lineageKey === input.lineageKey);
-    if (currentHead?.resultId === input.resultId) return { next: current, result: undefined };
+    if (currentHead?.resultId === input.resultId) {
+      previousResultId = currentHead.previousResultId ?? null;
+      cause = currentHead.cause ?? cause;
+      advancedAt = currentHead.advancedAt ?? advancedAt;
+      return { next: current, result: undefined };
+    }
     previousResultId = currentHead?.resultId ?? null;
     return {
       next: {
         ...current,
         heads: [
           ...current.heads.filter(({ lineageKey }) => lineageKey !== input.lineageKey),
-          { lineageKey: input.lineageKey, resultId: input.resultId },
+          {
+            advancedAt,
+            cause,
+            lineageKey: input.lineageKey,
+            previousResultId,
+            resultId: input.resultId,
+          },
         ],
         revision: current.revision + 1,
       },
@@ -399,14 +424,14 @@ export async function advanceWorkspaceSemanticHead(input: {
   });
   if (!previousResultId) return null;
   const invalidation = hybridInvalidationRecordSchema.parse({
-    cause: input.cause,
-    createdAt: input.now.toISOString(),
+    cause,
+    createdAt: advancedAt,
     invalidationId: `hybrid-invalidation.${digest(JSON.stringify([
       input.scope.ownerId,
       input.scope.workspaceId,
       previousResultId,
       input.resultId,
-      input.cause,
+      cause,
     ]))}`,
     recordType: "hybrid_evidence_invalidation",
     resultId: previousResultId,
@@ -494,19 +519,23 @@ export async function stageWorkspaceSemanticQuarantineHealth(input: {
   ]));
   return updateIndex(input.scope, client, (current) => {
     const previous = current.healthConditions.find((item) => item.conditionKey === conditionKey);
-    if (previous?.lastJobId === input.jobId) return { next: current, result: null };
-    const count = (previous?.count ?? 0) + 1;
-    const kind = !(previous?.blockingNotified ?? false)
+    const sameJob = previous?.lastJobId === input.jobId;
+    const count = (previous?.count ?? 0) + (sameJob ? 0 : 1);
+    const blockingPending = previous?.blockingPending ?? false;
+    const persistentPending = previous?.persistentPending ?? false;
+    const kind = blockingPending || !(previous?.blockingNotified ?? false)
       ? "blocking" as const
-      : count >= 3 && !(previous?.persistentNotified ?? false)
+      : persistentPending || (count >= 3 && !(previous?.persistentNotified ?? false))
         ? "persistent" as const
         : null;
     const condition = healthConditionSchema.parse({
-      blockingNotified: (previous?.blockingNotified ?? false) || kind === "blocking",
+      blockingNotified: previous?.blockingNotified ?? false,
+      blockingPending: kind === "blocking",
       count,
       conditionKey,
       lastJobId: input.jobId,
-      persistentNotified: (previous?.persistentNotified ?? false) || kind === "persistent",
+      persistentNotified: previous?.persistentNotified ?? false,
+      persistentPending: kind === "persistent",
     });
     const notification = kind === null ? null : Object.freeze({
       definitionVersion: input.definitionVersion,
@@ -525,6 +554,34 @@ export async function stageWorkspaceSemanticQuarantineHealth(input: {
         revision: current.revision + 1,
       },
       result: notification,
+    };
+  });
+}
+
+export async function acknowledgeWorkspaceSemanticHealthNotification(input: {
+  notificationId: string;
+  scope: AuthorizedWorkspaceStoreScope;
+}, client: WorkspaceSemanticEvidenceStoreClient = store()): Promise<void> {
+  await updateIndex(input.scope, client, (current) => {
+    const index = current.healthConditions.findIndex((condition) =>
+      (condition.blockingPending === true &&
+        `hybrid-health.${digest(JSON.stringify([condition.conditionKey, "blocking"]))}` === input.notificationId) ||
+      (condition.persistentPending === true &&
+        `hybrid-health.${digest(JSON.stringify([condition.conditionKey, "persistent"]))}` === input.notificationId));
+    if (index < 0) return { next: current, result: undefined };
+    const conditions = [...current.healthConditions];
+    const condition = conditions[index]!;
+    const blocking = condition.blockingPending === true;
+    conditions[index] = healthConditionSchema.parse({
+      ...condition,
+      blockingNotified: condition.blockingNotified || blocking,
+      blockingPending: false,
+      persistentNotified: condition.persistentNotified || !blocking,
+      persistentPending: false,
+    });
+    return {
+      next: { ...current, healthConditions: conditions, revision: current.revision + 1 },
+      result: undefined,
     };
   });
 }

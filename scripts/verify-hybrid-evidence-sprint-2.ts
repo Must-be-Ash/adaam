@@ -20,6 +20,10 @@ import {
   validateSpreadsheetMappingCandidate,
 } from "../agent/lib/hybrid-evidence-extraction-recovery";
 import {
+  HybridEvidenceDecoderProcessError,
+  runHybridEvidenceDecoderProcess,
+} from "../agent/lib/hybrid-evidence-decoder-process";
+import {
   acceptHybridEvidenceJob,
   prepareHybridEvidenceJob,
   readHybridEvidenceJob,
@@ -43,7 +47,10 @@ import {
   readHybridEvidenceSliceForWorker,
   type PreparedHybridEvidenceWorkerRun,
 } from "../agent/lib/hybrid-evidence-worker";
-import { createHouseHybridEvidenceRecovery } from "../agent/lib/house-hybrid-evidence-recovery";
+import {
+  createBoundedIndependentPdfOcr,
+  createHouseHybridEvidenceRecovery,
+} from "../agent/lib/house-hybrid-evidence-recovery";
 import {
   runHousePublicSourceAcquisition,
   runSharedHousePublicSourceAcquisition,
@@ -52,7 +59,10 @@ import {
 import type { PublicSourceAcquisitionStoreClient } from "../agent/lib/public-source-acquisition-store";
 import { HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID } from "../agent/lib/strategy-pack-reference-catalog";
 import type { WorkspaceBudgetLedgerClient } from "../agent/lib/workspace-budget-ledger";
-import type { WorkspaceGlobalBudgetClient } from "../agent/lib/workspace-dispatch-budget";
+import {
+  readGlobalDispatchBudgetLedger,
+  type WorkspaceGlobalBudgetClient,
+} from "../agent/lib/workspace-dispatch-budget";
 import { verifyHybridEvidenceWorkerToken } from "../agent/lib/hybrid-evidence-auth";
 
 class MemoryCas implements HybridEvidenceArtifactIndexClient,
@@ -70,6 +80,13 @@ class MemoryCas implements HybridEvidenceArtifactIndexClient,
 
   async get(key: string) {
     return this.values.get(key) ?? null;
+  }
+}
+
+class LosingCursorCas extends MemoryCas {
+  override async compareAndSet(key: string, expected: string | null, next: string) {
+    if (key.includes(":source-instance:") && expected !== null) return false;
+    return super.compareAndSet(key, expected, next);
   }
 }
 
@@ -111,6 +128,18 @@ const corpus = JSON.parse(await readFile(
 )) as { cases: readonly { lane: string; fixtureId: string }[] };
 assert.equal(corpus.cases.filter(({ lane }) => lane === "source_global_extraction").length, 11);
 
+const decoderTimeoutStartedAt = Date.now();
+await assert.rejects(
+  runHybridEvidenceDecoderProcess({
+    payload: {},
+    source: "for await (const _ of process.stdin) {} setInterval(() => undefined, 1000);",
+    timeoutMs: 100,
+  }),
+  (error) => error instanceof HybridEvidenceDecoderProcessError &&
+    error.code === "evidence_bounds_exceeded",
+);
+assert.ok(Date.now() - decoderTimeoutStartedAt < 2_000, "decoder timeout must kill and reap the child");
+
 const definitions = createExtractionRecoveryDefinitions([modelId]);
 const pdfDefinition = definitions.find((definition) => definition.allowedMediaTypes.includes("application/pdf"))!;
 const spreadsheetDefinition = definitions.find((definition) => definition.definitionId === SPREADSHEET_ROLE_DEFINITION_ID)!;
@@ -131,6 +160,22 @@ const scannedProjection = await projectHybridEvidencePdf(scannedPdf);
 assert.equal(scannedProjection.pageCount, 1);
 assert.equal(scannedProjection.pages[0]?.text, "");
 assert.ok((scannedProjection.pages[0]?.byteCount ?? Infinity) < 3 * 1_024 * 1_024);
+let boundedOcrCalls = 0;
+const boundedOcr = createBoundedIndependentPdfOcr({
+  async generate(input) {
+    boundedOcrCalls += 1;
+    assert.equal(input.modelId, "fixture/independent-ocr");
+    assert.equal(input.page, 1);
+    return "bounded OCR";
+  },
+  modelId: "fixture/independent-ocr",
+});
+assert.equal(await boundedOcr.recognize({ image: new Uint8Array(64), mediaType: "image/png", page: 1 }), "bounded OCR");
+await assert.rejects(
+  boundedOcr.recognize({ image: new Uint8Array(2_500_001), mediaType: "image/png", page: 1 }),
+  /evidence_bounds_exceeded/u,
+);
+assert.equal(boundedOcrCalls, 1);
 const validPdfCandidate = {
   citations: [{
     artifactDigest: scannedProjection.documentDigest,
@@ -150,7 +195,7 @@ const validPdfCandidate = {
     },
     rows: [{
       amountRange: "$1,001 - $15,000",
-      assetDescription: "Fixture Corp",
+      assetDescription: "Fixture Corp (FIX) [ST]",
       capitalGainsIndicator: "no" as const,
       notificationDate: "2026-03-04",
       ownerCode: "SP",
@@ -162,6 +207,47 @@ const validPdfCandidate = {
   },
   unknowns: [],
 };
+const validIndependentText = [
+  "Periodic Transaction Report",
+  "Filing ID #20000011",
+  "Filer Hon. Jordan Sample",
+  "State/District OR03",
+  "Filing Date 03/04/2026",
+  "SP Fixture Corp (FIX) [ST] P 03/01/2026 03/04/2026 $1,001 - $15,000 No",
+].join(" ");
+const directValidation = validateHouseDocumentRowCandidate({
+  artifactDigest: scannedProjection.documentDigest,
+  candidate: validPdfCandidate,
+  expected: validPdfCandidate.fields.document,
+  independentTextByPage: new Map([[1, validIndependentText]]),
+  projection: scannedProjection,
+});
+assert.equal(directValidation.rows.length, 1);
+for (const fields of [
+  { document: { ...validPdfCandidate.fields.document, isAmendment: true }, rows: validPdfCandidate.fields.rows },
+  { document: validPdfCandidate.fields.document, rows: [{ ...validPdfCandidate.fields.rows[0]!, ownerCode: "JT" }] },
+  { document: validPdfCandidate.fields.document, rows: [{ ...validPdfCandidate.fields.rows[0]!, transactionType: "S" as const }] },
+  { document: validPdfCandidate.fields.document, rows: [{ ...validPdfCandidate.fields.rows[0]!, reportedTicker: "BAD" }] },
+  { document: validPdfCandidate.fields.document, rows: [{ ...validPdfCandidate.fields.rows[0]!, capitalGainsIndicator: "yes" as const }] },
+]) {
+  assert.throws(() => validateHouseDocumentRowCandidate({
+    artifactDigest: scannedProjection.documentDigest,
+    candidate: { ...validPdfCandidate, fields },
+    expected: validPdfCandidate.fields.document,
+    independentTextByPage: new Map([[1, validIndependentText]]),
+    projection: scannedProjection,
+  }), /independent_value_mismatch|source_relationship_invalid/u);
+}
+assert.throws(() => validateHouseDocumentRowCandidate({
+  artifactDigest: scannedProjection.documentDigest,
+  candidate: {
+    ...validPdfCandidate,
+    fields: { ...validPdfCandidate.fields, rows: [validPdfCandidate.fields.rows[0]!, validPdfCandidate.fields.rows[0]!] },
+  },
+  expected: validPdfCandidate.fields.document,
+  independentTextByPage: new Map([[1, `${validIndependentText} ${validIndependentText}`]]),
+  projection: scannedProjection,
+}), /row_identity_ambiguous/u);
 assert.throws(
   () => validateHouseDocumentRowCandidate({
     artifactDigest: scannedProjection.documentDigest,
@@ -258,7 +344,7 @@ let currentRows: Array<{
   transactionType: "E" | "P" | "S";
 }> = [{
   amountRange: "$1,001 - $15,000",
-  assetDescription: "Fixture Corp",
+  assetDescription: "Fixture Corp (FIX) [ST]",
   capitalGainsIndicator: "no",
   notificationDate: "2026-03-04",
   ownerCode: "SP",
@@ -267,9 +353,28 @@ let currentRows: Array<{
   transactionDate: "2026-03-01",
   transactionType: "P",
 }];
-let currentOcr = "Fixture Corp $1,001 - $15,000 2026-03-04 2026-03-01";
+function currentIndependentOcr(): string {
+  return [
+    "Periodic Transaction Report",
+    "Filing ID #20000011",
+    `Filer ${currentFilerName}`,
+    "State/District OR03",
+    "Filing Date 03/04/2026",
+    ...(currentRows.length === 0
+      ? ["No reportable transactions"]
+      : currentRows.map((row) => [
+          row.ownerCode,
+          row.assetDescription,
+          row.transactionType,
+          row.transactionDate,
+          row.notificationDate,
+          row.amountRange,
+          row.capitalGainsIndicator,
+        ].filter((value): value is string => value !== null).join(" "))),
+  ].join(" ");
+}
 let workerCalls = 0;
-const ocr: IndependentPdfOcr = { async recognize() { return currentOcr; } };
+const ocr: IndependentPdfOcr = { async recognize() { return currentIndependentOcr(); } };
 const recovery = createHouseHybridEvidenceRecovery({
   clients: {
     artifacts,
@@ -281,6 +386,7 @@ const recovery = createHouseHybridEvidenceRecovery({
   dependencies: {
     async dispatch({ prepared }) {
       workerCalls += 1;
+      assert.match(prepared.request.input.message, /fields\.document must contain docId/u);
       const envelope = verifyHybridEvidenceWorkerToken(prepared.token, {}, environment);
       await completeThroughWorker({
         candidate: {
@@ -300,6 +406,7 @@ const recovery = createHouseHybridEvidenceRecovery({
         },
         prepared,
       });
+      return { inputTokens: 120, outputTokens: 30, paidCostUsd: "0.01" };
     },
     ocr,
   },
@@ -327,6 +434,12 @@ assert.equal(first.acquisition.facts.length, 2);
 assert.equal(first.acquisition.hybridPromotions.length, 1);
 assert.equal(workerCalls, 1);
 assert.equal(first.acquisition.facts.every((fact) => fact.extraction.state === "complete"), true);
+const firstUsage = (await readGlobalDispatchBudgetLedger(memory)).reservations.at(-1)!;
+assert.equal(firstUsage.reconciledInputTokens, 120);
+assert.equal(firstUsage.reconciledOutputTokens, 30);
+// Fixture OCR intentionally omits provider usage, so paid cost remains
+// conservatively charged at the per-call ceiling instead of becoming zero.
+assert.equal(firstUsage.reconciledPaidMicros, "1000000");
 
 let replayReads = 0;
 const replay = await runSharedHousePublicSourceAcquisition({
@@ -350,14 +463,12 @@ assert.equal(workerCalls, 1);
 
 currentFilerName = "Hon. Jordan Sample Jr.";
 currentRows = [{ ...currentRows[0]!, amountRange: "$15,001 - $50,000" }];
-currentOcr = "Fixture Corp $15,001 - $50,000 2026-03-04 2026-03-01";
 const corrected = await runRecoveredHouse("2026-08-16T20:00:00.000Z", "Jr.");
 assert.ok(corrected.acquisition.corrections.length >= 1);
 assert.equal(corrected.acquisition.hybridPromotions.length, 1);
 
 currentFilerName = "Hon. Jordan Sample Sr.";
 currentRows = [];
-currentOcr = "No reportable transactions";
 const retracted = await runRecoveredHouse("2026-08-16T22:00:00.000Z", "Sr.");
 assert.equal(retracted.acquisition.retractions.length, 1);
 assert.equal(retracted.acquisition.hybridPromotions.length, 1);
@@ -367,6 +478,30 @@ const lineageRecords = [...memory.values.values()].map((value) => {
 });
 assert.equal(lineageRecords.filter(({ recordType }) => recordType === "hybrid_evidence_promotion").length, 3);
 assert.equal(lineageRecords.filter(({ recordType }) => recordType === "hybrid_evidence_invalidation").length, 2);
+
+// A hybrid promotion is published only after the canonical acquisition wins
+// its cursor commit. Orphaned candidate facts from a losing commit carry no
+// authoritative promotion lineage.
+const losingCommit = new LosingCursorCas();
+await assert.rejects(runHousePublicSourceAcquisition({
+  client: losingCommit,
+  fetchDocument: async (url) => response(scannedPdf, "2026-08-16T23:00:00.000Z", url, "application/pdf"),
+  fetchIndex: async (url) => response(await houseIndex({ suffix: null }), "2026-08-16T23:00:00.000Z", url, "application/zip"),
+  hybridLineageClient: losingCommit,
+  recovery: {
+    async recover() {
+      return {
+        document: validPdfCandidate.fields.document,
+        resultId: "hybrid-result.fixture-losing-commit",
+        rows: [{ ...directValidation.rows[0]!, rowEvidenceDigest: digestHybridEvidenceValue("losing-commit-row") }],
+      };
+    },
+  },
+  sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  window: acquisitionWindow("2026-08-16T23:00:00.000Z"),
+}), /source_cursor_conflict/u);
+assert.equal([...losingCommit.values.values()].some((value) =>
+  value.includes('"recordType":"hybrid_evidence_promotion"')), false);
 
 // A supported deterministic PDF remains on the original path and never calls recovery.
 const deterministicClient = new MemoryCas();
@@ -476,6 +611,7 @@ const workbookResult = createAcceptedExtractionResult({
   job: workbookJob,
   now: new Date("2026-08-16T23:00:00.000Z"),
   payload: mapping as unknown as Record<string, unknown>,
+  usage: { inputTokens: 40, outputTokens: 10, paidCostUsd: "0.005" },
 });
 await acceptHybridEvidenceJob({ jobId: workbookJob.job.jobId, result: workbookResult }, memory);
 assert.equal(lineageRecords.some(({ resultId }) => resultId === workbookResult.resultId), false, "spreadsheet results must not promote");
