@@ -13,12 +13,13 @@ const MAX_RENDER_BYTES = 2_500_000;
 const MAX_RENDER_EDGE = 1_600;
 const MAX_OCR_CHARACTERS_PER_PAGE = 16_000;
 const MAX_PDF_RUNTIME_MS = 15_000;
+const MAX_PDF_PAGES = 64;
 
 function digestBytes(value: Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function assertPdfContainer(bytes: Uint8Array): void {
+function assertPdfContainer(bytes: Uint8Array, allowHttpLinks: boolean): void {
   if (
     bytes.byteLength < 5 ||
     bytes.byteLength > HYBRID_EVIDENCE_LIMITS.maximumArtifactBytes ||
@@ -27,7 +28,8 @@ function assertPdfContainer(bytes: Uint8Array): void {
   const raw = Buffer.from(bytes).toString("latin1");
   if (
     /\/(?:JavaScript|JS|Launch|EmbeddedFile|RichMedia|SubmitForm|ImportData)\b/u.test(raw) ||
-    /\/(?:URI|GoToR)\b/u.test(raw) ||
+    /\/GoToR\b/u.test(raw) ||
+    (!allowHttpLinks && /\/URI\b/u.test(raw)) ||
     /(?:file|ftp):\/\//iu.test(raw)
   ) throw new HybridEvidencePdfError("hostile_document");
 }
@@ -68,7 +70,7 @@ const pdfPageSchema = z.object({
   height: z.number().int().positive().max(MAX_RENDER_EDGE),
   imageBase64: z.string().max(Math.ceil(MAX_RENDER_BYTES * 4 / 3) + 8),
   mediaType: z.literal("image/png"),
-  page: z.number().int().positive().max(HYBRID_EVIDENCE_LIMITS.maximumArtifactPages),
+  page: z.number().int().positive().max(MAX_PDF_PAGES),
   text: z.string().max(MAX_OCR_CHARACTERS_PER_PAGE),
   textDigest: z.string().regex(/^[a-f0-9]{64}$/u),
   width: z.number().int().positive().max(MAX_RENDER_EDGE),
@@ -76,8 +78,8 @@ const pdfPageSchema = z.object({
 
 const pdfProjectionSchema = z.object({
   documentDigest: z.string().regex(/^[a-f0-9]{64}$/u),
-  pageCount: z.number().int().positive().max(HYBRID_EVIDENCE_LIMITS.maximumArtifactPages),
-  pages: z.array(pdfPageSchema).min(1).max(HYBRID_EVIDENCE_LIMITS.maximumArtifactPages),
+  pageCount: z.number().int().positive().max(MAX_PDF_PAGES),
+  pages: z.array(pdfPageSchema).min(1).max(MAX_PDF_PAGES),
 }).strict();
 
 function decoderError(error: unknown): HybridEvidencePdfError {
@@ -167,17 +169,29 @@ function normalizedText(value: string): string {
 
 export async function projectHybridEvidencePdf(
   bytes: Uint8Array,
+  options: Readonly<{
+    allowHttpLinks?: boolean;
+    maximumPages?: number;
+    preserveTextLines?: boolean;
+  }> = {},
 ): Promise<HybridEvidencePdfProjection> {
-  assertPdfContainer(bytes);
+  const allowHttpLinks = options.allowHttpLinks === true;
+  const maximumPages = options.maximumPages ?? HYBRID_EVIDENCE_LIMITS.maximumArtifactPages;
+  if (!Number.isInteger(maximumPages) || maximumPages < 1 || maximumPages > MAX_PDF_PAGES) {
+    throw new HybridEvidencePdfError("evidence_bounds_exceeded");
+  }
+  assertPdfContainer(bytes, allowHttpLinks);
   try {
     const decoded = pdfProjectionSchema.parse(await runHybridEvidenceDecoderProcess<unknown>({
       payload: {
         bytesBase64: Buffer.from(bytes).toString("base64"),
         maximumCharactersPerPage: MAX_OCR_CHARACTERS_PER_PAGE,
-        maximumPages: HYBRID_EVIDENCE_LIMITS.maximumArtifactPages,
+        maximumPages,
         maximumRenderBytes: MAX_RENDER_BYTES,
         maximumRenderEdge: MAX_RENDER_EDGE,
         operation: "project",
+        allowHttpLinks,
+        preserveTextLines: options.preserveTextLines === true,
       },
       source: HYBRID_EVIDENCE_PDF_DECODER_SOURCE,
       timeoutMs: MAX_PDF_RUNTIME_MS,

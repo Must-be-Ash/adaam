@@ -229,7 +229,7 @@ export const evidenceArtifactManifestSchema = z.object({
   schemaVersion: z.literal(HYBRID_EVIDENCE_SCHEMA_VERSION),
   sourceInstanceId: identifierSchema,
   storageKey: z.string().regex(
-    /^hybrid-evidence\/sha256\/[a-f0-9]{64}$/u,
+    /^hybrid-evidence(?:-private)?\/sha256\/[a-f0-9]{64}$/u,
   ),
   structure: artifactStructureSchema,
 }).strict().superRefine((artifact, context) => {
@@ -243,7 +243,10 @@ export const evidenceArtifactManifestSchema = z.object({
       artifact.structure.rowCount === null ||
       artifact.structure.columnCount === null
     )) ||
-    artifact.storageKey !== `hybrid-evidence/sha256/${artifact.contentDigest}` ||
+    ![
+      `hybrid-evidence/sha256/${artifact.contentDigest}`,
+      `hybrid-evidence-private/sha256/${artifact.contentDigest}`,
+    ].includes(artifact.storageKey) ||
     ((artifact.retention.state === "active") !== (artifact.retention.expiresAt === null)) ||
     (artifact.retention.expiresAt !== null && artifact.retention.expiresAt <= artifact.observedAt)
   ) {
@@ -297,11 +300,18 @@ const sourceFactLocatorSchema = z.object({
   payloadDigest: digestSchema,
 }).strict();
 
+const semanticResultLocatorSchema = z.object({
+  kind: z.literal("semantic_result"),
+  outputDigest: digestSchema,
+  resultId: identifierSchema,
+}).strict();
+
 export const evidenceLocatorSchema = z.union([
   pdfPageLocatorSchema,
   spreadsheetRangeLocatorSchema,
   textSpanLocatorSchema,
   sourceFactLocatorSchema,
+  semanticResultLocatorSchema,
 ]);
 
 const schemaReferenceSchema = z.object({
@@ -408,6 +418,7 @@ export const hybridEvidenceJobSchema = z.object({
   definitionVersion: semverSchema,
   idempotencyKey: digestSchema,
   inputDigest: digestSchema,
+  inputProjectionDigest: digestSchema.optional(),
   jobId: identifierSchema,
   locatorDigests: z.array(digestSchema).min(1).max(HYBRID_EVIDENCE_LIMITS.maximumCitations),
   modelId: identifierSchema,
@@ -548,6 +559,7 @@ export const hybridInvalidationRecordSchema = z.object({
     kind: z.enum([
       "binding_revision",
       "definition_revision",
+      "input_revision",
       "pack_revision",
       "source_revision",
       "validator_revision",

@@ -7,6 +7,7 @@ import {
   type PublicSourceAcquisitionStoreClient,
 } from "./public-source-acquisition-store";
 import {
+  resolveEarningsCallPublicSourceRuntimePath,
   resolveHousePublicSourceRuntimePath,
   resolveSecPublicSourceRuntimePath,
 } from "./public-source-flags";
@@ -22,7 +23,7 @@ import {
 } from "./workspace-store-authorization";
 
 const publicSourceWorkspaceHealthSchema = z.object({
-  adapterId: z.enum(["house-financial-disclosures", "sec-latest-filings"]),
+  adapterId: z.enum(["earnings-call-transcripts", "house-financial-disclosures", "sec-latest-filings"]),
   adapterVersion: z.string().max(40),
   cursor: z.object({
     revision: z.number().int().nonnegative(),
@@ -66,7 +67,9 @@ function runtimeState(
 ): PublicSourceWorkspaceHealth["runtimeState"] {
   const path = adapterId === "sec-latest-filings"
     ? resolveSecPublicSourceRuntimePath(environment)
-    : resolveHousePublicSourceRuntimePath(environment);
+    : adapterId === "earnings-call-transcripts"
+      ? resolveEarningsCallPublicSourceRuntimePath(environment)
+      : resolveHousePublicSourceRuntimePath(environment);
   if (path === "public_source_adapter") return "enabled";
   if (path === "public_source_misconfigured") return "misconfigured";
   return "disabled";

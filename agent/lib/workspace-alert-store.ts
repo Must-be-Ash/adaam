@@ -31,6 +31,7 @@ const alertSourceSchema = z.object({
 }).strict();
 const alertSchema = z.object({
   alertId: idSchema,
+  artifactRefs: z.array(idSchema).max(8).optional(),
   createdAt: timestampSchema,
   eventTime: timestampSchema.optional(),
   findingId: idSchema,
@@ -155,6 +156,7 @@ export async function stageWorkspaceAlert(input: {
   const alertId = `alert_${digest(input.finding.findingId)}`;
   const candidate = alertSchema.parse({
     alertId,
+    artifactRefs: input.finding.artifactRefs,
     createdAt: (input.now ?? new Date()).toISOString(),
     eventTime: input.finding.asOf,
     findingId: input.finding.findingId,

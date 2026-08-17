@@ -13,8 +13,8 @@ import {
   signHybridEvidenceWorkerEnvelope,
   verifyHybridEvidenceWorkerToken,
 } from "./hybrid-evidence-auth";
-import type { HybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
-import { createHybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
+import type { HybridEvidenceWorkerArtifactReader } from "./hybrid-evidence-artifact-store";
+import { createHybridEvidenceWorkerArtifactStore } from "./hybrid-evidence-artifact-store";
 import type { HybridEvidenceBudgetReservation } from "./hybrid-evidence-budget";
 import { readPublicSourceFactRevision } from "./public-source-acquisition-store";
 import {
@@ -33,7 +33,12 @@ import {
   type EvidenceLocator,
   type HybridEvidenceJobDefinition,
 } from "./hybrid-evidence-schema";
+import {
+  readWorkspaceSemanticEvidence,
+  type WorkspaceSemanticEvidence,
+} from "./hybrid-evidence-semantic-store";
 import { resolveHybridEvidenceWorkerFixtureClients } from "./hybrid-evidence-worker-test-fixtures";
+import { authorizeDeploymentWorkspaceStore } from "./workspace-store-authorization";
 
 export const HYBRID_EVIDENCE_WORKER_NODE_ID = "subagents/hybrid-evidence-worker";
 export const HYBRID_EVIDENCE_CAPABILITY_REVISION = 1;
@@ -84,8 +89,13 @@ type WorkerContext = {
 };
 
 export interface HybridEvidenceWorkerControlClients {
-  readonly artifacts: HybridEvidenceArtifactStore;
+  readonly artifacts: HybridEvidenceWorkerArtifactReader;
   readonly jobs?: HybridEvidenceJobStoreClient;
+  readonly readSemanticResult?: (input: {
+    readonly ownerId: string;
+    readonly resultId: string;
+    readonly workspaceId: string;
+  }) => Promise<WorkspaceSemanticEvidence | null>;
   readonly readSourceFact?: typeof readPublicSourceFactRevision;
 }
 
@@ -123,6 +133,7 @@ function assertEnvelopeMatchesRecord(
 
 function typedPrompt(input: {
   definition: HybridEvidenceJobDefinition;
+  inputProjection?: unknown;
   job: HybridEvidenceJobRecord["job"];
   locators: readonly EvidenceLocator[];
 }): string {
@@ -146,6 +157,7 @@ function typedPrompt(input: {
         jobId: input.job.jobId,
         purpose: input.job.purpose,
       },
+      ...(input.inputProjection === undefined ? {} : { inputProjection: input.inputProjection }),
       locators: input.locators,
     }),
     "</hybrid-evidence-job-v1>",
@@ -156,6 +168,7 @@ export async function prepareHybridEvidenceWorkerRun(input: {
   budget: HybridEvidenceBudgetReservation;
   definition: HybridEvidenceJobDefinition;
   environment?: NodeJS.ProcessEnv;
+  inputProjection?: unknown;
   jobClient?: HybridEvidenceJobStoreClient;
   locators: readonly EvidenceLocator[];
   now?: Date;
@@ -169,7 +182,11 @@ export async function prepareHybridEvidenceWorkerRun(input: {
     input.prepared.job.definitionDigest !== definition.definitionDigest ||
     input.prepared.job.locatorDigests.join("\0") !==
       locators.map(digestHybridEvidenceValue).sort().join("\0") ||
-    input.budget.reservationKey !== input.prepared.job.budgetReservation.key
+    input.budget.reservationKey !== input.prepared.job.budgetReservation.key ||
+    (input.prepared.job.inputProjectionDigest === undefined) !==
+      (input.inputProjection === undefined) ||
+    (input.inputProjection !== undefined &&
+      digestHybridEvidenceValue(input.inputProjection) !== input.prepared.job.inputProjectionDigest)
   ) throw new HybridEvidenceWorkerError("input_projection_invalid");
   const expiresAt = new Date(
     now.getTime() + Math.min(definition.limits.maximumRuntimeMs, 15 * 60_000),
@@ -193,7 +210,12 @@ export async function prepareHybridEvidenceWorkerRun(input: {
     jobId: input.prepared.job.jobId,
     now,
   }, input.jobClient);
-  const prompt = typedPrompt({ definition, job: record.job, locators });
+  const prompt = typedPrompt({
+    definition,
+    inputProjection: input.inputProjection,
+    job: record.job,
+    locators,
+  });
   if (Buffer.byteLength(prompt, "utf8") > MAX_PROMPT_BYTES) {
     throw new HybridEvidenceWorkerError("worker_prompt_too_large");
   }
@@ -248,6 +270,47 @@ export async function readHybridEvidenceSliceForWorker(input: {
     }
     return Object.freeze({
       artifactDigest: locator.payloadDigest,
+      byteCount,
+      content,
+      contentKind: "text" as const,
+      locatorDigest,
+      mediaType: "application/json" as const,
+    });
+  }
+  if (locator.kind === "semantic_result") {
+    if (envelope.scope.kind !== "workspace") {
+      throw new HybridEvidenceWorkerError("capability_denied");
+    }
+    const result = input.clients.readSemanticResult
+      ? await input.clients.readSemanticResult({
+          ownerId: envelope.scope.ownerId,
+          resultId: locator.resultId,
+          workspaceId: envelope.scope.workspaceId,
+        })
+      : await readWorkspaceSemanticEvidence({
+          resultId: locator.resultId,
+          scope: authorizeDeploymentWorkspaceStore({
+            ownerId: envelope.scope.ownerId,
+            workspaceId: envelope.scope.workspaceId,
+          }, input.environment),
+        });
+    if (!result || result.result.outputDigest !== locator.outputDigest) {
+      throw new HybridEvidenceWorkerError("input_projection_invalid");
+    }
+    const content = JSON.stringify({
+      citations: result.result.citations,
+      disposition: result.result.disposition,
+      outputDigest: result.result.outputDigest,
+      payload: result.result.payload,
+      resultId: result.result.resultId,
+      uncertainty: result.result.uncertainty,
+    });
+    const byteCount = Buffer.byteLength(content, "utf8");
+    if (byteCount > Math.min(HYBRID_EVIDENCE_LIMITS.maximumPayloadBytes, envelope.evidenceLimits.maximumBytes)) {
+      throw new HybridEvidenceWorkerError("input_projection_invalid");
+    }
+    return Object.freeze({
+      artifactDigest: locator.outputDigest,
       byteCount,
       content,
       contentKind: "text" as const,
@@ -318,10 +381,10 @@ export const completeHybridEvidenceJobTool = defineTool({
   },
 });
 
-function createDefaultHybridEvidenceArtifactStore(): HybridEvidenceArtifactStore {
+function createDefaultHybridEvidenceArtifactStore(): HybridEvidenceWorkerArtifactReader {
   // Keep default client resolution out of module initialization so Eve build and
   // dynamic discovery never require deployment credentials.
-  return createHybridEvidenceArtifactStore();
+  return createHybridEvidenceWorkerArtifactStore();
 }
 
 const adapter: ChannelAdapter = Object.freeze({ kind: "schedule" });

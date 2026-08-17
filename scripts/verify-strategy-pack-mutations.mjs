@@ -15,6 +15,13 @@ import {
 } from "../agent/lib/strategy-pack-catalog.ts";
 import { STRATEGY_PACK_CAPABILITY_INVENTORY } from "../agent/lib/strategy-pack-reference-catalog.ts";
 import {
+  EARNINGS_CALL_TRANSCRIPTS_SOURCE_ALLOWED_ORIGINS,
+  EARNINGS_CALL_TRANSCRIPTS_SOURCE_CONTRACT_DIGEST,
+  EARNINGS_CALL_TRANSCRIPTS_SOURCE_CONTRACT_VERSION,
+  EARNINGS_CALL_TRANSCRIPTS_SOURCE_ID,
+  EARNINGS_CALL_TRANSCRIPTS_SOURCE_URL,
+} from "../agent/lib/strategy-pack-reference-catalog.ts";
+import {
   requireWorkspaceWorkerStrategyPackRuntime,
   StrategyPackRuntimeError,
 } from "../agent/lib/strategy-pack-runtime.ts";
@@ -68,6 +75,14 @@ const references = Object.freeze({
     ],
   },
   findingSchemaIds: ["finding.alpha/v1", "finding.beta/v1"],
+  parameterizedSourceContracts: {
+    [EARNINGS_CALL_TRANSCRIPTS_SOURCE_ID]: {
+      allowedOrigins: EARNINGS_CALL_TRANSCRIPTS_SOURCE_ALLOWED_ORIGINS,
+      canonicalUrl: EARNINGS_CALL_TRANSCRIPTS_SOURCE_URL,
+      contractDigest: EARNINGS_CALL_TRANSCRIPTS_SOURCE_CONTRACT_DIGEST,
+      contractVersion: EARNINGS_CALL_TRANSCRIPTS_SOURCE_CONTRACT_VERSION,
+    },
+  },
   sourceContracts: {
     "source.alpha": {
       allowedOrigins: ["https://alpha.example.gov"],
@@ -236,6 +251,7 @@ try {
     activateMonitorResourceIds: ["detect-alpha"],
     configuration: {
       dailyTimes: ["09:00", "16:00"],
+      selectedIssuerCiks: ["0000789019", "0001326801"],
       timezone: "America/Vancouver",
     },
     expectedRegistryRevision: initial.revision,
@@ -314,6 +330,10 @@ try {
     origin: "https://alpha.example.gov",
     sourceId: "source.alpha",
   });
+  assert.deepEqual(
+    capabilities?.value.sources.slice(1).map(({ sourceId }) => sourceId),
+    [],
+  );
   const monitors = await listWorkspaceMonitors(targetScope, client);
   assert.equal(monitors.length, 1);
   assert.equal(monitors[0].lifecycleState, "enabled");
@@ -682,7 +702,11 @@ try {
   const configured = await configureStrategyPackWorkspaceFromSelection({
     ...routing,
     confirmedConsequences: true,
-    configuration: { dailyTimes: ["08:30"], timezone: "America/Vancouver" },
+    configuration: {
+      dailyTimes: ["08:30"],
+      selectedIssuerCiks: ["0000019617", "0001048911"],
+      timezone: "America/Vancouver",
+    },
     expectedBindingRevision: 1,
     expectedRegistryRevision: 2,
     now: new Date("2026-08-15T17:05:00.000Z"),
@@ -700,6 +724,21 @@ try {
   const configuredStrategy = await readWorkspaceDocument("strategy", targetScope, client);
   assert.equal(configuredStrategy.value.bindingRevision, 2);
   assert.equal(configuredStrategy.value.pendingSnapshot.workspaceGeneration, 2);
+  assert.equal(configuredStrategy.value.effectiveCapabilityManifestRevision, 2);
+  assert.equal(configuredStrategy.value.pendingSnapshot.capabilityManifestRevision, 2);
+  const configuredCapabilities = await readWorkspaceDocument("capabilities", targetScope, client);
+  assert.equal(configuredCapabilities.revision, 2);
+  assert.deepEqual(
+    configuredCapabilities.value.sources.slice(1).map(({ sourceId }) => sourceId),
+    ["earnings-call-transcripts.0000019617"],
+  );
+  const configuredBrief = await readWorkspaceDocument("brief", targetScope, client);
+  assert.ok(configuredBrief.value.sourcePolicy.allowedSourceIds.includes(
+    "earnings-call-transcripts.0000019617",
+  ));
+  assert.ok(!configuredBrief.value.sourcePolicy.allowedSourceIds.includes(
+    "earnings-call-transcripts.0001326801",
+  ));
   const configuredMonitors = await listWorkspaceMonitors(targetScope, client);
   const configuredManaged = configuredMonitors.find((monitor) => monitor.managedBy);
   assert.equal(configuredManaged.lifecycleState, "paused");
@@ -727,7 +766,11 @@ try {
     (await configureStrategyPackWorkspaceFromSelection({
       ...routing,
       confirmedConsequences: true,
-      configuration: { dailyTimes: ["08:30"], timezone: "America/Vancouver" },
+      configuration: {
+        dailyTimes: ["08:30"],
+        selectedIssuerCiks: ["0000019617", "0001048911"],
+        timezone: "America/Vancouver",
+      },
       expectedBindingRevision: 1,
       expectedRegistryRevision: 2,
       requestIdentity: configureIdentity,

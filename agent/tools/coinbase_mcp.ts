@@ -1,13 +1,18 @@
 import { defineDynamic, defineTool } from "eve/tools";
 
 import {
-  coinbaseApproval,
+  coinbaseInteractiveCapabilityIds,
   coinbasePrincipal,
   coinbasePrincipalAllowed,
   coinbaseToolIsPrivateRead,
   coinbaseToolRequiresApproval,
   requireCoinbaseAccess,
 } from "../lib/coinbase-access";
+import {
+  coinbaseInteractiveApproval,
+  InteractiveToolCapabilityDeniedError,
+  requireInteractiveToolCapabilities,
+} from "../lib/interactive-tool-capabilities";
 import {
   callCoinbaseMcpTool,
   listCoinbaseMcpTools,
@@ -170,6 +175,16 @@ export default defineDynamic({
     "step.started": async (_event, ctx) => {
       const principal = coinbasePrincipal(ctx.session);
       if (!principal || !coinbasePrincipalAllowed(principal)) return null;
+      try {
+        await requireInteractiveToolCapabilities({
+          capabilityIds: ["coinbase_mcp"],
+          ctx,
+          toolId: "coinbase_mcp",
+        });
+      } catch (error) {
+        if (error instanceof InteractiveToolCapabilityDeniedError) return null;
+        throw error;
+      }
 
       const definitions = (await availableTools()).filter((definition) =>
         ALLOWED_TOOLS.has(definition.name),
@@ -186,8 +201,18 @@ export default defineDynamic({
               description: toolDescription(definition),
               inputSchema: definition.inputSchema,
               approval: (approvalCtx) =>
-                coinbaseApproval(approvalCtx, requiresApproval),
+                coinbaseInteractiveApproval({
+                  capabilityIds: coinbaseInteractiveCapabilityIds(toolName),
+                  ctx: approvalCtx,
+                  requiresUserApproval: requiresApproval,
+                  toolId: toolName,
+                }),
               async execute(input, toolCtx) {
+                await requireInteractiveToolCapabilities({
+                  capabilityIds: coinbaseInteractiveCapabilityIds(toolName),
+                  ctx: toolCtx,
+                  toolId: toolName,
+                });
                 const authorizedPrincipal = requireCoinbaseAccess(toolCtx);
                 const toolInput = spotOnlyInput(
                   toolName,

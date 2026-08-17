@@ -374,9 +374,9 @@ ordinary-path failure:
 
 ### Spec 4A follow-on consumers and hardening
 
-- [ ] Implement Spec 4B Earnings Call Changes as the first real transcript
-  consumer of the shared workspace semantic lane; its connector, strategy,
-  schema, corpus, and rollout remain owned by Spec 4B.
+- [x] Implement Spec 4B Earnings Call Changes as the first real transcript
+  consumer of the shared workspace semantic lane, including its reviewed
+  connector, strategy, schema, corpus, production smoke, and rollback.
 - [ ] Select Spec 4C's different connector/content shape only after source
   viability, terms, cost, and acceptance data are known; reuse the shared job,
   artifact, budget, provenance, and quarantine APIs without widening them by
@@ -384,9 +384,23 @@ ordinary-path failure:
 - [ ] Keep broader OCR layouts, parser fuzzing, long archive replay, and new
   document/content types in their owning connector specs unless an observed
   shared-layer failure justifies a bounded Spec 4A hardening change.
-- [ ] Keep the parent and both hybrid children off until a consumer-specific
-  production smoke is owner-authorized; the accepted foundation is not a silent
-  strategy rollout.
+- [x] Keep the parent and both hybrid children off until a consumer-specific
+  production smoke is owner-authorized. Spec 4B completed that smoke and
+  returned the parent, both children, earnings, dispatch, and alerts to off.
+
+### Spec 4B deferred hardening
+
+- [ ] Add reviewed ongoing listing discovery for Microsoft, Meta, FedEx, and
+  Disney before promising forward monitoring for those issuers. JPM is the only
+  v1 family with an accepted bounded first-party listing feed; the other locked
+  families remain explicit baseline-only or coverage-unavailable states.
+- [ ] Design and evaluate a coverage-preserving long-call reduction contract
+  before widening the frozen 24,000-token aggregate semantic envelope. Calls
+  above it currently abstain explicitly rather than silently truncating.
+- [ ] Add a deployment-wide janitor for private ephemeral earnings artifacts
+  before relying on cleanup after abrupt process death. Normal success,
+  failure, correction, and replay paths delete deterministically; a killed
+  process can leave a blob until the same occurrence runs again.
 
 ## 3. Event-trigger work
 
@@ -438,7 +452,7 @@ and replacements remain deferred until the owner selects that product work.
 
 ### Candidate packs documented but not implemented
 
-- [ ] Spec 4B Earnings Call Changes as a versioned transcript-backed pack.
+- [x] Spec 4B Earnings Call Changes as a versioned transcript-backed pack.
 - [ ] Insider-buying clusters.
 - [x] Congressional trading signals — House v1 is production accepted; Senate
   or broader congressional coverage remains a separate source/policy extension.

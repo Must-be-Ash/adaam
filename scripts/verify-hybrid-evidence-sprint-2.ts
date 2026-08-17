@@ -31,6 +31,7 @@ import {
 } from "../agent/lib/hybrid-evidence-job-store";
 import type { HybridEvidenceLineageStoreClient } from "../agent/lib/hybrid-evidence-lineage-store";
 import {
+  HybridEvidencePdfError,
   projectHybridEvidencePdf,
   type IndependentPdfOcr,
 } from "../agent/lib/hybrid-evidence-pdf";
@@ -120,6 +121,7 @@ Object.assign(process.env, environment, {
 
 const root = new URL("./fixtures/public-source-adapters/house/real-layout/", import.meta.url);
 const scannedPdf = new Uint8Array(await readFile(new URL("ptr-scanned.pdf", root)));
+const linkedPdf = new Uint8Array(await readFile(new URL("../live-review-2026-08-16/ptr-02.pdf", root)));
 const singlePdf = new Uint8Array(await readFile(new URL("ptr-single-row.pdf", root)));
 const representativeIndex = new Uint8Array(await readFile(new URL("2026FD.zip", root)));
 const corpus = JSON.parse(await readFile(
@@ -160,6 +162,19 @@ const scannedProjection = await projectHybridEvidencePdf(scannedPdf);
 assert.equal(scannedProjection.pageCount, 1);
 assert.equal(scannedProjection.pages[0]?.text, "");
 assert.ok((scannedProjection.pages[0]?.byteCount ?? Infinity) < 3 * 1_024 * 1_024);
+await assert.rejects(
+  projectHybridEvidencePdf(linkedPdf),
+  (error) => error instanceof HybridEvidencePdfError && error.code === "hostile_document",
+);
+assert.ok((await projectHybridEvidencePdf(linkedPdf, { allowHttpLinks: true })).pageCount > 0);
+assert.ok((await projectHybridEvidencePdf(linkedPdf, {
+  allowHttpLinks: true,
+  preserveTextLines: true,
+})).pages.some(({ text }) => text.includes("\n")));
+await assert.rejects(
+  projectHybridEvidencePdf(linkedPdf, { allowHttpLinks: true, maximumPages: 65 }),
+  (error) => error instanceof HybridEvidencePdfError && error.code === "evidence_bounds_exceeded",
+);
 let boundedOcrCalls = 0;
 const boundedOcr = createBoundedIndependentPdfOcr({
   async generate(input) {

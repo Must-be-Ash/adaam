@@ -69,6 +69,7 @@ export class HybridEvidenceJobStoreError extends Error {
   constructor(readonly code:
     | "artifact_digest_mismatch"
     | "definition_digest_mismatch"
+    | "input_projection_invalid"
     | "job_conflict"
     | "job_not_found"
     | "job_record_corrupt"
@@ -189,6 +190,7 @@ export async function prepareHybridEvidenceJob(input: {
   artifacts: readonly EvidenceArtifactManifest[];
   definition: HybridEvidenceJobDefinition;
   inputContextDigest?: string;
+  inputProjection?: unknown;
   locators: readonly EvidenceLocator[];
   modelId: string;
   now?: Date;
@@ -209,7 +211,7 @@ export async function prepareHybridEvidenceJob(input: {
         !definition.allowedAdapterIds.includes(artifact.parserEligibility.adapterId))
     ) ||
     locators.some((locator) =>
-      locator.kind !== "source_fact" &&
+      "artifactDigest" in locator &&
       !artifacts.some(({ contentDigest }) => contentDigest === locator.artifactDigest)
     )
   ) {
@@ -223,6 +225,13 @@ export async function prepareHybridEvidenceJob(input: {
     modelId: input.modelId,
     scope,
   });
+  const inputProjectionDigest = input.inputProjection === undefined
+    ? undefined
+    : digestHybridEvidenceValue(input.inputProjection);
+  if (
+    inputProjectionDigest !== undefined &&
+    input.inputContextDigest !== inputProjectionDigest
+  ) throw new HybridEvidenceJobStoreError("input_projection_invalid");
   const jobId = `hybrid-job.${inputDigest}`;
   const timestamp = (input.now ?? new Date()).toISOString();
   const job = hybridEvidenceJobSchema.parse({
@@ -240,6 +249,7 @@ export async function prepareHybridEvidenceJob(input: {
     definitionVersion: definition.definitionVersion,
     idempotencyKey: inputDigest,
     inputDigest,
+    ...(inputProjectionDigest === undefined ? {} : { inputProjectionDigest }),
     jobId,
     locatorDigests: locators.map(digestHybridEvidenceValue).sort(),
     modelId: input.modelId,

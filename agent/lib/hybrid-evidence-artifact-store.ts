@@ -22,6 +22,7 @@ import {
 } from "./hybrid-evidence-spreadsheet";
 
 const INDEX_KEY = "eve:hybrid-evidence:v1:artifact-index";
+const EPHEMERAL_INDEX_KEY = "eve:hybrid-evidence:v1:ephemeral-artifact-index";
 const MAX_CAS_ATTEMPTS = 8;
 const MAX_INDEX_BYTES = 512 * 1_024;
 const MAX_ARTIFACTS = 1_024;
@@ -84,6 +85,7 @@ export interface HybridEvidenceArtifactQuota {
 
 export interface HybridEvidenceArtifactStore {
   collectExpired(input?: { now?: Date }): Promise<readonly string[]>;
+  deleteUnreferenced(artifactDigest: string): Promise<boolean>;
   persist(input: PersistHybridEvidenceArtifactInput): Promise<EvidenceArtifactManifest>;
   readManifest(artifactDigest: string): Promise<EvidenceArtifactManifest | null>;
   readSlice(input: {
@@ -101,6 +103,14 @@ export interface HybridEvidenceArtifactStore {
     now?: Date;
     state: "active" | "orphaned" | "quarantined";
   }): Promise<EvidenceArtifactManifest>;
+}
+
+export interface HybridEvidenceWorkerArtifactReader {
+  readManifest(artifactDigest: string): Promise<EvidenceArtifactManifest | null>;
+  readSlice(input: {
+    locator: EvidenceLocator;
+    maximumBytes: number;
+  }): Promise<HybridEvidenceSlice>;
 }
 
 export interface PersistHybridEvidenceArtifactInput {
@@ -194,6 +204,26 @@ const blobStore: HybridEvidenceBlobClient = {
   },
 };
 
+const privateBlobStore: HybridEvidenceBlobClient = {
+  async delete(storageKey) {
+    await del(storageKey);
+  },
+  async get(storageKey) {
+    const result = await get(storageKey, { access: "private", useCache: false });
+    if (!result || result.statusCode !== 200) return null;
+    return new Uint8Array(await new Response(result.stream).arrayBuffer());
+  },
+  async put(storageKey, bytes, mediaType) {
+    await put(storageKey, Buffer.from(bytes), {
+      access: "private",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: mediaType,
+      maximumSizeInBytes: HYBRID_EVIDENCE_LIMITS.maximumArtifactBytes,
+    });
+  },
+};
+
 function rawValue(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   return typeof value === "string" ? value : JSON.stringify(value);
@@ -213,18 +243,21 @@ function parseIndex(raw: string | null): ArtifactIndex {
 
 async function updateIndex<T>(
   client: HybridEvidenceArtifactIndexClient,
+  indexKey: string,
   mutate: (index: ArtifactIndex) => { index: ArtifactIndex; result: T },
 ): Promise<T> {
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
-    const currentRaw = rawValue(await client.get(INDEX_KEY));
-    const mutation = mutate(parseIndex(currentRaw));
+    const currentRaw = rawValue(await client.get(indexKey));
+    const current = parseIndex(currentRaw);
+    const mutation = mutate(current);
+    if (mutation.index === current) return mutation.result;
     const parsed = indexSchema.safeParse(mutation.index);
     if (!parsed.success) throw new HybridEvidenceArtifactStoreError("artifact_store_corrupt");
     const nextRaw = JSON.stringify(parsed.data);
     if (Buffer.byteLength(nextRaw, "utf8") > MAX_INDEX_BYTES) {
       throw new HybridEvidenceArtifactStoreError("artifact_quota_exceeded");
     }
-    if (await client.compareAndSet(INDEX_KEY, currentRaw, nextRaw)) return mutation.result;
+    if (await client.compareAndSet(indexKey, currentRaw, nextRaw)) return mutation.result;
   }
   throw new HybridEvidenceArtifactStoreError("artifact_store_conflict");
 }
@@ -250,8 +283,8 @@ function artifactId(digest: string): string {
   return `hybrid-evidence.artifact.${digest}`;
 }
 
-function storageKey(digest: string): string {
-  return `hybrid-evidence/sha256/${digest}`;
+function storageKey(digest: string, prefix: string): string {
+  return `${prefix}/${digest}`;
 }
 
 function digestBytes(bytes: Uint8Array): string {
@@ -285,7 +318,10 @@ function validateLocatorBounds(
   manifest: EvidenceArtifactManifest,
   locator: EvidenceLocator,
 ): void {
-  if (locator.kind === "source_fact" || locator.artifactDigest !== manifest.contentDigest) {
+  if (
+    !("artifactDigest" in locator) ||
+    locator.artifactDigest !== manifest.contentDigest
+  ) {
     throw new HybridEvidenceArtifactStoreError("locator_out_of_bounds");
   }
   if (
@@ -326,16 +362,22 @@ function validateLocatorBounds(
 
 export function createHybridEvidenceArtifactStore(options: {
   blob?: HybridEvidenceBlobClient;
+  indexKey?: string;
   index?: HybridEvidenceArtifactIndexClient;
   quota?: HybridEvidenceArtifactQuota;
+  retainAcceptedResultReferences?: boolean;
+  storageKeyPrefix?: string;
 } = {}): HybridEvidenceArtifactStore {
   const indexClient = options.index ?? redisStore();
   const blobs = options.blob ?? blobStore;
+  const indexKey = options.indexKey ?? INDEX_KEY;
   const quota = options.quota ?? defaultQuota();
+  const retainAcceptedResultReferences = options.retainAcceptedResultReferences ?? true;
+  const storageKeyPrefix = options.storageKeyPrefix ?? "hybrid-evidence/sha256";
   assertQuota(quota);
 
   const readEntry = async (digest: string) => {
-    const index = parseIndex(rawValue(await indexClient.get(INDEX_KEY)));
+    const index = parseIndex(rawValue(await indexClient.get(indexKey)));
     return index.artifacts.find(({ deletionToken, manifest }) =>
       !deletionToken && manifest.contentDigest === digest) ?? null;
   };
@@ -343,7 +385,7 @@ export function createHybridEvidenceArtifactStore(options: {
   const artifactStore: HybridEvidenceArtifactStore = {
     async collectExpired(input: { now?: Date } = {}) {
       const now = input.now ?? new Date();
-      const claimed = await updateIndex(indexClient, (current) => {
+      const claimed = await updateIndex(indexClient, indexKey, (current) => {
         const removable = current.artifacts.filter(({ deletionToken, manifest, references }) =>
           !deletionToken &&
           references.every(({ active }) => !active) &&
@@ -360,6 +402,7 @@ export function createHybridEvidenceArtifactStore(options: {
             now.toISOString(),
           ]),
         }));
+        if (claims.length === 0) return { index: current, result: claims };
         const tokens = new Map(claims.map(({ digest, token }) => [digest, token]));
         return {
           index: {
@@ -368,49 +411,105 @@ export function createHybridEvidenceArtifactStore(options: {
               ...entry,
               deletionToken: tokens.get(entry.manifest.contentDigest) ?? entry.deletionToken,
             })),
-            revision: removable.length === 0 ? current.revision : current.revision + 1,
+            revision: current.revision + 1,
           },
           result: claims,
         };
       });
+      if (claimed.length === 0) return Object.freeze([]);
       const deletions = await Promise.allSettled(
         claimed.map(({ storageKey: key }) => blobs.delete(key)),
       );
       if (deletions.some(({ status }) => status === "rejected")) {
-        await updateIndex(indexClient, (current) => {
+        await updateIndex(indexClient, indexKey, (current) => {
           const tokens = new Map(claimed.map(({ digest, token }) => [digest, token]));
+          let changed = false;
+          const artifacts = current.artifacts.map((entry) => {
+            const token = tokens.get(entry.manifest.contentDigest);
+            if (token === undefined || entry.deletionToken !== token) return entry;
+            changed = true;
+            return { ...entry, deletionToken: null };
+          });
+          if (!changed) return { index: current, result: undefined };
           return {
             index: {
               ...current,
-              artifacts: current.artifacts.map((entry) => {
-                const token = tokens.get(entry.manifest.contentDigest);
-                return token !== undefined && entry.deletionToken === token
-                  ? { ...entry, deletionToken: null }
-                  : entry;
-              }),
-              revision: claimed.length === 0 ? current.revision : current.revision + 1,
+              artifacts,
+              revision: current.revision + 1,
             },
             result: undefined,
           };
         });
         throw new HybridEvidenceArtifactStoreError("storage_unavailable");
       }
-      return updateIndex(indexClient, (current) => {
+      return updateIndex(indexClient, indexKey, (current) => {
         const tokens = new Map(claimed.map(({ digest, token }) => [digest, token]));
         const matchesClaim = (entry: ArtifactIndex["artifacts"][number]) => {
           const token = tokens.get(entry.manifest.contentDigest);
           return token !== undefined && entry.deletionToken === token;
         };
         const deleted = current.artifacts.filter(matchesClaim);
+        if (deleted.length === 0) return { index: current, result: [] };
         return {
           index: {
             ...current,
             artifacts: current.artifacts.filter((entry) => !matchesClaim(entry)),
-            revision: deleted.length === 0 ? current.revision : current.revision + 1,
+            revision: current.revision + 1,
           },
           result: deleted.map(({ manifest }) => manifest.contentDigest),
         };
       });
+    },
+
+    async deleteUnreferenced(artifactDigest: string) {
+      const token = digestHybridEvidenceValue(["artifact-delete-now", artifactDigest, Date.now()]);
+      const claimed = await updateIndex(indexClient, indexKey, (current) => {
+        const index = current.artifacts.findIndex(({ manifest }) =>
+          manifest.contentDigest === artifactDigest);
+        if (index < 0) return { index: current, result: null };
+        const entry = current.artifacts[index]!;
+        if (entry.deletionToken || entry.references.some(({ active }) => active)) {
+          return { index: current, result: null };
+        }
+        const artifacts = [...current.artifacts];
+        artifacts[index] = { ...entry, deletionToken: token };
+        return {
+          index: { ...current, artifacts, revision: current.revision + 1 },
+          result: entry.manifest.storageKey,
+        };
+      });
+      if (claimed === null) return false;
+      try {
+        await blobs.delete(claimed);
+      } catch {
+        await updateIndex(indexClient, indexKey, (current) => {
+          const index = current.artifacts.findIndex((entry) =>
+            entry.manifest.contentDigest === artifactDigest && entry.deletionToken === token);
+          if (index < 0) return { index: current, result: undefined };
+          const artifacts = [...current.artifacts];
+          artifacts[index] = { ...artifacts[index]!, deletionToken: null };
+          return {
+            index: { ...current, artifacts, revision: current.revision + 1 },
+            result: undefined,
+          };
+        });
+        throw new HybridEvidenceArtifactStoreError("storage_unavailable");
+      }
+      await updateIndex(indexClient, indexKey, (current) => {
+        const index = current.artifacts.findIndex((entry) =>
+          entry.manifest.contentDigest === artifactDigest && entry.deletionToken === token);
+        if (index < 0) return { index: current, result: undefined };
+        return {
+          index: {
+            ...current,
+            artifacts: current.artifacts.filter((_, artifactIndex) => artifactIndex !== index),
+            revision: current.revision + 1,
+            usage: current.usage.filter(({ artifactDigest: digest }) => digest !== artifactDigest),
+          },
+          result: undefined,
+        };
+      });
+      return true;
     },
 
     async persist(input: PersistHybridEvidenceArtifactInput) {
@@ -442,11 +541,11 @@ export function createHybridEvidenceArtifactStore(options: {
         retention: { expiresAt: null, state: "active" },
         schemaVersion: 1,
         sourceInstanceId: input.sourceInstanceId,
-        storageKey: storageKey(digest),
+        storageKey: storageKey(digest, storageKeyPrefix),
         structure: input.structure,
       });
       const day = now.toISOString().slice(0, 10);
-      const reserved = await updateIndex(indexClient, (current) => {
+      const reserved = await updateIndex(indexClient, indexKey, (current) => {
         const existing = current.artifacts.find(
           ({ manifest: candidate }) => candidate.contentDigest === digest,
         );
@@ -505,7 +604,7 @@ export function createHybridEvidenceArtifactStore(options: {
           await blobs.put(manifest.storageKey, input.bytes, input.mediaType);
         } catch {
           if (reserved.created) {
-            await updateIndex(indexClient, (current) => ({
+            await updateIndex(indexClient, indexKey, (current) => ({
               index: {
                 ...current,
                 artifacts: current.artifacts.filter(
@@ -532,7 +631,7 @@ export function createHybridEvidenceArtifactStore(options: {
       if (!Number.isSafeInteger(input.maximumBytes) || input.maximumBytes < 1) {
         throw new HybridEvidenceArtifactStoreError("artifact_bounds_exceeded");
       }
-      if (locator.kind === "source_fact") {
+      if (!("artifactDigest" in locator)) {
         throw new HybridEvidenceArtifactStoreError("locator_out_of_bounds");
       }
       const entry = await readEntry(locator.artifactDigest);
@@ -600,7 +699,7 @@ export function createHybridEvidenceArtifactStore(options: {
       kind: "accepted_result" | "current_lineage" | "promotion";
       referenceId: string;
     }) {
-      await updateIndex(indexClient, (current) => {
+      await updateIndex(indexClient, indexKey, (current) => {
         const index = current.artifacts.findIndex(
           ({ manifest }) => manifest.contentDigest === input.artifactDigest,
         );
@@ -612,7 +711,13 @@ export function createHybridEvidenceArtifactStore(options: {
         const references = entry.references.filter(
           ({ referenceId }) => referenceId !== input.referenceId,
         );
-        references.push({ active: input.active, kind: input.kind, referenceId: input.referenceId });
+        references.push({
+          active: input.kind === "accepted_result" && !retainAcceptedResultReferences
+            ? false
+            : input.active,
+          kind: input.kind,
+          referenceId: input.referenceId,
+        });
         const artifacts = [...current.artifacts];
         artifacts[index] = { ...entry, references };
         return { index: { ...current, artifacts, revision: current.revision + 1 }, result: undefined };
@@ -625,7 +730,7 @@ export function createHybridEvidenceArtifactStore(options: {
       state: "active" | "orphaned" | "quarantined";
     }) {
       const now = input.now ?? new Date();
-      return updateIndex(indexClient, (current) => {
+      return updateIndex(indexClient, indexKey, (current) => {
         const index = current.artifacts.findIndex(
           ({ manifest }) => manifest.contentDigest === input.artifactDigest,
         );
@@ -656,4 +761,52 @@ export function createHybridEvidenceArtifactStore(options: {
     },
   };
   return Object.freeze(artifactStore);
+}
+
+export function createHybridEvidenceEphemeralArtifactStore(options: {
+  blob?: HybridEvidenceBlobClient;
+  index?: HybridEvidenceArtifactIndexClient;
+  quota?: HybridEvidenceArtifactQuota;
+} = {}): HybridEvidenceArtifactStore {
+  return createHybridEvidenceArtifactStore({
+    blob: options.blob ?? privateBlobStore,
+    index: options.index,
+    indexKey: EPHEMERAL_INDEX_KEY,
+    quota: options.quota,
+    retainAcceptedResultReferences: false,
+    storageKeyPrefix: "hybrid-evidence-private/sha256",
+  });
+}
+
+export function createHybridEvidenceWorkerArtifactStore(): HybridEvidenceWorkerArtifactReader {
+  const ephemeral = createHybridEvidenceEphemeralArtifactStore();
+  const durable = createHybridEvidenceArtifactStore();
+  const fallback = async <T>(
+    primary: () => Promise<T>,
+    secondary: () => Promise<T>,
+  ): Promise<T> => {
+    try {
+      return await primary();
+    } catch (error) {
+      if (!(error instanceof HybridEvidenceArtifactStoreError) || error.code !== "artifact_not_found") {
+        throw error;
+      }
+      return secondary();
+    }
+  };
+  const workerStore: HybridEvidenceWorkerArtifactReader = {
+    readManifest: (digest) => fallback(
+      async () => {
+        const manifest = await ephemeral.readManifest(digest);
+        if (!manifest) throw new HybridEvidenceArtifactStoreError("artifact_not_found");
+        return manifest;
+      },
+      () => durable.readManifest(digest),
+    ),
+    readSlice: (input) => fallback(
+      () => ephemeral.readSlice(input),
+      () => durable.readSlice(input),
+    ),
+  };
+  return Object.freeze(workerStore);
 }

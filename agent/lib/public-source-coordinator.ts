@@ -14,6 +14,7 @@ import {
 import type { WorkspaceBudgetLedgerClient } from "./workspace-budget-ledger";
 import type { WorkspaceGlobalBudgetClient } from "./workspace-dispatch-budget";
 import {
+  resolveEarningsCallPublicSourceRuntimePath,
   resolveHousePublicSourceRuntimePath,
   resolveSecPublicSourceRuntimePath,
 } from "./public-source-flags";
@@ -42,6 +43,12 @@ import {
   runSharedSecPublicSourceAcquisition,
   type SecPublicSourceResponse,
 } from "./sec-public-source-adapter";
+import {
+  runSharedEarningsCallPublicSourceAcquisition,
+  type EarningsCallPublicSourceRequest,
+  type EarningsCallPublicSourceResponse,
+  type EarningsCallTransientArtifact,
+} from "./earnings-call-public-source-adapter";
 import type { AuthorizedWorkspaceStoreScope } from "./workspace-store-authorization";
 import type { WorkspaceMonitor } from "./workspace-monitor-store";
 
@@ -55,6 +62,16 @@ type PublicSourceMonitor = Pick<
 >;
 
 type CoordinatorFetch =
+  | {
+      readonly adapterId: "earnings-call-transcripts";
+      readonly fetchResponse: (
+        request: EarningsCallPublicSourceRequest,
+      ) => Promise<EarningsCallPublicSourceResponse>;
+      readonly onTransientArtifacts?: (
+        artifacts: readonly EarningsCallTransientArtifact[],
+      ) => void;
+      readonly userAgent: string;
+    }
   | {
       readonly adapterId: "sec-latest-filings";
       readonly fetchResponse: () => Promise<SecPublicSourceResponse>;
@@ -114,7 +131,9 @@ function requireEnabled(
 ): void {
   const path = adapterId === "sec-latest-filings"
     ? resolveSecPublicSourceRuntimePath(environment)
-    : resolveHousePublicSourceRuntimePath(environment);
+    : adapterId === "earnings-call-transcripts"
+      ? resolveEarningsCallPublicSourceRuntimePath(environment)
+      : resolveHousePublicSourceRuntimePath(environment);
   if (path === "public_source_adapter") return;
   throw new PublicSourceCoordinatorError(
     path === "public_source_misconfigured"
@@ -214,6 +233,12 @@ export async function coordinatePublicSourceOccurrence(input: {
       !recoveryExtension
     )
   ) throw new PublicSourceCoordinatorError("public_source_misconfigured");
+  const earningsFetch = input.fetch.adapterId === "earnings-call-transcripts"
+    ? input.fetch
+    : null;
+  const houseFetch = input.fetch.adapterId === "house-financial-disclosures"
+    ? input.fetch
+    : null;
   const subscription = await ensurePublicSourceSubscription(
     input.scope,
     createPublicSourceSubscription({
@@ -239,10 +264,21 @@ export async function coordinatePublicSourceOccurrence(input: {
         sourceId: input.sourceId,
         window,
       })
-    : await runSharedHousePublicSourceAcquisition({
+    : earningsFetch
+      ? await runSharedEarningsCallPublicSourceAcquisition({
+          client: input.clients?.acquisition,
+          fetchResponse: earningsFetch.fetchResponse,
+          sourceId: input.sourceId,
+          userAgent: earningsFetch.userAgent,
+          window,
+        }).then((result) => {
+          earningsFetch.onTransientArtifacts?.(result.transientArtifacts);
+          return result;
+        })
+      : await runSharedHousePublicSourceAcquisition({
         client: input.clients?.acquisition,
-        fetchDocument: input.fetch.fetchDocument,
-        fetchIndex: input.fetch.fetchIndex,
+        fetchDocument: houseFetch!.fetchDocument,
+        fetchIndex: houseFetch!.fetchIndex,
         hybridLineageClient: input.clients?.hybridLineage,
         recovery: hybridFlags.extractionRecovery
           ? recoveryExtension!.create({
@@ -261,7 +297,6 @@ export async function coordinatePublicSourceOccurrence(input: {
         sourceId: input.sourceId,
         window,
       });
-
   emitPublicSourceAcquisitionObservations(shared.acquisition, input.sink);
   if (shared.reused) {
     emitPublicSourceRuntimeObservation({

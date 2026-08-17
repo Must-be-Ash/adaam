@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 import {
   createHybridEvidenceArtifactStore,
+  createHybridEvidenceWorkerArtifactStore,
   type HybridEvidenceArtifactIndexClient,
   type HybridEvidenceBlobClient,
   type HybridEvidenceArtifactStore,
@@ -56,6 +57,10 @@ import {
   type WorkspaceStateStoreClient,
 } from "../agent/lib/workspace-state-store";
 import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization";
+
+type HybridEvidenceWorkerArtifacts = ReturnType<typeof createHybridEvidenceWorkerArtifactStore>;
+// @ts-expect-error Worker artifact access is deliberately read-only.
+type WorkerArtifactsCannotPersist = HybridEvidenceWorkerArtifacts["persist"];
 
 class MemoryCas implements HybridEvidenceArtifactIndexClient,
   HybridEvidenceJobStoreClient, HybridEvidenceLineageStoreClient,
@@ -567,6 +572,7 @@ assert.deepEqual(resumedCompleted.evidence?.result.usage, {
 let failReferenceOnce = true;
 const replayArtifacts: HybridEvidenceArtifactStore = {
   collectExpired: (input) => artifacts.collectExpired(input),
+  deleteUnreferenced: (artifactDigest) => artifacts.deleteUnreferenced(artifactDigest),
   persist: (input) => artifacts.persist(input),
   readManifest: (artifactDigest) => artifacts.readManifest(artifactDigest),
   readSlice: (input) => artifacts.readSlice(input),

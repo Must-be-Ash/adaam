@@ -9,6 +9,23 @@ for (const [name, value] of Object.entries({ DOMMatrix, ImageData, Path2D })) {
 }
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const normalized = (value) => value.replaceAll("\0", "").replace(/\s+/gu, " ").trim();
+const normalizedLines = (items) => items
+  .flatMap((item) => "str" in item ? [item.str, item.hasEOL ? "\n" : " "] : [])
+  .join("")
+  .replaceAll("\0", "")
+  .split("\n")
+  .map((line) => line.replace(/[\t\f\v ]+/gu, " ").trim())
+  .filter((line) => line.length > 0)
+  .join("\n");
+const safeHttpLink = (value) => {
+  if (typeof value !== "string") return false;
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+};
 const chunks = [];
 for await (const chunk of process.stdin) chunks.push(chunk);
 const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -45,12 +62,17 @@ try {
       for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
         const page = await document.getPage(pageNumber);
         const annotations = await page.getAnnotations();
-        if (annotations.some((annotation) =>
-          Boolean(annotation.url || annotation.unsafeUrl || annotation.file || annotation.attachment || annotation.action))) {
+        if (annotations.some((annotation) => {
+          if (annotation.file || annotation.attachment || annotation.action) return true;
+          const links = [annotation.url, annotation.unsafeUrl].filter((value) => value !== undefined);
+          return links.length > 0 && (!input.allowHttpLinks || links.some((value) => !safeHttpLink(value)));
+        })) {
           throw new Error("hostile_document");
         }
         const content = await page.getTextContent();
-        const text = normalized(content.items.flatMap((item) => "str" in item ? [item.str] : []).join(" "));
+        const text = input.preserveTextLines
+          ? normalizedLines(content.items)
+          : normalized(content.items.flatMap((item) => "str" in item ? [item.str] : []).join(" "));
         if (text.length > input.maximumCharactersPerPage) throw new Error("evidence_bounds_exceeded");
         const initial = page.getViewport({ scale: 1 });
         let scale = Math.min(2, input.maximumRenderEdge / Math.max(initial.width, initial.height));

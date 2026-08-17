@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { photonApprovalGuardKey } from "../agent/lib/photon-approval-store.ts";
 import { getPhotonWorkspaceState } from "../agent/lib/photon-workspace-store.ts";
 import { createStrategyPackCatalog } from "../agent/lib/strategy-pack-catalog.ts";
+import { STRATEGY_PACK_REFERENCE_CATALOG } from "../agent/lib/strategy-pack-reference-catalog.ts";
 import {
   configureStrategyPackWorkspaceFromSelection,
   createStrategyPackWorkspace,
@@ -197,6 +198,7 @@ try {
         "eval.beta/v1": ["fixture.beta.forbidden", "fixture.beta.malformed", "fixture.beta.no-match", "fixture.beta.positive", "fixture.beta.replay"],
       },
       findingSchemaIds: ["finding.alpha/v1", "finding.beta/v1"],
+      parameterizedSourceContracts: STRATEGY_PACK_REFERENCE_CATALOG.parameterizedSourceContracts,
       sourceContracts: {
         "source.alpha": { allowedOrigins: ["https://alpha.example.gov"], canonicalUrl: "https://alpha.example.gov/events.json", contractDigest: "a".repeat(64), contractVersion: "1.0.0" },
         "source.beta": { allowedOrigins: ["https://beta.example.gov"], canonicalUrl: "https://beta.example.gov/notices.atom", contractDigest: "b".repeat(64), contractVersion: "1.0.0" },

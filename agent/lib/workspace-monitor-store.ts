@@ -18,6 +18,7 @@ import {
   workspaceMonitorSourcesSchema,
 } from "./workspace-monitor-input";
 import type { WorkspaceStrategyBindingValue } from "./workspace-state-store";
+import { EARNINGS_CALL_ISSUER_CATALOG } from "./earnings-call-issuer-catalog";
 import {
   publicSourceWorkspaceReferenceSchema,
   resolvePublicSourceWorkspaceReference,
@@ -33,6 +34,15 @@ const LEASE_PREFIX = `${KEY_PREFIX}lease:`;
 const OCCURRENCE_PREFIX = `${KEY_PREFIX}occurrence:`;
 const MAX_RECORD_BYTES = 32_768;
 const OCCURRENCE_TTL_SECONDS = 90 * 24 * 60 * 60;
+
+function hasReviewedEarningsCallSource(
+  sources: readonly { readonly sourceId: string }[],
+): boolean {
+  const reviewedSourceIds = new Set(EARNINGS_CALL_ISSUER_CATALOG.entries
+    .filter(({ coverage }) => coverage.state !== "coverage_unavailable")
+    .map(({ cik }) => `earnings-call-transcripts.${cik}`));
+  return sources.some(({ sourceId }) => reviewedSourceIds.has(sourceId));
+}
 
 const CREATE_SCRIPT = `
 if redis.call("EXISTS", KEYS[1]) == 1 then return 0 end
@@ -216,6 +226,7 @@ export const workspaceMonitorManagedBySchema = z
   .strict();
 const monitorSchema = z
   .object({
+    activationWatermark: timestampSchema.optional(),
     configurationRevision: z.number().int().positive(),
     consecutiveFailures: z.number().int().nonnegative(),
     createdAt: timestampSchema,
@@ -252,7 +263,7 @@ const monitorSchema = z
         watermark: timestampSchema.nullable(),
       })
       .strict(),
-    sources: workspaceMonitorSourcesSchema,
+    sources: workspaceMonitorSourcesSchema.or(z.tuple([])),
     tighteningLimits: z
       .object({
         inputTokensPerRun: z.number().int().positive().nullable(),
@@ -269,6 +280,12 @@ const monitorSchema = z
   })
   .strict()
   .superRefine((monitor, context) => {
+    if (
+      monitor.sources.length === 0 &&
+      (monitor.lifecycleState === "enabled" || monitor.managedBy?.packId !== "earnings-call-changes")
+    ) {
+      context.addIssue({ code: "custom", message: "Monitor needs at least one runnable source." });
+    }
     if (new Set(monitor.requiredCapabilityIds).size !== monitor.requiredCapabilityIds.length) {
       context.addIssue({ code: "custom", message: "Duplicate capability." });
     }
@@ -813,8 +830,10 @@ export function prepareWorkspaceManagedMonitorUpdate(input: {
   managedBy?: WorkspaceMonitorManagedBy;
   now: Date;
   pauseReason: "strategy_pack_configuration" | "strategy_pack_removed";
+  publicSourceIds?: readonly string[];
   schedule?: WorkspaceMonitorSchedule;
   scope: AuthorizedWorkspaceStoreScope;
+  sources?: z.input<typeof workspaceMonitorSourcesSchema>;
 }): PreparedWorkspaceMonitorUpdate {
   assertAuthorizedWorkspaceStoreScope(input.scope);
   const current = validateWorkspaceMonitorValue(input.current, input.scope);
@@ -822,6 +841,15 @@ export function prepareWorkspaceManagedMonitorUpdate(input: {
     throw new WorkspaceMonitorError("monitor_invalid");
   }
   const now = input.now.toISOString();
+  if (input.sources && input.sources.length > WORKSPACE_MONITOR_SOURCE_LIMIT) {
+    throw new WorkspaceMonitorError(WORKSPACE_MONITOR_SOURCE_LIMIT_CODE);
+  }
+  const publicSourceSubscriptions = input.publicSourceIds?.map((sourceId) =>
+    resolvePublicSourceWorkspaceReference({
+      monitorId: current.monitorId,
+      sourceId,
+      workspaceId: current.workspaceId,
+    }));
   const candidate = monitorSchema.safeParse({
     ...current,
     configurationRevision: current.configurationRevision + 1,
@@ -830,7 +858,9 @@ export function prepareWorkspaceManagedMonitorUpdate(input: {
     nextOccurrenceAt: null,
     pauseReason: input.pauseReason,
     pausedAt: now,
+    ...(publicSourceSubscriptions === undefined ? {} : { publicSourceSubscriptions }),
     schedule: input.schedule ?? current.schedule,
+    sources: input.sources ?? current.sources,
     updatedAt: now,
   });
   if (
@@ -879,6 +909,11 @@ export function prepareWorkspaceMonitorCreate(
       })()
     : randomUUID();
   const enabled = !input.managedBy || input.activateManagedMonitor === true;
+  if (enabled && input.managedBy?.packId === "earnings-call-changes") {
+    if (!hasReviewedEarningsCallSource(input.sources)) {
+      throw new WorkspaceMonitorError("monitor_invalid");
+    }
+  }
   const publicSourceSubscriptions = input.publicSourceIds?.map((sourceId) =>
     resolvePublicSourceWorkspaceReference({
       monitorId,
@@ -886,6 +921,9 @@ export function prepareWorkspaceMonitorCreate(
       workspaceId: input.scope.workspaceId,
     }));
   const candidate = monitorSchema.safeParse({
+    ...(enabled && input.managedBy?.packId === "earnings-call-changes"
+      ? { activationWatermark: now }
+      : {}),
     configurationRevision: 1,
     consecutiveFailures: 0,
     createdAt: now,
@@ -1161,11 +1199,25 @@ export async function updateWorkspaceMonitor(
   if (!allowedTransitions[current.lifecycleState].includes(targetLifecycle)) {
     throw new WorkspaceMonitorError("monitor_invalid");
   }
+  if (
+    targetLifecycle === "enabled" &&
+    current.lifecycleState !== "enabled" &&
+    current.managedBy?.packId === "earnings-call-changes"
+  ) {
+    if (!hasReviewedEarningsCallSource(current.sources)) {
+      throw new WorkspaceMonitorError("monitor_invalid");
+    }
+  }
+  const updatedAt = (input.now ?? new Date()).toISOString();
   const next = monitorSchema.safeParse({
     ...current,
     ...input.patch,
+    ...(targetLifecycle === "enabled" && current.lifecycleState !== "enabled" &&
+        current.managedBy?.packId === "earnings-call-changes" && !current.activationWatermark
+      ? { activationWatermark: updatedAt }
+      : {}),
     configurationRevision: current.configurationRevision + 1,
-    updatedAt: (input.now ?? new Date()).toISOString(),
+    updatedAt,
   });
   if (
     !next.success ||
@@ -1401,14 +1453,23 @@ export async function pauseWorkspaceMonitorAfterUncertainAlert(
 }
 
 export async function releaseWorkspaceMonitorLease(
-  input: { leaseToken: string; monitorId: string; scope: AuthorizedWorkspaceStoreScope },
+  input: {
+    leaseToken: string;
+    monitorId: string;
+    retryAt?: string;
+    scope: AuthorizedWorkspaceStoreScope;
+  },
   client: WorkspaceMonitorStoreClient = store(),
 ): Promise<boolean> {
   assertAuthorizedWorkspaceStoreScope(input.scope);
   const monitor = await getWorkspaceMonitor(input.scope, input.monitorId, client);
   if (!monitor) return false;
+  const retryAtMs = input.retryAt === undefined ? null : Date.parse(input.retryAt);
+  if (retryAtMs !== null && !Number.isFinite(retryAtMs)) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
   return client.releaseLease({
-    dueAtMs: dueAt(monitor),
+    dueAtMs: retryAtMs ?? dueAt(monitor),
     dueKey: DUE_KEY,
     inflightKey: INFLIGHT_KEY,
     leaseKey: leaseKey(input.scope, input.monitorId),

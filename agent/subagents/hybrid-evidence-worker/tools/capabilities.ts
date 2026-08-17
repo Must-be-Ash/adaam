@@ -6,7 +6,7 @@ import {
   requireHybridEvidenceWorkerAuth,
   verifyHybridEvidenceWorkerToken,
 } from "../../../lib/hybrid-evidence-auth";
-import { createHybridEvidenceArtifactStore } from "../../../lib/hybrid-evidence-artifact-store";
+import { createHybridEvidenceWorkerArtifactStore } from "../../../lib/hybrid-evidence-artifact-store";
 import { evidenceLocatorSchema } from "../../../lib/hybrid-evidence-schema";
 import {
   completeHybridEvidenceJobForWorker,
@@ -20,7 +20,7 @@ const readHybridEvidenceSlice = defineTool({
   inputSchema: z.object({ locator: evidenceLocatorSchema }).strict(),
   async execute({ locator }, ctx) {
     const fixture = resolveHybridEvidenceWorkerFixtureClients();
-    const artifacts = fixture?.artifacts ?? createHybridEvidenceArtifactStore();
+    const artifacts = fixture?.artifacts ?? createHybridEvidenceWorkerArtifactStore();
     return readHybridEvidenceSliceForWorker({
       clients: { artifacts, jobs: fixture?.jobs },
       ctx,

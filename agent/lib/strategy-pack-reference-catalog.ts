@@ -1,3 +1,13 @@
+export const EARNINGS_CALL_TRANSCRIPTS_SOURCE_ID = "earnings-call-transcripts";
+export const EARNINGS_CALL_TRANSCRIPTS_SOURCE_URL =
+  "https://data.sec.gov/submissions/CIK0000000000.json";
+export const EARNINGS_CALL_TRANSCRIPTS_SOURCE_ALLOWED_ORIGINS = Object.freeze([
+  "https://data.sec.gov",
+]);
+export const EARNINGS_CALL_TRANSCRIPTS_SOURCE_CONTRACT_VERSION = "1.0.0";
+export const EARNINGS_CALL_TRANSCRIPTS_SOURCE_CONTRACT_DIGEST =
+  "8832172086d8e5f582d94cfa9ce32b7c2927c313b41ffea853c3ae9d3fedaf73";
+
 export const IPO_FILINGS_ALERT_PRESENTATION_ID = "alert.public-event/v1";
 export const IPO_FILINGS_EVAL_SUITE_ID = "eval.sec-ipo/v1";
 export const IPO_FILINGS_FINDING_SCHEMA_ID = "ipo-registration-filing/v1";
@@ -15,6 +25,15 @@ export const IPO_FILINGS_EVALUATION_TOOL_ID = "evaluate_sec_ipo_source";
 export const CONGRESSIONAL_SIGNALS_EVAL_SUITE_ID = "eval.congressional-signals/v1";
 export const CONGRESSIONAL_SIGNALS_FINDING_SCHEMA_ID = "congressional-filing-signal/v1";
 export const CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID = "evaluate_congressional_signals";
+
+export const EARNINGS_CALL_CHANGES_ALERT_PRESENTATION_ID =
+  "alert.earnings-call-change/v1";
+export const EARNINGS_CALL_CHANGES_EVAL_SUITE_ID =
+  "eval.earnings-call-changes/v1";
+export const EARNINGS_CALL_CHANGES_EVALUATION_TOOL_ID =
+  "evaluate_earnings_call_changes";
+export const EARNINGS_CALL_CHANGES_FINDING_SCHEMA_ID =
+  "earnings-call-change/v1";
 
 export const HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID =
   "house-financial-disclosures-2026";
@@ -134,22 +153,45 @@ export const CONGRESSIONAL_SIGNALS_EVAL_FIXTURE_IDS = Object.freeze([
   "fixture.congressional-signals.replay",
 ]);
 
+export const EARNINGS_CALL_CHANGES_EVAL_FIXTURE_IDS = Object.freeze([
+  "fixture.earnings-call-changes.forbidden-capability",
+  "fixture.earnings-call-changes.malformed",
+  "fixture.earnings-call-changes.no-match",
+  "fixture.earnings-call-changes.positive",
+  "fixture.earnings-call-changes.replay",
+]);
+
 export const STRATEGY_PACK_REFERENCE_CATALOG = Object.freeze({
-  alertPresentationIds: Object.freeze([IPO_FILINGS_ALERT_PRESENTATION_ID]),
+  alertPresentationIds: Object.freeze([
+    EARNINGS_CALL_CHANGES_ALERT_PRESENTATION_ID,
+    IPO_FILINGS_ALERT_PRESENTATION_ID,
+  ]),
   capabilityIds: Object.freeze([
     CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
+    EARNINGS_CALL_CHANGES_EVALUATION_TOOL_ID,
     IPO_FILINGS_EVALUATION_TOOL_ID,
+    "skill.earnings-call-change-analysis",
     "skill.congressional-signal-triage",
     "skill.public-event-monitoring",
   ]),
   evalSuites: Object.freeze({
     [CONGRESSIONAL_SIGNALS_EVAL_SUITE_ID]: CONGRESSIONAL_SIGNALS_EVAL_FIXTURE_IDS,
+    [EARNINGS_CALL_CHANGES_EVAL_SUITE_ID]: EARNINGS_CALL_CHANGES_EVAL_FIXTURE_IDS,
     [IPO_FILINGS_EVAL_SUITE_ID]: IPO_FILINGS_EVAL_FIXTURE_IDS,
   }),
   findingSchemaIds: Object.freeze([
     CONGRESSIONAL_SIGNALS_FINDING_SCHEMA_ID,
+    EARNINGS_CALL_CHANGES_FINDING_SCHEMA_ID,
     IPO_FILINGS_FINDING_SCHEMA_ID,
   ]),
+  parameterizedSourceContracts: Object.freeze({
+    [EARNINGS_CALL_TRANSCRIPTS_SOURCE_ID]: Object.freeze({
+      allowedOrigins: EARNINGS_CALL_TRANSCRIPTS_SOURCE_ALLOWED_ORIGINS,
+      canonicalUrl: EARNINGS_CALL_TRANSCRIPTS_SOURCE_URL,
+      contractDigest: EARNINGS_CALL_TRANSCRIPTS_SOURCE_CONTRACT_DIGEST,
+      contractVersion: EARNINGS_CALL_TRANSCRIPTS_SOURCE_CONTRACT_VERSION,
+    }),
+  }),
   sourceContracts: Object.freeze({
     [HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID]: Object.freeze({
       allowedOrigins: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ALLOWED_ORIGINS,
@@ -175,6 +217,10 @@ export const STRATEGY_PACK_REFERENCE_CATALOG = Object.freeze({
 });
 
 export const STRATEGY_PACK_CAPABILITY_INVENTORY = Object.freeze([
+  Object.freeze({
+    category: "control" as const,
+    id: EARNINGS_CALL_CHANGES_EVALUATION_TOOL_ID,
+  }),
   Object.freeze({
     category: "control" as const,
     id: CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,

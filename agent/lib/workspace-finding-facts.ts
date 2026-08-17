@@ -10,6 +10,7 @@ import {
   HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
   HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL,
 } from "./strategy-pack-reference-catalog";
+import { earningsFindingSchema } from "./earnings-call-schema";
 
 export const SEC_IPO_FACT_SCHEMA_VERSION = 1;
 export const SEC_IPO_NORMALIZER_VERSION = "sec-ipo-atom/1.0.0";
@@ -111,11 +112,38 @@ export const congressionalFilingSignalFactSchema = z.object({
   }
 });
 
+export const earningsCallChangeFactSchema = z.object({
+  cik: z.string().regex(/^\d{10}$/u),
+  companyName: z.string().trim().min(1).max(200),
+  currentFiscalPeriod: z.string().regex(/^FY\d{4}-Q[1-4]$/u),
+  filingIdentity: z.string().min(1).max(160),
+  finding: earningsFindingSchema,
+  kind: z.literal("earnings_call_change"),
+  observedAt: timestampSchema,
+  schemaVersion: z.literal(1),
+  source: z.object({
+    accessClassification: z.literal("public"),
+    canonicalUrl: z.string().url().max(2_048),
+    origin: z.string().url().max(500),
+    sourceId: z.string().min(2).max(160),
+  }).strict(),
+  ticker: z.string().regex(/^[A-Z][A-Z0-9.-]{0,9}$/u),
+}).strict().superRefine((fact, context) => {
+  const corrective = fact.finding.materiality.decisionReasons.includes("source_correction");
+  if (
+    fact.filingIdentity !== fact.finding.findingId ||
+    (fact.finding.outcome !== "accepted" && !corrective) ||
+    (!fact.finding.materiality.alertEligible && !corrective)
+  ) context.addIssue({ code: "custom", message: "earnings_call_change_fact_invalid" });
+});
+
 export const workspaceFindingFactSchema = z.discriminatedUnion("kind", [
   secIpoFilingFactSchema,
   congressionalFilingSignalFactSchema,
+  earningsCallChangeFactSchema,
 ]);
 
 export type SecIpoFilingFact = z.infer<typeof secIpoFilingFactSchema>;
 export type CongressionalFilingSignalFact = z.infer<typeof congressionalFilingSignalFactSchema>;
+export type EarningsCallChangeFact = z.infer<typeof earningsCallChangeFactSchema>;
 export type WorkspaceFindingFact = z.infer<typeof workspaceFindingFactSchema>;

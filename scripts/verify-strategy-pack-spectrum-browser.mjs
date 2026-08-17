@@ -46,6 +46,30 @@ const pack = {
   sources: [{ accessClassification: "public", allowedOrigins: ["https://alpha.example.gov"], canonicalUrl: "https://alpha.example.gov/events", contractDigest: "d".repeat(64), contractVersion: "1.0.0", sourceId: "source.alpha" }],
   version: "1.0.0",
 };
+const earningsPack = {
+  ...pack,
+  configuration: [
+    { default: "UTC", description: "Owner timezone", key: "timezone", kind: "iana_timezone", label: "Timezone", required: true },
+    { default: ["09:00"], description: "Daily cadence", key: "dailyTimes", kind: "daily_local_times", label: "Daily times", required: true },
+    {
+      catalogDigest: "a".repeat(64), catalogId: "sec-issuers", catalogRevision: 1,
+      default: ["0000789019"], description: "Selected issuers", key: "selectedIssuerCiks",
+      kind: "catalog_id_list", label: "Companies", maximumItems: 8, minimumItems: 1,
+      options: [
+        { coverageState: "baseline_ready", id: "0000019617", label: "JPM — JPMorgan Chase & Co." },
+        { coverageState: "coverage_unavailable", id: "0000789019", label: "MSFT — Microsoft Corporation" },
+        { coverageState: "coverage_unavailable", id: "0001341439", label: "ORCL — Oracle Corporation" },
+        { coverageState: "coverage_unavailable", id: "0001108524", label: "CRM — Salesforce, Inc." },
+      ],
+      required: true,
+    },
+    { allowedValues: ["threshold_50", "threshold_65", "threshold_80"], default: "threshold_65", description: "Minimum score", key: "materialityThreshold", kind: "bounded_enum", label: "Materiality threshold", required: true },
+  ],
+  description: "Compare reviewed current and prior earnings-call transcripts.",
+  displayName: "Earnings Call Changes",
+  id: "earnings-call-changes",
+  monitors: [{ activationDefault: "paused", displayName: "Compare earnings calls", resourceId: "compare-earnings-calls", sourceIds: ["earnings-call-transcripts"] }],
+};
 const monitor = {
   configurationRevision: 1,
   lastCompletedAt: null,
@@ -250,6 +274,29 @@ try {
   await page.reload();
   await page.getByText("Catalog state unavailable.").waitFor();
   assert.match(await page.locator("#status").getAttribute("class"), /error/u);
+
+  stateFailure = false;
+  lastAction = null;
+  authoritativeState = stateFor(
+    { reasonCode: null, state: "unbound" },
+    { strategyPackCatalog: [earningsPack] },
+  );
+  await page.reload();
+  const companySelector = page.getByLabel("Companies", { exact: true });
+  const companySearch = page.getByLabel("Search Companies");
+  await companySearch.fill("MSFT");
+  await page.getByText(/Exact match · press Enter to add MSFT/u).waitFor();
+  await companySearch.press("Enter");
+  await page.getByText(/Duplicate selection/u).waitFor();
+  await companySearch.fill("no-such-issuer");
+  await page.getByText("No company matches this search").waitFor();
+  await companySelector.selectOption("0001341439");
+  await page.getByLabel("Start this schedule now").check();
+  await page.getByRole("button", { name: "Create pack session" }).click();
+  await page.getByText(/Select at least one company with verified coverage/u).waitFor();
+  assert.equal(await companySelector.getAttribute("aria-invalid"), "true");
+  assert.equal(await companySelector.evaluate((element) => element === document.activeElement), true);
+  assert.equal(lastAction, null);
 
   console.info("Strategy-pack Spectrum browser verification passed.");
 } finally {

@@ -30,6 +30,10 @@ import {
   type WorkspaceRuntimeObservationSink,
 } from "../lib/workspace-runtime-observability";
 import { recoverWorkspaceRunForControlPlane } from "../lib/workspace-worker-recovery";
+import {
+  clearEarningsCallSourceRetry,
+  readEarningsCallSourceRetry,
+} from "../lib/earnings-call-source-lifecycle-store";
 import { deliverWorkspaceOutcomeToPhoton } from "../lib/workspace-alert-dispatch";
 import {
   prepareWorkspaceWorkerRecovery,
@@ -49,6 +53,8 @@ export interface EventTriggerScheduleDependencies {
   readonly now: () => Date;
   readonly prepareWorkspaceRecovery: typeof prepareWorkspaceWorkerRecovery;
   readonly prepareWorkspaceWorker: typeof prepareWorkspaceWorkerRun;
+  readonly clearWorkspaceSourceRetry: typeof clearEarningsCallSourceRetry;
+  readonly readWorkspaceSourceRetry: typeof readEarningsCallSourceRetry;
   readonly recordWorkspaceFailure: typeof recordWorkspaceMonitorFailure;
   readonly recoverWorkspaceOutcome: typeof recoverWorkspaceRunForControlPlane;
   readonly releaseWorkspaceLease: typeof releaseWorkspaceMonitorLease;
@@ -71,6 +77,8 @@ const productionDependencies: EventTriggerScheduleDependencies = Object.freeze({
   now: () => new Date(),
   prepareWorkspaceRecovery: prepareWorkspaceWorkerRecovery,
   prepareWorkspaceWorker: prepareWorkspaceWorkerRun,
+  clearWorkspaceSourceRetry: clearEarningsCallSourceRetry,
+  readWorkspaceSourceRetry: readEarningsCallSourceRetry,
   recordWorkspaceFailure: recordWorkspaceMonitorFailure,
   recoverWorkspaceOutcome: recoverWorkspaceRunForControlPlane,
   releaseWorkspaceLease: releaseWorkspaceMonitorLease,
@@ -105,6 +113,10 @@ function leaseInspectionInput(job: ClaimedWorkspaceMonitor) {
     occurrenceKey: job.occurrence.occurrenceKey,
     scope: job.scope,
   };
+}
+
+function isEarningsCallJob(job: ClaimedWorkspaceMonitor): boolean {
+  return job.monitor.managedBy?.packId === "earnings-call-changes";
 }
 
 async function monitorWasSuperseded(
@@ -268,6 +280,12 @@ async function executeWorkspaceJob(
     if (deliverAlerts) {
       await dependencies.deliverWorkspaceOutcome({ job, outcome });
     }
+    if (isEarningsCallJob(job)) {
+      await dependencies.clearWorkspaceSourceRetry({
+        occurrenceKey: job.occurrence.occurrenceKey,
+        scope: job.scope,
+      });
+    }
     await dependencies.finishWorkspaceBudget(job, budget, {
       actualInputTokens: inputTokens,
       actualOutputTokens: outputTokens,
@@ -284,16 +302,29 @@ async function executeWorkspaceJob(
       });
     }
   } catch (error) {
+    let retry = null;
+    try {
+      retry = isEarningsCallJob(job) ? await dependencies.readWorkspaceSourceRetry({
+        occurrenceKey: job.occurrence.occurrenceKey,
+        scope: job.scope,
+      }) : null;
+    } catch {
+      // A corrupt or unavailable retry record must not turn a terminal failure
+      // into a blind acquisition replay.
+    }
     dependencies.emitRuntimeObservation({
-      counter: started
+      counter: retry
+        ? "workspace_monitor_retryable_failure_total"
+        : started
         ? "workspace_monitor_terminal_failure_total"
         : "workspace_monitor_retryable_failure_total",
       errorCode: safeWorkspaceRuntimeErrorCode(error, "evaluation_failed"),
       value: 1,
     });
     if (started) {
-      try {
-        await dependencies.recordWorkspaceFailure({
+      if (!retry) {
+        try {
+          await dependencies.recordWorkspaceFailure({
           errorCode:
             error instanceof Error &&
             error.message === "workspace_worker_required_outcome_missing"
@@ -302,14 +333,16 @@ async function executeWorkspaceJob(
           expectedRevision: job.monitor.configurationRevision,
           monitorId: job.monitor.monitorId,
           scope: job.scope,
-        });
-      } catch {
-        // A concurrent lifecycle/configuration edit is authoritative.
+          });
+        } catch {
+          // A concurrent lifecycle/configuration edit is authoritative.
+        }
       }
       try {
         await dependencies.releaseWorkspaceLease({
           leaseToken: job.leaseToken,
           monitorId: job.monitor.monitorId,
+          ...(retry ? { retryAt: retry.retryAt } : {}),
           scope: job.scope,
         });
       } catch {
@@ -440,9 +473,32 @@ export function createEventTriggerSchedule(
             value: workspaceJobs.length,
           });
         }
-        const recoveryJobs = workspaceJobs.filter(
-          (job) => job.occurrence.attempt > 1,
-        );
+        const recoveryJobs: ClaimedWorkspaceMonitor[] = [];
+        const retryJobs: ClaimedWorkspaceMonitor[] = [];
+        const repeatedJobs = workspaceJobs.filter(({ occurrence }) => occurrence.attempt > 1);
+        const retries = await Promise.all(repeatedJobs.map(async (job) => {
+          try {
+            return isEarningsCallJob(job) ? await dependencies.readWorkspaceSourceRetry({
+              occurrenceKey: job.occurrence.occurrenceKey,
+              scope: job.scope,
+            }) : null;
+          } catch {
+            // Missing/corrupt retry state retains the recovery-only fail-closed path.
+            return null;
+          }
+        }));
+        for (const [index, job] of repeatedJobs.entries()) {
+          const retry = retries[index];
+          if (retry && Date.parse(retry.retryAt) <= now.getTime()) retryJobs.push(job);
+          else if (retry) {
+            await dependencies.releaseWorkspaceLease({
+              leaseToken: job.leaseToken,
+              monitorId: job.monitor.monitorId,
+              retryAt: retry.retryAt,
+              scope: job.scope,
+            });
+          } else recoveryJobs.push(job);
+        }
         const firstAttemptJobs = workspaceJobs.filter(
           (job) => job.occurrence.attempt === 1,
         );
@@ -457,7 +513,7 @@ export function createEventTriggerSchedule(
         );
 
         const admittedWorkspaceJobs = [];
-        for (const job of firstAttemptJobs) {
+        for (const job of [...firstAttemptJobs, ...retryJobs]) {
           try {
             const budget = await dependencies.reserveWorkspaceBudget(job, {
               now,

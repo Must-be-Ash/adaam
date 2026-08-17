@@ -4,6 +4,7 @@ import {
   strategyPackCatalog,
   type StrategyPackCatalogEntry,
 } from "./strategy-pack-catalog";
+import { resolveParameterizedStrategyPackSources } from "./strategy-pack-source-resolution";
 import { resolveStrategyPackFlags } from "./strategy-pack-flags";
 import type { StrategyPackDefinition } from "./strategy-pack-schema";
 import type { WorkspaceMonitor } from "./workspace-monitor-store";
@@ -27,6 +28,7 @@ export {
 } from "./strategy-pack-runtime-schema";
 
 export interface ActiveInteractiveStrategyPackRuntime {
+  readonly hardDeniedCapabilityIds: readonly string[];
   readonly pack: Readonly<{
     contentDigest: string;
     id: string;
@@ -107,6 +109,7 @@ function currentSnapshot(binding: WorkspaceStrategyBindingValue) {
 export function hasExactStrategyPackCapabilities(
   capabilities: WorkspaceCapabilityManifestValue,
   pack: StrategyPackCatalogEntry,
+  configuration: Readonly<Record<string, unknown>> = {},
 ): boolean {
   const availableTools = new Set([
     ...capabilities.controlPlaneToolIds,
@@ -143,7 +146,13 @@ export function hasExactStrategyPackCapabilities(
   ) {
     return false;
   }
-  return pack.sources.every((source) => {
+  let expectedSources;
+  try {
+    expectedSources = resolveParameterizedStrategyPackSources(pack, configuration);
+  } catch {
+    return false;
+  }
+  return expectedSources.every((source) => {
     const capability = sources.get(source.sourceId);
     return (
       capability !== undefined &&
@@ -224,7 +233,7 @@ async function resolveActiveRuntime(input: {
   if (
     !capabilities ||
     capabilities.revision !== binding.effectiveCapabilityManifestRevision ||
-    !hasExactStrategyPackCapabilities(capabilities.value, pack)
+    !hasExactStrategyPackCapabilities(capabilities.value, pack, binding.configuration)
   ) {
     return stale();
   }
@@ -235,6 +244,12 @@ async function resolveActiveRuntime(input: {
     workspaceGeneration: input.workspaceGeneration,
   });
   return Object.freeze({
+    hardDeniedCapabilityIds: Object.freeze(
+      [...new Set([
+        ...SHARED_RUNTIME_HARD_DENIED_CAPABILITIES,
+        ...capabilities.value.hardDeniedCapabilityIds,
+      ])].sort(),
+    ),
     pack: Object.freeze({
       contentDigest: pack.contentDigest,
       id: pack.id,
@@ -320,12 +335,23 @@ function exactMonitorSources(
   monitor: WorkspaceMonitor,
   pack: StrategyPackCatalogEntry,
   resource: StrategyPackCatalogEntry["monitors"][number],
+  configuration: Readonly<Record<string, unknown>>,
 ): boolean {
-  const sources = new Map(pack.sources.map((source) => [source.sourceId, source]));
+  let expectedSources;
+  try {
+    expectedSources = resolveParameterizedStrategyPackSources(
+      pack,
+      configuration,
+      resource.sourceIds,
+    );
+  } catch {
+    return false;
+  }
+  const sources = new Map(expectedSources.map((source) => [source.sourceId, source]));
   return (
     sameStrings(
       monitor.sources.map(({ sourceId }) => sourceId).sort(),
-      [...resource.sourceIds].sort(),
+      expectedSources.map(({ sourceId }) => sourceId).sort(),
     ) &&
     monitor.sources.every((source) => {
       const expected = sources.get(source.sourceId);
@@ -383,10 +409,18 @@ export async function requireWorkspaceWorkerStrategyPackRuntime(input: {
   const resource = pack?.monitors.find(
     (candidate) => candidate.resourceId === snapshot.resourceId,
   );
+  if (!pack || !managed || !resource) return stale();
+  let expectedSourceIds: string[];
+  try {
+    expectedSourceIds = resolveParameterizedStrategyPackSources(
+      pack,
+      binding.configuration,
+      resource.sourceIds,
+    ).map(({ sourceId }) => sourceId).sort();
+  } catch {
+    return stale();
+  }
   if (
-    !pack ||
-    !managed ||
-    !resource ||
     input.envelope.capabilityRevision !== snapshot.capabilityManifestRevision ||
     JSON.stringify(runtime.snapshot) !==
       JSON.stringify({
@@ -398,7 +432,7 @@ export async function requireWorkspaceWorkerStrategyPackRuntime(input: {
         workspaceGeneration: snapshot.workspaceGeneration,
       }) ||
     managed.monitorId !== input.monitor.monitorId ||
-    !sameStrings(managed.sourceIds, [...resource.sourceIds]) ||
+    !sameStrings(managed.sourceIds, expectedSourceIds) ||
     provenance.bindingRevision !== snapshot.bindingRevision ||
     provenance.packContentDigest !== snapshot.packContentDigest ||
     provenance.packId !== snapshot.packId ||
@@ -410,7 +444,7 @@ export async function requireWorkspaceWorkerStrategyPackRuntime(input: {
       resource.requiredCapabilityIds,
     ) ||
     JSON.stringify(input.monitor.sources) !== JSON.stringify(input.envelope.sources) ||
-    !exactMonitorSources(input.monitor, pack, resource)
+    !exactMonitorSources(input.monitor, pack, resource, binding.configuration)
   ) {
     return stale();
   }

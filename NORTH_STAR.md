@@ -215,11 +215,12 @@ the workspace or strategy contracts.
 
 ## Current implementation gap
 
-This document describes the target architecture. Spec 1 implements the Photon
-polling/runtime foundation, and Spec 2 implements and production-accepts the
-versioned-pack framework and IPO Filings reference workflow. Later strategy
-behavior, source adapters, cross-channel support, private artifacts, and
-financial layers remain incomplete.
+This document describes the target architecture. Specs 1–4B now implement and
+production-accept the Photon runtime, versioned packs, shared SEC/House and
+earnings source families, Congressional Signals, hybrid evidence, and Earnings
+Call Changes. Later strategies, a second differently shaped hybrid consumer,
+cross-channel support, private artifacts, and financial layers remain
+incomplete.
 
 - Photon has a durable conversation workspace registry, one active-workspace
   pointer, isolated continuation addresses, session-generation rollover,
@@ -258,6 +259,16 @@ financial layers remain incomplete.
   production SEC, Photon delivery, Discuss, exact pack-managed worker, cleanup,
   and rollback acceptance passed on 2026-08-15. Interactive pack surfaces remain
   on; global dispatch, pack-managed dispatch, and Photon alerts are off.
+- `earnings-call-changes@1.0.0` is the first production-accepted transcript
+  consumer of the hybrid evidence lane. It reuses source-global acquisition and
+  isolated workspace projections, normalizes reviewed calls, compares exact
+  current/prior evidence, produces cited facts/inferences/forecasts/
+  recommendations, and routes one material finding through the generic Photon
+  alert and Discuss path. The 46-gate regression, live JPM source-to-finding
+  smoke, one real alert/Discuss, staged dependency rollout, and both rollback
+  levels passed on 2026-08-17. All earnings, hybrid, dispatch, and alert flags
+  returned to off; broader issuer discovery and long-call reduction remain
+  explicit deferred work.
 - Exact previews currently protect order creation only. Edit/cancel use generic
   approval, market-order collars are not yet enforced by the approval protocol,
   and uncertain operations do not yet block subsequent mutations. All mutation
@@ -362,11 +373,12 @@ directories so a fork contains its own north-star sources.
 
 ## Near-term sequence
 
-1. Specs 1–4A are complete: isolated runtimes, versioned packs, shared SEC/House
-   public facts, Congressional Signals, and the deterministic-first hybrid
-   evidence/reasoning foundation. Hybrid child flags remain rolled back off.
-2. Prove that foundation with two real consumers: Spec 4B Earnings Call Changes,
-   then Spec 4C using a different connector and content shape.
+1. Specs 1–4B are complete: isolated runtimes, versioned packs, shared SEC/
+   House/earnings public facts, Congressional Signals, the deterministic-first
+   hybrid foundation, and its first transcript consumer. Earnings, hybrid,
+   dispatch, and alert flags remain rolled back off.
+2. Prove the foundation with a second real consumer in Spec 4C using a different
+   connector and content shape.
 3. Revisit Spec 5 Insider Clusters after those proofs, then implement Spec 6's
    typed shared-signal plane without weakening workspace isolation.
 4. Extend the deployment-owner boundary and workspace broker to Telegram and
@@ -390,3 +402,13 @@ single-attempt Photon delivery, a Discuss-bound next turn, and a matching
 manager state read; rollback then disabled dispatch and alerts without deleting
 workspace records. Bounded fingerprints and deployment evidence live in
 `specs/01-independent-workspace-runtimes.md` and `HANDOFF.md`.
+
+Owner-authorized Spec 4B production acceptance completed on 2026-08-17. A live
+reviewed JPM Q2/Q1 acquisition produced an accepted cited finding at
+deterministic materiality score 86; one real Photon alert delivered and its
+Discuss capability was applied and consumed. Staged source, hybrid, execution,
+and alert activation passed, followed by alert and full rollback. The final
+staged deployment was `dpl_4AKpjdy1cWMCTY1QPQA9uvauRviE`; every new earnings,
+hybrid, dispatch, and alert flag was verified at `0`. Bounded identifiers,
+deployment receipts, and deferred edges live in
+`specs/04b-earnings-call-changes.md`, `HANDOFF.md`, and `BACKLOG.md`.

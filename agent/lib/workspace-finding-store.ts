@@ -371,6 +371,23 @@ export async function selectUnseenWorkspaceFindingIdentities(
   return Object.freeze(unseen);
 }
 
+export async function readWorkspaceFindingIdentityClaim(
+  input: {
+    readonly factIdentity: string;
+    readonly monitorId: string;
+    readonly scope: AuthorizedWorkspaceStoreScope;
+  },
+  client: WorkspaceFindingStoreClient = store(),
+): Promise<WorkspaceFindingIdentityClaim | null> {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  const value = rawValue(await client.get(
+    identityKey(input.scope, input.monitorId, input.factIdentity),
+  ));
+  return value === null
+    ? null
+    : parseIdentityClaim(value, input.scope, input.monitorId, input.factIdentity);
+}
+
 function assertCoverage(
   envelope: WorkspaceWorkerEnvelope,
   coverage: WorkspaceSourceCoverage,

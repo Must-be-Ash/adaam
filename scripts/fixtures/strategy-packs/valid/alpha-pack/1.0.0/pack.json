@@ -35,6 +35,22 @@
       "mutableAfterInstall": true,
       "pauseManagedMonitorsOnChange": true,
       "rolloverGenerationOnChange": true
+    },
+    {
+      "key": "selectedIssuerCiks",
+      "kind": "catalog_id_list",
+      "label": "Companies",
+      "description": "Reviewed SEC issuers selected for earnings-call acquisition.",
+      "required": true,
+      "default": ["0000789019", "0001326801"],
+      "minimumItems": 1,
+      "maximumItems": 8,
+      "catalogId": "sec-issuers",
+      "catalogRevision": 1,
+      "catalogDigest": "a245bb50765e41bc27ae9b1df6eabab3bf70d6c9cc4aeebbecf4f2babd3ee95e",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
     }
   ],
   "skills": [
@@ -57,6 +73,20 @@
       "canonicalUrl": "https://alpha.example.gov/events.json",
       "allowedOrigins": ["https://alpha.example.gov"],
       "accessClassification": "public"
+    },
+    {
+      "sourceId": "earnings-call-transcripts",
+      "contractVersion": "1.0.0",
+      "contractDigest": "8832172086d8e5f582d94cfa9ce32b7c2927c313b41ffea853c3ae9d3fedaf73",
+      "canonicalUrl": "https://data.sec.gov/submissions/CIK0000000000.json",
+      "allowedOrigins": ["https://data.sec.gov"],
+      "accessClassification": "public",
+      "parameterization": {
+        "catalogId": "sec-issuers",
+        "catalogRevision": 1,
+        "catalogDigest": "a245bb50765e41bc27ae9b1df6eabab3bf70d6c9cc4aeebbecf4f2babd3ee95e",
+        "selectionConfigurationKey": "selectedIssuerCiks"
+      }
     }
   ],
   "monitors": [
@@ -66,7 +96,7 @@
       "instructionPath": "monitors/detect-alpha.md",
       "timezoneConfigurationKey": "timezone",
       "dailyTimesConfigurationKey": "dailyTimes",
-      "sourceIds": ["source.alpha"],
+      "sourceIds": ["earnings-call-transcripts", "source.alpha"],
       "requiredCapabilityIds": ["tool.alpha.fetch"],
       "findingSchemaId": "finding.alpha/v1",
       "alertPresentationId": "alert.public-event/v1",

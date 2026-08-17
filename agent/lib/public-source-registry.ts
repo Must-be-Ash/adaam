@@ -3,6 +3,7 @@ import {
   publicSourceInstanceSchema,
 } from "./public-source-adapter-schema";
 import { STRATEGY_PACK_REFERENCE_CATALOG } from "./strategy-pack-reference-catalog";
+import { resolveEarningsCallPublicSource } from "./earnings-call-public-source-contract";
 
 export class ReviewedPublicSourceRegistryError extends Error {
   readonly code:
@@ -37,7 +38,8 @@ export function isReviewedPublicSource(sourceId: string): boolean {
 export function resolveReviewedPublicSource(sourceId: string) {
   const sourceContracts: Readonly<Record<string, ReviewedSourceContract>> =
     STRATEGY_PACK_REFERENCE_CATALOG.sourceContracts;
-  const sourceContract = sourceContracts[sourceId];
+  const parameterized = resolveEarningsCallPublicSource(sourceId);
+  const sourceContract = parameterized?.sourceContract ?? sourceContracts[sourceId];
   if (!sourceContract?.publicSource) {
     throw new ReviewedPublicSourceRegistryError("public_source_not_reviewed");
   }
@@ -62,6 +64,7 @@ export function resolveReviewedPublicSource(sourceId: string) {
       adapterDefinition,
       sourceContract,
       sourceInstance,
+      ...(parameterized ? { sourceFamily: parameterized.family } : {}),
     });
   } catch (error) {
     if (error instanceof ReviewedPublicSourceRegistryError) throw error;

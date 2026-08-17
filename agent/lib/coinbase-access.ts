@@ -95,6 +95,20 @@ export function coinbaseToolRequiresApproval(toolName: string): boolean {
   return COINBASE_MUTATING_TOOLS.has(toolName);
 }
 
+export function coinbaseInteractiveCapabilityIds(
+  toolName: string,
+): readonly string[] {
+  return Object.freeze([
+    "coinbase_mcp",
+    ...(toolName === "coinbase_preview_order"
+      ? ["broker.mutation", "coinbase_create_order"]
+      : []),
+    ...(coinbaseToolRequiresApproval(toolName)
+      ? ["broker.mutation", "financial.mutation"]
+      : []),
+  ]);
+}
+
 export function requireCoinbaseAccess(ctx: SessionContext): CoinbasePrincipal {
   return requireCoinbaseSessionAccess(ctx.session);
 }
@@ -114,10 +128,10 @@ function requireCoinbaseSessionAccess(session: Session): CoinbasePrincipal {
   return principal;
 }
 
-export function coinbaseApproval(
+export async function coinbaseApproval(
   ctx: ApprovalContext,
   requiresUserApproval: boolean,
-): ApprovalStatus {
+): Promise<ApprovalStatus> {
   try {
     requireCoinbaseSessionAccess(ctx.session);
   } catch (error) {

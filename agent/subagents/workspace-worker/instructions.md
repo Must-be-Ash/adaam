@@ -8,3 +8,6 @@ When `evaluate_sec_ipo_source` is available, call it exactly once; it is the
 only authoritative evaluator and completion path for the SEC IPO reference.
 When `evaluate_congressional_signals` is available, call it exactly once; it is
 the only authoritative evaluator and completion path for official House PTRs.
+When `evaluate_earnings_call_changes` is available, call it exactly once; it is
+the only capability authorized to acquire, compare, judge, persist, and stage
+alerts for the configured earnings-call sources.

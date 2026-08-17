@@ -180,18 +180,28 @@ function validateUniqueAndCapabilities(manifest, path) {
     throw new StrategyPackGenerationError("pack_capability_conflict", path);
   }
   const configuration = new Map(
-    manifest.configuration.map((field) => [field.key, field.kind]),
+    manifest.configuration.map((field) => [field.key, field]),
   );
   const sources = new Set(manifest.sources.map((source) => source.sourceId));
   for (const monitor of manifest.monitors) {
     if (
-      configuration.get(monitor.timezoneConfigurationKey) !== "iana_timezone" ||
-      configuration.get(monitor.dailyTimesConfigurationKey) !== "daily_local_times" ||
+      configuration.get(monitor.timezoneConfigurationKey)?.kind !== "iana_timezone" ||
+      configuration.get(monitor.dailyTimesConfigurationKey)?.kind !== "daily_local_times" ||
       monitor.sourceIds.some((id) => !sources.has(id)) ||
       monitor.requiredCapabilityIds.some((id) => !required.has(id))
     ) {
       throw new StrategyPackGenerationError("pack_reference_unknown", path);
     }
+  }
+  for (const source of manifest.sources) {
+    if (!source.parameterization) continue;
+    const field = configuration.get(source.parameterization.selectionConfigurationKey);
+    if (
+      field?.kind !== "catalog_id_list" ||
+      field.catalogId !== source.parameterization.catalogId ||
+      field.catalogRevision !== source.parameterization.catalogRevision ||
+      field.catalogDigest !== source.parameterization.catalogDigest
+    ) throw new StrategyPackGenerationError("pack_reference_unknown", path);
   }
   for (const skill of manifest.skills) {
     if (!required.has(`skill.${skill.id}`)) {
@@ -213,7 +223,9 @@ function validateApplicationReferences(manifest, evaluations, references, path) 
     throw new StrategyPackGenerationError("pack_reference_unknown", path);
   }
   for (const source of manifest.sources) {
-    const reviewed = references.sourceContracts[source.sourceId];
+    const reviewed = source.parameterization
+      ? references.parameterizedSourceContracts?.[source.sourceId]
+      : references.sourceContracts[source.sourceId];
     if (
       !reviewed ||
       reviewed.contractVersion !== source.contractVersion ||
