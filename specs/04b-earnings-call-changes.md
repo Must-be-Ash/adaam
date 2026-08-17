@@ -499,24 +499,24 @@ cited judgment or a durable safe abstention/quarantine in the correct workspace.
 
 ### Sprint 4 — strategy pack and owner vertical
 
-- [ ] Publish immutable `earnings-call-changes@1.0.0` files, catalog entry,
+- [x] Publish immutable `earnings-call-changes@1.0.0` files, catalog entry,
   monitor definition, configuration, playbook, risk defaults, and evals.
-- [ ] Route the compiled workspace worker through acquisition, baseline,
+- [x] Route the compiled workspace worker through acquisition, baseline,
   deterministic evidence, semantic judgment, finding, checkpoint, and generic
   alert staging with replay and stale-revision protection.
-- [ ] Render company coverage/status and accepted analysis in workspace
+- [x] Render company coverage/status and accepted analysis in workspace
   management; implement the defined issuer-selector states and analysis detail
   hierarchy; add a read-only explanation tool that cites the exact finding.
-- [ ] Keep the supported Photon webview responsive and keyboard-operable; provide
+- [x] Keep the supported Photon webview responsive and keyboard-operable; provide
   programmatic labels/status semantics, visible focus, focus placement after
   validation errors, and announced loading/save/status changes.
-- [ ] Present material alerts with workspace/issuer identity, dominant change,
+- [x] Present material alerts with workspace/issuer identity, dominant change,
   forecast/recommendation, safe sources, **Discuss**, and **Manage**; suppress
   all defined non-alert outcomes. Discuss resolves the exact accepted finding
   and evidence revisions after entering the bound workspace.
-- [ ] Prove two workspaces with overlapping issuers do not share strategy
+- [x] Prove two workspaces with overlapping issuers do not share strategy
   settings, semantic results, budgets, findings, alert context, or chat history.
-- [ ] Add and pass `verify:earnings-call-changes:sprint-4` and the affected
+- [x] Add and pass `verify:earnings-call-changes:sprint-4` and the affected
   strategy-pack, runtime, alert, and isolation gates.
 
 Exit: an owner can configure and inspect the pack end to end, and one new

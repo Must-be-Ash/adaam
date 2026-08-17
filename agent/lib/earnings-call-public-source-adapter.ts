@@ -60,7 +60,17 @@ export interface EarningsCallPublicSourceResponse {
 }
 
 export interface EarningsCallPublicSourceAcquisition extends PublicSourcePreparedAcquisition {
+  readonly transientArtifacts: readonly EarningsCallTransientArtifact[];
   readonly baselineEstablished: boolean;
+}
+
+export interface EarningsCallTransientArtifact {
+  readonly artifactBytes: Uint8Array;
+  readonly artifactDigest: string;
+  readonly artifactMediaType: "application/pdf" | "text/html";
+  readonly artifactUrl: string;
+  readonly factRevisionId: string;
+  readonly fact: CanonicalPublicFactRevision;
 }
 
 export interface SharedEarningsCallPublicSourceAcquisitionResult {
@@ -69,6 +79,7 @@ export interface SharedEarningsCallPublicSourceAcquisitionResult {
   readonly commit: PublicSourceAcquisitionCommit | null;
   readonly journal: PublicSourceAcquisitionJournal | null;
   readonly reused: boolean;
+  readonly transientArtifacts: readonly EarningsCallTransientArtifact[];
 }
 
 class EarningsCallAcquisitionError extends Error {
@@ -352,6 +363,7 @@ function failure(input: {
     corrections: Object.freeze([]),
     facts: Object.freeze([]),
     retractions: Object.freeze([]),
+    transientArtifacts: Object.freeze([]),
     result: publicSourceAcquisitionResultSchema.parse({
       acquisitionId: acquisitionId({ contentDigest: digest, source: input.source, window: input.window }),
       adapterDefinitionDigest: input.source.adapterDefinitionDigest,
@@ -416,6 +428,7 @@ async function acquire(input: {
   }
   const contexts = secContexts(sec.body, input.family.cik, input.family.events);
   const facts: CanonicalPublicFactRevision[] = [];
+  const transientArtifacts: EarningsCallTransientArtifact[] = [];
   const artifactDigests: string[] = [];
   const observedTimes = [sec.observedAt];
   for (const event of input.family.events) {
@@ -463,6 +476,16 @@ async function acquire(input: {
       source: input.source,
     });
     facts.push(fact);
+    transientArtifacts.push(Object.freeze({
+      artifactBytes: artifact.body,
+      artifactDigest: fact.payload.schemaVersion === "earnings-call-event/v1"
+        ? fact.payload.artifactDigest
+        : "",
+      artifactMediaType: input.family.artifact.mediaType,
+      artifactUrl: artifact.finalUrl,
+      factRevisionId: fact.revisionId,
+      fact,
+    }));
     artifactDigests.push(fact.payload.schemaVersion === "earnings-call-event/v1"
       ? fact.payload.artifactDigest
       : "");
@@ -488,6 +511,7 @@ async function acquire(input: {
     corrections: Object.freeze(corrections),
     facts: Object.freeze(candidateFacts),
     retractions: Object.freeze([]),
+    transientArtifacts: Object.freeze(transientArtifacts),
     result: publicSourceAcquisitionResultSchema.parse({
       acquisitionId: acquisitionId({ contentDigest, source: input.source, window: input.window }),
       adapterDefinitionDigest: input.source.adapterDefinitionDigest,
@@ -574,6 +598,7 @@ export async function runSharedEarningsCallPublicSourceAcquisition(input: {
     commit: null,
     journal: committedForWindow.journal,
     reused: true,
+    transientArtifacts: Object.freeze([]),
   });
   const source = await ensurePublicSourceInstance(reviewed.sourceInstance, input.client);
   const eligibility = {
@@ -587,6 +612,7 @@ export async function runSharedEarningsCallPublicSourceAcquisition(input: {
     commit: null,
     journal: reusable.journal,
     reused: true,
+    transientArtifacts: Object.freeze([]),
   });
   const eligibilityId = derivePublicSourceAcquisitionEligibilityId(eligibility);
   const active = sharedAcquisitions.get(eligibilityId);
@@ -598,6 +624,7 @@ export async function runSharedEarningsCallPublicSourceAcquisition(input: {
       baselineEstablished: raced.result.baselineEstablished,
       commit: null,
       journal: raced.journal,
+      transientArtifacts: Object.freeze([]),
     });
     let prepared: EarningsCallPublicSourceAcquisition;
     try {
@@ -624,6 +651,7 @@ export async function runSharedEarningsCallPublicSourceAcquisition(input: {
         baselineEstablished: false,
         commit: null,
         journal: null,
+        transientArtifacts: Object.freeze([]),
       });
     }
     try {
@@ -633,6 +661,7 @@ export async function runSharedEarningsCallPublicSourceAcquisition(input: {
         baselineEstablished: prepared.baselineEstablished,
         commit,
         journal: commit.journal,
+        transientArtifacts: prepared.transientArtifacts,
       });
     } catch (error) {
       if (
@@ -646,6 +675,7 @@ export async function runSharedEarningsCallPublicSourceAcquisition(input: {
         baselineEstablished: winner.result.baselineEstablished,
         commit: null,
         journal: winner.journal,
+        transientArtifacts: Object.freeze([]),
       });
     }
   })();

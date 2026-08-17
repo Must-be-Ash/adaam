@@ -9,6 +9,10 @@ import {
   CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
   evaluateCongressionalSignalsTool,
 } from "../../../lib/congressional-workspace-worker";
+import {
+  EARNINGS_CALL_CHANGES_EVALUATION_TOOL_ID,
+  evaluateEarningsCallChangesTool,
+} from "../../../lib/earnings-call-workspace-worker";
 import fetchPublicSource from "../../../tools/fetch_public_source";
 import {
   completeWorkspaceRunTool,
@@ -20,6 +24,13 @@ import {
 } from "../../../lib/workspace-worker-control-plane";
 
 const registry = Object.freeze([
+  {
+    definition: evaluateEarningsCallChangesTool as ToolDefinition,
+    metadata: {
+      category: "control_plane" as const,
+      id: EARNINGS_CALL_CHANGES_EVALUATION_TOOL_ID,
+    },
+  },
   {
     definition: evaluateCongressionalSignalsTool as ToolDefinition,
     metadata: {

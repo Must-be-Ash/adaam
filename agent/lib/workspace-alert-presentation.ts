@@ -27,6 +27,12 @@ function sourceEvidence(alert: WorkspaceAlert): string {
     .join(", ");
 }
 
+function artifactEvidenceLine(alert: WorkspaceAlert): string | null {
+  return alert.artifactRefs?.length
+    ? `Exact finding/evidence references: ${alert.artifactRefs.map((value) => singleLine(value, 160)).join(", ")}`
+    : null;
+}
+
 export function renderWorkspaceAlertPresentation(
   alert: WorkspaceAlert,
 ): WorkspaceAlertPresentation {
@@ -35,6 +41,7 @@ export function renderWorkspaceAlertPresentation(
   const title = singleLine(alert.title, 240);
   const whyMatched = singleLine(alert.whyMatched, 1_000);
   const sources = sourceEvidence(alert);
+  const artifactRefs = artifactEvidenceLine(alert);
   const eventTime = alert.eventTime
     ? `Observed: ${singleLine(alert.eventTime, 100)}`
     : null;
@@ -49,6 +56,7 @@ export function renderWorkspaceAlertPresentation(
       whyMatched,
       ...(eventTime ? [eventTime] : []),
       `Sources: ${sources}`,
+      ...(artifactRefs ? [artifactRefs] : []),
       "Open the alert card to Discuss in workspace or Manage sessions.",
     ].join("\n\n"),
     heading,
@@ -60,6 +68,7 @@ export function workspaceAlertTurnContext(alert: WorkspaceAlert): string {
   const title = singleLine(alert.title, 240);
   const whyMatched = singleLine(alert.whyMatched, 1_000);
   const sources = sourceEvidence(alert);
+  const artifactRefs = artifactEvidenceLine(alert);
   return [
     "The owner explicitly chose to discuss this durable alert in the current workspace.",
     `Alert reference: ${alert.alertId}`,
@@ -67,6 +76,7 @@ export function workspaceAlertTurnContext(alert: WorkspaceAlert): string {
     `Why it matched: ${whyMatched}`,
     ...(alert.eventTime ? [`Observed: ${singleLine(alert.eventTime, 100)}`] : []),
     `Source references: ${sources}`,
+    ...(artifactRefs ? [artifactRefs] : []),
     "Treat this as bounded context for the current turn only. Do not infer or load another workspace's history.",
   ].join("\n");
 }

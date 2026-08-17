@@ -40,6 +40,7 @@ import {
   unavailablePublicSourceWorkspaceHealth,
 } from "../lib/public-source-health";
 import { readCongressionalWorkspacePresentation } from "../lib/congressional-signal-presentation";
+import { readEarningsCallWorkspacePresentation } from "../lib/earnings-call-presentation";
 import {
   getWorkspaceMonitor,
   listWorkspaceMonitors,
@@ -334,25 +335,7 @@ async function publicManagerState(
             budget.value.ownerTimezone,
           )
         : null;
-      const congressionalSignals = inspectedStrategyPack?.state === "active" &&
-          inspectedStrategyPack.pack?.id === "congressional-signals"
-        ? await readCongressionalWorkspacePresentation(scope).catch(() => Object.freeze({
-            coverage: null,
-            latestSignal: null,
-            outcomeCounts: Object.freeze({
-              alertEligible: 0,
-              priority: 0,
-              recordOnly: 0,
-              review: 0,
-              total: 0,
-            }),
-            state: "unavailable" as const,
-          }))
-        : null;
-      const strategyPack = congressionalSignals
-        ? Object.freeze({ ...inspectedStrategyPack, congressionalSignals })
-        : inspectedStrategyPack;
-      const publicMonitors = await Promise.all(monitors.map(async (monitor) => ({
+      const publicMonitorsPromise = Promise.all(monitors.map(async (monitor) => ({
         configurationRevision: monitor.configurationRevision,
         lastCompletedAt: monitor.lastCompletedAt,
         lastErrorCode: monitor.lastErrorCode,
@@ -370,6 +353,44 @@ async function publicManagerState(
         schedule: monitor.schedule,
         sources: monitor.sources,
       })));
+      const congressionalSignals = inspectedStrategyPack?.state === "active" &&
+          inspectedStrategyPack.pack?.id === "congressional-signals"
+        ? await readCongressionalWorkspacePresentation(scope).catch(() => Object.freeze({
+            coverage: null,
+            latestSignal: null,
+            outcomeCounts: Object.freeze({
+              alertEligible: 0,
+              priority: 0,
+              recordOnly: 0,
+              review: 0,
+              total: 0,
+            }),
+            state: "unavailable" as const,
+          }))
+        : null;
+      const earningsCallChanges = inspectedStrategyPack?.state === "active" &&
+          inspectedStrategyPack.pack?.id === "earnings-call-changes"
+        ? await readEarningsCallWorkspacePresentation({
+            scope,
+            selectedIssuerCiks: Array.isArray(inspectedStrategyPack.configuration?.selectedIssuerCiks)
+              ? inspectedStrategyPack.configuration.selectedIssuerCiks.filter(
+                  (value): value is string => typeof value === "string",
+                )
+              : [],
+          }).catch(() => Object.freeze({
+            coverage: Object.freeze([]),
+            latestAnalysis: null,
+            state: "unavailable" as const,
+          }))
+        : null;
+      const strategyPack = congressionalSignals || earningsCallChanges
+        ? Object.freeze({
+            ...inspectedStrategyPack,
+            ...(congressionalSignals ? { congressionalSignals } : {}),
+            ...(earningsCallChanges ? { earningsCallChanges } : {}),
+          })
+        : inspectedStrategyPack;
+      const publicMonitors = await publicMonitorsPromise;
       return {
         ...workspace,
         budget,
@@ -679,7 +700,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
   </style>
 </head>
 <body>
-  <main>
+  <main aria-busy="true">
     <header>
       <h1>Manage Sessions</h1>
     </header>
@@ -697,11 +718,11 @@ export function workspaceHtml(nonce: string, origin: string): string {
       <form id="pack-create-form" class="pack-form">
         <div class="pack-field full">
           <label for="pack-select">Pack</label>
-          <select id="pack-select"></select>
+          <select id="pack-select" required></select>
         </div>
         <div class="pack-field full">
           <label for="pack-name">Session name</label>
-          <input id="pack-name" maxlength="40" autocomplete="off" value="IPO Filings">
+          <input id="pack-name" maxlength="40" autocomplete="off" value="IPO Filings" required>
         </div>
         <div id="pack-configuration-fields"></div>
         <label class="pack-toggle" for="pack-activate">
@@ -719,6 +740,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
   <script nonce="${nonce}">
     (() => {
       const token = location.hash.slice(1);
+      const main = document.querySelector("main");
       const status = document.querySelector("#status");
       const list = document.querySelector("#workspaces");
       const form = document.querySelector("#create-form");
@@ -801,6 +823,16 @@ export function workspaceHtml(nonce: string, origin: string): string {
         return [field.key, configurationValue(field, control)];
       }));
 
+      const catalogSelectionIssue = (field, control, activationRequested) => {
+        const selected = Array.from(control.selectedOptions);
+        if (selected.length < field.minimumItems) return "Select at least " + field.minimumItems + " company.";
+        if (selected.length > field.maximumItems) return "Select no more than " + field.maximumItems + " companies.";
+        if (activationRequested && !selected.some((option) => option.dataset.coverageState !== "coverage_unavailable")) {
+          return "Select at least one company with verified coverage before starting the schedule.";
+        }
+        return null;
+      };
+
       const renderPackConfiguration = () => {
         packConfigurationFields.replaceChildren();
         const pack = selectedPack();
@@ -825,6 +857,10 @@ export function workspaceHtml(nonce: string, origin: string): string {
             for (const choice of choices) {
               const option = document.createElement("option");
               option.value = choice.id;
+              if (field.kind === "catalog_id_list") {
+                option.dataset.coverageState = choice.coverageState;
+                option.dataset.searchText = (choice.id + " " + choice.label).toLocaleLowerCase();
+              }
               option.textContent = field.kind === "catalog_id_list"
                 ? choice.label + " · " + choice.coverageState.replaceAll("_", " ")
                 : choice.label;
@@ -842,7 +878,73 @@ export function workspaceHtml(nonce: string, origin: string): string {
           control.id = id;
           control.dataset.configurationKey = field.key;
           control.title = field.description;
-          wrapper.append(label, control);
+          control.required = field.required;
+          if (field.kind === "catalog_id_list") {
+            const search = document.createElement("input");
+            const selectorStatus = document.createElement("p");
+            const statusId = id + "-status";
+            search.type = "search";
+            search.autocomplete = "off";
+            search.placeholder = "Search ticker, company, or CIK";
+            search.setAttribute("aria-label", "Search " + field.label);
+            search.setAttribute("aria-controls", id);
+            selectorStatus.id = statusId;
+            selectorStatus.className = "runtime-detail";
+            selectorStatus.setAttribute("role", "status");
+            selectorStatus.setAttribute("aria-live", "polite");
+            control.setAttribute("aria-describedby", statusId);
+            const announceSelection = (message) => {
+              const selected = Array.from(control.selectedOptions);
+              const unsupported = selected.filter((option) => option.dataset.coverageState === "coverage_unavailable");
+              const issue = catalogSelectionIssue(field, control, packActivate.checked);
+              control.setAttribute("aria-invalid", String(Boolean(issue)));
+              selectorStatus.textContent = message || selected.length + " of " + field.maximumItems +
+                " selected" + (unsupported.length ? " · " + unsupported.length + " unsupported" : " · coverage verified") +
+                (issue ? " · " + issue : "");
+            };
+            search.addEventListener("input", () => {
+              const query = search.value.trim().toLocaleLowerCase();
+              const matches = Array.from(control.options).filter((option) =>
+                !query || option.dataset.searchText.includes(query));
+              for (const option of control.options) option.hidden = !matches.includes(option);
+              const exact = matches.filter((option) => option.value === query ||
+                option.textContent.toLocaleLowerCase().startsWith(query + " —"));
+              announceSelection(!query
+                ? matches.length + " companies available"
+                : matches.length === 0
+                  ? "No company matches this search"
+                  : exact.length === 1
+                    ? "Exact match · press Enter to add " + exact[0].textContent
+                    : matches.length === 1
+                      ? "One result · press Enter to add " + matches[0].textContent
+                      : "Ambiguous search · " + matches.length + " results");
+            });
+            search.addEventListener("keydown", (event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              const match = Array.from(control.options).find((option) => !option.hidden);
+              if (!match) return announceSelection("No result can be added");
+              if (match.selected) return announceSelection("Duplicate selection · " + match.textContent + " is already selected");
+              if (control.selectedOptions.length >= field.maximumItems) {
+                control.setAttribute("aria-invalid", "true");
+                return announceSelection("Selection limit reached · remove a company before adding another");
+              }
+              match.selected = true;
+              announceSelection("Selected " + match.textContent + " · unsaved changes");
+            });
+            control.addEventListener("change", () => {
+              if (control.selectedOptions.length > field.maximumItems) {
+                control.selectedOptions[control.selectedOptions.length - 1].selected = false;
+                announceSelection("Selection limit reached · the last company was not added");
+              } else {
+                announceSelection("Company selection changed · unsaved changes");
+              }
+            });
+            wrapper.append(label, search, control, selectorStatus);
+            announceSelection("Issuer catalog loaded · " + control.options.length + " companies available");
+          } else {
+            wrapper.append(label, control);
+          }
           packConfigurationFields.append(wrapper);
         }
       };
@@ -949,7 +1051,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
             .map(([key, value]) => {
               const field = pack?.configuration?.find((candidate) => candidate.key === key);
               const rendered = Array.isArray(value)
-                ? (value.length ? value.join(", ") : "all")
+                ? (value.length ? value.join(", ") : "none selected (incomplete)")
                 : value;
               return (field?.label || key) + ": " + rendered;
             })
@@ -1005,6 +1107,77 @@ export function workspaceHtml(nonce: string, origin: string): string {
             : "Latest signal · none";
           details.append(coverage, outcomes, latest);
         }
+        const earnings = strategyPack.earningsCallChanges;
+        if (earnings) {
+          const coverageHeading = document.createElement("p");
+          coverageHeading.className = "runtime-detail";
+          coverageHeading.textContent = "Company coverage";
+          coverageHeading.setAttribute("role", "status");
+          details.append(coverageHeading);
+          for (const issuer of earnings.coverage || []) {
+            const coverage = document.createElement("p");
+            coverage.className = "runtime-detail";
+            coverage.textContent = issuer.ticker + " · " + issuer.companyName + " · " +
+              issuer.state.replaceAll("_", " ") +
+              (issuer.reasonCode ? " · " + issuer.reasonCode.replaceAll("_", " ") : "") +
+              (issuer.lastSuccessfulEventAt ? " · last success " + issuer.lastSuccessfulEventAt : "");
+            coverage.setAttribute("role", "status");
+            details.append(coverage);
+          }
+          if (earnings.state === "unavailable") {
+            const unavailable = document.createElement("p");
+            unavailable.className = "runtime-detail";
+            unavailable.textContent = "Accepted analysis · unavailable";
+            details.append(unavailable);
+          } else if (!earnings.latestAnalysis) {
+            const none = document.createElement("p");
+            none.className = "runtime-detail";
+            none.textContent = "Accepted analysis · none yet; the baseline and non-alert outcomes remain silent";
+            details.append(none);
+          } else {
+            const analysis = earnings.latestAnalysis;
+            const stance = document.createElement("p");
+            stance.className = "runtime-detail";
+            stance.textContent = "Stance and conditional forecast · " +
+              (analysis.recommendation ? analysis.recommendation.stance + " · " + analysis.recommendation.conditionalImplication : "no view") +
+              (analysis.forecast ? " · " + analysis.forecast.direction + " · " + analysis.forecast.horizon.replaceAll("_", " ") : "") +
+              " · confidence " + analysis.confidence;
+            const support = document.createElement("p");
+            support.className = "runtime-detail";
+            support.textContent = "Supporting changes and metrics · " +
+              [...analysis.facts, ...analysis.inferences].map((item) => item.statement).join(" · ") +
+              " · deterministic score " + analysis.materiality.deterministicScore + "/100";
+            const counter = document.createElement("p");
+            counter.className = "runtime-detail";
+            counter.textContent = "Counterevidence and invalidation · " +
+              (analysis.counterevidence.map((item) => item.statement).join(" · ") || "none stated") +
+              (analysis.forecast ? " · " + analysis.forecast.invalidationConditions.join(" · ") : "");
+            const analysisCoverage = document.createElement("p");
+            analysisCoverage.className = "runtime-detail";
+            analysisCoverage.textContent = "Coverage and no-view explanation · outcome " + analysis.outcome +
+              (analysis.unknowns.length ? " · " + analysis.unknowns.join(" · ") : " · complete cited comparison");
+            const citations = document.createElement("details");
+            citations.className = "pack-details";
+            const citationsSummary = document.createElement("summary");
+            citationsSummary.textContent = "Current and prior citations";
+            citations.append(citationsSummary);
+            for (const source of analysis.sources) {
+              const sourceLine = document.createElement("p");
+              sourceLine.className = "runtime-detail";
+              sourceLine.textContent = source.role.replaceAll("_", " ") + " · " + source.fiscalPeriod +
+                " · " + source.eventRevisionId + " · " + source.canonicalUrl;
+              citations.append(sourceLine);
+            }
+            const locatorLine = document.createElement("p");
+            locatorLine.className = "runtime-detail";
+            locatorLine.textContent = "Exact spans · " + [...analysis.facts, ...analysis.inferences, ...analysis.counterevidence]
+              .flatMap((item) => item.citations)
+              .map((citation) => citation.eventRevisionId + ":" + citation.start + "-" + citation.end)
+              .join(" · ");
+            citations.append(locatorLine);
+            details.append(stance, support, counter, analysisCoverage, citations);
+          }
+        }
         row.append(details);
         return row;
       };
@@ -1028,6 +1201,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
       };
 
       const render = () => {
+        main.setAttribute("aria-busy", String(busy));
         list.replaceChildren();
         for (const control of document.querySelectorAll("form input, form select, form button")) {
           control.disabled = busy;
@@ -1197,6 +1371,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
           status.classList.add("error");
           status.textContent = "This session manager link is unavailable. Ask Eve to open it again.";
           form.hidden = true;
+          main.setAttribute("aria-busy", "false");
           return;
         }
         try {
@@ -1213,6 +1388,8 @@ export function workspaceHtml(nonce: string, origin: string): string {
           status.classList.add("error");
           status.textContent =
             error instanceof Error ? error.message : "Could not load sessions.";
+        } finally {
+          main.setAttribute("aria-busy", "false");
         }
       };
 
@@ -1398,12 +1575,36 @@ export function workspaceHtml(nonce: string, origin: string): string {
       packForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         if (!state) return;
+        if (!packForm.reportValidity()) {
+          status.classList.add("error");
+          status.textContent = "Complete the first invalid strategy-pack field before saving.";
+          packForm.querySelector(":invalid")?.focus();
+          return;
+        }
         const selected = selectedPack();
         const sourceWorkspace = state.workspaces.find(
           (workspace) => workspace.id === state.activeWorkspaceId,
         );
         const name = packName.value.trim();
         if (!selected || !sourceWorkspace || !name) return;
+        const invalidCatalogControl = selected.configuration
+          .filter((field) => field.kind === "catalog_id_list")
+          .map((field) => ({
+            control: packConfigurationFields.querySelector('[data-configuration-key="' + field.key + '"]'),
+            field,
+          }))
+          .find(({ control, field }) => catalogSelectionIssue(field, control, packActivate.checked));
+        if (invalidCatalogControl) {
+          invalidCatalogControl.control.setAttribute("aria-invalid", "true");
+          status.classList.add("error");
+          status.textContent = catalogSelectionIssue(
+            invalidCatalogControl.field,
+            invalidCatalogControl.control,
+            packActivate.checked,
+          );
+          invalidCatalogControl.control.focus();
+          return;
+        }
         await packMutate({
           action: "strategy-pack-create",
           activateMonitorResourceIds: packActivate.checked

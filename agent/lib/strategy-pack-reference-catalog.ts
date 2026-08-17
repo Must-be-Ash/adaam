@@ -26,6 +26,15 @@ export const CONGRESSIONAL_SIGNALS_EVAL_SUITE_ID = "eval.congressional-signals/v
 export const CONGRESSIONAL_SIGNALS_FINDING_SCHEMA_ID = "congressional-filing-signal/v1";
 export const CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID = "evaluate_congressional_signals";
 
+export const EARNINGS_CALL_CHANGES_ALERT_PRESENTATION_ID =
+  "alert.earnings-call-change/v1";
+export const EARNINGS_CALL_CHANGES_EVAL_SUITE_ID =
+  "eval.earnings-call-changes/v1";
+export const EARNINGS_CALL_CHANGES_EVALUATION_TOOL_ID =
+  "evaluate_earnings_call_changes";
+export const EARNINGS_CALL_CHANGES_FINDING_SCHEMA_ID =
+  "earnings-call-change/v1";
+
 export const HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID =
   "house-financial-disclosures-2026";
 export const HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL =
@@ -144,20 +153,35 @@ export const CONGRESSIONAL_SIGNALS_EVAL_FIXTURE_IDS = Object.freeze([
   "fixture.congressional-signals.replay",
 ]);
 
+export const EARNINGS_CALL_CHANGES_EVAL_FIXTURE_IDS = Object.freeze([
+  "fixture.earnings-call-changes.forbidden-capability",
+  "fixture.earnings-call-changes.malformed",
+  "fixture.earnings-call-changes.no-match",
+  "fixture.earnings-call-changes.positive",
+  "fixture.earnings-call-changes.replay",
+]);
+
 export const STRATEGY_PACK_REFERENCE_CATALOG = Object.freeze({
-  alertPresentationIds: Object.freeze([IPO_FILINGS_ALERT_PRESENTATION_ID]),
+  alertPresentationIds: Object.freeze([
+    EARNINGS_CALL_CHANGES_ALERT_PRESENTATION_ID,
+    IPO_FILINGS_ALERT_PRESENTATION_ID,
+  ]),
   capabilityIds: Object.freeze([
     CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
+    EARNINGS_CALL_CHANGES_EVALUATION_TOOL_ID,
     IPO_FILINGS_EVALUATION_TOOL_ID,
+    "skill.earnings-call-change-analysis",
     "skill.congressional-signal-triage",
     "skill.public-event-monitoring",
   ]),
   evalSuites: Object.freeze({
     [CONGRESSIONAL_SIGNALS_EVAL_SUITE_ID]: CONGRESSIONAL_SIGNALS_EVAL_FIXTURE_IDS,
+    [EARNINGS_CALL_CHANGES_EVAL_SUITE_ID]: EARNINGS_CALL_CHANGES_EVAL_FIXTURE_IDS,
     [IPO_FILINGS_EVAL_SUITE_ID]: IPO_FILINGS_EVAL_FIXTURE_IDS,
   }),
   findingSchemaIds: Object.freeze([
     CONGRESSIONAL_SIGNALS_FINDING_SCHEMA_ID,
+    EARNINGS_CALL_CHANGES_FINDING_SCHEMA_ID,
     IPO_FILINGS_FINDING_SCHEMA_ID,
   ]),
   parameterizedSourceContracts: Object.freeze({
@@ -193,6 +217,10 @@ export const STRATEGY_PACK_REFERENCE_CATALOG = Object.freeze({
 });
 
 export const STRATEGY_PACK_CAPABILITY_INVENTORY = Object.freeze([
+  Object.freeze({
+    category: "control" as const,
+    id: EARNINGS_CALL_CHANGES_EVALUATION_TOOL_ID,
+  }),
   Object.freeze({
     category: "control" as const,
     id: CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,

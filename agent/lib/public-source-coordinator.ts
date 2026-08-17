@@ -47,6 +47,7 @@ import {
   runSharedEarningsCallPublicSourceAcquisition,
   type EarningsCallPublicSourceRequest,
   type EarningsCallPublicSourceResponse,
+  type EarningsCallTransientArtifact,
 } from "./earnings-call-public-source-adapter";
 import type { AuthorizedWorkspaceStoreScope } from "./workspace-store-authorization";
 import type { WorkspaceMonitor } from "./workspace-monitor-store";
@@ -66,6 +67,9 @@ type CoordinatorFetch =
       readonly fetchResponse: (
         request: EarningsCallPublicSourceRequest,
       ) => Promise<EarningsCallPublicSourceResponse>;
+      readonly onTransientArtifacts?: (
+        artifacts: readonly EarningsCallTransientArtifact[],
+      ) => void;
       readonly userAgent: string;
     }
   | {
@@ -229,6 +233,12 @@ export async function coordinatePublicSourceOccurrence(input: {
       !recoveryExtension
     )
   ) throw new PublicSourceCoordinatorError("public_source_misconfigured");
+  const earningsFetch = input.fetch.adapterId === "earnings-call-transcripts"
+    ? input.fetch
+    : null;
+  const houseFetch = input.fetch.adapterId === "house-financial-disclosures"
+    ? input.fetch
+    : null;
   const subscription = await ensurePublicSourceSubscription(
     input.scope,
     createPublicSourceSubscription({
@@ -254,18 +264,21 @@ export async function coordinatePublicSourceOccurrence(input: {
         sourceId: input.sourceId,
         window,
       })
-    : input.fetch.adapterId === "earnings-call-transcripts"
+    : earningsFetch
       ? await runSharedEarningsCallPublicSourceAcquisition({
           client: input.clients?.acquisition,
-          fetchResponse: input.fetch.fetchResponse,
+          fetchResponse: earningsFetch.fetchResponse,
           sourceId: input.sourceId,
-          userAgent: input.fetch.userAgent,
+          userAgent: earningsFetch.userAgent,
           window,
+        }).then((result) => {
+          earningsFetch.onTransientArtifacts?.(result.transientArtifacts);
+          return result;
         })
       : await runSharedHousePublicSourceAcquisition({
         client: input.clients?.acquisition,
-        fetchDocument: input.fetch.fetchDocument,
-        fetchIndex: input.fetch.fetchIndex,
+        fetchDocument: houseFetch!.fetchDocument,
+        fetchIndex: houseFetch!.fetchIndex,
         hybridLineageClient: input.clients?.hybridLineage,
         recovery: hybridFlags.extractionRecovery
           ? recoveryExtension!.create({
@@ -284,7 +297,6 @@ export async function coordinatePublicSourceOccurrence(input: {
         sourceId: input.sourceId,
         window,
       });
-
   emitPublicSourceAcquisitionObservations(shared.acquisition, input.sink);
   if (shared.reused) {
     emitPublicSourceRuntimeObservation({

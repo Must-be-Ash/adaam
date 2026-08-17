@@ -159,7 +159,7 @@ export const semanticPublicTextValidationContract: WorkspaceSemanticValidationCo
   },
 });
 
-const earningsSemanticPayloadSchema = z.object({
+export const earningsSemanticPayloadSchema = z.object({
   analysisKind: z.enum(["comparison", "section", "synthesis"]),
   confidence: z.enum(["low", "medium", "high"]),
   counterevidence: z.array(earningsAssertionSchema).max(16),
@@ -181,6 +181,8 @@ const earningsSemanticPayloadSchema = z.object({
   ])).min(1).max(4),
   recommendation: earningsRecommendationSchema.nullable(),
 }).strict();
+
+export type EarningsSemanticPayload = z.infer<typeof earningsSemanticPayloadSchema>;
 
 const roleBoundProjectionSchema = z.object({
   members: z.array(z.object({
