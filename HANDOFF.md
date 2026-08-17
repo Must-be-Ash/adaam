@@ -32,12 +32,13 @@ Repository baseline: `main`; Spec 4A accepted implementation commit
 
 Production alias: <https://adaam.vercel.app>
 
-Production follows Git-backed `main`. The current Spec 4A post-merge deployment
-is `dpl_81qfYCffFyKuF9S8ETJRr1N25p48`; its canonical alias returned HTTP 200 for
-`/` and `/skill`, and its bounded error-log query was empty. Earlier staged
-acceptance artifacts remain receipts rather than the current artifact. Query the
-alias and Vercel project before diagnosing or deploying. Never commit, push,
-deploy, or mutate an external service unless the owner asks.
+Production follows Git-backed `main`. The accepted Spec 4A implementation
+post-merge deployment is `dpl_81qfYCffFyKuF9S8ETJRr1N25p48`; its canonical
+alias returned HTTP 200 for `/` and `/skill`, and its bounded error-log query was
+empty. Later documentation-only `main` commits may replace the current artifact
+without changing this acceptance receipt. Query the alias and Vercel project
+before diagnosing or deploying. Never commit, push, deploy, or mutate an
+external service unless the owner asks.
 
 ## Executive summary
 
