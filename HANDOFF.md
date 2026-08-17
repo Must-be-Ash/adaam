@@ -26,17 +26,18 @@ then verify task-specific details against current code before making a change.
 
 Snapshot date: 2026-08-16
 
-Repository baseline: `main`; Spec 4 merged through PR #6 as
-`18e7c78487287b6c31b4f2dc486f31447dd02acc`.
+Repository baseline: `main`; Spec 4A accepted implementation commit
+`df4c75cccb59584785ce0e1690fb23251f09fd7d` merged through PR #9 as
+`a1b6b15de23b8459f58ba2dc6c7c6cddfea3e55d`.
 
 Production alias: <https://adaam.vercel.app>
 
-Production follows Git-backed `main`. The first post-merge Spec 4 deployment was
-`dpl_2qXYJZvgzowi1gYf38Wn1noXTgGx`; the owner-authorized pre-merge acceptance
-artifact was `dpl_7BaxMhGw5bmkEMYZ8dZqDmQxDQw3`. A later `main` commit can
-therefore replace the current artifact without changing these acceptance
-receipts. Query the alias and Vercel project before diagnosing or deploying.
-Never commit, push, deploy, or mutate an external service unless the owner asks.
+Production follows Git-backed `main`. The current Spec 4A post-merge deployment
+is `dpl_81qfYCffFyKuF9S8ETJRr1N25p48`; its canonical alias returned HTTP 200 for
+`/` and `/skill`, and its bounded error-log query was empty. Earlier staged
+acceptance artifacts remain receipts rather than the current artifact. Query the
+alias and Vercel project before diagnosing or deploying. Never commit, push,
+deploy, or mutate an external service unless the owner asks.
 
 ## Executive summary
 
@@ -394,8 +395,12 @@ The one broad gate passed 31/31 stages. The real Gateway corpus
 invalid accepted citations, unsafe accepts, or forbidden tool calls. Production
 staged all-off, parent-only, extraction-only, extraction rollback,
 semantic-only, semantic rollback, parent rollback, and dependency rollback.
-Final artifact `dpl_8oAhy3xys7pCjhCAQQ4QaVPSe5eT` is Ready; `adaam.vercel.app`
-and `/skill` returned HTTP 200 and bounded error logs were empty.
+Final staged acceptance artifact `dpl_8oAhy3xys7pCjhCAQQ4QaVPSe5eT` was Ready;
+`adaam.vercel.app` and `/skill` returned HTTP 200 and bounded error logs were
+empty. PR #9 then merged the exact accepted implementation commit through
+`a1b6b15de23b8459f58ba2dc6c7c6cddfea3e55d`; GitHub bound that merge to
+Git-backed production deployment `dpl_81qfYCffFyKuF9S8ETJRr1N25p48`, which
+repeated the same alias health and empty bounded error-log checks.
 
 Final production values are `0` for `EVE_HYBRID_EVIDENCE_ENABLED`,
 `EVE_HYBRID_EXTRACTION_RECOVERY_ENABLED`,

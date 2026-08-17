@@ -1,6 +1,6 @@
 # Spec 4A: Hybrid evidence and reasoning foundation
 
-Status: Sprint 4 acceptance complete; GitHub landing in progress
+Status: Complete — merged and Git-backed production verified
 
 Date: 2026-08-16
 
@@ -647,7 +647,7 @@ hard-coded keywords, while ambiguous meaning remains explicit and isolated.
 - [x] Mark this ledger accurately, record exact acceptance/flag evidence, move
   only deferred hardening to `BACKLOG.md`, and update `HANDOFF.md` and
   `NORTH_STAR.md` where implementation changed reality.
-- [ ] Commit and push the final branch, open and merge its PR, confirm GitHub
+- [x] Commit and push the final branch, open and merge its PR, confirm GitHub
   `main` contains the exact accepted commit, and verify the resulting production
   deployment/health when the merge triggers one. Do not repeat the already-green
   broad suite unless landing changed code.
@@ -694,6 +694,15 @@ exactly `0` for the parent and both hybrid children and the temporarily enabled
 workspace dispatch dependency; the signing secret remains sensitive. No Photon
 message, private data, broker call, strategy rollout, or financial mutation was
 used.
+
+GitHub landing evidence (2026-08-16): accepted implementation commit
+`df4c75cccb59584785ce0e1690fb23251f09fd7d` merged through PR #9 as
+`a1b6b15de23b8459f58ba2dc6c7c6cddfea3e55d`, and remote `main` contains the
+accepted commit. GitHub bound that merge commit to successful Git-backed
+production deployment `dpl_81qfYCffFyKuF9S8ETJRr1N25p48`. The deployment was
+Ready, `https://adaam.vercel.app/` and `/skill` returned HTTP 200, and its
+bounded error-log query was empty. Landing changed documentation and Git state
+only, so the already-green broad suite was not repeated.
 
 Exit: the shared hybrid foundation is implemented, accepted, merged to `main`,
 and ready for Specs 4B and 4C without either strategy recreating its evidence,
