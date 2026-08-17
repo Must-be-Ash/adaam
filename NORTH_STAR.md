@@ -77,10 +77,20 @@ Background monitors continue on their own schedules and send alerts labeled
 with the strategy that produced them. Multiple due monitor runs may execute
 concurrently through bounded isolated workers.
 
-Strategy runtimes may produce research, alerts, and proposed orders. They do not
-turn public commentary or delayed disclosures into automatic trading
-authorization. Every supported live broker mutation remains behind the shared
-control plane's exact preview, revalidation, and fresh owner approval.
+Strategy runtimes may produce research, alerts, evidence-grounded forecasts,
+portfolio recommendations, and proposed orders. Eve is expected to use model
+judgment where semantics, relationships, scenarios, or likely implications
+cannot be reduced to deterministic rules. These outputs distinguish cited
+facts, inferences, forecasts, and recommendations; state their horizon,
+confidence, counterevidence, important assumptions, and invalidation conditions;
+and provide a concise evidence-to-conclusion rationale rather than hidden
+chain-of-thought.
+
+The owner decides whether a forecast or recommendation is persuasive and
+whether to act. Public commentary, delayed disclosures, signal scores, and
+model conclusions never become automatic trading authorization. Every supported
+live broker mutation remains behind the shared control plane's exact preview,
+revalidation, and fresh owner approval.
 
 ## Workspace routing and UX
 
@@ -175,7 +185,10 @@ workspace may instantiate one pack or remain a general-purpose container.
 Pack-level risk settings may only tighten shared core limits, never loosen
 them.
 
-Strategy packs may produce research and proposed orders. Live execution remains
+Strategy packs may produce research, forecasts, portfolio recommendations, and
+proposed orders. Their conclusions should use all reviewed evidence available
+to the workspace, expose the supporting and conflicting evidence, and avoid
+inventing precision that the source set cannot support. Live execution remains
 behind a non-model control-plane protocol. A single-use approval binds the
 authenticated owner, principal, workspace, session generation, broker account,
 complete normalized action, displayed-preview hash, price collar, request ID,
@@ -339,6 +352,9 @@ directories so a fork contains its own north-star sources.
   unexpired, one-time owner approval for the displayed action.
 - Scheduled research cannot access trading mutations or private chat history.
 - Tool output and model context stay bounded without losing provenance.
+- Material forecasts and recommendations are traceable to cited evidence and
+  explicitly separated from source facts; insufficient evidence produces a
+  visible no-view or abstention rather than fabricated certainty.
 - Core evals cover isolation, authorization, idempotency, failure recovery, and
   cost; each strategy pack separately evaluates its signal logic.
 - A fresh fork can run a paper-only reference workflow before live brokerage is
