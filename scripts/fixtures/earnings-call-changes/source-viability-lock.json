@@ -1,0 +1,79 @@
+{
+  "recordType": "earnings_call_source_viability_lock",
+  "schemaVersion": 1,
+  "reviewedAt": "2026-08-16",
+  "cohort": {
+    "cohortId": "earnings-call-sec-viability",
+    "issuerCount": 50,
+    "sectorCount": 8,
+    "exchangeCount": 2,
+    "cohortDigest": "06d3a0ffa106bbd1850cd52a29bba826a6e6f91b4cb866ff075108c3ef2e0ef0"
+  },
+  "secOnlyAudit": {
+    "auditDigest": "9944f1cc42d460e3d4ccc9971b3cba90068f4f36588eae40f5f1d249d8a7adfb",
+    "issuerCatalogDigest": "09e92857eabcd4c978bb4dc4827447c995d6be56fa1252382d31cccd0b5fc174",
+    "filingIndexCount": 587,
+    "candidateExhibitCount": 408,
+    "maximumCandidatesPerIssuer": 12,
+    "candidateStates": {
+      "ambiguous": 253,
+      "missingQa": 6,
+      "oversized": 5,
+      "releaseOnly": 144
+    },
+    "qualifyingPairCount": 0,
+    "decision": "failed_source_profile_gate"
+  },
+  "revisedPublicSourceAudit": {
+    "auditDigest": "9c75f5e753cb9953e5930fbd199c6e53785fde50c2f359ca2717c12ab729e7e3",
+    "cohortDigest": "06d3a0ffa106bbd1850cd52a29bba826a6e6f91b4cb866ff075108c3ef2e0ef0",
+    "manifestDigest": "fe6110d089b407c2d57d6128c433bc7c7adf41f5f1e0c15fb72d9bfa20a5054d",
+    "qualifyingPairCount": 5,
+    "sectorCount": 4,
+    "directLinkedEventCount": 9,
+    "reviewedPathTemplateEventCount": 1,
+    "decision": "passed_source_profile_gate"
+  },
+  "retention": {
+    "rawTranscriptBytesCheckedIn": false,
+    "reason": "Public accessibility does not grant redistribution rights. Exact URLs, source-family grammars, artifact digests, byte counts, media types, dates, and human review outcomes are retained; live bytes remain ephemeral.",
+    "productionRequirement": "Every scheduled acquisition must revalidate the exact reviewed origin/path family, media and byte bounds, transcript sections, and artifact digest lineage."
+  },
+  "qualifyingCorpora": [
+    {
+      "ticker": "MSFT",
+      "cik": "0000789019",
+      "sector": "technology",
+      "current": { "period": "FY2026-Q3", "digest": "b0bbe530c46206eec6d58c38af875c9e7231e98e0b5cd507372956917be7b7c5", "byteCount": 345521, "mediaType": "text/html" },
+      "prior": { "period": "FY2026-Q2", "digest": "523bf2ae5177f3e7f58095a5a3c16aafd80400677ebd377a2a54356d6b66ca7b", "byteCount": 342331, "mediaType": "text/html" }
+    },
+    {
+      "ticker": "JPM",
+      "cik": "0000019617",
+      "sector": "financials",
+      "current": { "period": "FY2026-Q2", "digest": "df9042c4c156aa33eed0cec2f5727598504e88e038be31140d98452dc9054540", "byteCount": 286751, "mediaType": "application/pdf" },
+      "prior": { "period": "FY2026-Q1", "digest": "0b97af7b67e8c14fd812a7e6ece55ea74005d3968b942560db2e558ea96f63f9", "byteCount": 543920, "mediaType": "application/pdf" }
+    },
+    {
+      "ticker": "DIS",
+      "cik": "0001744489",
+      "sector": "communication_services",
+      "current": { "period": "FY2026-Q2", "digest": "b3084f1976ec1928ce59faf371224e4bff32677cbaed8db3b66753ffaffae250", "byteCount": 455158, "mediaType": "application/pdf" },
+      "prior": { "period": "FY2026-Q1", "digest": "fb005bfd8b8e034f7774b9e3c4069697ceb01a9474889a184c72e4e3b236f0d9", "byteCount": 763153, "mediaType": "application/pdf" }
+    },
+    {
+      "ticker": "FDX",
+      "cik": "0001048911",
+      "sector": "industrials",
+      "current": { "period": "FY2026-Q4", "digest": "edd8a892d440c5080492c7d12a4e13a1c59741a4f0eb647d2688fdda030b6be8", "byteCount": 254423, "mediaType": "application/pdf" },
+      "prior": { "period": "FY2026-Q3", "digest": "f9b3de0ac897e4d58f7cbb737f0b04eecee82f6a9f94780b59c0b2339b4d47b3", "byteCount": 259167, "mediaType": "application/pdf" }
+    },
+    {
+      "ticker": "META",
+      "cik": "0001326801",
+      "sector": "communication_services",
+      "current": { "period": "FY2026-Q1", "digest": "75a66cc6c660e37c009851d6820fd75bc5576d6d298b974b49bba26fc4bd6bac", "byteCount": 131758, "mediaType": "application/pdf" },
+      "prior": { "period": "FY2025-Q4", "digest": "2def106046fcde215f214ac0689aff6fa6c432d7016bf9315b4a831b2041a14b", "byteCount": 152406, "mediaType": "application/pdf" }
+    }
+  ]
+}

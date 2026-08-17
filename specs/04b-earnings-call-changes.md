@@ -43,7 +43,7 @@ After this spec, the owner can:
    adding code;
 2. select up to eight public companies by stable SEC issuer identity and choose
    a schedule and materiality threshold;
-3. see before activation whether each company has enough authoritative filed-
+3. see before activation whether each company has enough authoritative public-
    transcript coverage for a valid comparison;
 4. receive a workspace-labeled alert when management language, guidance,
    priorities, risks, or Q&A behavior changes materially;
@@ -95,13 +95,14 @@ authorization at the point of use.
   evaluator, findings, presentation, explanation tool, and evals.
 - A versioned SEC issuer catalog keyed by CIK, with ticker and display name as
   mutable labels rather than durable identity.
-- A reusable reviewed SEC issuer-source family that derives exact per-CIK
-  source instances without permitting arbitrary URLs.
-- Scheduled acquisition of SEC submissions, filing indexes, and public filing
-  exhibits under the existing source-global coordinator and fair-access limit.
-- Detection of qualifying earnings-call transcript exhibits furnished through
-  EDGAR, including prepared remarks and Q&A; explicit coverage-unavailable
-  results when the required material is absent.
+- Reusable reviewed issuer-owned IR source families that derive exact per-CIK
+  transcript instances without permitting arbitrary URLs.
+- Scheduled acquisition of SEC submissions for issuer/event identity plus
+  reviewed issuer-owned IR transcript artifacts under the existing
+  source-global coordinator and source-specific access limits.
+- Detection of qualifying authoritative public transcripts containing prepared
+  remarks and Q&A; explicit coverage-unavailable results when required material
+  is absent.
 - Deterministic transcript normalization, section/speaker/Q&A extraction,
   comparable-period selection, language metrics, corrections, replay, and
   citations.
@@ -129,9 +130,9 @@ authorization at the point of use.
   fit the same contracts, but their connectors and retention rights are not
   added here.
 - Claiming call-language or Q&A conclusions from an earnings release, prepared
-  remarks, or webcast notice that does not contain a qualifying filed transcript
-  with Q&A, or claiming that a filed transcript proves nothing was omitted from
-  the live call unless the source explicitly attests completeness.
+  remarks, or webcast notice that does not contain a qualifying authoritative
+  transcript with Q&A, or claiming that a public transcript proves nothing was
+  omitted from the live call unless the source explicitly attests completeness.
 - Cross-workspace signal promotion, automatic strategy activation, backtesting,
   historical-alpha claims, or exhaustive crash/race hardening.
 
@@ -161,15 +162,16 @@ authorization at the point of use.
 - The manager shows, per issuer, `baseline_ready`, `awaiting_comparable_call`,
   `coverage_unavailable`, `current`, `degraded`, or `paused_failure` with a
   bounded reason code and last successful event time.
-- An issuer without two comparable qualifying filed transcripts remains
+- An issuer without two comparable qualifying authoritative public transcripts remains
   visible but produces no semantic comparison or alert.
 
 ### Comparable-call policy
 
 - A stable logical call event is identified by issuer CIK, earnings-call date,
   and fiscal year/quarter or period end. Its separately versioned source record
-  contains accession, exhibit document, artifact digest, and observed time, so
-  a corrected exhibit revises the event rather than impersonating a new call.
+  contains SEC filing context when available, reviewed source instance,
+  artifact digest, and observed time, so a corrected artifact revises the event
+  rather than impersonating a new call.
 - The primary comparison is current versus the immediately prior comparable
   fiscal-quarter call for the same issuer. Prepared remarks compare with
   prepared remarks; Q&A compares with Q&A.
@@ -180,12 +182,13 @@ authorization at the point of use.
   under the frozen policy.
 - Initial enablement may backfill at most four transcript-bearing events per
   issuer. Existing historical events establish the baseline and never generate
-  retroactive alerts. Only a call whose authoritative SEC publication or
-  acceptance time is after the activation watermark, and which is not part of
-  baseline backfill, is alert-eligible.
+  retroactive alerts. Only a call whose authoritative source publication time
+  (falling back to SEC acceptance time for the associated results filing) is
+  after the activation watermark, and which is not part of baseline backfill,
+  is alert-eligible.
 - Multiple events discovered in one catch-up run are processed chronologically
   and deduplicated by issuer, event revision, and comparison revision.
-- A new source revision or corrected exhibit creates new lineage. It emits a
+- A new source revision or corrected artifact creates new lineage. It emits a
   corrective alert only when an already-alerted conclusion changes materially.
   A model, prompt, validator, or pack-version change creates new analytical
   lineage but is not presented as a source correction.
@@ -195,7 +198,7 @@ authorization at the point of use.
 Every accepted finding must keep these classes distinct:
 
 1. **Facts:** event identity, exact cited management language, coverage,
-   deterministic counts/deltas, and public filing facts.
+   deterministic counts/deltas, and authoritative public-source facts.
 2. **Inferences:** what changed in guidance, specificity, confidence, caution,
    external attribution, priorities, risks, or Q&A directness, and why the
    evidence supports that interpretation.
@@ -213,7 +216,7 @@ one or more accepted evidence spans. Confidence is `low`, `medium`, or `high`;
 unsupported numeric confidence is rejected. Conflicting evidence must be
 included, not silently discarded.
 
-Coverage of the entire filed transcript document's prepared remarks and Q&A must
+Coverage of the entire authoritative transcript document's prepared remarks and Q&A must
 be recorded, including any omission/edit notice in the source. This is
 `document_complete`, not `live_call_complete`, unless the authoritative source
 explicitly attests completeness. Claims based on the absence of language must
@@ -245,8 +248,8 @@ boilerplate to every valid result.
   **Manage** action, and omits direction, forecast, confidence, recommendation,
   and research-signal styling.
 - A material alert identifies the workspace, issuer, call period, dominant
-  change, direction, confidence, horizon, and source time. It links to safe SEC
-  evidence and includes **Discuss** and **Manage** actions through the existing
+  change, direction, confidence, horizon, and source time. It links to safe
+  allowlisted public evidence and includes **Discuss** and **Manage** actions through the existing
   generic alert path.
 - The alert remains scannable: workspace, issuer/period, dominant change,
   evidence-scoped stance, confidence, horizon, and actions only. The manager
@@ -261,9 +264,10 @@ boilerplate to every valid result.
 
 ```mermaid
 flowchart TB
-    A["Reviewed SEC issuer source family"] --> B["Source-global EDGAR acquisition"]
-    B --> C["Immutable current and prior artifacts"]
-    C --> D["Deterministic transcript parser and metrics"]
+    A["SEC issuer and event identity"] --> B["Reviewed issuer-owned IR source family"]
+    B --> C["Source-global public transcript acquisition"]
+    C --> M["Immutable current and prior artifacts"]
+    M --> D["Deterministic transcript parser and metrics"]
     D -->|"supported"| F["Validated comparable evidence bundle"]
     D -->|"registered layout failure"| E["Spec 4A extraction recovery"]
     E --> F
@@ -318,32 +322,44 @@ document into accepted evidence.
 
 ## Source and evidence contract
 
-The production reference path uses public EDGAR material only:
+The production reference path uses SEC identity/event data plus exact reviewed
+issuer-owned public transcript families:
 
 - `data.sec.gov/submissions/CIK##########.json` for filing discovery;
-- exact `sec.gov/Archives/edgar/data/...` accession indexes and exhibits for
-  source documents; and
+- exact reviewed issuer IR origins and path grammars for transcript discovery
+  pages and artifacts; and
 - SEC company ticker/CIK data for a reviewed issuer-catalog snapshot.
 
 Requests identify Eve with the configured user agent, use conditional requests
-where available, reuse source-global acquisitions, and remain below the SEC's
-published aggregate fair-access ceiling. Redirects and derived archive URLs
-must remain inside the exact reviewed SEC origins and path grammar.
+where available, reuse source-global acquisitions, remain below the SEC's
+published aggregate fair-access ceiling, and obey source-specific bounds.
+Redirects and derived URLs must remain inside the exact reviewed origin and
+path grammar. A reviewed IR page may link to its exact reviewed CDN tenant; no
+generic web search or arbitrary runtime URL enters scheduled evidence.
 
 An 8-K, 6-K, 10-Q, earnings release, slide deck, or webcast notice is not by
 itself a qualifying transcript. Production acceptance must lock multiple issuer
-corpora containing comparable SEC-furnished transcript exhibits with prepared
+corpora containing comparable issuer-published transcripts with prepared
 remarks and Q&A, plus negative fixtures for release-only, missing Q&A, ambiguous
-period, corrected exhibit, changed layout, hostile instructions, and oversized
+period, corrected artifact, changed layout, hostile instructions, and oversized
 content.
 
 Sprint 0 audits a predeclared cohort of at least 50 active issuers across major
 US exchanges, varied sectors, and fiscal calendars. At least five issuers across
-three sectors must have two comparable qualifying transcript exhibits. If this
+three sectors must have two comparable qualifying public transcripts. If this
 gate fails, implementation stops for a source-profile decision rather than
 presenting the entire SEC catalog as supported. The resulting catalog publishes
 measured coverage and the selector distinguishes verified from unsupported or
 not-yet-verified issuers.
+
+The corrected 2026-08-16 gate found zero qualifying pairs in 408 recent SEC exhibit
+candidates across the 50-issuer cohort. The owner approved the narrow corrected
+profile: SEC remains authoritative for issuer/event identity, while only exact
+reviewed issuer-owned IR transcript families may supply transcript evidence.
+The revised audit passed with five current/prior pairs across four sectors.
+Raw transcript bytes remain ephemeral because public access does not imply
+redistribution rights; the locked corpora retain exact URLs, path grammars,
+digests, bounds, and human-review outcomes.
 
 Interactive paid-provider research may still occur under an authorized owner
 session, but it cannot silently become scheduled durable evidence until a later
@@ -375,7 +391,7 @@ interpretation.
 
 Add only two strategy-specific flags:
 
-- `EVE_SEC_EARNINGS_SOURCE_ADAPTER_ENABLED`
+- `EVE_EARNINGS_CALL_SOURCE_ADAPTER_ENABLED`
 - `EVE_EARNINGS_CALL_CHANGES_EXECUTION_ENABLED`
 
 The source flag depends on the existing public-source foundation. Execution
@@ -391,41 +407,42 @@ Rollback reverses that order and preserves durable findings for inspection.
 
 ### Sprint 0 — freeze contracts and prove source viability
 
-- [ ] Audit the defined 50-issuer cohort, meet the five-issuer/three-sector
+- [x] Audit the defined 50-issuer cohort, meet the five-issuer/three-sector
   viability floor, and lock multiple qualifying current/prior public corpora
   plus negative fixtures for every required coverage and safety state.
-- [ ] Freeze issuer, source-family, event, transcript, comparison, finding,
+- [x] Freeze issuer, source-family, event, transcript, comparison, finding,
   forecast, recommendation, and materiality schemas with explicit bounds.
-- [ ] Freeze deterministic/model ownership, comparable-period rules, accepted
+- [x] Freeze deterministic/model ownership, comparable-period rules, accepted
   stance vocabulary, activation watermark, citation/coverage rules, abstention
   rules, source/model correction semantics, semantic fan-out/token envelope,
   and flag matrix.
-- [ ] Freeze a human-reviewed semantic benchmark covering positive/negative
+- [x] Freeze a human-reviewed semantic benchmark covering positive/negative
   material change, no change, contradiction, seasonal context, incomplete
   evidence, and required abstention. Across repeated runs require zero unsafe
   accepts/invalid citations, at least 85% material-change and direction
   agreement, at least 90% appropriate-abstention agreement, and at least 80%
   useful evidence/rationale/conditional-implication ratings under the rubric.
-- [ ] Add `verify:earnings-call-changes:sprint-0` and register all intended
+- [x] Add `verify:earnings-call-changes:sprint-0` and register all intended
   fixture outcomes before production implementation.
 
 Exit: source viability is proven against authoritative public evidence and the
 contracts fail red only at the missing implementation seams.
 
-### Sprint 1 — reusable SEC issuer acquisition
+### Sprint 1 — reusable public issuer acquisition
 
 - [ ] Add an immutable reviewed SEC issuer catalog and owner configuration that
   uses the shared catalog-backed ID-list kind, stores CIKs, validates one-to-eight
   selections, pins the catalog revision/digest, preserves inline-list
   compatibility, and renders useful labels and coverage state.
 - [ ] Add reusable reviewed source-family/per-issuer instance contracts with
-  exact SEC origins, path grammar, digests, limits, and subscription reuse across
-  pack/capability/monitor/resolver contracts while preserving fixed sources.
+  exact SEC/issuer-IR origins, path grammar, digests, limits, and subscription
+  reuse across pack/capability/monitor/resolver contracts while preserving
+  fixed sources.
 - [ ] Reconcile company-list additions/removals and derived subscriptions in one
   configuration-generation transition; reject stale in-flight commits.
-- [ ] Implement scheduled EDGAR submissions/index/exhibit acquisition under the
-  existing coordinator with fair access, correction lineage, idempotency, and
-  bounded failure states.
+- [ ] Implement scheduled SEC submissions plus reviewed issuer-IR transcript
+  acquisition under the existing coordinator with fair access, correction
+  lineage, idempotency, and bounded failure states.
 - [ ] Prove two workspaces selecting the same issuer reuse source-global
   acquisition while retaining isolated projections and interpretations.
 - [ ] Add and pass `verify:earnings-call-changes:sprint-1`.
@@ -512,7 +529,7 @@ material call produces one correctly routed alert without a trading capability.
 - [ ] Run one broad regression gate covering earnings Sprints 0–4, strategy
   packs, public sources, hybrid evidence, workspace authorization/isolation,
   budgets, findings, alerts/replies, typecheck, Eve build, and Next build.
-- [ ] With explicit owner authorization, run one controlled live SEC
+- [ ] With explicit owner authorization, run one controlled live SEC/issuer-IR
   source-to-finding smoke and one real Photon alert/**Discuss** smoke; record
   bounded receipts without private content.
 - [ ] With explicit owner authorization, stage flags in dependency order,
@@ -549,7 +566,7 @@ ledgers, finding/alert stores, and fixed observability catalog.
 
 | Boundary | Required proof |
 | --- | --- |
-| Source trust | Only exact reviewed SEC origins and derived paths enter the scheduled pipeline; redirects, arbitrary URLs, and non-transcript exhibits cannot impersonate coverage. |
+| Source trust | Only exact reviewed SEC identity sources and issuer-owned IR/CDN families enter the scheduled pipeline; redirects, arbitrary URLs, and non-transcript artifacts cannot impersonate coverage. |
 | Deterministic first | Supported transcripts and metrics use no extraction-recovery model; only registered failures may invoke recovery. |
 | Comparison | Current and prior events are the same issuer and correct comparable periods, with like-for-like sections and separate citations. |
 | Judgment | Every material inference, forecast, and recommendation has accepted evidence, counterevidence handling, horizon, confidence, and invalidation conditions. |

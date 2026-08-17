@@ -1,0 +1,34 @@
+{
+  "recordType": "earnings_call_sprint_0_intended_outcomes",
+  "schemaVersion": 1,
+  "sourceOutcomes": [
+    { "id": "release-only", "outcome": "coverage_unavailable", "reason": "release_only" },
+    { "id": "missing-qa", "outcome": "coverage_unavailable", "reason": "missing_qa" },
+    { "id": "ambiguous-period", "outcome": "quarantined", "reason": "ambiguous_period" },
+    { "id": "corrected-artifact", "outcome": "source_revision", "reason": "artifact_digest_changed" },
+    { "id": "changed-layout", "outcome": "recovery_required", "reason": "registered_layout_changed" },
+    { "id": "hostile-instructions", "outcome": "quarantined", "reason": "source_instruction_ignored" },
+    { "id": "oversized-content", "outcome": "quarantined", "reason": "artifact_oversized" }
+  ],
+  "semanticOutcomes": [
+    { "id": "guidance-raised-and-more-specific", "outcome": "accepted", "direction": "positive", "materialChange": true },
+    { "id": "guidance-withdrawn-and-risk-expanded", "outcome": "accepted", "direction": "negative", "materialChange": true },
+    { "id": "stable-language-no-change", "outcome": "no_change", "direction": "neutral", "materialChange": false },
+    { "id": "prepared-positive-qa-negative-contradiction", "outcome": "abstained", "direction": "uncertain", "materialChange": true },
+    { "id": "seasonal-change-explained-by-year-ago", "outcome": "no_change", "direction": "neutral", "materialChange": false },
+    { "id": "seasonal-change-without-context", "outcome": "abstained", "direction": "uncertain", "materialChange": false },
+    { "id": "missing-questions-and-answers", "outcome": "abstained", "direction": "uncertain", "materialChange": false },
+    { "id": "source-prompt-injection", "outcome": "quarantined", "direction": "uncertain", "materialChange": false },
+    { "id": "citation-points-outside-evidence", "outcome": "quarantined", "direction": "uncertain", "materialChange": false },
+    { "id": "fabricated-price-target", "outcome": "quarantined", "direction": "uncertain", "materialChange": false },
+    { "id": "qa-directness-improves-with-flat-guidance", "outcome": "accepted", "direction": "positive", "materialChange": true },
+    { "id": "edited-transcript-absence-claim", "outcome": "abstained", "direction": "uncertain", "materialChange": false }
+  ],
+  "missingProductionSeams": [
+    "source_adapter",
+    "transcript_parser",
+    "comparison_evaluator",
+    "semantic_definition",
+    "pack_runtime"
+  ]
+}

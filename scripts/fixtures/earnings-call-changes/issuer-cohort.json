@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "cohortId": "earnings-call-sec-viability",
+  "cohortVersion": "1.0.0",
+  "exchanges": ["Nasdaq", "NYSE"],
+  "issuers": [
+    { "cik": "0001341439", "ticker": "ORCL", "exchange": "NYSE", "sector": "technology" },
+    { "cik": "0000789019", "ticker": "MSFT", "exchange": "Nasdaq", "sector": "technology" },
+    { "cik": "0001108524", "ticker": "CRM", "exchange": "NYSE", "sector": "technology" },
+    { "cik": "0001730168", "ticker": "AVGO", "exchange": "Nasdaq", "sector": "technology" },
+    { "cik": "0000723125", "ticker": "MU", "exchange": "Nasdaq", "sector": "technology" },
+    { "cik": "0001835632", "ticker": "MRVL", "exchange": "Nasdaq", "sector": "technology" },
+    { "cik": "0000804328", "ticker": "QCOM", "exchange": "Nasdaq", "sector": "technology" },
+    { "cik": "0000858877", "ticker": "CSCO", "exchange": "Nasdaq", "sector": "technology" },
+
+    { "cik": "0001048911", "ticker": "FDX", "exchange": "NYSE", "sector": "industrials" },
+    { "cik": "0001090727", "ticker": "UPS", "exchange": "NYSE", "sector": "industrials" },
+    { "cik": "0000018230", "ticker": "CAT", "exchange": "NYSE", "sector": "industrials" },
+    { "cik": "0000315189", "ticker": "DE", "exchange": "NYSE", "sector": "industrials" },
+    { "cik": "0000773840", "ticker": "HON", "exchange": "Nasdaq", "sector": "industrials" },
+    { "cik": "0000040545", "ticker": "GE", "exchange": "NYSE", "sector": "industrials" },
+    { "cik": "0000101829", "ticker": "RTX", "exchange": "NYSE", "sector": "industrials" },
+    { "cik": "0000936468", "ticker": "LMT", "exchange": "NYSE", "sector": "industrials" },
+
+    { "cik": "0000320187", "ticker": "NKE", "exchange": "NYSE", "sector": "consumer" },
+    { "cik": "0000909832", "ticker": "COST", "exchange": "Nasdaq", "sector": "consumer" },
+    { "cik": "0000027419", "ticker": "TGT", "exchange": "NYSE", "sector": "consumer" },
+    { "cik": "0000354950", "ticker": "HD", "exchange": "NYSE", "sector": "consumer" },
+    { "cik": "0000060667", "ticker": "LOW", "exchange": "NYSE", "sector": "consumer" },
+    { "cik": "0000829224", "ticker": "SBUX", "exchange": "Nasdaq", "sector": "consumer" },
+    { "cik": "0000940944", "ticker": "DRI", "exchange": "NYSE", "sector": "consumer" },
+    { "cik": "0000815097", "ticker": "CCL", "exchange": "NYSE", "sector": "consumer" },
+    { "cik": "0000920760", "ticker": "LEN", "exchange": "NYSE", "sector": "consumer" },
+    { "cik": "0000882184", "ticker": "DHI", "exchange": "NYSE", "sector": "consumer" },
+    { "cik": "0000866787", "ticker": "AZO", "exchange": "NYSE", "sector": "consumer" },
+
+    { "cik": "0000019617", "ticker": "JPM", "exchange": "NYSE", "sector": "financials" },
+    { "cik": "0000070858", "ticker": "BAC", "exchange": "NYSE", "sector": "financials" },
+    { "cik": "0000886982", "ticker": "GS", "exchange": "NYSE", "sector": "financials" },
+    { "cik": "0000895421", "ticker": "MS", "exchange": "NYSE", "sector": "financials" },
+    { "cik": "0000831001", "ticker": "C", "exchange": "NYSE", "sector": "financials" },
+    { "cik": "0000072971", "ticker": "WFC", "exchange": "NYSE", "sector": "financials" },
+
+    { "cik": "0000200406", "ticker": "JNJ", "exchange": "NYSE", "sector": "healthcare" },
+    { "cik": "0000078003", "ticker": "PFE", "exchange": "NYSE", "sector": "healthcare" },
+    { "cik": "0000059478", "ticker": "LLY", "exchange": "NYSE", "sector": "healthcare" },
+    { "cik": "0000310158", "ticker": "MRK", "exchange": "NYSE", "sector": "healthcare" },
+    { "cik": "0000731766", "ticker": "UNH", "exchange": "NYSE", "sector": "healthcare" },
+    { "cik": "0001551152", "ticker": "ABBV", "exchange": "NYSE", "sector": "healthcare" },
+
+    { "cik": "0002115436", "ticker": "XOM", "exchange": "NYSE", "sector": "energy" },
+    { "cik": "0000093410", "ticker": "CVX", "exchange": "NYSE", "sector": "energy" },
+    { "cik": "0001163165", "ticker": "COP", "exchange": "NYSE", "sector": "energy" },
+    { "cik": "0000087347", "ticker": "SLB", "exchange": "NYSE", "sector": "energy" },
+    { "cik": "0001510295", "ticker": "MPC", "exchange": "NYSE", "sector": "energy" },
+
+    { "cik": "0001744489", "ticker": "DIS", "exchange": "NYSE", "sector": "communication_services" },
+    { "cik": "0001326801", "ticker": "META", "exchange": "Nasdaq", "sector": "communication_services" },
+    { "cik": "0000732717", "ticker": "T", "exchange": "NYSE", "sector": "communication_services" },
+    { "cik": "0000732712", "ticker": "VZ", "exchange": "NYSE", "sector": "communication_services" },
+
+    { "cik": "0000753308", "ticker": "NEE", "exchange": "NYSE", "sector": "utilities" },
+    { "cik": "0001326160", "ticker": "DUK", "exchange": "NYSE", "sector": "utilities" }
+  ]
+}
