@@ -32,8 +32,15 @@ return 1
 const reservationSchema = z.object({
   calendarDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
   createdAt: z.string().datetime({ offset: true }),
+  inputTokens: z.number().int().nonnegative().default(0),
+  kind: z.enum(["hybrid_model_attempt", "scheduled_monitor"]).default("scheduled_monitor"),
+  outputTokens: z.number().int().nonnegative().default(0),
+  paidMicros: z.string().regex(/^(?:0|[1-9]\d*)$/u).default("0"),
+  reconciledInputTokens: z.number().int().nonnegative().nullable().default(null),
+  reconciledOutputTokens: z.number().int().nonnegative().nullable().default(null),
+  reconciledPaidMicros: z.string().regex(/^(?:0|[1-9]\d*)$/u).nullable().default(null),
   runId: z.string().min(1).max(160),
-  state: z.enum(["reserved", "released", "settled"]),
+  state: z.enum(["reserved", "released", "settled", "uncertain"]),
   updatedAt: z.string().datetime({ offset: true }),
 }).strict();
 const ledgerSchema = z.object({
@@ -60,6 +67,16 @@ export interface WorkspaceDispatchReservation {
   readonly global: GlobalDispatchReservation;
   readonly runId: string;
   readonly workspace: WorkspaceBudgetReservation;
+}
+
+export interface HybridEvidenceDeploymentBudgetLimits {
+  readonly allowedModelIds: readonly string[];
+  readonly maximumConcurrentWorkers: number;
+  readonly maximumInputTokensPerDay: number;
+  readonly maximumOutputTokensPerDay: number;
+  readonly maximumPaidMicrosPerCall: string;
+  readonly maximumPaidMicrosPerDay: string;
+  readonly maximumPaidMicrosPerMonth: string;
 }
 
 export class WorkspaceDispatchBudgetError extends Error {
@@ -197,9 +214,12 @@ async function reserveGlobal(
     const reservations = current.reservations.filter(
       (entry) => entry.calendarDay === day || entry.state === "reserved",
     );
-    const active = reservations.filter((entry) => entry.state === "reserved").length;
+    const active = reservations.filter(
+      (entry) => entry.kind === "scheduled_monitor" && entry.state === "reserved",
+    ).length;
     const daily = reservations.filter(
-      (entry) => entry.calendarDay === day && entry.state !== "released",
+      (entry) => entry.kind === "scheduled_monitor" &&
+        entry.calendarDay === day && entry.state !== "released",
     ).length;
     if (
       active >= limits.maximumConcurrentWorkers ||
@@ -212,6 +232,13 @@ async function reserveGlobal(
     const reservation: GlobalDispatchReservation = {
       calendarDay: day,
       createdAt: timestamp,
+      inputTokens: 0,
+      kind: "scheduled_monitor",
+      outputTokens: 0,
+      paidMicros: "0",
+      reconciledInputTokens: null,
+      reconciledOutputTokens: null,
+      reconciledPaidMicros: null,
       runId,
       state: "reserved",
       updatedAt: timestamp,
@@ -229,7 +256,7 @@ async function reserveGlobal(
 
 async function finishGlobal(
   runId: string,
-  state: "released" | "settled",
+  state: "released" | "settled" | "uncertain",
   now: Date,
   client: WorkspaceGlobalBudgetClient,
 ): Promise<GlobalDispatchReservation> {
@@ -248,6 +275,188 @@ async function finishGlobal(
       ledger: { ...current, reservations, revision: current.revision + 1 },
       result: finished,
     };
+  });
+}
+
+function nonnegativeInteger(value: string | undefined, fallback: number, maximum: number): number {
+  if (value === undefined || value === "") return fallback;
+  if (!/^\d+$/u.test(value)) throw new WorkspaceDispatchBudgetError("global_budget_invalid");
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > maximum) {
+    throw new WorkspaceDispatchBudgetError("global_budget_invalid");
+  }
+  return parsed;
+}
+
+function decimalMicros(value: string | undefined, fallback: string): string {
+  const candidate = value === undefined || value === "" ? fallback : value;
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/u.test(candidate)) {
+    throw new WorkspaceDispatchBudgetError("global_budget_invalid");
+  }
+  const [whole, fraction = ""] = candidate.split(".");
+  return (BigInt(whole!) * 1_000_000n + BigInt(fraction.padEnd(6, "0"))).toString();
+}
+
+export function resolveHybridEvidenceDeploymentBudgetLimits(
+  environment: NodeJS.ProcessEnv = process.env,
+): HybridEvidenceDeploymentBudgetLimits {
+  const allowedModelIds = (environment.EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return Object.freeze({
+    allowedModelIds: Object.freeze([...new Set(allowedModelIds)].sort()),
+    maximumConcurrentWorkers: positiveInteger(
+      environment.EVE_HYBRID_SOURCE_RECOVERY_CONCURRENT_WORKERS,
+      2,
+      16,
+    ),
+    maximumInputTokensPerDay: nonnegativeInteger(
+      environment.EVE_HYBRID_SOURCE_RECOVERY_INPUT_TOKENS_PER_DAY,
+      100_000,
+      10_000_000,
+    ),
+    maximumOutputTokensPerDay: nonnegativeInteger(
+      environment.EVE_HYBRID_SOURCE_RECOVERY_OUTPUT_TOKENS_PER_DAY,
+      20_000,
+      1_000_000,
+    ),
+    maximumPaidMicrosPerCall: decimalMicros(
+      environment.EVE_HYBRID_SOURCE_RECOVERY_PAID_PER_CALL,
+      "1.00",
+    ),
+    maximumPaidMicrosPerDay: decimalMicros(
+      environment.EVE_HYBRID_SOURCE_RECOVERY_PAID_PER_DAY,
+      "10.00",
+    ),
+    maximumPaidMicrosPerMonth: decimalMicros(
+      environment.EVE_HYBRID_SOURCE_RECOVERY_PAID_PER_MONTH,
+      "100.00",
+    ),
+  });
+}
+
+function hybridUsage(reservation: GlobalDispatchReservation, field: "input" | "output"): number {
+  if (reservation.state === "released") return 0;
+  return field === "input"
+    ? reservation.reconciledInputTokens ?? reservation.inputTokens
+    : reservation.reconciledOutputTokens ?? reservation.outputTokens;
+}
+
+function hybridPaidUsage(reservation: GlobalDispatchReservation): bigint {
+  return reservation.state === "released"
+    ? 0n
+    : BigInt(reservation.reconciledPaidMicros ?? reservation.paidMicros);
+}
+
+export async function reserveHybridEvidenceDeploymentBudget(input: {
+  inputTokens: number;
+  modelId: string;
+  now?: Date;
+  outputTokens: number;
+  paidCostCeiling: string;
+  reservationKey: string;
+}, options: {
+  client?: WorkspaceGlobalBudgetClient;
+  environment?: NodeJS.ProcessEnv;
+} = {}): Promise<GlobalDispatchReservation> {
+  const now = input.now ?? new Date();
+  const limits = resolveHybridEvidenceDeploymentBudgetLimits(options.environment);
+  if (!limits.allowedModelIds.includes(input.modelId)) {
+    throw new WorkspaceDispatchBudgetError("global_budget_exhausted");
+  }
+  const paidMicros = decimalMicros(input.paidCostCeiling, "0");
+  if (
+    !Number.isSafeInteger(input.inputTokens) || input.inputTokens < 0 ||
+    !Number.isSafeInteger(input.outputTokens) || input.outputTokens < 0 ||
+    BigInt(paidMicros) > BigInt(limits.maximumPaidMicrosPerCall)
+  ) {
+    throw new WorkspaceDispatchBudgetError("global_budget_exhausted");
+  }
+  return updateGlobalLedger(options.client ?? store(), (current) => {
+    const existing = current.reservations.find(({ runId }) => runId === input.reservationKey);
+    if (existing) {
+      if (
+        existing.kind !== "hybrid_model_attempt" ||
+        existing.inputTokens !== input.inputTokens ||
+        existing.outputTokens !== input.outputTokens ||
+        existing.paidMicros !== paidMicros
+      ) throw new WorkspaceDispatchBudgetError("global_budget_conflict");
+      return { ledger: current, result: existing };
+    }
+    const day = utcDay(now);
+    const month = day.slice(0, 7);
+    const reservations = current.reservations.filter(
+      (entry) => entry.calendarDay.startsWith(month) || entry.state === "reserved" || entry.state === "uncertain",
+    );
+    const hybrid = reservations.filter(
+      (entry) => entry.kind === "hybrid_model_attempt" && entry.state !== "released",
+    );
+    const today = hybrid.filter((entry) => entry.calendarDay === day);
+    if (
+      hybrid.filter((entry) => entry.state === "reserved").length >= limits.maximumConcurrentWorkers ||
+      today.reduce((sum, entry) => sum + hybridUsage(entry, "input"), 0) + input.inputTokens > limits.maximumInputTokensPerDay ||
+      today.reduce((sum, entry) => sum + hybridUsage(entry, "output"), 0) + input.outputTokens > limits.maximumOutputTokensPerDay ||
+      today.reduce((sum, entry) => sum + hybridPaidUsage(entry), 0n) + BigInt(paidMicros) > BigInt(limits.maximumPaidMicrosPerDay) ||
+      hybrid.reduce((sum, entry) => sum + hybridPaidUsage(entry), 0n) + BigInt(paidMicros) > BigInt(limits.maximumPaidMicrosPerMonth) ||
+      reservations.length >= MAX_RESERVATIONS
+    ) throw new WorkspaceDispatchBudgetError("global_budget_exhausted");
+    const timestamp = now.toISOString();
+    const reservation: GlobalDispatchReservation = {
+      calendarDay: day,
+      createdAt: timestamp,
+      inputTokens: input.inputTokens,
+      kind: "hybrid_model_attempt",
+      outputTokens: input.outputTokens,
+      paidMicros,
+      reconciledInputTokens: null,
+      reconciledOutputTokens: null,
+      reconciledPaidMicros: null,
+      runId: input.reservationKey,
+      state: "reserved",
+      updatedAt: timestamp,
+    };
+    return {
+      ledger: { reservations: [...reservations, reservation], revision: current.revision + 1, schemaVersion: 1 },
+      result: reservation,
+    };
+  });
+}
+
+export async function reconcileHybridEvidenceDeploymentBudget(input: {
+  actualInputTokens?: number;
+  actualOutputTokens?: number;
+  actualPaidCost?: string;
+  now?: Date;
+  outcome: "reconciled" | "released" | "uncertain";
+  reservationKey: string;
+}, client: WorkspaceGlobalBudgetClient = store()): Promise<GlobalDispatchReservation> {
+  const now = input.now ?? new Date();
+  return updateGlobalLedger(client, (current) => {
+    const index = current.reservations.findIndex(({ runId }) => runId === input.reservationKey);
+    if (index < 0) throw new WorkspaceDispatchBudgetError("global_budget_conflict");
+    const existing = current.reservations[index]!;
+    if (existing.kind !== "hybrid_model_attempt") {
+      throw new WorkspaceDispatchBudgetError("global_budget_conflict");
+    }
+    const state = input.outcome === "reconciled" ? "settled" : input.outcome;
+    if (existing.state === state) return { ledger: current, result: existing };
+    if (existing.state !== "reserved" && existing.state !== "uncertain") {
+      throw new WorkspaceDispatchBudgetError("global_budget_conflict");
+    }
+    const reservation: GlobalDispatchReservation = {
+      ...existing,
+      reconciledInputTokens: input.outcome === "uncertain" ? null : input.actualInputTokens ?? null,
+      reconciledOutputTokens: input.outcome === "uncertain" ? null : input.actualOutputTokens ?? null,
+      reconciledPaidMicros: input.outcome === "uncertain" || input.actualPaidCost === undefined
+        ? null
+        : decimalMicros(input.actualPaidCost, "0"),
+      state,
+      updatedAt: now.toISOString(),
+    };
+    const reservations = [...current.reservations];
+    reservations[index] = reservation;
+    return { ledger: { ...current, reservations, revision: current.revision + 1 }, result: reservation };
   });
 }
 

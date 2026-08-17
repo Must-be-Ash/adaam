@@ -180,6 +180,89 @@ const monitor = (input: { monitorId: string; sourceId: string; workspaceId: stri
 const store = new MemoryStore();
 const observations: Array<ReturnType<typeof parsePublicSourceRuntimeObservation>> = [];
 
+// Connector-owned recovery construction registers at the coordinator boundary;
+// the shared coordinator does not construct the House implementation itself.
+const extensionStore = new MemoryStore();
+const extensionObservedAt = "2026-08-15T17:30:00.000Z";
+const [extensionArchive, extensionPdf] = await Promise.all([
+  readFile(new URL("./fixtures/public-source-adapters/house/real-layout/2026FD.zip", import.meta.url)),
+  readFile(new URL("./fixtures/public-source-adapters/house/real-layout/ptr-scanned.pdf", import.meta.url)),
+]);
+let singleModelFetches = 0;
+await assert.rejects(coordinatePublicSourceOccurrence({
+  environment: {
+    ...fullyEnabled,
+    EVE_HYBRID_EVIDENCE_ENABLED: "1",
+    EVE_HYBRID_EXTRACTION_RECOVERY_ENABLED: "1",
+    EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS: "fixture/extractor",
+    EVE_WORKSPACE_DISPATCH_ENABLED: "1",
+    EVE_WORKSPACE_STATE_ENABLED: "1",
+  },
+  fetch: {
+    adapterId: "house-financial-disclosures",
+    fetchDocument: async () => { singleModelFetches += 1; throw new Error("must fail before fetch"); },
+    fetchIndex: async () => { singleModelFetches += 1; throw new Error("must fail before fetch"); },
+  },
+  monitor: monitor({ monitorId: houseMonitorA, sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID, workspaceId: workspaceA }),
+  scope: scopeA,
+  sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  window: { startAt: "2026-08-15T16:00:00.000Z", endAt: extensionObservedAt },
+}), (error) => error instanceof PublicSourceCoordinatorError && error.code === "public_source_misconfigured");
+assert.equal(singleModelFetches, 0);
+let extensionCreations = 0;
+const extensionResult = await coordinatePublicSourceOccurrence({
+  clients: { acquisition: extensionStore, hybridLineage: extensionStore, subscription: extensionStore },
+  environment: {
+    ...fullyEnabled,
+    EVE_HYBRID_EVIDENCE_ENABLED: "1",
+    EVE_HYBRID_EXTRACTION_RECOVERY_ENABLED: "1",
+    EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS: "fixture/extractor,fixture/independent-ocr",
+    EVE_WORKSPACE_DISPATCH_ENABLED: "1",
+    EVE_WORKSPACE_STATE_ENABLED: "1",
+  },
+  fetch: {
+    adapterId: "house-financial-disclosures",
+    fetchDocument: async (url) => ({
+      body: new Uint8Array(extensionPdf), contentType: "application/pdf", finalUrl: url,
+      observedAt: extensionObservedAt, requestedUrl: url, status: 200,
+    }),
+    fetchIndex: async (url) => ({
+      body: new Uint8Array(extensionArchive), contentType: "application/zip", finalUrl: url,
+      observedAt: extensionObservedAt, requestedUrl: url, status: 200,
+    }),
+  },
+  hybridRecoveryExtensions: [{
+    adapterId: "house-financial-disclosures",
+    create({ modelIds }) {
+      extensionCreations += 1;
+      assert.deepEqual(modelIds, ["fixture/extractor", "fixture/independent-ocr"]);
+      return {
+        async recover({ row }) {
+          return {
+            document: {
+              docId: row.docId,
+              filerName: [row.filer.prefix, row.filer.firstName, row.filer.lastName, row.filer.suffix]
+                .filter((value): value is string => value !== null).join(" "),
+              filingDate: row.filingDate,
+              isAmendment: false,
+              stateDistrict: row.filer.stateDistrict,
+            },
+            resultId: "hybrid-result.fixture-extension",
+            rows: [],
+          };
+        },
+      };
+    },
+  }],
+  monitor: monitor({ monitorId: houseMonitorA, sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID, workspaceId: workspaceA }),
+  observedAt: new Date(extensionObservedAt),
+  scope: scopeA,
+  sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  window: { startAt: "2026-08-15T16:30:00.000Z", endAt: extensionObservedAt },
+});
+assert.equal(extensionCreations, 1);
+assert.equal(extensionResult.acquisition.status, "complete");
+
 const secObservedAt = "2026-08-15T18:00:00.000Z";
 const secBody = await readFile(
   new URL("./fixtures/sec-ipo/initial.atom", import.meta.url),

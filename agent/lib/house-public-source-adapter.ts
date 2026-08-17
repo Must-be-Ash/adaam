@@ -40,6 +40,14 @@ import {
   type HousePtrPdfTransactionStructure,
 } from "./house-public-source-feasibility";
 import { resolveReviewedPublicSource } from "./public-source-registry";
+import {
+  createHybridPromotionRecord,
+} from "./hybrid-evidence-extraction-recovery";
+import {
+  writeHybridPromotion,
+  type HybridEvidenceLineageStoreClient,
+} from "./hybrid-evidence-lineage-store";
+import type { HybridPromotionRecord } from "./hybrid-evidence-schema";
 
 type HouseErrorCode = NonNullable<PublicSourceAcquisitionResult["errorCode"]>;
 
@@ -55,6 +63,7 @@ export interface HousePublicSourceBinaryResponse {
 
 export interface HousePublicSourceAcquisition extends PublicSourcePreparedAcquisition {
   readonly baselineEstablished: boolean;
+  readonly hybridPromotions: readonly HybridPromotionRecord[];
 }
 
 export interface SharedHousePublicSourceAcquisitionResult {
@@ -65,7 +74,7 @@ export interface SharedHousePublicSourceAcquisitionResult {
   readonly reused: boolean;
 }
 
-interface HouseIndexRow {
+export interface HouseIndexRow {
   readonly docId: string;
   readonly filer: {
     readonly firstName: string;
@@ -79,7 +88,7 @@ interface HouseIndexRow {
   readonly year: number;
 }
 
-interface HouseTransactionRow {
+export interface HouseTransactionRow {
   readonly amountRange: {
     readonly label: string;
     readonly lower: string | null;
@@ -93,6 +102,33 @@ interface HouseTransactionRow {
   readonly rowEvidenceDigest: string;
   readonly transactionDate: string;
   readonly transactionType: "E" | "P" | "S";
+}
+
+export interface HouseHybridRecoveryResult {
+  readonly document: {
+    readonly docId: string;
+    readonly filerName: string;
+    readonly filingDate: string;
+    readonly isAmendment: boolean;
+    readonly stateDistrict: string;
+  };
+  readonly resultId: string;
+  readonly rows: readonly HouseTransactionRow[];
+}
+
+export interface HouseHybridRecovery {
+  recover(input: {
+    readonly acquisitionId: string;
+    readonly artifact: Uint8Array;
+    readonly deterministic: {
+      readonly errorCode: "deterministic_false_success" | "parser_incomplete" | "pdf_layout_ambiguous" | "pdf_scanned_unsupported";
+      readonly state: "partial" | "suspicious" | "unsupported";
+    };
+    readonly observedAt: string;
+    readonly publicUrl: string;
+    readonly row: HouseIndexRow;
+    readonly source: PublicSourceInstance;
+  }): Promise<HouseHybridRecoveryResult | null>;
 }
 
 class HouseAdapterError extends Error {
@@ -648,6 +684,7 @@ function failureAcquisition(input: {
     baselineEstablished: false,
     corrections: Object.freeze([]),
     facts: Object.freeze([]),
+    hybridPromotions: Object.freeze([]),
     retractions: Object.freeze([]),
     result: publicSourceAcquisitionResultSchema.parse({
       acquisitionId: id,
@@ -713,6 +750,7 @@ async function acquireHouse(input: {
   readonly client?: PublicSourceAcquisitionStoreClient;
   readonly fetchDocument: (url: string) => Promise<HousePublicSourceBinaryResponse>;
   readonly indexResponse: HousePublicSourceBinaryResponse;
+  readonly recovery?: HouseHybridRecovery;
   readonly source: PublicSourceInstance;
   readonly window: { readonly endAt: string; readonly startAt: string };
 }): Promise<HousePublicSourceAcquisition> {
@@ -761,6 +799,12 @@ async function acquireHouse(input: {
     const facts: CanonicalPublicFactRevision[] = [];
     const corrections: PublicSourceCorrection[] = [];
     const retractions: PublicSourceRetraction[] = [];
+    const hybridPromotionInputs: Array<{
+      correctionIds: string[];
+      factRevisionIds: string[];
+      resultId: string;
+      retractionIds: string[];
+    }> = [];
     const pdfReceipts: Array<{
       errorCode: "pdf_layout_ambiguous" | "pdf_scanned_unsupported" | null;
       inputDigest: string;
@@ -776,18 +820,62 @@ async function acquireHouse(input: {
       const documentResponse = await input.fetchDocument(publicUrl);
       validateResponse({ expectedUrl: publicUrl, kind: "pdf", response: documentResponse });
       const extraction = await extractHousePtrPdfText(documentResponse.body);
-      const extractionState = {
+      let extractionState: {
+        readonly errorCode: "pdf_layout_ambiguous" | "pdf_scanned_unsupported" | null;
+        readonly state: "complete" | "partial" | "unsupported";
+      } = {
         errorCode: extraction.errorCode,
         state: extraction.extractionState,
-      } as const;
+      };
+      let transactions: readonly HouseTransactionRow[] = Object.freeze([]);
+      let recovered: HouseHybridRecoveryResult | null = null;
+      let recoveryOutcome: Parameters<HouseHybridRecovery["recover"]>[0]["deterministic"] | null = null;
       if (extraction.extractionState === "complete") {
-        assertDocumentIdentity(extraction.text, row);
+        try {
+          assertDocumentIdentity(extraction.text, row);
+          transactions = parseTransactions(extraction.text, extraction.transactionStructures);
+          if (transactions.length !== extraction.transactionRowCount) {
+            throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
+          }
+        } catch (error) {
+          if (!(error instanceof HouseAdapterError) || !input.recovery) throw error;
+          recoveryOutcome = { errorCode: "deterministic_false_success", state: "suspicious" };
+        }
+      } else if (input.recovery) {
+        recoveryOutcome = {
+          errorCode: extraction.errorCode!,
+          state: extraction.extractionState,
+        };
       }
-      const transactions = extraction.extractionState === "complete"
-        ? parseTransactions(extraction.text, extraction.transactionStructures)
-        : Object.freeze([]);
-      if (extraction.extractionState === "complete" && transactions.length !== extraction.transactionRowCount) {
-        throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
+      if (recoveryOutcome && input.recovery) {
+        try {
+          recovered = await input.recovery.recover({
+            acquisitionId: acquisitionId({
+              contentDigest: digestPublicSourceValue([bodyDigest, extraction.documentDigest, row.docId]),
+              source,
+              window: input.window,
+            }),
+            artifact: documentResponse.body,
+            deterministic: recoveryOutcome,
+            observedAt: input.indexResponse.observedAt,
+            publicUrl,
+            row,
+            source,
+          });
+        } catch {
+          throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
+        }
+        if (!recovered) throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
+        const expectedFilerName = [row.filer.prefix, row.filer.firstName, row.filer.lastName, row.filer.suffix]
+          .filter((value): value is string => value !== null).join(" ");
+        if (
+          recovered.document.docId !== row.docId ||
+          recovered.document.filerName !== expectedFilerName ||
+          recovered.document.filingDate !== row.filingDate ||
+          recovered.document.stateDistrict !== row.filer.stateDistrict
+        ) throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
+        transactions = recovered.rows;
+        extractionState = { errorCode: null, state: "complete" };
       }
       const amendedDocId = null;
       const filingPayload = {
@@ -796,7 +884,7 @@ async function acquireHouse(input: {
         extraction: extractionState,
         filer: row.filer,
         filingDate: row.filingDate,
-        isAmendment: extraction.layout === "amended",
+        isAmendment: recovered?.document.isAmendment ?? extraction.layout === "amended",
         publicDocumentUrl: publicUrl,
         schemaVersion: "house-ptr-filing/v1" as const,
         year: row.year,
@@ -818,8 +906,13 @@ async function acquireHouse(input: {
       });
       if (filingCandidate.fact) facts.push(filingCandidate.fact);
       if (filingCandidate.correction) corrections.push(filingCandidate.correction);
+      const promotionInput = recovered
+        ? { correctionIds: [] as string[], factRevisionIds: [] as string[], resultId: recovered.resultId, retractionIds: [] as string[] }
+        : null;
+      if (promotionInput) promotionInput.factRevisionIds.push(filingFact.revisionId);
+      if (promotionInput && filingCandidate.correction) promotionInput.correctionIds.push(filingCandidate.correction.correctionId);
 
-      const priorTransactionFacts = extraction.extractionState === "complete" &&
+      const priorTransactionFacts = extractionState.state === "complete" &&
           filingCandidate.correction !== null
         ? await readPriorTransactionFacts({
             client: input.client,
@@ -865,23 +958,27 @@ async function acquireHouse(input: {
         });
         if (candidate.fact) facts.push(candidate.fact);
         if (candidate.correction) corrections.push(candidate.correction);
+        if (promotionInput) promotionInput.factRevisionIds.push(transactionFact.revisionId);
+        if (promotionInput && candidate.correction) promotionInput.correctionIds.push(candidate.correction.correctionId);
       }
-      if (extraction.extractionState === "complete") {
+      if (extractionState.state === "complete") {
         for (const latest of stableRows.removed) {
           if (retractions.length === PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition) {
             throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
           }
           retractions.push(retraction(latest, input.indexResponse.observedAt));
+          if (promotionInput) promotionInput.retractionIds.push(retractions.at(-1)!.retractionId);
         }
       }
+      if (promotionInput) hybridPromotionInputs.push(promotionInput);
       pdfReceipts.push({
-        errorCode: extraction.errorCode,
+        errorCode: extractionState.errorCode,
         inputDigest: digestBytes(documentResponse.body),
         outputDigest: digestPublicSourceValue([
           filingFact.revisionId,
           ...transactions.map((transaction) => transaction.rowEvidenceDigest),
         ]),
-        status: extraction.extractionState,
+        status: extractionState.state,
       });
       if (facts.length > PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition) {
         throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
@@ -906,6 +1003,7 @@ async function acquireHouse(input: {
       window: input.window,
       xmlDigest: archive.xmlDigest,
       retractions,
+      hybridPromotionInputs,
     });
   } catch (error) {
     return failureAcquisition({
@@ -932,6 +1030,12 @@ function successfulAcquisition(input: {
   }[];
   readonly source: PublicSourceInstance;
   readonly retractions: readonly PublicSourceRetraction[];
+  readonly hybridPromotionInputs?: readonly {
+    readonly correctionIds: readonly string[];
+    readonly factRevisionIds: readonly string[];
+    readonly resultId: string;
+    readonly retractionIds: readonly string[];
+  }[];
   readonly status: "complete" | "no_change";
   readonly watermark: string;
   readonly window: { readonly endAt: string; readonly startAt: string };
@@ -951,6 +1055,14 @@ function successfulAcquisition(input: {
     baselineEstablished: input.baselineEstablished,
     corrections: Object.freeze([...input.corrections]),
     facts: Object.freeze([...input.facts]),
+    hybridPromotions: Object.freeze((input.hybridPromotionInputs ?? []).map((promotion) =>
+      createHybridPromotionRecord({
+        canonicalFactRevisionIds: promotion.factRevisionIds,
+        correctionIds: promotion.correctionIds,
+        now: new Date(input.observedAt),
+        resultId: promotion.resultId,
+        retractionIds: promotion.retractionIds,
+      }))),
     retractions: Object.freeze([...retractions]),
     result: publicSourceAcquisitionResultSchema.parse({
       acquisitionId: id,
@@ -996,6 +1108,8 @@ export async function runHousePublicSourceAcquisition(input: {
   readonly client?: PublicSourceAcquisitionStoreClient;
   readonly fetchDocument: (url: string) => Promise<HousePublicSourceBinaryResponse>;
   readonly fetchIndex: (url: string) => Promise<HousePublicSourceBinaryResponse>;
+  readonly hybridLineageClient?: HybridEvidenceLineageStoreClient;
+  readonly recovery?: HouseHybridRecovery;
   readonly sourceId: string;
   readonly window: { readonly endAt: string; readonly startAt: string };
 }): Promise<{
@@ -1023,6 +1137,7 @@ export async function runHousePublicSourceAcquisition(input: {
     client: input.client,
     fetchDocument: input.fetchDocument,
     indexResponse,
+    recovery: input.recovery,
     source,
     window: input.window,
   });
@@ -1031,6 +1146,8 @@ export async function runHousePublicSourceAcquisition(input: {
     return Object.freeze({ acquisition, commit: null });
   }
   const commit = await commitPublicSourceAcquisition({ acquisition, client: input.client });
+  await Promise.all(acquisition.hybridPromotions.map((promotion) =>
+    writeHybridPromotion(promotion, input.hybridLineageClient)));
   return Object.freeze({ acquisition, commit });
 }
 
@@ -1038,6 +1155,8 @@ export async function runSharedHousePublicSourceAcquisition(input: {
   readonly client?: PublicSourceAcquisitionStoreClient;
   readonly fetchDocument: (url: string) => Promise<HousePublicSourceBinaryResponse>;
   readonly fetchIndex: (url: string) => Promise<HousePublicSourceBinaryResponse>;
+  readonly hybridLineageClient?: HybridEvidenceLineageStoreClient;
+  readonly recovery?: HouseHybridRecovery;
   readonly sourceId: string;
   readonly window: { readonly endAt: string; readonly startAt: string };
 }): Promise<SharedHousePublicSourceAcquisitionResult> {

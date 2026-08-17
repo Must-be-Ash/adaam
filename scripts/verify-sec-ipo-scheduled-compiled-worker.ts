@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -10,6 +11,25 @@ import type { ScheduleToFn } from "eve/schedules";
 import { createJiti } from "jiti";
 
 import type { OfficialPublicSourceResponse } from "../agent/tools/fetch_public_source";
+import {
+  createHybridEvidenceArtifactStore,
+  type HybridEvidenceArtifactIndexClient,
+  type HybridEvidenceBlobClient,
+} from "../agent/lib/hybrid-evidence-artifact-store";
+import {
+  prepareHybridEvidenceJob,
+  readHybridEvidenceJob,
+  type HybridEvidenceJobStoreClient,
+} from "../agent/lib/hybrid-evidence-job-store";
+import {
+  digestHybridEvidenceValue,
+  hybridEvidenceJobDefinitionSchema,
+  type EvidenceLocator,
+} from "../agent/lib/hybrid-evidence-schema";
+import {
+  prepareHybridEvidenceWorkerRun,
+  startHybridEvidenceWorkerTask,
+} from "../agent/lib/hybrid-evidence-worker";
 import type { WorkspaceAlertStoreClient } from "../agent/lib/workspace-alert-store";
 import type { WorkspaceBudgetLedgerClient } from "../agent/lib/workspace-budget-ledger";
 import { readWorkspaceBudgetLedger } from "../agent/lib/workspace-budget-ledger";
@@ -59,6 +79,8 @@ import { createEventTriggerSchedule } from "../agent/schedules/event-triggers";
 
 class MemoryCasStore
   implements
+    HybridEvidenceArtifactIndexClient,
+    HybridEvidenceJobStoreClient,
     WorkspaceBudgetLedgerClient,
     WorkspaceGlobalBudgetClient,
     WorkspaceSourceCoverageClient,
@@ -75,6 +97,13 @@ class MemoryCasStore
   async get(key: string) {
     return this.values.get(key) ?? null;
   }
+}
+
+class MemoryBlob implements HybridEvidenceBlobClient {
+  readonly values = new Map<string, Uint8Array>();
+  async delete(key: string) { this.values.delete(key); }
+  async get(key: string) { return this.values.get(key) ?? null; }
+  async put(key: string, bytes: Uint8Array) { this.values.set(key, Uint8Array.from(bytes)); }
 }
 
 class MemoryCreateStore
@@ -282,6 +311,7 @@ class MemoryMonitorStore implements WorkspaceMonitorStoreClient {
 
 const environment = {
   EVE_DEPLOYMENT_OWNER_ID: "owner_fixture",
+  EVE_HYBRID_EVIDENCE_AUTH_SECRET: Buffer.alloc(32, 29).toString("base64url"),
   EVE_OWNER_ALIAS_HMAC_SECRET: "A".repeat(43),
   EVE_PHOTON_OWNER_PRINCIPALS: "imessage:fixture",
   EVE_WORKSPACE_GLOBAL_CONCURRENT_WORKERS: "4",
@@ -329,6 +359,19 @@ const workerClients: SecIpoWorkspaceWorkerClients = {
   state,
 };
 
+const hybridJobs = new MemoryCasStore();
+const hybridArtifacts = createHybridEvidenceArtifactStore({
+  blob: new MemoryBlob(),
+  index: new MemoryCasStore(),
+  quota: {
+    deploymentBytesPerDay: 16_384,
+    deploymentCountPerDay: 4,
+    sourceBytesPerDay: 16_384,
+    sourceCountPerDay: 4,
+  },
+});
+
+let hybridArtifactReads = 0;
 async function startFixtureRpc(): Promise<{
   close: () => Promise<void>;
   token: string;
@@ -351,10 +394,16 @@ async function startFixtureRpc(): Promise<{
       const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
         args: unknown[];
         method: string;
-        namespace: keyof SecIpoWorkspaceWorkerClients;
+        namespace: keyof SecIpoWorkspaceWorkerClients | "artifacts" | "jobs";
       };
       let result: unknown;
-      if (payload.namespace === "fetchSource") {
+      if (payload.namespace === "artifacts" || payload.namespace === "jobs") {
+        const target = payload.namespace === "artifacts" ? hybridArtifacts : hybridJobs;
+        if (payload.namespace === "artifacts" && payload.method === "readSlice") hybridArtifactReads += 1;
+        const method = Reflect.get(target, payload.method) as unknown;
+        if (typeof method !== "function") throw new Error("hybrid_fixture_rpc_method_invalid");
+        result = await Reflect.apply(method, target, payload.args);
+      } else if (payload.namespace === "fetchSource") {
         assert.equal(payload.method, "fetchSource");
         result = await workerClients.fetchSource!(String(payload.args[0]));
       } else {
@@ -821,6 +870,117 @@ const uninstallFixtureClients = installSecIpoWorkspaceWorkerFixtureClients(
 const fixtureRpc = await startFixtureRpc();
 process.env.EVE_WORKSPACE_WORKER_FIXTURE_RPC_TOKEN = fixtureRpc.token;
 process.env.EVE_WORKSPACE_WORKER_FIXTURE_RPC_URL = fixtureRpc.url;
+process.env.EVE_HYBRID_EVIDENCE_WORKER_FIXTURE_RPC_TOKEN = fixtureRpc.token;
+process.env.EVE_HYBRID_EVIDENCE_WORKER_FIXTURE_RPC_URL = fixtureRpc.url;
+const hybridNow = new Date();
+const hybridEvidenceText = "Fixture evidence: revenue increased while operating margin remained stable.";
+const hybridManifest = await hybridArtifacts.persist({
+  acquisitionId: "acquisition.compiled-hybrid-worker",
+  authority: "Fixture Authority",
+  bytes: Buffer.from(hybridEvidenceText),
+  canonicalPublicUrl: "https://example.gov/compiled-hybrid-worker.txt",
+  mediaType: "text/plain",
+  now: hybridNow,
+  observedAt: hybridNow.toISOString(),
+  parserEligibility: {
+    adapterId: "fixture-adapter",
+    factSchemaVersion: "fixture/v1",
+    outcomeDigest: createHash("sha256").update("fixture-outcome").digest("hex"),
+    reasonCode: "layout_unsupported",
+    state: "unsupported",
+  },
+  sourceInstanceId: "source.fixture.compiled-hybrid-worker",
+  structure: {
+    characterCount: hybridEvidenceText.length,
+    columnCount: null,
+    pageCount: null,
+    rowCount: null,
+    sheetCount: null,
+  },
+});
+const hybridModelId = "fixture/hybrid-compiled-model";
+const hybridDefinitionCore = {
+  accessClassifications: ["public"],
+  allowedAdapterIds: ["fixture-adapter"],
+  allowedMediaTypes: ["text/plain"],
+  allowedModelIds: [hybridModelId],
+  definitionId: "fixture-compiled-worker",
+  definitionVersion: "1.0.0",
+  inputProjection: { schemaId: "fixture-text", schemaVersion: "1.0.0" },
+  instructionTemplate: {
+    delimiterPolicy: "xml_data_envelope/v1",
+    digest: createHash("sha256").update("fixture-hybrid-prompt").digest("hex"),
+    templateId: "fixture-compiled-worker",
+    version: "1.0.0",
+  },
+  limits: {
+    maximumAttempts: 1,
+    maximumEvidenceBytes: 4096,
+    maximumInputTokens: 2000,
+    maximumOutputTokens: 400,
+    maximumPages: 0,
+    maximumPaidCostUsd: "0.05",
+    maximumRows: 0,
+    maximumRuntimeMs: 60_000,
+  },
+  outputSchema: { schemaId: "fixture-candidate", schemaVersion: "1.0.0" },
+  purpose: "extraction_recovery",
+  recordType: "hybrid_evidence_job_definition",
+  requiredValidator: { validatorId: "fixture-validator", version: "1.0.0" },
+  resultScope: "source_global",
+  schemaVersion: 1,
+  triggeringParserCodes: ["layout_unsupported"],
+} as const;
+const hybridDefinition = hybridEvidenceJobDefinitionSchema.parse({
+  ...hybridDefinitionCore,
+  definitionDigest: digestHybridEvidenceValue(hybridDefinitionCore),
+});
+const hybridLocator: EvidenceLocator = {
+  artifactDigest: hybridManifest.contentDigest,
+  end: hybridEvidenceText.length,
+  kind: "text_span",
+  spanDigest: createHash("sha256").update(hybridEvidenceText).digest("hex"),
+  start: 0,
+};
+const hybridPreparedJob = await prepareHybridEvidenceJob({
+  artifacts: [hybridManifest],
+  definition: hybridDefinition,
+  inputContextDigest: createHash("sha256").update("compiled-worker-input").digest("hex"),
+  locators: [hybridLocator],
+  modelId: hybridModelId,
+  now: hybridNow,
+  scope: {
+    initiatingWorkspaceId: "123e4567-e89b-42d3-a456-426614174000",
+    kind: "source_global",
+    sourceInstanceId: "source.fixture.compiled-hybrid-worker",
+  },
+}, hybridJobs);
+const hybridPreparedRun = await prepareHybridEvidenceWorkerRun({
+  budget: {
+    lane: "source_global_extraction",
+    reservation: {
+      calendarDay: hybridNow.toISOString().slice(0, 10),
+      createdAt: hybridNow.toISOString(),
+      inputTokens: hybridDefinition.limits.maximumInputTokens,
+      kind: "hybrid_model_attempt",
+      outputTokens: hybridDefinition.limits.maximumOutputTokens,
+      paidMicros: "50000",
+      reconciledInputTokens: null,
+      reconciledOutputTokens: null,
+      reconciledPaidMicros: null,
+      runId: hybridPreparedJob.job.budgetReservation.key,
+      state: "reserved",
+      updatedAt: hybridNow.toISOString(),
+    },
+    reservationKey: hybridPreparedJob.job.budgetReservation.key,
+  },
+  definition: hybridDefinition,
+  environment,
+  jobClient: hybridJobs,
+  locators: [hybridLocator],
+  now: hybridNow,
+  prepared: hybridPreparedJob,
+});
 const workflowDataDirectory = await mkdtemp(
   join(tmpdir(), "adaam-sec-ipo-compiled-world-"),
 );
@@ -904,6 +1064,38 @@ try {
     >[0]["moduleMap"],
     sessionId: "sec-ipo-scheduled-compiled-worker",
   }, async () => {
+    assert.deepEqual(hybridPreparedRun.request.input.outputSchema, {
+      additionalProperties: false,
+      properties: {
+        jobId: { type: "string" },
+        state: { const: "completed" },
+      },
+      required: ["jobId", "state"],
+      type: "object",
+    });
+    // Eve's deterministic mock short-circuits authored tools when a task-mode
+    // schema is supplied. The production request above remains schema-bound;
+    // this launch-only copy omits it so the compiled fixture can prove that the
+    // signed read and completion tools execute through the real workflow world.
+    const hybridSession = await startHybridEvidenceWorkerTask({
+      ...hybridPreparedRun.request,
+      input: { ...hybridPreparedRun.request.input, outputSchema: undefined },
+    } as never);
+    const hybridEvents: MessageStreamEvent[] = [];
+    for await (const event of hybridSession.events) hybridEvents.push(event);
+    const hybridToolNames = hybridEvents.flatMap((event) =>
+      event.type === "actions.requested"
+        ? event.data.actions.flatMap((action) => action.kind === "tool-call" ? [action.toolName] : [])
+        : []);
+    assert.equal(hybridToolNames.some((name) => ![
+      "read_hybrid_evidence_slice",
+      "complete_hybrid_evidence_job",
+    ].includes(name)), false, JSON.stringify(hybridEvents));
+    assert.ok(hybridEvents.some((event) => event.type === "session.completed"));
+    const compiledHybridRecord = await readHybridEvidenceJob(hybridPreparedJob.job.jobId, hybridJobs);
+    assert.equal(compiledHybridRecord?.job.state, "completed", JSON.stringify(hybridEvents));
+    assert.equal(hybridArtifactReads, 1, "compiled worker must read its one signed locator");
+
     const workspaceA = await setupWorkspace(
       "123e4567-e89b-42d3-a456-426614174000",
     );
@@ -1395,10 +1587,12 @@ try {
   await rm(workflowBuildDirectory, { force: true, recursive: true });
   delete process.env.EVE_WORKSPACE_WORKER_FIXTURE_RPC_TOKEN;
   delete process.env.EVE_WORKSPACE_WORKER_FIXTURE_RPC_URL;
+  delete process.env.EVE_HYBRID_EVIDENCE_WORKER_FIXTURE_RPC_TOKEN;
+  delete process.env.EVE_HYBRID_EVIDENCE_WORKER_FIXTURE_RPC_URL;
   await fixtureRpc.close();
   uninstallFixtureClients();
 }
 
 console.info(
-  "Scheduled compiled SEC IPO workspace-worker acceptance verification passed.",
+  "Scheduled compiled SEC IPO and hybrid-evidence worker acceptance verification passed.",
 );

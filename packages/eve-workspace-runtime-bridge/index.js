@@ -4,6 +4,7 @@ import { createBundledRuntimeCompiledArtifactsSource } from "../../eve/dist/src/
 export async function createNodeTargetedWorkflowRuntime(config) {
   return createWorkflowRuntime({
     compiledArtifactsSource: createBundledRuntimeCompiledArtifactsSource(),
+    dynamicSubagentAgentConfig: config.dynamicSubagentAgentConfig,
     nodeId: config.nodeId,
   });
 }

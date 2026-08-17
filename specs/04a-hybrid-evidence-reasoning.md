@@ -1,6 +1,6 @@
 # Spec 4A: Hybrid evidence and reasoning foundation
 
-Status: Planned; next implementation target after completed Spec 4
+Status: Sprint 4 acceptance complete; GitHub landing in progress
 
 Date: 2026-08-16
 
@@ -508,36 +508,49 @@ accepted evidence and quarantine history but prevents new model jobs.
 
 ### Sprint 0 — freeze contracts and red fixtures
 
-- [ ] Define the two lanes, evidence artifact/locator, immutable job definition,
+- [x] Define the two lanes, evidence artifact/locator, immutable job definition,
   job lifecycle/abstention, accepted-result envelope, promotion/invalidation
   lineage, and fixed error/event catalogs as bounded schemas.
-- [ ] Register the parent/child flag matrix and prove all-off preserves existing
+- [x] Register the parent/child flag matrix and prove all-off preserves existing
   Spec 3 and Spec 4 behavior without model calls.
-- [ ] Add a versioned corpus of at least 12 cases across PDF, spreadsheet, and
+- [x] Add a versioned corpus of at least 12 cases across PDF, spreadsheet, and
   semantic evidence with expected accepted, abstained, quarantined, false-
   success-layout, hostile-document, and prompt-injection outcomes.
-- [ ] Add deterministic mock-model harnesses that fail at the missing production
+- [x] Add deterministic mock-model harnesses that fail at the missing production
   seams before implementation.
+
+Local evidence: the 16-case Sprint 0 contract gate, public-source runtime and
+Congressional Signals focused regressions, TypeScript, and the Eve build pass;
+the artifact store, job store, and worker runtime remain executable red seams.
 
 Exit: contracts and expected behavior are executable, while no production model
 or source path has changed.
 
 ### Sprint 1 — durable evidence jobs and isolated worker
 
-- [ ] Add the dedicated public evidence artifact namespace/store, bounded
+- [x] Add the dedicated public evidence artifact namespace/store, bounded
   retrieval/locator validation, reference-aware retention, aggregate quotas,
   and content-addressed reuse.
-- [ ] Add idempotent job preparation, claim, completion, acceptance, quarantine,
+- [x] Add idempotent job preparation, claim, completion, acceptance, quarantine,
   failure, and uncertain persistence with exact definition/input digests.
-- [ ] Add the fresh Eve task worker, per-turn output schema, narrow dynamic
+- [x] Add the fresh Eve task worker, per-turn output schema, narrow dynamic
   financial/session/general-fetch tools; bind every read/commit to an expiring
   signed single-job scope.
-- [ ] Extend the existing ledgers with independently keyed hybrid attempts:
+- [x] Extend the existing ledgers with independently keyed hybrid attempts:
   deployment source-recovery budgets for Lane A and workspace budgets for Lane
   B, without incrementing scheduled-run counts.
-- [ ] Prove replay, definition/artifact revision invalidation, two-workspace
+- [x] Prove replay, definition/artifact revision invalidation, two-workspace
   isolation, and one deployment-funded source-global job reused by two
   workspaces.
+
+Local evidence: the Sprint 1 gate exercises content-addressed Blob reuse,
+aggregate quotas, bounded text locators, 30/90-day reference-aware retention,
+every durable job transition, signed control-plane reads/commits, task output
+schema, compiled tool isolation, both independently reconciled budget lanes,
+revision invalidation, workspace isolation, and one source-global reservation
+reused by two workspaces. Sprint 0, workspace budget/dispatch/auth/isolation,
+compiled worker-tool, and public-source runtime regressions, TypeScript, and the
+Eve build pass without a production model or source call.
 
 Exit: a fixture job can run through the real local control plane and produce an
 accepted or quarantined durable result; it cannot yet change a source fact or
@@ -545,71 +558,142 @@ strategy result.
 
 ### Sprint 2 — extraction recovery verticals
 
-- [ ] Integrate recovery eligibility after a reviewed deterministic parser's
+- [x] Integrate recovery eligibility after a reviewed deterministic parser's
   allowlisted partial/unsupported/suspicious result, without adding a second
   acquisition or schedule path.
-- [ ] Implement PDF page rendering/content parts and the reviewed document-row
+- [x] Implement PDF page rendering/content parts and the reviewed document-row
   extraction definition plus independent bounded OCR and deterministic
   citation/domain validation.
-- [ ] Implement bounded workbook-to-cell-grid projection and the reviewed
+- [x] Implement bounded workbook-to-cell-grid projection and the reviewed
   spreadsheet-role mapping definition plus its deterministic validator.
-- [ ] Promote only independently verified House PDF candidates into immutable
+- [x] Promote only independently verified House PDF candidates into immutable
   canonical fact revisions with promotion/invalidation lineage. Spreadsheet
   fixtures stop at the accepted hybrid-result boundary.
-- [ ] Pass the PDF and spreadsheet proof scenarios, deterministic-success bypass,
+- [x] Pass the PDF and spreadsheet proof scenarios, deterministic-success bypass,
   reuse, correction/revision, bounds, injection, and negative fixtures.
+
+Local evidence: the Sprint 2 gate drives a retained scanned House PDF through
+bounded PDF rendering, Eve image content parts, the signed worker read/commit
+boundary, independent bounded OCR, deterministic citations/domain validation,
+and the existing House acquisition commit. It proves deterministic bypass,
+cross-workspace source-global reuse, corrections, retractions, immutable
+promotion/invalidation lineage, invalid-citation quarantine with no cursor
+advance, hostile PDF/injection/bounds failures, and a second worker job over a
+bounded hostile-workbook decoder. The spreadsheet mapping accepts renamed and
+reordered columns, rejects duplicate/missing/conflicting columns, formulas,
+external content, and injection, and creates no canonical fact or promotion.
+Sprint 0/1, existing House acquisition/runtime and compiled worker-tool
+regressions, TypeScript, the Eve build, and the diff check pass without a
+production model, source call, message, deployment, or flag change.
 
 Exit: two different document shapes use the same job/evidence foundation, and
 only deterministically validated model candidates become source facts.
 
 ### Sprint 3 — workspace semantic reasoning vertical
 
-- [ ] Add workspace-scoped semantic job authorization from exact pack/binding,
+- [x] Add workspace-scoped semantic job authorization from exact pack/binding,
   capability, source projection, and job-definition revisions using test-only
   pack/binding fixtures that never enter the production catalog.
-- [ ] Persist immutable model-derived evidence with common provenance and a
+- [x] Persist immutable model-derived evidence with common provenance and a
   definition-specific payload; keep it out of canonical source facts and other
   workspaces.
-- [ ] Add the semantic public-text reference definition and validate claims,
+- [x] Add the semantic public-text reference definition and validate claims,
   counterevidence, uncertainty/abstention, and exact text-span citations.
-- [ ] Expose bounded hybrid state, usage, provenance, citations, unknowns, and
+- [x] Expose bounded hybrid state, usage, provenance, citations, unknowns, and
   quarantine reason codes through existing workspace inspection surfaces, and
   deduplicate newly blocking/persistent quarantine health alerts.
-- [ ] Pass semantic, ambiguity, injection, correction/retraction, pack revision,
+- [x] Pass semantic, ambiguity, injection, correction/retraction, pack revision,
   budget, replay, and two-workspace isolation fixtures.
+
+Local evidence: the Sprint 3 gate uses a test-only semantic pack absent from the
+production catalog and drives exact active binding, capability/model policy,
+authorized public-source projection, source-fact, artifact, text-span, and job-
+definition revisions through the production authorization and persistence
+paths. It proves accepted indirect positive/cautious interpretations, explicit
+ambiguity and counterevidence abstention, prompt-injection quarantine, immutable
+workspace-only provenance, replay without redispatch or rebilling, budget
+denial, source correction/retraction, pack revision lineage, cross-workspace
+isolation, bounded owner inspection, deduplicated blocking/persistent health,
+and no canonical-fact write. Sprint 1/2, compiled worker-tool isolation,
+strategy-pack owner surfaces, the workspace runtime manager, TypeScript, the
+Eve build, and the diff check pass without a production model, source call,
+message, deployment, or flag change.
 
 Exit: a reviewed strategy can consume accepted semantic evidence without
 hard-coded keywords, while ambiguous meaning remains explicit and isolated.
 
 ### Sprint 4 — final acceptance, rollout, and landing
 
-- [ ] Run one independent diff-scoped review; fix validated blockers and move
+- [x] Run one independent diff-scoped review; fix validated blockers and move
   nonblocking hardening or later connector/strategy work to `BACKLOG.md` or its
   owning future spec.
-- [ ] Run the focused three-scenario suite, relevant Specs 1–4 regressions,
+- [x] Run the focused three-scenario suite, relevant Specs 1–4 regressions,
   typecheck, Eve build, application build, and diff check once after code review
   fixes settle.
-- [ ] Prove the ordinary end-to-end boundaries: deterministic bypass; one
+- [x] Prove the ordinary end-to-end boundaries: deterministic bypass; one
   source-global extraction reused by two workspaces; workspace semantic
   isolation; quarantine; correction/revision; fixed logs; budget settlement;
   extension registration without shared-layer edits; and financial-capability
   denial.
-- [ ] With owner authorization, run a versioned real-model corpus at least twice
+- [x] With owner authorization, run a versioned real-model corpus at least twice
   per case across all three proof shapes. Require zero false accepted material
   fields, invalid accepted citations, unsafe accepts, or forbidden tool use;
   at least 80% accepted recovery on reviewed supported cases in both runs; and
   100% abstention/quarantine on ambiguous, prohibited, and adversarial cases.
   Record run-to-run variance before enabling either child flag. No broker,
   private data, external message, or complete strategy rollout is required.
-- [ ] Stage the parent/extraction/semantic flags independently, prove rollback,
+- [x] Stage the parent/extraction/semantic flags independently, prove rollback,
   and leave production in the owner-approved state.
-- [ ] Mark this ledger accurately, record exact acceptance/flag evidence, move
+- [x] Mark this ledger accurately, record exact acceptance/flag evidence, move
   only deferred hardening to `BACKLOG.md`, and update `HANDOFF.md` and
   `NORTH_STAR.md` where implementation changed reality.
 - [ ] Commit and push the final branch, open and merge its PR, confirm GitHub
   `main` contains the exact accepted commit, and verify the resulting production
   deployment/health when the merge triggers one. Do not repeat the already-green
   broad suite unless landing changed code.
+
+Acceptance evidence (2026-08-16): independent review run
+`20260816-182623-5fc08538` used eight diff-scoped review lenses plus the
+agent-native lens. Cross-model execution was unavailable and disclosed; separate
+independent Codex contexts completed the review. Sixteen validated findings were
+fixed and one false-positive coverage report was dropped. The final review
+receipt is under
+`/tmp/compound-engineering-501/ce-code-review/20260816-182623-5fc08538`.
+
+The single broad gate passed 31/31 stages after review fixes settled: Sprints
+0–3, SEC/House public-source contracts and runtimes, Congressional Signals
+Sprints 0–5, strategy/runtime owner surfaces, workspace budget/capability/auth/
+isolation/compiled-worker boundaries, TypeScript, the compiled Eve build, the
+Next production build, and `git diff --check`. Later fixes were limited to
+affected checks: the lockfile integrity correction, definition-specific worker
+prompt contract, corpus contract, compiled worker, TypeScript, and Eve build all
+passed. The broad gate was not repeated.
+
+The versioned `hybrid-evidence-core@1.0.0` corpus ran twice through Vercel AI
+Gateway model `openai/gpt-5.4` at `2026-08-17T02:50:02.222Z` (UTC), covering all
+16 PDF, spreadsheet, and semantic cases. Both runs achieved 100% accepted
+recovery on reviewed supported cases and 100% abstention/quarantine on safety
+cases, with zero false accepted material fields, invalid accepted citations,
+unsafe accepts, or forbidden tool calls. Run 1 used 5,561 input/861 output
+tokens; run 2 used 5,561 input/922 output tokens. Variance was limited to safe
+abstention/quarantine payload wording in eight cases.
+
+Production staging used bounded configuration with extractor
+`openai/gpt-5.4`, independent OCR `google/gemini-3-flash`, two workers, 100,000
+input and 20,000 output tokens/day, and USD 1/call, 10/day, 100/month ceilings.
+The healthy sequence was all-off `dpl_3bNfvpDYyyBJWbg6iSaiPvXAXpXo`, parent-only
+`dpl_2SBDDcTd6LhEmAhWHDwv2WzT67hz`, extraction-only
+`dpl_96rwcus4tGCcEJZFqJFPkjkK4Jni`, extraction rollback
+`dpl_13HDhiNP7iXgZbJY5veyyp5mnLD9`, semantic-only
+`dpl_Dio9ukpn4mx8jET1ErfUhTbWK2fs`, semantic rollback
+`dpl_EtCRRC91p8v7KQCiAcEAzon7ak3Z`, parent rollback
+`dpl_GYkL7P66wo4Sk3aaFfNdW7Sc1Fgc`, and dependency rollback/final all-off
+`dpl_8oAhy3xys7pCjhCAQQ4QaVPSe5eT`. Every promoted stage returned HTTP 200 for
+`/` and `/skill` with empty bounded error logs. Final production values are
+exactly `0` for the parent and both hybrid children and the temporarily enabled
+workspace dispatch dependency; the signing secret remains sensitive. No Photon
+message, private data, broker call, strategy rollout, or financial mutation was
+used.
 
 Exit: the shared hybrid foundation is implemented, accepted, merged to `main`,
 and ready for Specs 4B and 4C without either strategy recreating its evidence,
