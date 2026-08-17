@@ -51,7 +51,18 @@ const sourceSchema = z.object({
   sourceInstanceId: idSchema,
   subscriptionId: idSchema,
 }).strict();
-const evidenceSchema = z.object({
+export const workspaceSemanticEvidenceRoleSchema = z.enum([
+  "current",
+  "prior",
+  "year_ago",
+  "section",
+]);
+const memberSchema = z.object({
+  memberId: idSchema,
+  role: workspaceSemanticEvidenceRoleSchema,
+  source: sourceSchema,
+}).strict();
+const evidenceV1Schema = z.object({
   createdAt: z.string().datetime({ offset: true }),
   lineageKey: idSchema,
   ownerId: idSchema,
@@ -70,6 +81,33 @@ const evidenceSchema = z.object({
     context.addIssue({ code: "custom", message: "workspace_semantic_scope_invalid" });
   }
 });
+const evidenceV2Schema = z.object({
+  createdAt: z.string().datetime({ offset: true }),
+  lineageKey: idSchema,
+  members: z.array(memberSchema).min(1).max(16),
+  ownerId: idSchema,
+  recordType: z.literal("workspace_semantic_evidence"),
+  result: hybridAcceptedResultSchema,
+  schemaVersion: z.literal(2),
+  source: sourceSchema,
+  workspaceId: z.string().uuid(),
+}).strict().superRefine((record, context) => {
+  const nonSectionRoles = record.members
+    .filter(({ role }) => role !== "section")
+    .map(({ role }) => role);
+  if (
+    record.result.purpose !== "semantic_interpretation" ||
+    record.result.scope.kind !== "workspace" ||
+    record.result.scope.ownerId !== record.ownerId ||
+    record.result.scope.workspaceId !== record.workspaceId ||
+    new Set(record.members.map(({ memberId }) => memberId)).size !== record.members.length ||
+    new Set(nonSectionRoles).size !== nonSectionRoles.length ||
+    !record.members.some(({ source }) => JSON.stringify(source) === JSON.stringify(record.source))
+  ) {
+    context.addIssue({ code: "custom", message: "workspace_semantic_scope_invalid" });
+  }
+});
+const evidenceSchema = z.union([evidenceV1Schema, evidenceV2Schema]);
 const jobSummarySchema = z.object({
   citations: z.array(evidenceLocatorSchema).max(64),
   definitionId: idSchema,
@@ -116,6 +154,8 @@ const indexSchema = z.object({
 }).strict();
 
 export type WorkspaceSemanticEvidence = Readonly<z.infer<typeof evidenceSchema>>;
+export type WorkspaceSemanticEvidenceMember = Readonly<z.infer<typeof memberSchema>>;
+export type WorkspaceSemanticEvidenceRole = z.infer<typeof workspaceSemanticEvidenceRoleSchema>;
 export type WorkspaceSemanticJobSummary = Readonly<z.infer<typeof jobSummarySchema>>;
 export type WorkspaceSemanticSource = Readonly<z.infer<typeof sourceSchema>>;
 export type WorkspaceSemanticHealthNotification = Readonly<{
@@ -271,6 +311,41 @@ export function createWorkspaceSemanticSource(input: {
   }));
 }
 
+export function createWorkspaceSemanticEvidenceMember(input: {
+  memberId: string;
+  role: WorkspaceSemanticEvidenceRole;
+  source: WorkspaceSemanticSource;
+}): WorkspaceSemanticEvidenceMember {
+  return Object.freeze(memberSchema.parse(input));
+}
+
+async function persistWorkspaceSemanticEvidence(
+  record: WorkspaceSemanticEvidence,
+  scope: AuthorizedWorkspaceStoreScope,
+  client: WorkspaceSemanticEvidenceStoreClient,
+): Promise<WorkspaceSemanticEvidence> {
+  const serialized = JSON.stringify(record);
+  if (Buffer.byteLength(serialized, "utf8") > MAX_RECORD_BYTES) {
+    throw new WorkspaceSemanticEvidenceStoreError("semantic_evidence_corrupt");
+  }
+  const key = resultKey(scope, record.result.resultId);
+  if (!(await client.compareAndSet(key, null, serialized))) {
+    const existing = raw(await client.get(key));
+    if (existing !== serialized) throw new WorkspaceSemanticEvidenceStoreError("semantic_evidence_conflict");
+  }
+  await updateIndex(scope, client, (current) => ({
+    next: current.resultIds.includes(record.result.resultId)
+      ? current
+      : {
+          ...current,
+          resultIds: [...current.resultIds, record.result.resultId],
+          revision: current.revision + 1,
+        },
+    result: undefined,
+  }));
+  return Object.freeze(record);
+}
+
 export async function writeWorkspaceSemanticEvidence(input: {
   lineageKey: string;
   now: Date;
@@ -280,7 +355,7 @@ export async function writeWorkspaceSemanticEvidence(input: {
 }, client: WorkspaceSemanticEvidenceStoreClient = store()): Promise<WorkspaceSemanticEvidence> {
   assertAuthorizedWorkspaceStoreScope(input.scope);
   const result = hybridAcceptedResultSchema.parse(input.result);
-  const record = evidenceSchema.parse({
+  const record = evidenceV1Schema.parse({
     createdAt: input.now.toISOString(),
     lineageKey: input.lineageKey,
     ownerId: input.scope.ownerId,
@@ -290,22 +365,33 @@ export async function writeWorkspaceSemanticEvidence(input: {
     source: input.source,
     workspaceId: input.scope.workspaceId,
   });
-  const serialized = JSON.stringify(record);
-  if (Buffer.byteLength(serialized, "utf8") > MAX_RECORD_BYTES) {
-    throw new WorkspaceSemanticEvidenceStoreError("semantic_evidence_corrupt");
-  }
-  const key = resultKey(input.scope, result.resultId);
-  if (!(await client.compareAndSet(key, null, serialized))) {
-    const existing = raw(await client.get(key));
-    if (existing !== serialized) throw new WorkspaceSemanticEvidenceStoreError("semantic_evidence_conflict");
-  }
-  await updateIndex(input.scope, client, (current) => ({
-    next: current.resultIds.includes(result.resultId)
-      ? current
-      : { ...current, resultIds: [...current.resultIds, result.resultId], revision: current.revision + 1 },
-    result: undefined,
-  }));
-  return Object.freeze(record);
+  return persistWorkspaceSemanticEvidence(record, input.scope, client);
+}
+
+export async function writeWorkspaceSemanticEvidenceBundle(input: {
+  lineageKey: string;
+  members: readonly WorkspaceSemanticEvidenceMember[];
+  now: Date;
+  result: HybridAcceptedResult;
+  scope: AuthorizedWorkspaceStoreScope;
+}, client: WorkspaceSemanticEvidenceStoreClient = store()): Promise<WorkspaceSemanticEvidence> {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  const result = hybridAcceptedResultSchema.parse(input.result);
+  const members = input.members.map((member) => memberSchema.parse(member));
+  const primary = members.find(({ role }) => role === "current") ?? members[0];
+  if (!primary) throw new WorkspaceSemanticEvidenceStoreError("semantic_evidence_corrupt");
+  const record = evidenceV2Schema.parse({
+    createdAt: input.now.toISOString(),
+    lineageKey: input.lineageKey,
+    members,
+    ownerId: input.scope.ownerId,
+    recordType: "workspace_semantic_evidence",
+    result,
+    schemaVersion: 2,
+    source: primary.source,
+    workspaceId: input.scope.workspaceId,
+  });
+  return persistWorkspaceSemanticEvidence(record, input.scope, client);
 }
 
 export async function readWorkspaceSemanticEvidence(input: {

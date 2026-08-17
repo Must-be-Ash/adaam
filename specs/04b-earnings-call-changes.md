@@ -474,23 +474,23 @@ coverage/quarantine state, with reproducible metrics and citations.
 
 ### Sprint 3 — multi-artifact semantic judgment
 
-- [ ] Extend the shared workspace semantic lane with backward-compatible v2
+- [x] Extend the shared workspace semantic lane with backward-compatible v2
   role-bound evidence sets, per-source authorization, separate citations, exact
   lineage, role-sensitive identity, and invalidation when any member changes.
-- [ ] Register an immutable earnings comparison definition, prompt, output
+- [x] Register an immutable earnings comparison definition, prompt, output
   schema, and deterministic validator referenced by exact pack digest.
-- [ ] Produce distinct facts, inferences, forecasts, and recommendations with
+- [x] Produce distinct facts, inferences, forecasts, and recommendations with
   concise rationale, confidence, horizon, assumptions, counterevidence,
   catalysts, risks, and invalidation conditions.
-- [ ] Support bounded section analyses plus one cited synthesis when a complete
+- [x] Support bounded section analyses plus one cited synthesis when a complete
   call exceeds the single-job limit; invalidate the synthesis when any section
   or source revision changes.
-- [ ] Reject unsupported claims/citations, fake precision, source instructions,
+- [x] Reject unsupported claims/citations, fake precision, source instructions,
   forbidden tools, cross-workspace access, and recommendations without evidence;
   preserve abstention as a successful no-view outcome.
-- [ ] Charge every attempt to the existing workspace/global hybrid budgets and
+- [x] Charge every attempt to the existing workspace/global hybrid budgets and
   preserve same-run versus retry accounting.
-- [ ] Add and pass `verify:earnings-call-changes:sprint-3` plus a repeated
+- [x] Add and pass `verify:earnings-call-changes:sprint-3` plus a repeated
   real-model eval corpus meeting every Sprint 0 safety, change/direction,
   abstention, and usefulness threshold.
 

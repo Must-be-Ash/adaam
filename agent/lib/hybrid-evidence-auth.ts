@@ -53,7 +53,8 @@ const envelopeSchema = z.object({
     expires - issued > MAX_AUTH_LIFETIME_MS ||
     value.budget.scope !== expectedBudgetScope ||
     value.allowedLocators.some((locator) =>
-      (locator.kind !== "source_fact" && !value.artifactDigests.includes(locator.artifactDigest)) ||
+      ("artifactDigest" in locator &&
+        !value.artifactDigests.includes(locator.artifactDigest)) ||
       (locator.kind === "pdf_page" && locator.page > value.evidenceLimits.maximumPages) ||
       (locator.kind === "spreadsheet_range" &&
         Number(locator.range.match(/:?[A-Z]{1,3}([1-9]\d*)$/u)?.[1] ?? Number.MAX_SAFE_INTEGER) >

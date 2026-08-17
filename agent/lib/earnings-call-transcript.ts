@@ -527,23 +527,44 @@ export function createEarningsCallCitation(input: {
   readonly start: number;
   readonly transcript: EarningsTranscript;
 }) {
-  const section = input.transcript.sections.find(({ sectionId }) => sectionId === input.sectionId);
+  return createEarningsCallCitations({
+    artifactDigest: input.artifactDigest,
+    eventRevisionId: input.eventRevisionId,
+    normalizedText: input.normalizedText,
+    spans: [{ end: input.end, sectionId: input.sectionId, start: input.start }],
+    transcript: input.transcript,
+  })[0]!;
+}
+
+export function createEarningsCallCitations(input: {
+  readonly artifactDigest: string;
+  readonly eventRevisionId: string;
+  readonly normalizedText: string;
+  readonly spans: readonly Readonly<{ end: number; sectionId: string; start: number }>[];
+  readonly transcript: EarningsTranscript;
+}) {
+  const sections = new Map(input.transcript.sections.map((section) => [section.sectionId, section]));
   if (
     input.artifactDigest !== input.transcript.artifactDigest ||
     input.eventRevisionId !== input.transcript.eventRevisionId ||
     input.normalizedText.length !== input.transcript.characterCount ||
-    digestEarningsCallValue(input.normalizedText) !== input.transcript.normalizedTextDigest ||
-    !section || input.start < section.start || input.end > section.end || input.start >= input.end
+    digestEarningsCallValue(input.normalizedText) !== input.transcript.normalizedTextDigest
   ) throw new Error("citation_invalid");
-  return earningsCitationSchema.parse({
-    artifactDigest: input.artifactDigest,
-    end: input.end,
-    eventRevisionId: input.eventRevisionId,
-    sectionId: input.sectionId,
-    spanDigest: digestEarningsCallValue(input.normalizedText.slice(input.start, input.end)),
-    start: input.start,
-    transcriptId: input.transcript.transcriptId,
-  });
+  return Object.freeze(input.spans.map((span) => {
+    const section = sections.get(span.sectionId);
+    if (!section || span.start < section.start || span.end > section.end || span.start >= span.end) {
+      throw new Error("citation_invalid");
+    }
+    return earningsCitationSchema.parse({
+      artifactDigest: input.artifactDigest,
+      end: span.end,
+      eventRevisionId: input.eventRevisionId,
+      sectionId: span.sectionId,
+      spanDigest: digestEarningsCallValue(input.normalizedText.slice(span.start, span.end)),
+      start: span.start,
+      transcriptId: input.transcript.transcriptId,
+    });
+  }));
 }
 
 function estimateTokens(characterCount: number): number {

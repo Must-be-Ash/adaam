@@ -297,11 +297,18 @@ const sourceFactLocatorSchema = z.object({
   payloadDigest: digestSchema,
 }).strict();
 
+const semanticResultLocatorSchema = z.object({
+  kind: z.literal("semantic_result"),
+  outputDigest: digestSchema,
+  resultId: identifierSchema,
+}).strict();
+
 export const evidenceLocatorSchema = z.union([
   pdfPageLocatorSchema,
   spreadsheetRangeLocatorSchema,
   textSpanLocatorSchema,
   sourceFactLocatorSchema,
+  semanticResultLocatorSchema,
 ]);
 
 const schemaReferenceSchema = z.object({
@@ -408,6 +415,7 @@ export const hybridEvidenceJobSchema = z.object({
   definitionVersion: semverSchema,
   idempotencyKey: digestSchema,
   inputDigest: digestSchema,
+  inputProjectionDigest: digestSchema.optional(),
   jobId: identifierSchema,
   locatorDigests: z.array(digestSchema).min(1).max(HYBRID_EVIDENCE_LIMITS.maximumCitations),
   modelId: identifierSchema,
@@ -548,6 +556,7 @@ export const hybridInvalidationRecordSchema = z.object({
     kind: z.enum([
       "binding_revision",
       "definition_revision",
+      "input_revision",
       "pack_revision",
       "source_revision",
       "validator_revision",

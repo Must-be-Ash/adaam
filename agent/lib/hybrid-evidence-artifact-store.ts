@@ -285,7 +285,10 @@ function validateLocatorBounds(
   manifest: EvidenceArtifactManifest,
   locator: EvidenceLocator,
 ): void {
-  if (locator.kind === "source_fact" || locator.artifactDigest !== manifest.contentDigest) {
+  if (
+    !("artifactDigest" in locator) ||
+    locator.artifactDigest !== manifest.contentDigest
+  ) {
     throw new HybridEvidenceArtifactStoreError("locator_out_of_bounds");
   }
   if (
@@ -532,7 +535,7 @@ export function createHybridEvidenceArtifactStore(options: {
       if (!Number.isSafeInteger(input.maximumBytes) || input.maximumBytes < 1) {
         throw new HybridEvidenceArtifactStoreError("artifact_bounds_exceeded");
       }
-      if (locator.kind === "source_fact") {
+      if (!("artifactDigest" in locator)) {
         throw new HybridEvidenceArtifactStoreError("locator_out_of_bounds");
       }
       const entry = await readEntry(locator.artifactDigest);

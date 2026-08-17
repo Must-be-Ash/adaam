@@ -363,19 +363,19 @@ export const earningsComparisonSchema = z.object({
   }
 });
 
-const assertionSchema = z.object({
+export const earningsAssertionSchema = z.object({
   citations: z.array(earningsCitationSchema).min(1).max(EARNINGS_CALL_LIMITS.maximumCitationsPerAssertion),
   statement: boundedTextSchema,
 }).strict();
 
 export const earningsForecastSchema = z.object({
-  catalysts: z.array(assertionSchema).max(8),
+  catalysts: z.array(earningsAssertionSchema).max(8),
   citations: z.array(earningsCitationSchema).min(1).max(EARNINGS_CALL_LIMITS.maximumCitationsPerAssertion),
   direction: z.enum(["negative", "neutral", "positive", "uncertain"]),
   horizon: z.enum(["next_quarter", "two_to_four_quarters", "longer_term"]),
   invalidationConditions: z.array(boundedTextSchema).min(1).max(8),
   likelyMarketInterpretation: boundedTextSchema,
-  risks: z.array(assertionSchema).max(8),
+  risks: z.array(earningsAssertionSchema).max(8),
   scenarios: z.array(z.object({
     condition: boundedTextSchema,
     direction: z.enum(["negative", "neutral", "positive"]),
@@ -438,12 +438,12 @@ export const earningsFindingSchema = z.object({
   comparisonDigest: digestSchema,
   comparisonId: identifierSchema,
   confidence: z.enum(["high", "low", "medium"]),
-  counterevidence: z.array(assertionSchema).max(EARNINGS_CALL_LIMITS.maximumEvidenceAssertions),
-  facts: z.array(assertionSchema).min(1).max(EARNINGS_CALL_LIMITS.maximumEvidenceAssertions),
+  counterevidence: z.array(earningsAssertionSchema).max(EARNINGS_CALL_LIMITS.maximumEvidenceAssertions),
+  facts: z.array(earningsAssertionSchema).min(1).max(EARNINGS_CALL_LIMITS.maximumEvidenceAssertions),
   findingDigest: digestSchema,
   findingId: identifierSchema,
   forecast: earningsForecastSchema.nullable(),
-  inferences: z.array(assertionSchema).max(EARNINGS_CALL_LIMITS.maximumEvidenceAssertions),
+  inferences: z.array(earningsAssertionSchema).max(EARNINGS_CALL_LIMITS.maximumEvidenceAssertions),
   materiality: earningsMaterialityDecisionSchema,
   monitorId: identifierSchema,
   outcome: z.enum(["accepted", "abstained", "no_change", "quarantined"]),

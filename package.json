@@ -15,6 +15,7 @@
   "scripts": {
     "acquire:congressional-house-roster": "jiti scripts/acquire-official-house-roster.ts",
     "accept:hybrid-evidence:real-model": "node --env-file-if-exists=.env.local node_modules/jiti/lib/jiti-cli.mjs scripts/accept-hybrid-evidence-real-model.ts",
+    "accept:earnings-call-changes:real-model": "node --env-file-if-exists=.env.local node_modules/jiti/lib/jiti-cli.mjs scripts/accept-earnings-call-changes-real-model.ts",
     "accept:strategy-packs:prepare": "jiti scripts/prepare-strategy-pack-production-acceptance.ts",
     "prepare:coinbase": "node scripts/embed-coinbase-cli.mjs",
     "prepare:photon": "node scripts/embed-photon-assets.mjs",
@@ -63,6 +64,7 @@
     "verify:earnings-call-changes:sprint-0": "jiti scripts/verify-earnings-call-changes-sprint-0.ts",
     "verify:earnings-call-changes:sprint-1": "jiti scripts/verify-earnings-call-changes-sprint-1.ts",
     "verify:earnings-call-changes:sprint-2": "jiti scripts/verify-earnings-call-changes-sprint-2.ts",
+    "verify:earnings-call-changes:sprint-3": "jiti scripts/verify-earnings-call-changes-sprint-3.ts",
     "verify:strategy-pack-configuration-kinds": "jiti scripts/verify-strategy-pack-configuration-kinds.ts",
     "verify:workspace-runtime:contracts": "node scripts/verify-workspace-runtime-contracts.mjs",
     "verify:workspace-runtime:failures": "node scripts/verify-workspace-runtime-failures.mjs",
