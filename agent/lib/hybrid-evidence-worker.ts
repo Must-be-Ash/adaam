@@ -15,6 +15,7 @@ import {
 import type { HybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
 import { createHybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
 import type { HybridEvidenceBudgetReservation } from "./hybrid-evidence-budget";
+import { readPublicSourceFactRevision } from "./public-source-acquisition-store";
 import {
   assertHybridEvidenceJobCurrent,
   claimHybridEvidenceJob,
@@ -83,6 +84,7 @@ type WorkerContext = {
 export interface HybridEvidenceWorkerControlClients {
   readonly artifacts: HybridEvidenceArtifactStore;
   readonly jobs?: HybridEvidenceJobStoreClient;
+  readonly readSourceFact?: typeof readPublicSourceFactRevision;
 }
 
 export class HybridEvidenceWorkerError extends Error {
@@ -222,6 +224,32 @@ export async function readHybridEvidenceSliceForWorker(input: {
   }
   const record = await readHybridEvidenceJob(envelope.jobId, input.clients.jobs);
   assertEnvelopeMatchesRecord(envelope, record);
+  if (locator.kind === "source_fact") {
+    const fact = await (input.clients.readSourceFact ?? readPublicSourceFactRevision)(
+      locator.factRevisionId,
+    );
+    if (!fact || fact.payloadDigest !== locator.payloadDigest) {
+      throw new HybridEvidenceWorkerError("input_projection_invalid");
+    }
+    const content = JSON.stringify({
+      factRevisionId: fact.revisionId,
+      payload: fact.payload,
+      payloadDigest: fact.payloadDigest,
+      sourceTimes: fact.sourceTimes,
+    });
+    const byteCount = Buffer.byteLength(content, "utf8");
+    if (byteCount > Math.min(HYBRID_EVIDENCE_LIMITS.maximumPayloadBytes, envelope.evidenceLimits.maximumBytes)) {
+      throw new HybridEvidenceWorkerError("input_projection_invalid");
+    }
+    return Object.freeze({
+      artifactDigest: locator.payloadDigest,
+      byteCount,
+      content,
+      contentKind: "text" as const,
+      locatorDigest,
+      mediaType: "application/json" as const,
+    });
+  }
   return input.clients.artifacts.readSlice({
     locator,
     maximumBytes: Math.min(

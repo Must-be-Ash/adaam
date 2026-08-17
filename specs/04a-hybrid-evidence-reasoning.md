@@ -1,6 +1,6 @@
 # Spec 4A: Hybrid evidence and reasoning foundation
 
-Status: In progress; Sprint 2 complete, Sprint 3 next
+Status: In progress; Sprint 3 complete, Sprint 4 next
 
 Date: 2026-08-16
 
@@ -591,19 +591,33 @@ only deterministically validated model candidates become source facts.
 
 ### Sprint 3 — workspace semantic reasoning vertical
 
-- [ ] Add workspace-scoped semantic job authorization from exact pack/binding,
+- [x] Add workspace-scoped semantic job authorization from exact pack/binding,
   capability, source projection, and job-definition revisions using test-only
   pack/binding fixtures that never enter the production catalog.
-- [ ] Persist immutable model-derived evidence with common provenance and a
+- [x] Persist immutable model-derived evidence with common provenance and a
   definition-specific payload; keep it out of canonical source facts and other
   workspaces.
-- [ ] Add the semantic public-text reference definition and validate claims,
+- [x] Add the semantic public-text reference definition and validate claims,
   counterevidence, uncertainty/abstention, and exact text-span citations.
-- [ ] Expose bounded hybrid state, usage, provenance, citations, unknowns, and
+- [x] Expose bounded hybrid state, usage, provenance, citations, unknowns, and
   quarantine reason codes through existing workspace inspection surfaces, and
   deduplicate newly blocking/persistent quarantine health alerts.
-- [ ] Pass semantic, ambiguity, injection, correction/retraction, pack revision,
+- [x] Pass semantic, ambiguity, injection, correction/retraction, pack revision,
   budget, replay, and two-workspace isolation fixtures.
+
+Local evidence: the Sprint 3 gate uses a test-only semantic pack absent from the
+production catalog and drives exact active binding, capability/model policy,
+authorized public-source projection, source-fact, artifact, text-span, and job-
+definition revisions through the production authorization and persistence
+paths. It proves accepted indirect positive/cautious interpretations, explicit
+ambiguity and counterevidence abstention, prompt-injection quarantine, immutable
+workspace-only provenance, replay without redispatch or rebilling, budget
+denial, source correction/retraction, pack revision lineage, cross-workspace
+isolation, bounded owner inspection, deduplicated blocking/persistent health,
+and no canonical-fact write. Sprint 1/2, compiled worker-tool isolation,
+strategy-pack owner surfaces, the workspace runtime manager, TypeScript, the
+Eve build, and the diff check pass without a production model, source call,
+message, deployment, or flag change.
 
 Exit: a reviewed strategy can consume accepted semantic evidence without
 hard-coded keywords, while ambiguous meaning remains explicit and isolated.

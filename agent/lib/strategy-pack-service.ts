@@ -69,6 +69,8 @@ import {
   type AuthorizedWorkspaceStoreScope,
 } from "./workspace-store-authorization";
 import { isReviewedPublicSource } from "./public-source-registry";
+import { inspectWorkspaceHybridEvidence } from "./hybrid-evidence-semantic";
+import type { WorkspaceSemanticEvidenceStoreClient } from "./hybrid-evidence-semantic-store";
 
 const REQUEST_BYTE_LIMIT = 16_384;
 const SHARED_HARD_DENIALS = Object.freeze([
@@ -384,6 +386,7 @@ export async function createStrategyPackWorkspaceFromSelection(
 
 export interface StrategyPackWorkspaceInspectionDependencies
   extends StrategyPackServiceReadDependencies {
+  readonly hybridSemanticClient?: WorkspaceSemanticEvidenceStoreClient;
   readonly monitorClient?: WorkspaceMonitorStoreClient;
   readonly stateClient?: WorkspaceStateStoreClient;
 }
@@ -413,10 +416,17 @@ export async function inspectStrategyPackWorkspace(
     catalog: dependencies.catalog,
     environment,
   });
-  const [strategy, capabilities, monitors] = await Promise.all([
+  const [strategy, capabilities, monitors, hybridEvidence] = await Promise.all([
     readWorkspaceDocument("strategy", input.scope, dependencies.stateClient),
     readWorkspaceDocument("capabilities", input.scope, dependencies.stateClient),
     listWorkspaceMonitors(input.scope, dependencies.monitorClient),
+    inspectWorkspaceHybridEvidence({
+      environment,
+      scope: input.scope,
+    }, {
+      semantic: dependencies.hybridSemanticClient,
+      state: dependencies.stateClient,
+    }),
   ]);
   if (!strategy) {
     return Object.freeze({
@@ -497,6 +507,7 @@ export async function inspectStrategyPackWorkspace(
       checkedAt: binding.health.checkedAt,
       status: healthy ? "healthy" as const : "unavailable" as const,
     }),
+    hybridEvidence,
     managedMonitors: Object.freeze(managedMonitors),
     pack: exactPack
       ? packInspection(exactPack)
