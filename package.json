@@ -62,6 +62,7 @@
     "verify:hybrid-evidence:sprint-3": "jiti scripts/verify-hybrid-evidence-sprint-3.ts",
     "verify:earnings-call-changes:sprint-0": "jiti scripts/verify-earnings-call-changes-sprint-0.ts",
     "verify:earnings-call-changes:sprint-1": "jiti scripts/verify-earnings-call-changes-sprint-1.ts",
+    "verify:earnings-call-changes:sprint-2": "jiti scripts/verify-earnings-call-changes-sprint-2.ts",
     "verify:strategy-pack-configuration-kinds": "jiti scripts/verify-strategy-pack-configuration-kinds.ts",
     "verify:workspace-runtime:contracts": "node scripts/verify-workspace-runtime-contracts.mjs",
     "verify:workspace-runtime:failures": "node scripts/verify-workspace-runtime-failures.mjs",

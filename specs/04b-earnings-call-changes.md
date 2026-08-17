@@ -452,22 +452,22 @@ artifacts through production acquisition paths, without semantic analysis.
 
 ### Sprint 2 — transcript normalization and deterministic evidence
 
-- [ ] Normalize supported qualifying transcripts into prepared remarks, speakers,
+- [x] Normalize supported qualifying transcripts into prepared remarks, speakers,
   Q&A pairs, and bounded cited spans; distinguish non-transcript and partial
   coverage without guessing.
-- [ ] Extract the existing language-metric implementation into a shared pure
+- [x] Extract the existing language-metric implementation into a shared pure
   library and compute like-for-like current/prior metrics deterministically.
-- [ ] Implement bounded four-event baseline/backfill, comparable-call selection,
+- [x] Implement bounded four-event baseline/backfill, comparable-call selection,
   no-retroactive-alert behavior, and corrected-exhibit lineage.
-- [ ] Register transcript layout recovery through Spec 4A for supported
+- [x] Register transcript layout recovery through Spec 4A for supported
   authoritative evidence; validate every recovered boundary/span before use.
-- [ ] Record full prepared/Q&A coverage and deterministically section content
+- [x] Record full prepared/Q&A coverage and deterministically section content
   that exceeds one reviewed job bound within the four-job/aggregate-token
   envelope; distinguish filed-document coverage from live-call completeness and
   never silently truncate.
-- [ ] Prove familiar layouts use no model recovery, changed supported layouts
+- [x] Prove familiar layouts use no model recovery, changed supported layouts
   recover or quarantine, and hostile/oversized inputs cannot create facts.
-- [ ] Add and pass `verify:earnings-call-changes:sprint-2`.
+- [x] Add and pass `verify:earnings-call-changes:sprint-2`.
 
 Exit: current and prior calls become valid comparable evidence or an explicit
 coverage/quarantine state, with reproducible metrics and citations.
