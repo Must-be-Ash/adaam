@@ -498,19 +498,31 @@ the repository, so a fresh fork does not contain them.
 
 ## 6. Model routing and token efficiency
 
-- [ ] Introduce cheaper bounded worker models only for objective tasks such as
-  extraction, parsing, or classification.
-- [ ] Add task-specific quality and safety evals before routing work away from
-  the main model.
-- [ ] Keep workers stateless and fresh-context; do not create a permanent fleet
-  of user-facing agents.
+Active deterministic/fast/frontier routing work moved to
+`specs/04b1-adaptive-model-routing.md`. Implement and track it there rather than
+from this backlog.
+
+- [ ] Add a middle/balanced model tier only if repository-owned workload evals
+  demonstrate a useful quality/cost boundary beyond the initial fast/frontier
+  policy.
+- [ ] Add a bounded classifier for genuinely ambiguous free-form delegation
+  only after typed task routing proves value; scheduled registered tasks should
+  continue to route from immutable metadata without a classifier call.
+- [ ] Add shadow routing, continuous model-drift evaluation, or automatic
+  policy optimization only when production volume justifies the complexity.
+- [ ] Consider cross-model availability fallback only after the actual served
+  model and fallback chain can be durably attributed. Same-model provider
+  failover remains the AI Gateway boundary in Spec 4B.1.
 - [ ] Measure context size and paid-tool payload size in regression tests.
 - [ ] Preserve MCP deduplication, binary rejection, output ceilings, and
   workspace-local compaction.
 - [ ] Do not reintroduce blunt cumulative session token caps as the primary cost
   control.
 
-Current state: one global model, `google/gemini-3.6-flash`, handles all work.
+Current state: Eve's root and workspace workers use a stable configured model;
+fresh hybrid workers accept exact caller-selected model IDs. There is no shared
+task-profile router, immutable model-qualification policy, or linked
+fast-to-frontier route chain yet.
 
 ## 7. Testing, CI, and observability
 
@@ -523,7 +535,8 @@ Current state: one global model, `google/gemini-3.6-flash`, handles all work.
 - [x] Add tests for workspace capability manifests and scheduled-tool denial.
 - [ ] Add account-wide financial idempotency and reconciliation tests.
 - [ ] Add strategy-pack eval suites as packs are introduced.
-- [ ] Add objective-worker routing evals before model routing.
+- [ ] Expand routed-worker eval coverage after Spec 4B.1 when new task profiles,
+  modalities, or model lanes are introduced.
 - [ ] Run a full application security and reliability review after the live
   capability surface is finalized and before calling the template
   live-broker-ready.

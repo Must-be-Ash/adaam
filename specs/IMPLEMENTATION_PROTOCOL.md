@@ -7,11 +7,13 @@ next sprint. The protocol exists so phase prompts can stay short and consistent
 without asking one context window to implement and judge a whole specification.
 
 An assigned spec's explicit implementation workflow overrides this legacy
-default. In particular, Specs 4A and 4B keep one implementation agent/context
-across sprints, commit and report at each sprint boundary, run one independent
-review and broad gate only in the final sprint, then complete the documented
-push/PR/merge landing pass. Do not reintroduce per-sprint re-orientation or
-independent review when the assigned spec explicitly removes it.
+default. In particular, Specs 4A, 4B, and 4B.1 keep one implementation
+agent/context across sprints, commit and report at each sprint boundary, run one
+independent review and broad gate only in the final sprint, then complete the
+documented push/PR/merge landing pass. A passing receipt remains valid until its
+relevant code, contract, configuration, fixtures, base, environment, or test
+command changes. Do not reintroduce per-sprint re-orientation, independent
+review, or identical verification merely to reconfirm unchanged work.
 
 ## Repository and branch setup
 
@@ -30,6 +32,7 @@ integration-branch pattern below remains available for later multi-sprint specs.
   - `codex/spec-04-congressional-signals`
   - `codex/spec-04a-hybrid-evidence`
   - `codex/spec-04b-earnings-call-changes`
+  - `codex/spec-04b1-adaptive-model-routing`
   - `codex/spec-05-insider-clusters`
   - `codex/spec-06-shared-signal-plane`
 - Create a fresh dedicated worktree and phase branch for the assigned sprint

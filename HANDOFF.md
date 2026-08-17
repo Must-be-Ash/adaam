@@ -23,8 +23,11 @@ then verify task-specific details against current code before making a change.
 > reviewed JPM discovery, transcript comparison, cited judgment, pack vertical,
 > real Photon alert/Discuss, and rollback passed final acceptance on 2026-08-17;
 > all new earnings, hybrid, dispatch, and alert flags remain off. The
-> spec files remain the authoritative split between production evidence and
-> deliberately deferred work.
+> next planned unit is
+> [`Spec 4B.1`](specs/04b1-adaptive-model-routing.md), which adds qualified
+> deterministic/fast/frontier routing before Spec 4C. The spec files remain the
+> authoritative split between production evidence and deliberately deferred
+> work.
 
 Snapshot date: 2026-08-17
 
@@ -58,7 +61,7 @@ architecture. Keep them distinct:
 | Research | Direct sources, public feeds, FMP/SEC-oriented skills, and guarded Masterkey fallback | Durable private ingestion of every paid or temporary result |
 | Trading | Allowlisted Coinbase reads and preview-bound spot-order approval | A generally safe live-trading surface or account-wide reconciliation |
 | Deliverables | Public-data reports and media on stable Eve URLs | Owner-private artifacts for portfolio, account, or personal data |
-| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC, Congressional, and earnings findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, source-global SEC/House/earnings adapters, immutable canonical facts, isolated workspace projections, bounded hybrid recovery/semantic evidence, and real Specs 1–4B production acceptance | Push source events, a second Spec 4C consumer, broader reviewed issuer discovery, and crash/operations hardening remain deferred |
+| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC, Congressional, and earnings findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, source-global SEC/House/earnings adapters, immutable canonical facts, isolated workspace projections, bounded hybrid recovery/semantic evidence, and real Specs 1–4B production acceptance | Spec 4B.1 adaptive model routing, push source events, a second Spec 4C consumer, broader reviewed issuer discovery, and crash/operations hardening remain deferred |
 | Authorization | Fail-closed deployment-owner mapping for Photon workspace paths plus a separate Coinbase allowlist | Owner-global enforcement across Telegram, HTTP, and every remaining private capability |
 
 `NORTH_STAR.md` describes the intended strategy-workspace architecture; it is
@@ -689,14 +692,17 @@ The most important differences between the working app and `NORTH_STAR.md` are:
 1. **Owner and workspace parity is Photon-only.** Durable owner mapping,
    assignment, runtimes, monitors, alerts, and manager controls exist for
    Photon's durable mode. Telegram and HTTP do not use that broker.
-2. **A second hybrid consumer and later strategies remain.** The versioned pack
-   framework, IPO reference pack, canonical SEC/House public-source adapters,
-   and Congressional Signals are production accepted.
+2. **Adaptive routing, a second hybrid consumer, and later strategies remain.**
+   The versioned pack framework, IPO reference pack, canonical SEC/House
+   public-source adapters, and Congressional Signals are production accepted.
    [`Spec 4A`](specs/04a-hybrid-evidence-reasoning.md) implements the shared
    deterministic-first/model-recovery foundation, and Spec 4B production-
-   accepts the first transcript consumer. Spec 4C must prove a different
-   connector/content shape before Insider Clusters and shared signals resume in
-   Specs 5–6.
+   accepts the first transcript consumer. Planned
+   [`Spec 4B.1`](specs/04b1-adaptive-model-routing.md) adds centrally qualified
+   deterministic/fast/frontier routing for fresh bounded tasks before Spec 4C
+   proves a different connector/content shape. Current hybrid callers still
+   select exact model IDs directly. Insider Clusters and shared signals resume
+   after those proofs in Specs 5–6.
 3. **Artifacts are public-only.** Private portfolio/account deliverables and
    safe recovery of paid temporary outputs require owner-private storage.
 4. **MCP ingestion is incomplete.** Normalized model context is safe and

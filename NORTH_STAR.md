@@ -377,8 +377,9 @@ directories so a fork contains its own north-star sources.
    House/earnings public facts, Congressional Signals, the deterministic-first
    hybrid foundation, and its first transcript consumer. Earnings, hybrid,
    dispatch, and alert flags remain rolled back off.
-2. Prove the foundation with a second real consumer in Spec 4C using a different
-   connector and content shape.
+2. Implement Spec 4B.1's adaptive model routing for fresh bounded tasks, then
+   prove the shared foundation and router with a second real consumer in Spec
+   4C using a different connector and content shape.
 3. Revisit Spec 5 Insider Clusters after those proofs, then implement Spec 6's
    typed shared-signal plane without weakening workspace isolation.
 4. Extend the deployment-owner boundary and workspace broker to Telegram and
@@ -393,8 +394,6 @@ directories so a fork contains its own north-star sources.
    recovery.
 8. Return to the explicit Spec 1 deferred-hardening phase after Specs 2–6 unless
    an item becomes an observed ordinary-path failure sooner.
-9. Introduce cheaper bounded worker models only where evals show no quality or
-   safety regression.
 
 Owner-authorized Spec 1 production rollout completed on 2026-08-15 at commit
 `7db61b4`. One live canonical SEC replay produced one durable finding, one
