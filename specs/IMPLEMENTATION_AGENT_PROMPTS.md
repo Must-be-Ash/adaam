@@ -23,8 +23,8 @@ context.
 
 An assigned spec's explicit workflow can override the legacy per-sprint review
 loop. Specs 4A, 4B, and 4B.1 do so: keep one implementation context, commit and
-report each sprint, continue only with owner direction, run one final
-independent review, then complete the spec's push/PR/merge landing pass without
+report each sprint, continue only with owner direction, and then complete the
+spec's proportionate final review and push/PR/merge landing pass without
 rerunning an already-green broad suite when landing changed no code. Use
 [`docs/prompts/spec-04b1-sprint-implementation.md`](../docs/prompts/spec-04b1-sprint-implementation.md)
 for Spec 4B.1.

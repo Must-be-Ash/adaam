@@ -8,9 +8,10 @@ without asking one context window to implement and judge a whole specification.
 
 An assigned spec's explicit implementation workflow overrides this legacy
 default. In particular, Specs 4A, 4B, and 4B.1 keep one implementation
-agent/context across sprints, commit and report at each sprint boundary, run one
-independent review and broad gate only in the final sprint, then complete the
-documented push/PR/merge landing pass. A passing receipt remains valid until its
+agent/context across sprints and commit/report at each sprint boundary. Specs
+4A/4B retain their documented final independent review; the smaller Spec 4B.1
+uses one final diff-scoped review and one affected regression gate, then
+completes its documented push/PR/merge landing pass. A passing receipt remains valid until its
 relevant code, contract, configuration, fixtures, base, environment, or test
 command changes. Do not reintroduce per-sprint re-orientation, independent
 review, or identical verification merely to reconfirm unchanged work.

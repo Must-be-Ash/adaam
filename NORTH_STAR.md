@@ -48,6 +48,11 @@ The iMessage or Telegram conversation is the inbox.
 - Optional worker models may perform bounded extraction, parsing, or
   classification jobs with fresh context. They are implementation details, not
   user-facing agents or durable workspaces.
+- Match model capability to the task: deterministic work uses no model;
+  objective extraction and recovery use a qualified inexpensive model; semantic
+  reasoning, pattern recognition, forecasting, and recommendations use a
+  qualified frontier model. Cost savings must not weaken evidence, citations,
+  validation, isolation, or the human decision boundary.
 
 Examples of workspaces are `Earnings Calls`, `Insider Clusters`,
 `Congressional Signals`, `Portfolio`, and `Image Experiments`. Switching
