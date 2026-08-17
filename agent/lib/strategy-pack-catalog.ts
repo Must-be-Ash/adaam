@@ -23,6 +23,7 @@ export interface ModelSafeStrategyPackSummary {
     readonly kind:
       | "bounded_enum"
       | "canonical_id_list"
+      | "catalog_id_list"
       | "daily_local_times"
       | "iana_timezone";
     readonly label: string;

@@ -14,6 +14,7 @@ import {
 import type { WorkspaceBudgetLedgerClient } from "./workspace-budget-ledger";
 import type { WorkspaceGlobalBudgetClient } from "./workspace-dispatch-budget";
 import {
+  resolveEarningsCallPublicSourceRuntimePath,
   resolveHousePublicSourceRuntimePath,
   resolveSecPublicSourceRuntimePath,
 } from "./public-source-flags";
@@ -42,6 +43,11 @@ import {
   runSharedSecPublicSourceAcquisition,
   type SecPublicSourceResponse,
 } from "./sec-public-source-adapter";
+import {
+  runSharedEarningsCallPublicSourceAcquisition,
+  type EarningsCallPublicSourceRequest,
+  type EarningsCallPublicSourceResponse,
+} from "./earnings-call-public-source-adapter";
 import type { AuthorizedWorkspaceStoreScope } from "./workspace-store-authorization";
 import type { WorkspaceMonitor } from "./workspace-monitor-store";
 
@@ -55,6 +61,13 @@ type PublicSourceMonitor = Pick<
 >;
 
 type CoordinatorFetch =
+  | {
+      readonly adapterId: "earnings-call-transcripts";
+      readonly fetchResponse: (
+        request: EarningsCallPublicSourceRequest,
+      ) => Promise<EarningsCallPublicSourceResponse>;
+      readonly userAgent: string;
+    }
   | {
       readonly adapterId: "sec-latest-filings";
       readonly fetchResponse: () => Promise<SecPublicSourceResponse>;
@@ -114,7 +127,9 @@ function requireEnabled(
 ): void {
   const path = adapterId === "sec-latest-filings"
     ? resolveSecPublicSourceRuntimePath(environment)
-    : resolveHousePublicSourceRuntimePath(environment);
+    : adapterId === "earnings-call-transcripts"
+      ? resolveEarningsCallPublicSourceRuntimePath(environment)
+      : resolveHousePublicSourceRuntimePath(environment);
   if (path === "public_source_adapter") return;
   throw new PublicSourceCoordinatorError(
     path === "public_source_misconfigured"
@@ -239,7 +254,15 @@ export async function coordinatePublicSourceOccurrence(input: {
         sourceId: input.sourceId,
         window,
       })
-    : await runSharedHousePublicSourceAcquisition({
+    : input.fetch.adapterId === "earnings-call-transcripts"
+      ? await runSharedEarningsCallPublicSourceAcquisition({
+          client: input.clients?.acquisition,
+          fetchResponse: input.fetch.fetchResponse,
+          sourceId: input.sourceId,
+          userAgent: input.fetch.userAgent,
+          window,
+        })
+      : await runSharedHousePublicSourceAcquisition({
         client: input.clients?.acquisition,
         fetchDocument: input.fetch.fetchDocument,
         fetchIndex: input.fetch.fetchIndex,

@@ -21,6 +21,10 @@ import {
 } from "./strategy-pack-catalog";
 import { resolveStrategyPackFlags } from "./strategy-pack-flags";
 import {
+  assertCatalogBackedValues,
+  resolveCatalogBackedOptions,
+} from "./catalog-backed-configuration";
+import {
   emitStrategyPackObservation,
   safeStrategyPackReasonCode,
   type StrategyPackObservationSink,
@@ -69,6 +73,7 @@ import {
   type AuthorizedWorkspaceStoreScope,
 } from "./workspace-store-authorization";
 import { isReviewedPublicSource } from "./public-source-registry";
+import { resolveParameterizedStrategyPackSources } from "./strategy-pack-source-resolution";
 import { inspectWorkspaceHybridEvidence } from "./hybrid-evidence-semantic";
 import type { WorkspaceSemanticEvidenceStoreClient } from "./hybrid-evidence-semantic-store";
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
@@ -240,6 +245,9 @@ function packInspection(pack: StrategyPackCatalogEntry) {
       Object.freeze({
         ...("allowedValues" in field
           ? { allowedValues: Object.freeze([...field.allowedValues]) }
+          : {}),
+        ...(field.kind === "catalog_id_list"
+          ? { options: resolveCatalogBackedOptions(field) }
           : {}),
         default: Array.isArray(field.default)
           ? Object.freeze([...field.default])
@@ -759,7 +767,16 @@ export function resolveStrategyPackConfiguration(
     if (
       field.kind === "daily_local_times"
         ? value.some((entry) => !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(entry))
-        : value.some((entry) => !field.allowedValues.includes(entry))
+        : field.kind === "catalog_id_list"
+          ? (() => {
+              try {
+                assertCatalogBackedValues(field, value as string[]);
+                return false;
+              } catch {
+                return true;
+              }
+            })()
+          : value.some((entry) => !field.allowedValues.includes(entry))
     ) {
       throw new StrategyPackServiceError("strategy_pack_invalid_request");
     }
@@ -769,8 +786,28 @@ export function resolveStrategyPackConfiguration(
   return { configuration, ownerOverrides };
 }
 
+export function resolveStrategyPackSourceInstances(
+  pack: StrategyPackCatalogEntry,
+  configuration: Readonly<Record<string, string | string[]>>,
+  logicalSourceIds: readonly string[] = pack.sources.map(({ sourceId }) => sourceId),
+): readonly Readonly<{
+  accessClassification: "public";
+  allowedOrigins: readonly string[];
+  canonicalUrl: string;
+  contractDigest: string;
+  contractVersion: string;
+  sourceId: string;
+}>[] {
+  try {
+    return resolveParameterizedStrategyPackSources(pack, configuration, logicalSourceIds);
+  } catch (cause) {
+    throw new StrategyPackServiceError("strategy_pack_unavailable", { cause });
+  }
+}
+
 function effectiveCapabilities(
   pack: StrategyPackCatalogEntry,
+  configuration: Readonly<Record<string, string | string[]>>,
   inventory: readonly StrategyPackCapabilityInventoryEntry[],
   workerModelPolicy: WorkspaceCapabilityManifestValue["workerModelPolicy"],
 ): WorkspaceCapabilityManifestValue {
@@ -799,7 +836,7 @@ function effectiveCapabilities(
     providerTools: [],
     researchToolIds: researchToolIds.sort(),
     skills: pack.skills.map(({ id, version }) => ({ id, version })),
-    sources: pack.sources.map((source) => ({
+    sources: resolveStrategyPackSourceInstances(pack, configuration).map((source) => ({
       allowedOrigins: [...source.allowedOrigins],
       contractDigest: source.contractDigest,
       contractVersion: source.contractVersion,
@@ -932,14 +969,16 @@ function monitorPreparations(input: {
     }
     const schedule = { kind: "daily_local" as const, times: times as string[], timezone };
     const next = nextWorkspaceMonitorOccurrence(schedule, input.now);
-    const sources = monitor.sourceIds.map((sourceId) => {
-      const source = input.pack.sources.find((candidate) => candidate.sourceId === sourceId);
-      if (!source) throw new StrategyPackServiceError("strategy_pack_unavailable");
+    const sources = resolveStrategyPackSourceInstances(
+      input.pack,
+      input.configuration,
+      monitor.sourceIds,
+    ).map((source) => {
       return {
         accessClassification: source.accessClassification,
         canonicalUrl: source.canonicalUrl,
         origin: new URL(source.canonicalUrl).origin,
-        sourceId,
+        sourceId: source.sourceId,
       };
     });
     return prepareWorkspaceMonitorCreate({
@@ -958,7 +997,7 @@ function monitorPreparations(input: {
       name: monitor.displayName,
       nextOccurrenceAt: next?.scheduledAt ?? null,
       now: input.now,
-      publicSourceIds: monitor.sourceIds.filter(isReviewedPublicSource),
+      publicSourceIds: sources.map(({ sourceId }) => sourceId).filter(isReviewedPublicSource),
       requiredCapabilityIds: [...monitor.requiredCapabilityIds],
       schedule,
       scope: input.scope,
@@ -1091,6 +1130,7 @@ async function executeCreateStrategyPackWorkspace(
   }
   const capabilities = effectiveCapabilities(
     pack,
+    configuration.configuration,
     dependencies.capabilityInventory,
     dependencies.workerModelPolicy ?? {
       allowedModelIds: [environment.EVE_STRATEGY_PACK_WORKER_MODEL_ID ?? "google/gemini-3.6-flash"],
@@ -1188,7 +1228,11 @@ async function executeCreateStrategyPackWorkspace(
               publicSourceSubscriptions:
                 monitors[index]!.monitor.publicSourceSubscriptions,
             }),
-        sourceIds: [...monitor.sourceIds].sort(),
+        sourceIds: resolveStrategyPackSourceInstances(
+          pack,
+          configuration.configuration,
+          monitor.sourceIds,
+        ).map(({ sourceId }) => sourceId).sort(),
       },
     ]),
   );
@@ -1229,7 +1273,10 @@ async function executeCreateStrategyPackWorkspace(
         openQuestions: [],
         promotedFacts: [],
         sourcePolicy: {
-          allowedSourceIds: pack.sources.map((source) => source.sourceId),
+          allowedSourceIds: resolveStrategyPackSourceInstances(
+            pack,
+            configuration.configuration,
+          ).map(({ sourceId }) => sourceId),
           maximumAccessClassification: "public",
         },
         strategyConfigurationRevision: 1,
@@ -1538,7 +1585,7 @@ async function mutateStrategyPackWorkspace(
     if (
       !pack ||
       pack.availability !== "available" ||
-      !hasExactStrategyPackCapabilities(capabilities.value, pack)
+      !hasExactStrategyPackCapabilities(capabilities.value, pack, binding.configuration)
     ) {
       throw new StrategyPackServiceError("strategy_pack_unavailable");
     }
@@ -1559,18 +1606,32 @@ async function mutateStrategyPackWorkspace(
     }
     const snapshot = {
       bindingRevision: nextBindingRevision,
-      capabilityManifestRevision: capabilities.revision,
+      capabilityManifestRevision: capabilities.revision + 1,
       packContentDigest: pack.contentDigest,
       packId: pack.id,
       packVersion: pack.version,
       workspaceGeneration: rolled.workspace.generation,
     };
+    const resolvedSources = resolveStrategyPackSourceInstances(pack, configured.configuration);
+    const sourceIdsByResource = new Map(pack.monitors.map((monitor) => [
+      monitor.resourceId,
+      resolveStrategyPackSourceInstances(pack, configured.configuration, monitor.sourceIds),
+    ]));
     nextBinding = {
       ...binding,
       bindingRevision: nextBindingRevision,
       configuration: configured.configuration,
+      effectiveCapabilityManifestRevision: capabilities.revision + 1,
       health: { checkedAt: nowIso, code: null, status: "healthy" },
       lastActiveSnapshot: currentSnapshot,
+      managedResources: Object.fromEntries(Object.entries(binding.managedResources).map(
+        ([resourceId, resource]) => [resourceId, {
+          ...resource,
+          sourceIds: (sourceIdsByResource.get(resourceId) ?? [])
+            .map(({ sourceId }) => sourceId)
+            .sort(),
+        }],
+      )),
       ownerOverrides: configured.ownerOverrides,
       pendingSnapshot: snapshot,
       timestamps: {
@@ -1579,9 +1640,18 @@ async function mutateStrategyPackWorkspace(
         generationRolloverAt: nowIso,
       },
     };
-    nextCapabilities = capabilities.value;
+    nextCapabilities = effectiveCapabilities(
+      pack,
+      configured.configuration,
+      dependencies.capabilityInventory,
+      dependencies.workerModelPolicy ?? capabilities.value.workerModelPolicy,
+    );
     nextBrief = {
       ...brief.value,
+      sourcePolicy: {
+        allowedSourceIds: resolvedSources.map(({ sourceId }) => sourceId),
+        maximumAccessClassification: "public",
+      },
       strategyConfigurationRevision: nextBindingRevision,
     };
     const timezoneField = pack.configuration.find((field) => field.kind === "iana_timezone");
@@ -1595,6 +1665,7 @@ async function mutateStrategyPackWorkspace(
     };
     preparedMonitors = managedMonitors.map((monitor) => {
       const resourceId = monitor.managedBy!.resourceId;
+      const monitorSources = sourceIdsByResource.get(resourceId) ?? [];
       const prepared = prepareWorkspaceManagedMonitorUpdate({
         current: monitor,
         lifecycleState: "paused",
@@ -1604,11 +1675,32 @@ async function mutateStrategyPackWorkspace(
         },
         now,
         pauseReason: "strategy_pack_configuration",
+        publicSourceIds: monitorSources.map(({ sourceId }) => sourceId)
+          .filter(isReviewedPublicSource),
         schedule: lifecycleMonitorSchedule(pack, configured.configuration, resourceId),
         scope,
+        sources: monitorSources.map((source) => ({
+          accessClassification: source.accessClassification,
+          canonicalUrl: source.canonicalUrl,
+          origin: new URL(source.canonicalUrl).origin,
+          sourceId: source.sourceId,
+        })),
       });
       return { ...prepared, expectedRaw: monitorRaws.get(monitor.monitorId)! };
     });
+    nextBinding = {
+      ...nextBinding,
+      managedResources: Object.fromEntries(preparedMonitors.map(({ monitor }) => [
+        monitor.managedBy!.resourceId,
+        {
+          monitorId: monitor.monitorId,
+          ...(monitor.publicSourceSubscriptions === undefined
+            ? {}
+            : { publicSourceSubscriptions: monitor.publicSourceSubscriptions }),
+          sourceIds: monitor.sources.map(({ sourceId }) => sourceId).sort(),
+        },
+      ])),
+    };
   } else {
     nextCapabilities = unboundCapabilities(capabilities.value);
     nextBrief = {
@@ -1662,7 +1754,15 @@ async function mutateStrategyPackWorkspace(
   const preparedRecords = action === "configure"
     ? [
         { expectedRaw: rawByKind.strategy, key: preparedStrategy.key, nextRaw: preparedStrategy.raw },
-        { expectedRaw: rawByKind.capabilities, key: workspaceDocumentStorageKey("capabilities", scope), nextRaw: rawByKind.capabilities },
+        (() => {
+          const prepared = prepareWorkspaceDocumentUpdate("capabilities", {
+            current: capabilities,
+            now,
+            scope,
+            value: nextCapabilities,
+          });
+          return { expectedRaw: rawByKind.capabilities, key: prepared.key, nextRaw: prepared.raw };
+        })(),
         { expectedRaw: rawByKind.brief, key: preparedBrief.key, nextRaw: preparedBrief.raw },
         (() => {
           const prepared = prepareWorkspaceDocumentUpdate("budget", {

@@ -47,6 +47,8 @@ const stableIdSchema = z
   .min(2)
   .max(160)
   .regex(/^[A-Za-z][A-Za-z0-9_./:@-]+$/u);
+const catalogEntryIdSchema = z.string().min(1).max(160)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_./:@-]*$/u);
 const relativePathSchema = z
   .string()
   .min(1)
@@ -196,6 +198,24 @@ const canonicalIdListConfigurationSchema = z
     }
   });
 
+const catalogIdListConfigurationSchema = z.object({
+  ...configurationFieldBase,
+  catalogDigest: digestSchema,
+  catalogId: stableIdSchema,
+  catalogRevision: z.number().int().positive(),
+  default: z.array(catalogEntryIdSchema).max(32),
+  kind: z.literal("catalog_id_list"),
+  maximumItems: z.number().int().positive().max(32),
+  minimumItems: z.number().int().nonnegative().max(32),
+}).strict().superRefine((field, context) => {
+  if (
+    field.minimumItems > field.maximumItems ||
+    field.default.length < field.minimumItems ||
+    field.default.length > field.maximumItems ||
+    !sortedUnique(field.default)
+  ) context.addIssue({ code: "custom", message: "strategy_pack_catalog_id_list_invalid" });
+});
+
 export const strategyPackConfigurationFieldSchema = z.discriminatedUnion(
   "kind",
   [
@@ -203,6 +223,7 @@ export const strategyPackConfigurationFieldSchema = z.discriminatedUnion(
     dailyTimesConfigurationSchema,
     boundedEnumConfigurationSchema,
     canonicalIdListConfigurationSchema,
+    catalogIdListConfigurationSchema,
   ],
 );
 
@@ -225,6 +246,12 @@ const sourceSchema = z
     canonicalUrl: z.string().max(2_048).refine(safeCanonicalUrl),
     contractDigest: digestSchema,
     contractVersion: semverSchema,
+    parameterization: z.object({
+      catalogDigest: digestSchema,
+      catalogId: stableIdSchema,
+      catalogRevision: z.number().int().positive(),
+      selectionConfigurationKey: z.string().min(2).max(80),
+    }).strict().optional(),
     sourceId: stableIdSchema,
   })
   .strict()

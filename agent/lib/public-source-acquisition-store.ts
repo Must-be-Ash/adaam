@@ -112,6 +112,7 @@ function recordKey(
     | "correction"
     | "fact"
     | "fact-head"
+    | "fair-access"
     | "source-health"
     | "journal"
     | "retraction"
@@ -196,6 +197,52 @@ function parseRaw<T>(raw: string, parse: (value: unknown) => T): T {
 
 async function readRaw(key: string, client: PublicSourceAcquisitionStoreClient) {
   return rawValue(await client.get(key));
+}
+
+export async function reservePublicSourceFairAccess(input: {
+  readonly authorityOrigin: string;
+  readonly minimumIntervalMilliseconds: number;
+}, client: PublicSourceAcquisitionStoreClient = store()): Promise<Readonly<{
+  reservedAt: string;
+}>> {
+  const authority = new URL(input.authorityOrigin);
+  if (
+    authority.protocol !== "https:" ||
+    authority.origin !== input.authorityOrigin ||
+    !Number.isInteger(input.minimumIntervalMilliseconds) ||
+    input.minimumIntervalMilliseconds < 1 ||
+    input.minimumIntervalMilliseconds > 60_000
+  ) throw new PublicSourceAcquisitionStoreError("public_source_record_corrupt");
+  const key = recordKey("fair-access", authority.origin);
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const currentRaw = await readRaw(key, client);
+    let previousNextAt = 0;
+    if (currentRaw !== null) {
+      try {
+        const current = JSON.parse(currentRaw) as unknown;
+        const candidate = Reflect.get(current as object, "nextAllowedAtMs");
+        if (
+          Reflect.get(current as object, "authorityOrigin") !== authority.origin ||
+          !Number.isSafeInteger(candidate) ||
+          candidate < 0
+        ) throw new Error("fair_access_record_invalid");
+        previousNextAt = candidate as number;
+      } catch {
+        throw new PublicSourceAcquisitionStoreError("public_source_record_corrupt");
+      }
+    }
+    const reservedAtMs = Math.max(Date.now(), previousNextAt);
+    const nextRaw = serialize({
+      authorityOrigin: authority.origin,
+      nextAllowedAtMs: reservedAtMs + input.minimumIntervalMilliseconds,
+      schemaVersion: 1,
+    });
+    if (!(await client.compareAndSet(key, currentRaw, nextRaw))) continue;
+    const delay = Math.max(0, reservedAtMs - Date.now());
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    return Object.freeze({ reservedAt: new Date(reservedAtMs).toISOString() });
+  }
+  throw new PublicSourceAcquisitionStoreError("journal_conflict");
 }
 
 export async function readPublicSourceInstance(

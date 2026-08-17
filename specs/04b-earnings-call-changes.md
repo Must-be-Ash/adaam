@@ -430,22 +430,22 @@ contracts fail red only at the missing implementation seams.
 
 ### Sprint 1 — reusable public issuer acquisition
 
-- [ ] Add an immutable reviewed SEC issuer catalog and owner configuration that
+- [x] Add an immutable reviewed SEC issuer catalog and owner configuration that
   uses the shared catalog-backed ID-list kind, stores CIKs, validates one-to-eight
   selections, pins the catalog revision/digest, preserves inline-list
   compatibility, and renders useful labels and coverage state.
-- [ ] Add reusable reviewed source-family/per-issuer instance contracts with
+- [x] Add reusable reviewed source-family/per-issuer instance contracts with
   exact SEC/issuer-IR origins, path grammar, digests, limits, and subscription
   reuse across pack/capability/monitor/resolver contracts while preserving
   fixed sources.
-- [ ] Reconcile company-list additions/removals and derived subscriptions in one
+- [x] Reconcile company-list additions/removals and derived subscriptions in one
   configuration-generation transition; reject stale in-flight commits.
-- [ ] Implement scheduled SEC submissions plus reviewed issuer-IR transcript
+- [x] Implement scheduled SEC submissions plus reviewed issuer-IR transcript
   acquisition under the existing coordinator with fair access, correction
   lineage, idempotency, and bounded failure states.
-- [ ] Prove two workspaces selecting the same issuer reuse source-global
+- [x] Prove two workspaces selecting the same issuer reuse source-global
   acquisition while retaining isolated projections and interpretations.
-- [ ] Add and pass `verify:earnings-call-changes:sprint-1`.
+- [x] Add and pass `verify:earnings-call-changes:sprint-1`.
 
 Exit: selected issuers produce immutable source-global earnings events and
 artifacts through production acquisition paths, without semantic analysis.

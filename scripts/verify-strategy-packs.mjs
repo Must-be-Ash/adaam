@@ -67,6 +67,7 @@ const references = Object.freeze({
     ]),
   }),
   findingSchemaIds: Object.freeze(["finding.alpha/v1", "finding.beta/v1"]),
+  parameterizedSourceContracts: STRATEGY_PACK_REFERENCE_CATALOG.parameterizedSourceContracts,
   sourceContracts: Object.freeze({
     "source.alpha": Object.freeze({
       allowedOrigins: Object.freeze(["https://alpha.example.gov"]),

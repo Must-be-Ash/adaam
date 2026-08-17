@@ -5,6 +5,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createStrategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
+import { STRATEGY_PACK_REFERENCE_CATALOG } from "../agent/lib/strategy-pack-reference-catalog";
+import { resolveParameterizedStrategyPackSources } from "../agent/lib/strategy-pack-source-resolution";
 import {
   requireWorkspaceWorkerStrategyPackRuntime,
   resolveInteractiveStrategyPackRuntime,
@@ -60,6 +62,7 @@ const references = Object.freeze({
     ],
   },
   findingSchemaIds: ["finding.alpha/v1", "finding.beta/v1"],
+  parameterizedSourceContracts: STRATEGY_PACK_REFERENCE_CATALOG.parameterizedSourceContracts,
   sourceContracts: {
     "source.alpha": {
       allowedOrigins: ["https://alpha.example.gov"],
@@ -103,7 +106,10 @@ const environment = {
 };
 const now = new Date("2026-08-15T17:00:00.000Z");
 
-function capabilitiesFor(pack: ReturnType<typeof createStrategyPackCatalog>["entries"][number]): WorkspaceCapabilityManifestValue {
+function capabilitiesFor(
+  pack: ReturnType<typeof createStrategyPackCatalog>["entries"][number],
+  configuration: Readonly<Record<string, unknown>>,
+): WorkspaceCapabilityManifestValue {
   return {
     connectionIds: [],
     controlPlaneToolIds: [],
@@ -116,7 +122,7 @@ function capabilitiesFor(pack: ReturnType<typeof createStrategyPackCatalog>["ent
       .filter((id) => !id.startsWith("skill."))
       .sort(),
     skills: pack.skills.map(({ id, version }) => ({ id, version })),
-    sources: pack.sources.map((source) => ({
+    sources: resolveParameterizedStrategyPackSources(pack, configuration).map((source) => ({
       allowedOrigins: [...source.allowedOrigins],
       contractDigest: source.contractDigest,
       contractVersion: source.contractVersion,
@@ -144,6 +150,15 @@ function installPackWorkspace(input: {
     environment,
   );
   const monitorDefinition = pack.monitors[0]!;
+  const configuration = Object.fromEntries(pack.configuration.map((field) => [
+    field.key,
+    Array.isArray(field.default) ? [...field.default] : field.default,
+  ]));
+  const sources = resolveParameterizedStrategyPackSources(
+    pack,
+    configuration,
+    monitorDefinition.sourceIds,
+  );
   const monitor = prepareWorkspaceMonitorCreate({
     activateManagedMonitor: true,
     deliverySubscriptionId: `delivery.${pack.id}`,
@@ -163,7 +178,7 @@ function installPackWorkspace(input: {
     requiredCapabilityIds: [...monitorDefinition.requiredCapabilityIds],
     schedule: { anchor: now.toISOString(), everyMinutes: 60, kind: "interval" },
     scope,
-    sources: pack.sources.map((source) => ({
+    sources: sources.map((source) => ({
       accessClassification: source.accessClassification,
       canonicalUrl: source.canonicalUrl,
       origin: new URL(source.canonicalUrl).origin,
@@ -180,7 +195,7 @@ function installPackWorkspace(input: {
   };
   const strategy: WorkspaceStrategyBindingValue = {
     bindingRevision: 1,
-    configuration: { dailyTimes: ["09:00"], timezone: "UTC" },
+    configuration,
     effectiveCapabilityManifestRevision: 1,
     health: { checkedAt: now.toISOString(), code: null, status: "healthy" },
     lastActiveSnapshot: null,
@@ -188,7 +203,7 @@ function installPackWorkspace(input: {
     managedResources: {
       [monitorDefinition.resourceId]: {
         monitorId: monitor.monitor.monitorId,
-        sourceIds: [...monitorDefinition.sourceIds],
+        sourceIds: sources.map(({ sourceId }) => sourceId).sort(),
       },
     },
     ownerOverrides: {},
@@ -212,7 +227,8 @@ function installPackWorkspace(input: {
         openQuestions: [],
         promotedFacts: [],
         sourcePolicy: {
-          allowedSourceIds: pack.sources.map(({ sourceId }) => sourceId),
+          allowedSourceIds: resolveParameterizedStrategyPackSources(pack, configuration)
+            .map(({ sourceId }) => sourceId),
           maximumAccessClassification: "public",
         },
         strategyConfigurationRevision: 1,
@@ -241,7 +257,7 @@ function installPackWorkspace(input: {
     prepareInitialWorkspaceDocument("capabilities", {
       now,
       scope,
-      value: capabilitiesFor(pack),
+      value: capabilitiesFor(pack, configuration),
     }),
     prepareInitialWorkspaceStrategyBinding({ now, scope, value: strategy }),
   ]) {
@@ -459,19 +475,21 @@ try {
   assert.deepEqual(prepared.envelope.strategyPack, alphaWorker?.snapshot);
   assert.match(prepared.prompt, /detect-alpha/u);
   assert.doesNotMatch(prepared.prompt, /Beta Pack|beta-playbook/u);
-  await reserveWorkspaceSourceAttempt({
-    now,
-    runId,
-    scope: alpha.scope,
-    sourceId: alpha.monitor.sources[0]!.sourceId,
-  }, client);
-  await markWorkspaceSourceSuccess({
-    contentDigest: "e".repeat(64),
-    now,
-    runId,
-    scope: alpha.scope,
-    sourceId: alpha.monitor.sources[0]!.sourceId,
-  }, client);
+  for (const source of alpha.monitor.sources) {
+    await reserveWorkspaceSourceAttempt({
+      now,
+      runId,
+      scope: alpha.scope,
+      sourceId: source.sourceId,
+    }, client);
+    await markWorkspaceSourceSuccess({
+      contentDigest: "e".repeat(64),
+      now,
+      runId,
+      scope: alpha.scope,
+      sourceId: source.sourceId,
+    }, client);
+  }
   const coverage = await completeWorkspaceSourceCoverage({
     checkpoint: { contentDigest: "e".repeat(64), watermark: scheduledFor },
     now,

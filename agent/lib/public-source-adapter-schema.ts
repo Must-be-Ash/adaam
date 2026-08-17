@@ -3,11 +3,13 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 export const PUBLIC_SOURCE_ADAPTER_IDS = [
+  "earnings-call-transcripts",
   "house-financial-disclosures",
   "sec-latest-filings",
 ] as const;
 
 export const PUBLIC_SOURCE_FACT_SCHEMA_VERSIONS = [
+  "earnings-call-event/v1",
   "house-ptr-filing/v1",
   "house-ptr-transaction/v1",
   "sec-filing/v1",
@@ -34,6 +36,8 @@ export const PUBLIC_SOURCE_ERROR_CODES = [
   "source_cursor_conflict",
   "source_instance_inactive",
   "source_instance_invalid",
+  "transcript_artifact_invalid",
+  "transcript_coverage_unavailable",
   "transport_origin_forbidden",
   "transport_redirect_forbidden",
   "transport_response_oversized",
@@ -66,7 +70,7 @@ export const PUBLIC_SOURCE_LIMITS = Object.freeze({
   maximumHouseIndexRows: 10_000,
   maximumPdfBytes: 10 * 1024 * 1024,
   maximumPdfExecutionMilliseconds: 5_000,
-  maximumPdfPages: 8,
+  maximumPdfPages: 128,
   maximumPdfTextCharacters: 100_000,
   maximumStageReceipts: 8,
   maximumXmlBytes: 8 * 1024 * 1024,
@@ -155,7 +159,9 @@ export const publicSourceAdapterDefinitionSchema = z.object({
   const { definitionDigest: _definitionDigest, ...digestInput } = definition;
   const expectedSchemas = definition.adapterId === "sec-latest-filings"
     ? ["sec-filing/v1"]
-    : ["house-ptr-filing/v1", "house-ptr-transaction/v1"];
+    : definition.adapterId === "earnings-call-transcripts"
+      ? ["earnings-call-event/v1"]
+      : ["house-ptr-filing/v1", "house-ptr-transaction/v1"];
   if (
     definition.minimumCadenceMinutes > definition.maximumCadenceMinutes ||
     JSON.stringify(definition.factSchemaVersions) !== JSON.stringify(expectedSchemas) ||
@@ -182,6 +188,22 @@ const houseSourceConfigurationSchema = z.object({
   }
 });
 
+const earningsCallSourceConfigurationSchema = z.object({
+  canonicalUrl: z.string().max(2_048).refine((value) =>
+    /^https:\/\/data\.sec\.gov\/submissions\/CIK\d{10}\.json$/u.test(value)),
+  catalogDigest: digestSchema,
+  catalogId: z.literal("sec-issuers"),
+  catalogRevision: z.number().int().positive(),
+  cik: z.string().regex(/^\d{10}$/u),
+  familyDigest: digestSchema,
+  familyId: idSchema,
+  kind: z.literal("earnings_call_issuer"),
+}).strict().superRefine((configuration, context) => {
+  if (!configuration.canonicalUrl.endsWith(`/CIK${configuration.cik}.json`)) {
+    context.addIssue({ code: "custom", message: "source_instance_invalid" });
+  }
+});
+
 const sourceCursorSchema = z.object({
   contentDigest: digestSchema.nullable(),
   revision: z.number().int().nonnegative(),
@@ -195,6 +217,7 @@ export const publicSourceInstanceSchema = z.object({
   authorityOrigin: publicOriginSchema,
   cadenceMinutes: z.number().int().positive().max(525_600),
   configuration: z.discriminatedUnion("kind", [
+    earningsCallSourceConfigurationSchema,
     secSourceConfigurationSchema,
     houseSourceConfigurationSchema,
   ]),
@@ -207,7 +230,9 @@ export const publicSourceInstanceSchema = z.object({
 }).strict().superRefine((instance, context) => {
   const expectedAdapter = instance.configuration.kind === "sec_latest_s1"
     ? "sec-latest-filings"
-    : "house-financial-disclosures";
+    : instance.configuration.kind === "earnings_call_issuer"
+      ? "earnings-call-transcripts"
+      : "house-financial-disclosures";
   if (
     instance.adapterId !== expectedAdapter ||
     new URL(instance.configuration.canonicalUrl).origin !== instance.authorityOrigin ||
@@ -339,6 +364,23 @@ const secFilingPayloadSchema = z.object({
   }
 });
 
+const earningsCallEventPayloadSchema = z.object({
+  artifactByteCount: z.number().int().positive().max(8 * 1_024 * 1_024),
+  artifactDigest: digestSchema,
+  artifactMediaType: z.enum(["application/pdf", "text/html"]),
+  artifactUrl: publicUrlSchema,
+  callDate: z.string().date(),
+  cik: z.string().regex(/^\d{10}$/u),
+  discoveryUrl: publicUrlSchema,
+  fiscalPeriod: z.string().regex(/^FY\d{4}-Q[1-4]$/u),
+  schemaVersion: z.literal("earnings-call-event/v1"),
+  secContext: z.object({
+    acceptanceDateTime: timestampSchema,
+    accessionNumber: z.string().regex(/^\d{10}-\d{2}-\d{6}$/u),
+    filingUrl: publicUrlSchema,
+  }).strict().nullable(),
+}).strict();
+
 const houseFilerSchema = z.object({
   firstName: z.string().trim().min(1).max(120),
   lastName: z.string().trim().min(1).max(120),
@@ -392,6 +434,7 @@ const housePtrTransactionPayloadSchema = z.object({
 }).strict();
 
 export const canonicalPublicFactPayloadSchema = z.discriminatedUnion("schemaVersion", [
+  earningsCallEventPayloadSchema,
   housePtrFilingPayloadSchema,
   housePtrTransactionPayloadSchema,
   secFilingPayloadSchema,
@@ -406,7 +449,7 @@ export const canonicalPublicFactRevisionSchema = z.object({
   payload: canonicalPublicFactPayloadSchema,
   payloadDigest: digestSchema,
   provenance: z.object({
-    authority: z.enum(["House Clerk", "SEC"]),
+    authority: z.enum(["House Clerk", "Issuer IR", "SEC"]),
     documentDigest: digestSchema.nullable(),
     publicUrl: publicUrlSchema,
     rowEvidenceDigest: digestSchema.nullable(),
@@ -424,10 +467,15 @@ export const canonicalPublicFactRevisionSchema = z.object({
 }).strict().superRefine((fact, context) => {
   const payloadExtraction = "extraction" in fact.payload ? fact.payload.extraction : null;
   let expectedAdapterId: (typeof PUBLIC_SOURCE_ADAPTER_IDS)[number];
-  let expectedAuthority: "House Clerk" | "SEC";
+  let expectedAuthority: "House Clerk" | "Issuer IR" | "SEC";
   let expectedPublicUrl: string;
   let expectedSourceNativeId: string;
-  if (fact.payload.schemaVersion === "sec-filing/v1") {
+  if (fact.payload.schemaVersion === "earnings-call-event/v1") {
+    expectedAdapterId = "earnings-call-transcripts";
+    expectedAuthority = "Issuer IR";
+    expectedPublicUrl = fact.payload.artifactUrl;
+    expectedSourceNativeId = `${fact.payload.cik}:${fact.payload.fiscalPeriod}:${fact.payload.callDate}`;
+  } else if (fact.payload.schemaVersion === "sec-filing/v1") {
     expectedAdapterId = "sec-latest-filings";
     expectedAuthority = "SEC";
     expectedPublicUrl = fact.payload.filingUrl;
@@ -556,6 +604,7 @@ export const publicSourceSubscriptionSchema = z.object({
 }).strict().superRefine((subscription, context) => {
   const schemaVersions = JSON.stringify(subscription.factSchemaVersions);
   const validSchemaSet =
+    schemaVersions === JSON.stringify(["earnings-call-event/v1"]) ||
     schemaVersions === JSON.stringify(["sec-filing/v1"]) ||
     schemaVersions === JSON.stringify([
       "house-ptr-filing/v1",

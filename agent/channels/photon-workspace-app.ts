@@ -790,7 +790,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
         if (field.kind === "daily_local_times") {
           return [...new Set(control.value.split(",").map((item) => item.trim()).filter(Boolean))].sort();
         }
-        if (field.kind === "canonical_id_list") {
+        if (field.kind === "canonical_id_list" || field.kind === "catalog_id_list") {
           return Array.from(control.selectedOptions).map((option) => option.value).sort();
         }
         return control.value.trim();
@@ -809,23 +809,28 @@ export function workspaceHtml(nonce: string, origin: string): string {
         for (const field of pack.configuration) {
           const wrapper = document.createElement("div");
           wrapper.className = "pack-field" +
-            (field.kind === "canonical_id_list" ? " full" : "");
+            (field.kind === "canonical_id_list" || field.kind === "catalog_id_list" ? " full" : "");
           const label = document.createElement("label");
           const id = "pack-configuration-" + field.key;
           label.htmlFor = id;
           label.textContent = field.label;
           let control;
-          if (field.kind === "bounded_enum" || field.kind === "canonical_id_list") {
+          if (field.kind === "bounded_enum" || field.kind === "canonical_id_list" || field.kind === "catalog_id_list") {
             control = document.createElement("select");
-            control.multiple = field.kind === "canonical_id_list";
-            if (control.multiple) control.size = Math.min(6, field.allowedValues.length);
-            for (const value of field.allowedValues) {
+            control.multiple = field.kind === "canonical_id_list" || field.kind === "catalog_id_list";
+            const choices = field.kind === "catalog_id_list"
+              ? field.options
+              : field.allowedValues.map((value) => ({ id: value, label: value }));
+            if (control.multiple) control.size = Math.min(8, choices.length);
+            for (const choice of choices) {
               const option = document.createElement("option");
-              option.value = value;
-              option.textContent = value;
+              option.value = choice.id;
+              option.textContent = field.kind === "catalog_id_list"
+                ? choice.label + " · " + choice.coverageState.replaceAll("_", " ")
+                : choice.label;
               option.selected = Array.isArray(field.default)
-                ? field.default.includes(value)
-                : field.default === value;
+                ? field.default.includes(choice.id)
+                : field.default === choice.id;
               control.append(option);
             }
           } else {
@@ -850,7 +855,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
           const answer = prompt(field.label + choices,
             Array.isArray(existing) ? existing.join(", ") : existing);
           if (answer === null) return null;
-          if (field.kind === "daily_local_times" || field.kind === "canonical_id_list") {
+          if (field.kind === "daily_local_times" || field.kind === "canonical_id_list" || field.kind === "catalog_id_list") {
             configuration[field.key] = [...new Set(answer.split(",")
               .map((value) => value.trim()).filter(Boolean))].sort();
           } else {

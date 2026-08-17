@@ -813,8 +813,10 @@ export function prepareWorkspaceManagedMonitorUpdate(input: {
   managedBy?: WorkspaceMonitorManagedBy;
   now: Date;
   pauseReason: "strategy_pack_configuration" | "strategy_pack_removed";
+  publicSourceIds?: readonly string[];
   schedule?: WorkspaceMonitorSchedule;
   scope: AuthorizedWorkspaceStoreScope;
+  sources?: z.input<typeof workspaceMonitorSourcesSchema>;
 }): PreparedWorkspaceMonitorUpdate {
   assertAuthorizedWorkspaceStoreScope(input.scope);
   const current = validateWorkspaceMonitorValue(input.current, input.scope);
@@ -822,6 +824,15 @@ export function prepareWorkspaceManagedMonitorUpdate(input: {
     throw new WorkspaceMonitorError("monitor_invalid");
   }
   const now = input.now.toISOString();
+  if (input.sources && input.sources.length > WORKSPACE_MONITOR_SOURCE_LIMIT) {
+    throw new WorkspaceMonitorError(WORKSPACE_MONITOR_SOURCE_LIMIT_CODE);
+  }
+  const publicSourceSubscriptions = input.publicSourceIds?.map((sourceId) =>
+    resolvePublicSourceWorkspaceReference({
+      monitorId: current.monitorId,
+      sourceId,
+      workspaceId: current.workspaceId,
+    }));
   const candidate = monitorSchema.safeParse({
     ...current,
     configurationRevision: current.configurationRevision + 1,
@@ -830,7 +841,9 @@ export function prepareWorkspaceManagedMonitorUpdate(input: {
     nextOccurrenceAt: null,
     pauseReason: input.pauseReason,
     pausedAt: now,
+    ...(publicSourceSubscriptions === undefined ? {} : { publicSourceSubscriptions }),
     schedule: input.schedule ?? current.schedule,
+    sources: input.sources ?? current.sources,
     updatedAt: now,
   });
   if (
