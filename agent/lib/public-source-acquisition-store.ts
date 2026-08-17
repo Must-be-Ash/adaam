@@ -108,6 +108,7 @@ function store(): PublicSourceAcquisitionStoreClient {
 function recordKey(
   kind:
     | "acquisition"
+    | "artifact-reference"
     | "acquisition-eligibility"
     | "correction"
     | "fact"
@@ -384,6 +385,70 @@ export async function readPublicSourceFactRevision(
   return raw === null
     ? null
     : parseRaw(raw, (value) => canonicalPublicFactRevisionSchema.parse(value));
+}
+
+export async function readPublicSourceCorrection(
+  correctionId: string,
+  client: PublicSourceAcquisitionStoreClient = store(),
+): Promise<PublicSourceCorrection | null> {
+  const raw = await readRaw(recordKey("correction", correctionId), client);
+  return raw === null
+    ? null
+    : parseRaw(raw, (value) => publicSourceCorrectionSchema.parse(value));
+}
+
+export async function writePublicSourceAcquisitionArtifactReferences(input: {
+  readonly acquisitionId: string;
+  readonly factRevisionIds: readonly string[];
+}, client: PublicSourceAcquisitionStoreClient = store()): Promise<readonly string[]> {
+  if (
+    input.factRevisionIds.length < 1 || input.factRevisionIds.length > 40 ||
+    new Set(input.factRevisionIds).size !== input.factRevisionIds.length
+  ) throw new PublicSourceAcquisitionStoreError("journal_conflict");
+  const key = recordKey("artifact-reference", input.acquisitionId);
+  const value = Object.freeze({
+    acquisitionId: input.acquisitionId,
+    factRevisionIds: Object.freeze([...input.factRevisionIds]),
+    schemaVersion: 1 as const,
+  });
+  const raw = serialize(value);
+  if (await client.compareAndSet(key, null, raw)) return value.factRevisionIds;
+  const existingRaw = await readRaw(key, client);
+  if (existingRaw === null) throw new PublicSourceAcquisitionStoreError("journal_conflict");
+  try {
+    const existing = JSON.parse(existingRaw) as typeof value;
+    if (JSON.stringify(existing) !== JSON.stringify(value)) {
+      throw new Error("artifact_reference_conflict");
+    }
+    return Object.freeze([...existing.factRevisionIds]);
+  } catch {
+    throw new PublicSourceAcquisitionStoreError("journal_conflict");
+  }
+}
+
+export async function readPublicSourceAcquisitionArtifactReferences(
+  acquisitionId: string,
+  client: PublicSourceAcquisitionStoreClient = store(),
+): Promise<readonly string[] | null> {
+  const raw = await readRaw(recordKey("artifact-reference", acquisitionId), client);
+  if (raw === null) return null;
+  try {
+    const value = JSON.parse(raw) as unknown;
+    if (
+      typeof value !== "object" || value === null ||
+      Reflect.get(value, "schemaVersion") !== 1 ||
+      Reflect.get(value, "acquisitionId") !== acquisitionId ||
+      !Array.isArray(Reflect.get(value, "factRevisionIds")) ||
+      (Reflect.get(value, "factRevisionIds") as unknown[]).some((id) => typeof id !== "string")
+    ) throw new Error("artifact_reference_invalid");
+    const ids = Reflect.get(value, "factRevisionIds") as string[];
+    if (ids.length < 1 || ids.length > 40 || new Set(ids).size !== ids.length) {
+      throw new Error("artifact_reference_invalid");
+    }
+    return Object.freeze([...ids]);
+  } catch {
+    throw new PublicSourceAcquisitionStoreError("public_source_record_corrupt");
+  }
 }
 
 interface PublicSourceFactHead {

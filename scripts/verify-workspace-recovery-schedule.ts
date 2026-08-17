@@ -489,6 +489,204 @@ try {
 }
 assert.equal(mixedRejected, true);
 
+const retryAt = new Date(now.getTime() + 60_000);
+const delayedRetryFirst = workspaceJob({
+  attempt: 1,
+  monitorId: "823e4567-e89b-42d3-a456-426614174000",
+});
+const delayedRetryEarningsMonitor: WorkspaceMonitor = {
+  ...delayedRetryFirst.monitor,
+  managedBy: {
+    bindingRevision: 1,
+    kind: "strategy_pack",
+    packContentDigest: "b".repeat(64),
+    packId: "earnings-call-changes",
+    packVersion: "1.0.0",
+    resourceId: "compare-earnings-calls",
+  },
+};
+const delayedRetryFirstEarnings: ClaimedWorkspaceMonitor = {
+  ...delayedRetryFirst,
+  monitor: delayedRetryEarningsMonitor,
+};
+const delayedRetrySecond: ClaimedWorkspaceMonitor = {
+  ...delayedRetryFirstEarnings,
+  leaseToken: "delayed-retry-second-lease",
+  occurrence: {
+    ...delayedRetryFirstEarnings.occurrence,
+    attempt: 2,
+    leaseTokenDigest: createHash("sha256").update("delayed-retry-second-lease").digest("hex"),
+    updatedAt: retryAt.toISOString(),
+  },
+};
+let delayedRetryClaim = 0;
+let delayedRetryStarts = 0;
+let delayedRetryRecoveries = 0;
+let delayedRetryFailures = 0;
+let delayedRetryClears = 0;
+const delayedRetryReleases: Array<string | undefined> = [];
+let delayedRetryClock = now;
+let pendingRetry = {
+  acquisitionId: "acquisition.fixture.timeout",
+  retryAfterSeconds: 60,
+  retryAt: retryAt.toISOString(),
+  runId: `${delayedRetryFirstEarnings.occurrence.occurrenceKey}:attempt:1`,
+  sourceId: "earnings-call-transcripts.0000019617",
+};
+const delayedRetryOutcome: WorkspaceRunOutcome = {
+  ...firstAttemptOutcome,
+  monitorId: delayedRetrySecond.monitor.monitorId,
+  occurrenceKey: delayedRetrySecond.occurrence.occurrenceKey,
+  runId: `${delayedRetrySecond.occurrence.occurrenceKey}:attempt:2`,
+};
+const delayedRetrySchedule = createEventTriggerSchedule({
+  claimEventTriggers: async () => [],
+  claimWorkspaceMonitors: async () => {
+    delayedRetryClaim += 1;
+    return delayedRetryClaim === 1 ? [delayedRetryFirstEarnings]
+      : delayedRetryClaim === 2 ? [delayedRetrySecond] : [];
+  },
+  clearWorkspaceSourceRetry: async () => {
+    delayedRetryClears += 1;
+    pendingRetry = null as never;
+  },
+  finishWorkspaceBudget: async () => undefined,
+  now: () => delayedRetryClock,
+  prepareWorkspaceRecovery: async () => {
+    throw new Error("delayed_retry_must_not_use_recovery");
+  },
+  prepareWorkspaceWorker: async () => ({
+    envelope: {} as PreparedWorkspaceWorkerRun["envelope"],
+    prompt: "fixture",
+    request: {} as PreparedWorkspaceWorkerRun["request"],
+    scope,
+  }),
+  readWorkspaceSourceRetry: async () => pendingRetry,
+  recordWorkspaceFailure: async () => {
+    delayedRetryFailures += 1;
+    return monitor;
+  },
+  recoverWorkspaceOutcome: async () => {
+    delayedRetryRecoveries += 1;
+    return { status: "missing" };
+  },
+  releaseWorkspaceLease: async (input) => {
+    delayedRetryReleases.push(input.retryAt);
+    return true;
+  },
+  requireWorkspaceOutcome: async () => delayedRetryOutcome,
+  reserveWorkspaceBudget: async (claimed) => {
+    const runId = `${claimed.occurrence.occurrenceKey}:attempt:${claimed.occurrence.attempt}`;
+    return {
+      ...firstAttemptReservation,
+      global: { ...firstAttemptReservation.global, runId },
+      runId,
+      workspace: { ...firstAttemptReservation.workspace, runId },
+    };
+  },
+  resolveRuntimeFlags: () => ({
+    dispatch: true,
+    legacyTriggerCreation: false,
+    monitorWrites: true,
+    paidResearch: false,
+    photonAlerts: false,
+    sourceEvents: false,
+    state: true,
+  }),
+  startWorkspaceWorker: async () => {
+    delayedRetryStarts += 1;
+    return {
+      events: (async function* () {
+        if (delayedRetryStarts === 1) {
+          yield { type: "session.failed", data: {} };
+        }
+      })(),
+    } as Awaited<ReturnType<EventTriggerScheduleDependencies["startWorkspaceWorker"]>>;
+  },
+});
+assert.ok("run" in delayedRetrySchedule && delayedRetrySchedule.run);
+const runDelayedRetryTick = async () => {
+  const waiters: Promise<unknown>[] = [];
+  delayedRetrySchedule.run!({
+    appAuth: { attributes: {}, authenticator: "app", principalId: "eve:app", principalType: "runtime" },
+    to: (() => { throw new Error("legacy_dispatch_not_expected"); }) as ScheduleToFn,
+    waitUntil(task) { waiters.push(task); },
+  });
+  await Promise.all(waiters);
+};
+await runDelayedRetryTick();
+assert.deepEqual(delayedRetryReleases, [retryAt.toISOString()]);
+assert.equal(delayedRetryFailures, 0, "retryable acquisition failure must not increment pause counters");
+delayedRetryClock = retryAt;
+await runDelayedRetryTick();
+assert.equal(delayedRetryStarts, 2);
+assert.equal(delayedRetryRecoveries, 0);
+assert.equal(delayedRetryClears, 1);
+
+const concurrentRetryJobs = [
+  workspaceJob({ attempt: 2, monitorId: "923e4567-e89b-42d3-a456-426614174000" }),
+  workspaceJob({ attempt: 2, monitorId: "a23e4567-e89b-42d3-a456-426614174000" }),
+].map((claimed) => ({
+  ...claimed,
+  monitor: {
+    ...claimed.monitor,
+    managedBy: delayedRetryEarningsMonitor.managedBy,
+  },
+}));
+let concurrentRetryClaimed = false;
+let activeRetryReads = 0;
+let maximumConcurrentRetryReads = 0;
+const concurrentRetryReleases: string[] = [];
+const concurrentRetrySchedule = createEventTriggerSchedule({
+  claimEventTriggers: async () => [],
+  claimWorkspaceMonitors: async () => {
+    if (concurrentRetryClaimed) return [];
+    concurrentRetryClaimed = true;
+    return concurrentRetryJobs;
+  },
+  now: () => now,
+  readWorkspaceSourceRetry: async ({ occurrenceKey }) => {
+    activeRetryReads += 1;
+    maximumConcurrentRetryReads = Math.max(maximumConcurrentRetryReads, activeRetryReads);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    activeRetryReads -= 1;
+    return {
+      acquisitionId: `acquisition.${occurrenceKey}`,
+      retryAfterSeconds: 60,
+      retryAt: retryAt.toISOString(),
+      runId: `${occurrenceKey}:attempt:1`,
+      sourceId: "earnings-call-transcripts.0000019617",
+    };
+  },
+  releaseWorkspaceLease: async ({ monitorId }) => {
+    concurrentRetryReleases.push(monitorId);
+    return true;
+  },
+  resolveRuntimeFlags: () => ({
+    dispatch: true,
+    legacyTriggerCreation: false,
+    monitorWrites: true,
+    paidResearch: false,
+    photonAlerts: false,
+    sourceEvents: false,
+    state: true,
+  }),
+});
+assert.ok("run" in concurrentRetrySchedule && concurrentRetrySchedule.run);
+const concurrentRetryWaiters: Promise<unknown>[] = [];
+concurrentRetrySchedule.run({
+  appAuth: { attributes: {}, authenticator: "app", principalId: "eve:app", principalType: "runtime" },
+  to: (() => { throw new Error("legacy_dispatch_not_expected"); }) as ScheduleToFn,
+  waitUntil(task) { concurrentRetryWaiters.push(task); },
+});
+await Promise.all(concurrentRetryWaiters);
+assert.equal(maximumConcurrentRetryReads, 2, "independent retry-state reads must run concurrently");
+assert.deepEqual(
+  concurrentRetryReleases,
+  concurrentRetryJobs.map(({ monitor }) => monitor.monitorId),
+  "retry classification and lease release must preserve claim order",
+);
+
 async function verifyClaimIsolation(
   failingClaim: "event_trigger" | "workspace",
 ): Promise<void> {

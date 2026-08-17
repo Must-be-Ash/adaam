@@ -1,5 +1,9 @@
 import type { StrategyPackCatalogEntry } from "./strategy-pack-catalog";
-import { resolveReviewedPublicSource } from "./public-source-registry";
+import { EARNINGS_CALL_ISSUER_CATALOG } from "./earnings-call-issuer-catalog";
+import {
+  resolveReviewedPublicSource,
+  ReviewedPublicSourceRegistryError,
+} from "./public-source-registry";
 
 export class StrategyPackSourceResolutionError extends Error {
   constructor(readonly code: "configuration_invalid" | "source_unavailable") {
@@ -15,10 +19,11 @@ export interface ResolvedStrategyPackSource {
   readonly contractDigest: string;
   readonly contractVersion: string;
   readonly sourceId: string;
+  readonly sourceInstanceId?: string;
 }
 
 export function resolveParameterizedStrategyPackSources(
-  pack: StrategyPackCatalogEntry,
+  pack: Pick<StrategyPackCatalogEntry, "sources">,
   configuration: Readonly<Record<string, unknown>>,
   logicalSourceIds: readonly string[] = pack.sources.map(({ sourceId }) => sourceId),
 ): readonly Readonly<ResolvedStrategyPackSource>[] {
@@ -35,10 +40,20 @@ export function resolveParameterizedStrategyPackSources(
       throw new StrategyPackSourceResolutionError("configuration_invalid");
     }
     for (const catalogEntryId of selected) {
+      if (
+        source.sourceId === "earnings-call-transcripts" &&
+        (typeof catalogEntryId !== "string" ||
+          !EARNINGS_CALL_ISSUER_CATALOG.entries.some(({ cik }) => cik === catalogEntryId))
+      ) throw new StrategyPackSourceResolutionError("configuration_invalid");
       let reviewed;
       try {
         reviewed = resolveReviewedPublicSource(`${source.sourceId}.${catalogEntryId}`);
-      } catch {
+      } catch (error) {
+        if (
+          source.sourceId === "earnings-call-transcripts" &&
+          error instanceof ReviewedPublicSourceRegistryError &&
+          error.code === "public_source_not_reviewed"
+        ) continue;
         throw new StrategyPackSourceResolutionError("source_unavailable");
       }
       if (
@@ -47,6 +62,10 @@ export function resolveParameterizedStrategyPackSources(
         reviewed.sourceInstance.configuration.catalogRevision !== source.parameterization.catalogRevision ||
         reviewed.sourceInstance.configuration.catalogDigest !== source.parameterization.catalogDigest
       ) throw new StrategyPackSourceResolutionError("source_unavailable");
+      if (
+        source.sourceId === "earnings-call-transcripts" &&
+        reviewed.sourceFamily?.discoveryPolicy.state !== "supported"
+      ) continue;
       resolved.push(Object.freeze({
         accessClassification: "public",
         allowedOrigins: Object.freeze([...reviewed.sourceContract.allowedOrigins]),
@@ -54,6 +73,7 @@ export function resolveParameterizedStrategyPackSources(
         contractDigest: reviewed.sourceContract.contractDigest,
         contractVersion: reviewed.sourceContract.contractVersion,
         sourceId: `${source.sourceId}.${catalogEntryId}`,
+        sourceInstanceId: reviewed.sourceInstance.sourceInstanceId,
       }));
     }
   }

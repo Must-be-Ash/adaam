@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import {
   inspectStrategyPack,
@@ -92,6 +93,20 @@ assert.throws(
     { environment },
   ),
   /strategy_pack_unavailable/u,
+);
+
+const [managerSource, statusToolSource] = await Promise.all([
+  readFile(new URL("../agent/channels/photon-workspace-app.ts", import.meta.url), "utf8"),
+  readFile(new URL("../agent/tools/get_workspace_status.ts", import.meta.url), "utf8"),
+]);
+for (const source of [managerSource, statusToolSource]) {
+  assert.match(source, /readEarningsCallWorkspacePresentation/u,
+    "manager and read-only agent status must consume the shared issuer projection");
+}
+assert.match(
+  statusToolSource,
+  /const earningsCallChangesActive[\s\S]*earningsCallChangesActive && earningsMonitor/u,
+  "status reads must gate earnings source health on the active earnings strategy pack",
 );
 
 console.info("Strategy-pack owner surface verification passed.");

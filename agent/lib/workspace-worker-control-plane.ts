@@ -1,4 +1,5 @@
 import type { SessionContext } from "eve/context";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   completeWorkspaceRunNoMatch,
@@ -85,8 +86,7 @@ function findingMatchesOutcome(outcome: WorkspaceRunOutcome): boolean {
       outcome.finding.workspaceId === outcome.workspaceId &&
       outcome.finding.monitorId === outcome.monitorId &&
       outcome.finding.runId === outcome.runId &&
-      JSON.stringify(outcome.finding.strategyPack) ===
-        JSON.stringify(outcome.strategyPack))
+      isDeepStrictEqual(outcome.finding.strategyPack, outcome.strategyPack))
   );
 }
 
@@ -364,8 +364,7 @@ export async function finalizePriorWorkspaceRunOutcomeForControlPlane(input: {
     input.outcome.monitorId !== envelope.monitorId ||
     input.outcome.occurrenceKey !== envelope.occurrenceKey ||
     !findingMatchesOutcome(input.outcome) ||
-    JSON.stringify(input.outcome.strategyPack) !==
-      JSON.stringify(envelope.strategyPack) ||
+    !isDeepStrictEqual(input.outcome.strategyPack, envelope.strategyPack) ||
     input.outcome.configurationRevision !== envelope.configurationRevision
   ) {
     throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");

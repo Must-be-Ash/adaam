@@ -4,6 +4,7 @@ import {
   strategyPackCatalog,
   type StrategyPackCatalogEntry,
 } from "./strategy-pack-catalog";
+import { resolveParameterizedStrategyPackSources } from "./strategy-pack-source-resolution";
 import {
   workspaceSemanticValidationRegistry,
   type WorkspaceSemanticValidationRegistry,
@@ -190,6 +191,7 @@ export class WorkspaceSemanticEvidenceError extends Error {
 async function defaultProjection(input: {
   factRevisionId: string;
   scope: AuthorizedWorkspaceStoreScope;
+  sourceId: string;
   subscriptionId: string;
 }, clients: {
   acquisition?: PublicSourceAcquisitionStoreClient;
@@ -203,7 +205,7 @@ async function defaultProjection(input: {
   return {
     fact: authorized.fact,
     projection: authorized.projection,
-    sourceId: "unknown",
+    sourceId: input.sourceId,
     subscription,
   };
 }
@@ -283,13 +285,21 @@ export async function prepareWorkspaceSemanticEvidenceJob(input: {
   const resolved = await (clients.resolveProjection ?? defaultProjection)({
     factRevisionId: input.projectionReference.factRevisionId,
     scope: input.scope,
+    sourceId: input.projectionReference.sourceId,
     subscriptionId: input.projectionReference.subscriptionId,
   }, clients);
-  const projection = resolved
-    ? { ...resolved, sourceId: input.projectionReference.sourceId }
-    : null;
+  const projection = resolved;
   if (!projection) authorizationError();
-  const source = pack.sources.find(({ sourceId }) => sourceId === projection.sourceId);
+  let resolvedSources;
+  try {
+    resolvedSources = resolveParameterizedStrategyPackSources(
+      pack,
+      strategy.value.configuration,
+    );
+  } catch {
+    return authorizationError();
+  }
+  const source = resolvedSources.find(({ sourceId }) => sourceId === projection.sourceId);
   const capabilitySource = capabilities.value.sources.find((candidate) =>
     candidate.sourceId === projection.sourceId);
   let artifactOrigin: string;
@@ -299,10 +309,13 @@ export async function prepareWorkspaceSemanticEvidenceJob(input: {
     return authorizationError();
   }
   if (
+    projection.sourceId !== input.projectionReference.sourceId ||
     !source || !capabilitySource || !("contractDigest" in capabilitySource) ||
     capabilitySource.contractDigest !== source.contractDigest ||
     capabilitySource.contractVersion !== source.contractVersion ||
     JSON.stringify(capabilitySource.allowedOrigins) !== JSON.stringify(source.allowedOrigins) ||
+    (source.sourceInstanceId !== undefined &&
+      source.sourceInstanceId !== projection.fact.sourceInstanceId) ||
     !source.allowedOrigins.includes(artifactOrigin) ||
     artifact.accessClassification !== "public" ||
     artifact.sourceInstanceId !== projection.fact.sourceInstanceId ||
@@ -312,7 +325,6 @@ export async function prepareWorkspaceSemanticEvidenceJob(input: {
     projection.subscription.workspaceId !== input.scope.workspaceId ||
     projection.projection.subscriptionId !== projection.subscription.subscriptionId ||
     projection.projection.factRevisionId !== projection.fact.revisionId ||
-    projection.projection.acquisitionId !== projection.subscription.deliveryCursor.lastAcquisitionId ||
     projection.projection.monitorId !== projection.subscription.monitorId ||
     projection.subscription.lifecycleState !== "active" ||
     !exactPackBinding({

@@ -129,10 +129,11 @@ export const earningsCallChangeFactSchema = z.object({
   }).strict(),
   ticker: z.string().regex(/^[A-Z][A-Z0-9.-]{0,9}$/u),
 }).strict().superRefine((fact, context) => {
+  const corrective = fact.finding.materiality.decisionReasons.includes("source_correction");
   if (
     fact.filingIdentity !== fact.finding.findingId ||
-    fact.finding.outcome !== "accepted" ||
-    !fact.finding.materiality.alertEligible
+    (fact.finding.outcome !== "accepted" && !corrective) ||
+    (!fact.finding.materiality.alertEligible && !corrective)
   ) context.addIssue({ code: "custom", message: "earnings_call_change_fact_invalid" });
 });
 

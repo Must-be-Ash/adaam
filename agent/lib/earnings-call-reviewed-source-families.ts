@@ -1,6 +1,6 @@
 export default {
   "recordType": "earnings_call_reviewed_public_source_families",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "families": [
     {
       "cik": "0000789019",
@@ -8,7 +8,8 @@ export default {
       "sector": "technology",
       "discovery": { "origin": "https://www.microsoft.com", "pathPattern": "^/en-us/investor/events/fy-2026/earnings-fy-2026-q[23]$" },
       "artifact": { "origin": "https://www.microsoft.com", "pathPattern": "^/en-us/investor/events/fy-2026/earnings-fy-2026-q[23]$", "mediaType": "text/html" },
-      "events": [
+      "discoveryPolicy": { "policyVersion": "1.0.0", "reasonCode": "listing_contract_not_reviewed", "state": "coverage_unavailable" },
+      "baselineEvents": [
         {
           "role": "current",
           "fiscalPeriod": "FY2026-Q3",
@@ -31,15 +32,23 @@ export default {
       "cik": "0000019617",
       "ticker": "JPM",
       "sector": "financials",
-      "discovery": { "origin": "https://www.jpmorganchase.com", "pathPattern": "^/ir$" },
-      "artifact": { "origin": "https://www.jpmorganchase.com", "pathPattern": "^/content/dam/jpmc/jpmorgan-chase-and-co/investor-relations/documents/quarterly-earnings/2026/(?:1st|2nd)-quarter/[12][qQ]26-earnings-transcript\\.pdf$", "mediaType": "application/pdf" },
-      "events": [
+      "discovery": { "origin": "https://www.jpmorganchase.com", "pathPattern": "^/services/json/v1/investor-relations/quarterly-earnings\\.json$" },
+      "artifact": { "origin": "https://www.jpmorganchase.com", "pathPattern": "^/content/dam/jpmc/jpmorgan-chase-and-co/investor-relations/documents/quarterly-earnings/20\\d{2}/(?:1st|2nd|3rd|4th)-quarter/(?:jpm-)?[1-4][qQ]\\d{2}-earnings-(?:call-)?transcript\\.pdf$", "mediaType": "application/pdf" },
+      "discoveryPolicy": {
+        "artifactPathMetadataPattern": "^/content/dam/jpmc/jpmorgan-chase-and-co/investor-relations/documents/quarterly-earnings/(?<fiscalYear>20\\d{2})/(?:1st|2nd|3rd|4th)-quarter/(?:jpm-)?(?<fiscalQuarter>[1-4])[qQ](?<fiscalYearShort>\\d{2})-earnings-(?:call-)?transcript\\.pdf$",
+        "listingUrl": "https://www.jpmorganchase.com/services/json/v1/investor-relations/quarterly-earnings.json",
+        "maximumCandidateEvents": 4,
+        "payloadFormat": "jpm_quarterly_earnings_json_v1",
+        "policyVersion": "1.0.0",
+        "state": "supported"
+      },
+      "baselineEvents": [
         {
           "role": "current",
           "fiscalPeriod": "FY2026-Q2",
           "callDate": "2026-07-14",
           "discoveryEvidence": "direct_link",
-          "discoveryUrl": "https://www.jpmorganchase.com/ir",
+          "discoveryUrl": "https://www.jpmorganchase.com/services/json/v1/investor-relations/quarterly-earnings.json",
           "artifactUrl": "https://www.jpmorganchase.com/content/dam/jpmc/jpmorgan-chase-and-co/investor-relations/documents/quarterly-earnings/2026/2nd-quarter/2Q26-earnings-transcript.pdf"
         },
         {
@@ -47,7 +56,7 @@ export default {
           "fiscalPeriod": "FY2026-Q1",
           "callDate": "2026-04-14",
           "discoveryEvidence": "reviewed_path_template",
-          "discoveryUrl": "https://www.jpmorganchase.com/ir",
+          "discoveryUrl": "https://www.jpmorganchase.com/services/json/v1/investor-relations/quarterly-earnings.json",
           "artifactUrl": "https://www.jpmorganchase.com/content/dam/jpmc/jpmorgan-chase-and-co/investor-relations/documents/quarterly-earnings/2026/1st-quarter/1q26-earnings-transcript.pdf"
         }
       ]
@@ -58,7 +67,8 @@ export default {
       "sector": "communication_services",
       "discovery": { "origin": "https://investors.thewaltdisneycompany.com", "pathPattern": "^/events-and-presentations/event-details/2026/Disneys-Q[12]-FY26-Earnings-Results-Webcast(?:-2026-PogU4Cr45M)?/default\\.aspx$" },
       "artifact": { "origin": "https://s206.q4cdn.com", "pathPattern": "^/979796730/files/doc_events/2026/(?:Feb/02/q1|May/06/q2)-fy26-(?:earnings-)?transcript\\.pdf$", "mediaType": "application/pdf" },
-      "events": [
+      "discoveryPolicy": { "policyVersion": "1.0.0", "reasonCode": "listing_contract_not_reviewed", "state": "coverage_unavailable" },
+      "baselineEvents": [
         {
           "role": "current",
           "fiscalPeriod": "FY2026-Q2",
@@ -83,7 +93,8 @@ export default {
       "sector": "industrials",
       "discovery": { "origin": "https://investors.fedex.com", "pathPattern": "^/news-and-events/upcoming-events/upcoming-events-details/2026/FedEx-Q[34]-FY26-Earnings-Call/default\\.aspx$" },
       "artifact": { "origin": "https://s21.q4cdn.com", "pathPattern": "^/665674268/files/doc_financials/2026/q[34]/Earnings-Transcript-Q[34]FY26\\.pdf$", "mediaType": "application/pdf" },
-      "events": [
+      "discoveryPolicy": { "policyVersion": "1.0.0", "reasonCode": "listing_contract_not_reviewed", "state": "coverage_unavailable" },
+      "baselineEvents": [
         {
           "role": "current",
           "fiscalPeriod": "FY2026-Q4",
@@ -108,7 +119,8 @@ export default {
       "sector": "communication_services",
       "discovery": { "origin": "https://investor.atmeta.com", "pathPattern": "^/investor-events/event-details/2026/(?:Q1-2026|Q4-2025)-Earnings-Call/default\\.aspx$" },
       "artifact": { "origin": "https://s21.q4cdn.com", "pathPattern": "^/399680738/files/doc_financials/202[56]/q[14]/META-Q[14]-202[56]-Earnings-Call-Transcript\\.pdf$", "mediaType": "application/pdf" },
-      "events": [
+      "discoveryPolicy": { "policyVersion": "1.0.0", "reasonCode": "listing_contract_not_reviewed", "state": "coverage_unavailable" },
+      "baselineEvents": [
         {
           "role": "current",
           "fiscalPeriod": "FY2026-Q1",

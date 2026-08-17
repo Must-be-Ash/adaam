@@ -13,6 +13,11 @@ import {
 } from "../agent/lib/earnings-call-materiality";
 import { readEarningsCallWorkspacePresentation } from "../agent/lib/earnings-call-presentation";
 import {
+  persistEarningsCallIssuerStatus,
+  readEarningsCallIssuerStatus,
+  type EarningsCallIssuerStatusStoreClient,
+} from "../agent/lib/earnings-call-status-store";
+import {
   digestEarningsCallValue,
   EARNINGS_CALL_SCHEMA_VERSION,
   earningsComparisonSchema,
@@ -28,7 +33,7 @@ import {
 } from "../agent/lib/workspace-monitor-store";
 import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization";
 
-class MemoryFindingStore implements EarningsCallFindingStoreClient {
+class MemoryFindingStore implements EarningsCallFindingStoreClient, EarningsCallIssuerStatusStoreClient {
   readonly values = new Map<string, string>();
   async compareAndSet(key: string, expected: string | null, next: string) {
     if ((this.values.get(key) ?? null) !== expected) return false;
@@ -118,6 +123,10 @@ const scopeA = authorizeDeploymentWorkspaceStore({
 const scopeB = authorizeDeploymentWorkspaceStore({
   ownerId,
   workspaceId: "123e4567-e89b-42d3-a456-426614174442",
+}, environment);
+const scopeC = authorizeDeploymentWorkspaceStore({
+  ownerId,
+  workspaceId: "123e4567-e89b-42d3-a456-426614174443",
 }, environment);
 const monitorInput = (cik: string) => {
   const sourceId = `earnings-call-transcripts.${cik}`;
@@ -218,10 +227,83 @@ assert.equal(await persistEarningsCallFinding({ record: recordB, scope: scopeB }
 assert.equal((await readLatestEarningsCallFinding(scopeA, store))?.finding.findingId, recordA.finding.findingId);
 assert.equal((await readLatestEarningsCallFinding(scopeB, store))?.finding.findingId, recordB.finding.findingId);
 assert.equal(await readEarningsCallFinding(scopeB, recordA.finding.findingId, store), null);
+assert.equal(await persistEarningsCallIssuerStatus({
+  cik: "0000019617",
+  coverage: {
+    lastSuccessfulEventAt: "2026-08-17T16:00:00.000Z",
+    reasonCode: null,
+    state: "current",
+  },
+  scope: scopeA,
+  updatedAt: "2026-08-17T17:00:00.000Z",
+}, store), "updated");
+assert.equal(await persistEarningsCallIssuerStatus({
+  cik: "0000019617",
+  coverage: {
+    lastSuccessfulEventAt: null,
+    reasonCode: "source_failed",
+    state: "degraded",
+  },
+  scope: scopeA,
+  updatedAt: "2026-08-17T16:59:00.000Z",
+}, store), "stale", "an older run cannot overwrite a workspace issuer projection");
+assert.equal(await persistEarningsCallIssuerStatus({
+  cik: "0000019617",
+  coverage: {
+    lastSuccessfulEventAt: "2026-08-17T15:00:00.000Z",
+    reasonCode: "source_failed",
+    state: "degraded",
+  },
+  scope: scopeB,
+  updatedAt: "2026-08-17T17:01:00.000Z",
+}, store), "updated");
+assert.equal((await readEarningsCallIssuerStatus(scopeA, "0000019617", store))?.coverage.state, "current");
+assert.equal((await readEarningsCallIssuerStatus(scopeB, "0000019617", store))?.coverage.state, "degraded");
 assert.equal((await readEarningsCallWorkspacePresentation({
+  scope: scopeC,
+  selectedIssuerCiks: ["0000019617"],
+}, { findings: store, statuses: store })).coverage[0]?.state, "awaiting_comparable_call");
+assert.deepEqual((await readEarningsCallWorkspacePresentation({
+  scope: scopeC,
+  selectedIssuerCiks: ["0000019617", "0000789019", "0001341439"],
+}, { findings: store, statuses: store })).coverage.map(({ cik }) => cik),
+  ["0000019617", "0000789019", "0001341439"],
+  "presentation must retain supported and unsupported selected CIKs");
+assert.equal((await readEarningsCallWorkspacePresentation({
+  monitor: {
+    lastErrorCode: null,
+    lifecycleState: "paused",
+    sourceCheckpoint: { contentDigest: "a".repeat(64), watermark: "2026-08-17T16:00:00.000Z" },
+    sources: [{ sourceId: "earnings-call-transcripts.0000019617" }],
+  },
+  scope: scopeC,
+  selectedIssuerCiks: ["0000019617"],
+}, { findings: store, statuses: store })).coverage[0]?.state, "baseline_ready");
+const unavailableDiscoveryPresentation = await readEarningsCallWorkspacePresentation({
   scope: scopeA,
   selectedIssuerCiks: ["0000789019"],
-}, store)).latestAnalysis?.findingId, recordA.finding.findingId);
+}, { findings: store, statuses: store });
+assert.equal(unavailableDiscoveryPresentation.latestAnalysis?.findingId, recordA.finding.findingId);
+assert.equal(unavailableDiscoveryPresentation.coverage[0]?.state, "coverage_unavailable");
+assert.equal((await readEarningsCallWorkspacePresentation({
+  scope: scopeA,
+  selectedIssuerCiks: ["0000019617"],
+}, { findings: store, statuses: store })).coverage[0]?.state, "current");
+assert.equal((await readEarningsCallWorkspacePresentation({
+  monitor: {
+    lastErrorCode: "worker_failed",
+    lifecycleState: "paused_failure",
+    sourceCheckpoint: { contentDigest: "a".repeat(64), watermark: "2026-08-17T16:00:00.000Z" },
+    sources: [{ sourceId: "earnings-call-transcripts.0000019617" }],
+  },
+  scope: scopeA,
+  selectedIssuerCiks: ["0000019617"],
+}, { findings: store, statuses: store })).coverage[0]?.state, "paused_failure");
+assert.equal((await readEarningsCallWorkspacePresentation({
+  scope: scopeA,
+  selectedIssuerCiks: ["0000019617"],
+  sourceHealth: [{ healthState: "degraded", sourceId: "earnings-call-transcripts.0000019617" }],
+}, { findings: store, statuses: store })).coverage[0]?.state, "degraded");
 
 const turnContext = workspaceAlertTurnContext({
   alertId: "alert_fixture_earnings_sprint_4",

@@ -215,6 +215,7 @@ function memberForSpans(input: {
     role: input.role,
     semanticContext: Object.freeze({
       citationSpans: Object.freeze(citationSpans),
+      coverage: Object.freeze({ ...evidence.transcript.coverage }),
       eventRevisionId: evidence.transcript.eventRevisionId,
       parentRole: evidence.role,
       sections: Object.freeze(evidence.transcript.sections.map(({ end, sectionId, start }) =>

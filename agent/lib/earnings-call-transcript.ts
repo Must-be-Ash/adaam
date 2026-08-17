@@ -133,8 +133,8 @@ function findTranscriptHeadings(text: string): Readonly<{
   return Object.freeze({ changedPrepared, changedQa, prepared, qa });
 }
 
-const PREPARED_HEADING = /^(?:prepared remarks|presentation)$/iu;
-const QA_HEADING = /^(?:questions?\s*(?:and|&)\s*answers?|question-and-answer session|q\s*&\s*a)$/iu;
+const PREPARED_HEADING = /^(?:management discussion section|prepared remarks|presentation)$/iu;
+const QA_HEADING = /^(?:questions?\s*(?:and|&)\s*answers?(?: section)?|question-and-answer session|q\s*&\s*a)$/iu;
 const CHANGED_PREPARED_HEADING = /^prepared discussion$/iu;
 const CHANGED_QA_HEADING = /^analyst dialogue$/iu;
 
@@ -180,17 +180,23 @@ function findSpeakerTurns(input: {
 }) {
   const turns: EarningsTranscript["speakerTurns"] = [];
   const sectionText = input.text.slice(input.sectionStart, input.sectionEnd);
+  const lines = sectionText.split("\n");
   let relativeCursor = 0;
-  for (const line of sectionText.split("\n")) {
+  for (const [index, line] of lines.entries()) {
     const start = input.sectionStart + relativeCursor;
     const end = start + line.length;
     relativeCursor += line.length + 1;
     const matched = /^(.{1,120}?)(?:\s+\(([^()]{2,100})\)|\s+[—-]\s+([^:]{2,100}))?:\s+(.+)$/u.exec(line);
-    if (!matched || matched[1]!.trim().length === 0) continue;
-    const speakerName = matched[1]!.trim();
-    const role = speakerRole(speakerName, matched[2] ?? matched[3]);
+    const descriptor = lines[index + 1]?.trim();
+    const multilineSpeaker = !matched && line.length <= 120 && descriptor !== undefined &&
+      /\b(?:analyst|chief|officer|chair(?:man|woman|person)|ceo|cfo|coo|president|investor relations?)\b/iu.test(descriptor) &&
+      !/[.:]$/u.test(line.trim()) && !/^\d+$/u.test(line.trim());
+    if ((!matched || matched[1]!.trim().length === 0) && !multilineSpeaker) continue;
+    const speakerName = matched ? matched[1]!.trim() : line.trim();
+    if (speakerName.length === 0) continue;
+    const role = speakerRole(speakerName, matched ? matched[2] ?? matched[3] : descriptor);
     turns.push(createTranscriptTurn({
-      end,
+      end: multilineSpeaker ? end + 1 + descriptor.length : end,
       role,
       sectionId: input.sectionId,
       speakerName,
@@ -326,7 +332,11 @@ async function sourceText(input: {
     }
   }
   try {
-    const projection = await projectHybridEvidencePdf(input.artifactBytes);
+    const projection = await projectHybridEvidencePdf(input.artifactBytes, {
+      allowHttpLinks: true,
+      maximumPages: EARNINGS_CALL_LIMITS.maximumArtifactPages,
+      preserveTextLines: true,
+    });
     return normalizeLineText(projection.pages.map(({ text }) => text).join("\n\n"));
   } catch {
     return "";

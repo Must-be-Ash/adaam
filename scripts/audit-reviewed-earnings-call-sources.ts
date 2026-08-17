@@ -30,9 +30,7 @@ const endpointSchema = z.object({
 const manifestSchema = z.object({
   families: z.array(z.object({
     artifact: endpointSchema,
-    cik: z.string().regex(/^\d{10}$/u),
-    discovery: endpointSchema.omit({ mediaType: true }),
-    events: z.array(z.object({
+    baselineEvents: z.array(z.object({
       artifactUrl: z.string().url(),
       callDate: z.string().date(),
       discoveryEvidence: z.enum(["direct_link", "reviewed_path_template"]),
@@ -40,6 +38,23 @@ const manifestSchema = z.object({
       fiscalPeriod: z.string().regex(/^FY\d{4}-Q[1-4]$/u),
       role: z.enum(["current", "prior"]),
     }).strict()).length(2),
+    cik: z.string().regex(/^\d{10}$/u),
+    discovery: endpointSchema.omit({ mediaType: true }),
+    discoveryPolicy: z.discriminatedUnion("state", [
+      z.object({
+        policyVersion: z.literal("1.0.0"),
+        reasonCode: z.literal("listing_contract_not_reviewed"),
+        state: z.literal("coverage_unavailable"),
+      }).strict(),
+      z.object({
+        artifactPathMetadataPattern: z.string().min(1).max(500),
+        listingUrl: z.string().url(),
+        maximumCandidateEvents: z.literal(4),
+        payloadFormat: z.literal("jpm_quarterly_earnings_json_v1"),
+        policyVersion: z.literal("1.0.0"),
+        state: z.literal("supported"),
+      }).strict(),
+    ]),
     sector: z.enum([
       "communication_services",
       "consumer",
@@ -53,7 +68,7 @@ const manifestSchema = z.object({
     ticker: z.string().regex(/^[A-Z][A-Z0-9.-]{0,9}$/u),
   }).strict()).min(5).max(12),
   recordType: z.literal("earnings_call_reviewed_public_source_families"),
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
 }).strict().superRefine((manifest, context) => {
   if (new Set(manifest.families.map(({ cik }) => cik)).size !== manifest.families.length) {
     context.addIssue({ code: "custom", message: "duplicate_issuer" });
@@ -62,8 +77,16 @@ const manifestSchema = z.object({
     context.addIssue({ code: "custom", message: "insufficient_sector_coverage" });
   }
   for (const [index, family] of manifest.families.entries()) {
-    if (new Set(family.events.map(({ role }) => role)).size !== 2) {
-      context.addIssue({ code: "custom", message: "current_and_prior_required", path: ["families", index, "events"] });
+    if (new Set(family.baselineEvents.map(({ role }) => role)).size !== 2) {
+      context.addIssue({ code: "custom", message: "current_and_prior_required", path: ["families", index, "baselineEvents"] });
+    }
+    if (family.discoveryPolicy.state === "supported") {
+      try {
+        assertAllowlistedUrl(family.discoveryPolicy.listingUrl, family.discovery);
+        void new RegExp(family.discoveryPolicy.artifactPathMetadataPattern, "u");
+      } catch {
+        context.addIssue({ code: "custom", message: "discovery_policy_invalid", path: ["families", index, "discoveryPolicy"] });
+      }
     }
   }
 });
@@ -260,7 +283,7 @@ const auditedFamilies = [];
 
 for (const family of manifest.families) {
   const events = [];
-  for (const event of family.events) {
+  for (const event of family.baselineEvents) {
     let discovery;
     let artifact;
     try {

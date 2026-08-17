@@ -93,17 +93,17 @@
     {
       "id": "earnings-call-semantic-comparison",
       "version": "1.0.0",
-      "digest": "b9329a411bd5007086c759f03e251b2b8cc3b3923e8ae7a071b2c8531e6c6ebf"
+      "digest": "05369d435299b6e8c0ac3a2406f43bb1855ccd1dd71b16dec07f19421966c657"
     },
     {
       "id": "earnings-call-semantic-comparison-section",
       "version": "1.0.0",
-      "digest": "c62e7d5d713e270c1c1b318c5ecdb973a06092c981cdccd75a58467cffc6cea1"
+      "digest": "8622aab858c7775610c1f52a05f2a256a3448b5ea9ad5905a34f8442bfb4fc5d"
     },
     {
       "id": "earnings-call-semantic-comparison-synthesis",
       "version": "1.0.0",
-      "digest": "b4b8acf0587ad44547dce6dce44d63b82116b86377afb2967d19a4bd68f80bd4"
+      "digest": "a03926b5db686fe2560702f070841855297c83f0cfa10b79e74642fa9aa61344"
     }
   ],
   "sources": [

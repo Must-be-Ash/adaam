@@ -28,6 +28,7 @@ export {
 } from "./strategy-pack-runtime-schema";
 
 export interface ActiveInteractiveStrategyPackRuntime {
+  readonly hardDeniedCapabilityIds: readonly string[];
   readonly pack: Readonly<{
     contentDigest: string;
     id: string;
@@ -243,6 +244,12 @@ async function resolveActiveRuntime(input: {
     workspaceGeneration: input.workspaceGeneration,
   });
   return Object.freeze({
+    hardDeniedCapabilityIds: Object.freeze(
+      [...new Set([
+        ...SHARED_RUNTIME_HARD_DENIED_CAPABILITIES,
+        ...capabilities.value.hardDeniedCapabilityIds,
+      ])].sort(),
+    ),
     pack: Object.freeze({
       contentDigest: pack.contentDigest,
       id: pack.id,

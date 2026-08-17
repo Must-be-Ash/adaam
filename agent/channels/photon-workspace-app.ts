@@ -335,7 +335,7 @@ async function publicManagerState(
             budget.value.ownerTimezone,
           )
         : null;
-      const publicMonitorsPromise = Promise.all(monitors.map(async (monitor) => ({
+      const publicMonitors = await Promise.all(monitors.map(async (monitor) => ({
         configurationRevision: monitor.configurationRevision,
         lastCompletedAt: monitor.lastCompletedAt,
         lastErrorCode: monitor.lastErrorCode,
@@ -370,14 +370,28 @@ async function publicManagerState(
         : null;
       const earningsCallChanges = inspectedStrategyPack?.state === "active" &&
           inspectedStrategyPack.pack?.id === "earnings-call-changes"
-        ? await readEarningsCallWorkspacePresentation({
-            scope,
-            selectedIssuerCiks: Array.isArray(inspectedStrategyPack.configuration?.selectedIssuerCiks)
-              ? inspectedStrategyPack.configuration.selectedIssuerCiks.filter(
-                  (value): value is string => typeof value === "string",
-                )
-              : [],
-          }).catch(() => Object.freeze({
+        ? await (() => {
+            const monitorRecord = monitors.find((candidate) =>
+              candidate.managedBy?.packId === "earnings-call-changes");
+            const monitor = publicMonitors.find((candidate) =>
+              candidate.monitorId === monitorRecord?.monitorId);
+            return readEarningsCallWorkspacePresentation({
+              ...(monitor && monitorRecord ? {
+                monitor: {
+                  lifecycleState: monitor.lifecycleState,
+                  sourceCheckpoint: monitorRecord.sourceCheckpoint,
+                  sources: monitor.sources,
+                },
+                sourceHealth: monitor.publicSourceHealth,
+              } : {}),
+              scope,
+              selectedIssuerCiks: Array.isArray(inspectedStrategyPack.configuration?.selectedIssuerCiks)
+                ? inspectedStrategyPack.configuration.selectedIssuerCiks.filter(
+                    (value): value is string => typeof value === "string",
+                  )
+                : [],
+            });
+          })().catch(() => Object.freeze({
             coverage: Object.freeze([]),
             latestAnalysis: null,
             state: "unavailable" as const,
@@ -390,7 +404,6 @@ async function publicManagerState(
             ...(earningsCallChanges ? { earningsCallChanges } : {}),
           })
         : inspectedStrategyPack;
-      const publicMonitors = await publicMonitorsPromise;
       return {
         ...workspace,
         budget,

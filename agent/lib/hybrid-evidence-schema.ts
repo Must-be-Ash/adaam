@@ -229,7 +229,7 @@ export const evidenceArtifactManifestSchema = z.object({
   schemaVersion: z.literal(HYBRID_EVIDENCE_SCHEMA_VERSION),
   sourceInstanceId: identifierSchema,
   storageKey: z.string().regex(
-    /^hybrid-evidence\/sha256\/[a-f0-9]{64}$/u,
+    /^hybrid-evidence(?:-private)?\/sha256\/[a-f0-9]{64}$/u,
   ),
   structure: artifactStructureSchema,
 }).strict().superRefine((artifact, context) => {
@@ -243,7 +243,10 @@ export const evidenceArtifactManifestSchema = z.object({
       artifact.structure.rowCount === null ||
       artifact.structure.columnCount === null
     )) ||
-    artifact.storageKey !== `hybrid-evidence/sha256/${artifact.contentDigest}` ||
+    ![
+      `hybrid-evidence/sha256/${artifact.contentDigest}`,
+      `hybrid-evidence-private/sha256/${artifact.contentDigest}`,
+    ].includes(artifact.storageKey) ||
     ((artifact.retention.state === "active") !== (artifact.retention.expiresAt === null)) ||
     (artifact.retention.expiresAt !== null && artifact.retention.expiresAt <= artifact.observedAt)
   ) {

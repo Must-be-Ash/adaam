@@ -43,16 +43,16 @@ assert.equal(new Set(cohort.issuers.map(({ cik }) => cik)).size, 50);
 assert.equal(new Set(cohort.issuers.map(({ ticker }) => ticker)).size, 50);
 
 const sourceManifest = await readJson("reviewed-public-source-families.json") as {
-  families: Array<{ cik: string; events: Array<{ callDate: string; discoveryEvidence: string; role: string }>; sector: string; ticker: string }>;
+  families: Array<{ baselineEvents: Array<{ callDate: string; discoveryEvidence: string; role: string }>; cik: string; sector: string; ticker: string }>;
 };
 assert.equal(sourceManifest.families.length, 5);
 assert.ok(sourceManifest.families.every(({ cik }) => cohort.issuers.some((issuer) => issuer.cik === cik)));
 assert.equal(new Set(sourceManifest.families.map(({ sector }) => sector)).size, 4);
-assert.ok(sourceManifest.families.every(({ events }) =>
-  events.length === 2 && new Set(events.map(({ role }) => role)).size === 2));
+assert.ok(sourceManifest.families.every(({ baselineEvents }) =>
+  baselineEvents.length === 2 && new Set(baselineEvents.map(({ role }) => role)).size === 2));
 assert.equal(sourceManifest.families.find(({ ticker }) => ticker === "FDX")!
-  .events.find(({ role }) => role === "current")!.callDate, "2026-06-23");
-assert.equal(sourceManifest.families.flatMap(({ events }) => events)
+  .baselineEvents.find(({ role }) => role === "current")!.callDate, "2026-06-23");
+assert.equal(sourceManifest.families.flatMap(({ baselineEvents }) => baselineEvents)
   .filter(({ discoveryEvidence }) => discoveryEvidence === "direct_link").length, 9);
 
 const viability = await readJson("source-viability-lock.json") as {
@@ -152,11 +152,16 @@ const familyCore = {
   artifact: { mediaTypes: ["text/html"], origin: "https://www.microsoft.com", pathPattern: "^/en-us/investor/events/fy-2026/earnings-fy-2026-q[23]$" },
   cik: "0000789019",
   discovery: { mediaTypes: ["text/html"], origin: "https://www.microsoft.com", pathPattern: "^/en-us/investor/events/fy-2026/earnings-fy-2026-q[23]$" },
+  discoveryPolicy: {
+    policyVersion: "1.0.0",
+    reasonCode: "listing_contract_not_reviewed",
+    state: "coverage_unavailable",
+  },
   familyId: "earnings-source.msft",
   maximumArtifactBytes: EARNINGS_CALL_LIMITS.maximumArtifactBytes,
   maximumRedirects: 3,
   recordType: "earnings_call_source_family",
-  schemaVersion: 1,
+  schemaVersion: 2,
 } as const;
 const family = earningsSourceFamilySchema.parse({
   ...familyCore,

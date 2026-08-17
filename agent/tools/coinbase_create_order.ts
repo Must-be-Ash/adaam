@@ -1,12 +1,16 @@
 import { defineTool } from "eve/tools";
 
 import {
-  coinbaseApproval,
+  coinbaseInteractiveCapabilityIds,
   requireCoinbaseAccess,
 } from "../lib/coinbase-access";
 import { coinbaseEvalFixtureEnabled } from "#coinbase-eval-fixture";
 import { callCoinbaseMcpTool } from "../lib/coinbase-mcp";
 import { executeCoinbaseMutation } from "../lib/coinbase-operation-store";
+import {
+  coinbaseInteractiveApproval,
+  requireInteractiveToolCapabilities,
+} from "../lib/interactive-tool-capabilities";
 import { markPhotonApprovalExecution } from "../lib/photon-approval-store";
 import {
   clientOrderIdForPreview,
@@ -37,8 +41,19 @@ export default defineTool({
   description:
     "Execute an explicitly authorized Coinbase spot order that exactly matches a fresh coinbase_preview_order result. This moves real funds and always requires user approval.",
   inputSchema: coinbaseCreateOrderSchema,
-  approval: (ctx) => coinbaseApproval(ctx, true),
+  approval: (ctx) =>
+    coinbaseInteractiveApproval({
+      capabilityIds: coinbaseInteractiveCapabilityIds("coinbase_create_order"),
+      ctx,
+      requiresUserApproval: true,
+      toolId: "coinbase_create_order",
+    }),
   async execute(input, ctx) {
+    await requireInteractiveToolCapabilities({
+      capabilityIds: coinbaseInteractiveCapabilityIds("coinbase_create_order"),
+      ctx,
+      toolId: "coinbase_create_order",
+    });
     const principal = requireCoinbaseAccess(ctx);
     let mutationStarted = false;
     try {

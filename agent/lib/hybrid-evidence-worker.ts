@@ -13,8 +13,8 @@ import {
   signHybridEvidenceWorkerEnvelope,
   verifyHybridEvidenceWorkerToken,
 } from "./hybrid-evidence-auth";
-import type { HybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
-import { createHybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
+import type { HybridEvidenceWorkerArtifactReader } from "./hybrid-evidence-artifact-store";
+import { createHybridEvidenceWorkerArtifactStore } from "./hybrid-evidence-artifact-store";
 import type { HybridEvidenceBudgetReservation } from "./hybrid-evidence-budget";
 import { readPublicSourceFactRevision } from "./public-source-acquisition-store";
 import {
@@ -89,7 +89,7 @@ type WorkerContext = {
 };
 
 export interface HybridEvidenceWorkerControlClients {
-  readonly artifacts: HybridEvidenceArtifactStore;
+  readonly artifacts: HybridEvidenceWorkerArtifactReader;
   readonly jobs?: HybridEvidenceJobStoreClient;
   readonly readSemanticResult?: (input: {
     readonly ownerId: string;
@@ -381,10 +381,10 @@ export const completeHybridEvidenceJobTool = defineTool({
   },
 });
 
-function createDefaultHybridEvidenceArtifactStore(): HybridEvidenceArtifactStore {
+function createDefaultHybridEvidenceArtifactStore(): HybridEvidenceWorkerArtifactReader {
   // Keep default client resolution out of module initialization so Eve build and
   // dynamic discovery never require deployment credentials.
-  return createHybridEvidenceArtifactStore();
+  return createHybridEvidenceWorkerArtifactStore();
 }
 
 const adapter: ChannelAdapter = Object.freeze({ kind: "schedule" });

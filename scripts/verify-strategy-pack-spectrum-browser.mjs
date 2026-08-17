@@ -56,7 +56,8 @@ const earningsPack = {
       default: ["0000789019"], description: "Selected issuers", key: "selectedIssuerCiks",
       kind: "catalog_id_list", label: "Companies", maximumItems: 8, minimumItems: 1,
       options: [
-        { coverageState: "baseline_ready", id: "0000789019", label: "MSFT — Microsoft Corporation" },
+        { coverageState: "baseline_ready", id: "0000019617", label: "JPM — JPMorgan Chase & Co." },
+        { coverageState: "coverage_unavailable", id: "0000789019", label: "MSFT — Microsoft Corporation" },
         { coverageState: "coverage_unavailable", id: "0001341439", label: "ORCL — Oracle Corporation" },
         { coverageState: "coverage_unavailable", id: "0001108524", label: "CRM — Salesforce, Inc." },
       ],

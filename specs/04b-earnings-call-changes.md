@@ -1,8 +1,8 @@
 # Spec 4B: Earnings Call Changes
 
-Status: Ready for implementation
+Status: Implemented and production accepted
 
-Date: 2026-08-16
+Date: 2026-08-17
 
 Product target: `NORTH_STAR.md`
 
@@ -524,24 +524,50 @@ material call produces one correctly routed alert without a trading capability.
 
 ### Sprint 5 — final acceptance, rollout, and landing
 
-- [ ] Run one independent whole-spec review of the complete branch; fix every
+- [x] Run one independent whole-spec review of the complete branch; fix every
   validated ordinary-path, safety, isolation, source-trust, or citation issue.
-- [ ] Run one broad regression gate covering earnings Sprints 0–4, strategy
+- [x] Run one broad regression gate covering earnings Sprints 0–4, strategy
   packs, public sources, hybrid evidence, workspace authorization/isolation,
   budgets, findings, alerts/replies, typecheck, Eve build, and Next build.
-- [ ] With explicit owner authorization, run one controlled live SEC/issuer-IR
+- [x] With explicit owner authorization, run one controlled live SEC/issuer-IR
   source-to-finding smoke and one real Photon alert/**Discuss** smoke; record
   bounded receipts without private content.
-- [ ] With explicit owner authorization, stage flags in dependency order,
+- [x] With explicit owner authorization, stage flags in dependency order,
   verify health and rollback at the alert and full levels, then leave production
   flags in the owner-selected final state.
-- [ ] Mark verified items complete, move deferred hardening to `BACKLOG.md`,
+- [x] Mark verified items complete, move deferred hardening to `BACKLOG.md`,
   update `HANDOFF.md` and `NORTH_STAR.md`, commit, push, open and merge the PR,
   confirm GitHub `main`, and verify the Git-backed production deployment.
 
 Exit: the accepted implementation is merged to GitHub `main`, production is
 healthy in the recorded flag state, the worktree is clean, and Spec 4C can
 reuse the shared source-family and ordered-evidence contracts.
+
+Sprint 5 acceptance closed all 16 validated findings from the one independent
+whole-spec review. `verify:earnings-call-changes:sprint-5` then passed all 46
+gates. The owner-authorized live JPM smoke acquired exact Q2/Q1 transcript
+digests `df9042c4c156aa33eed0cec2f5727598504e88e038be31140d98452dc9054540`
+and `0b97af7b67e8c14fd812a7e6ece55ea74005d3968b942560db2e558ea96f63f9`,
+produced comparison
+`comparison.6d4f2c802720afd79f49e48ba01c21f7b1066f9e`, and validated accepted
+finding
+`earnings-finding.7d3a2b8967a5d2dd3c2dba1ef10fa2cff2c1ffcd5b961587`
+at materiality score 86. The real Photon receipt is alert
+`alert_live_2ff5596971a9c6d2f913044e0dc0ccd7d34073a66f0194d7331a0b9b3dbf5e9b`
+and delivery
+`delivery_658a5eedf4d7149dd98ec1ff9322989dc33d0e1b19d8403d66bc712fa0e5bfb7`;
+its Discuss capability was applied and consumed without changing the prior
+workspace selection. The staged source, hybrid, execution, alert, alert-
+rollback, and full-rollback artifacts were respectively
+`dpl_2k54WvEA3jhLMCxyVC1sjoZZhxkn`,
+`dpl_4h6N8EVLBHxjWMuyPLHF1Mx6teR2`,
+`dpl_GMEdWaa5WwhzjAoRxwdAzUNGtzEo`,
+`dpl_J4H33p3GzTPDuP1RuEYpUAiruHXD`,
+`dpl_8UJkM2Hp2ATHhQVRKbWXoyeLcLdN`, and
+`dpl_4AKpjdy1cWMCTY1QPQA9uvauRviE`. The final staged artifact returned 200
+for `/` and `/skill`, 404 for the removed acceptance route, and no bounded
+error logs; all eight new earnings, hybrid, dispatch, and alert flags were
+verified at `0`.
 
 ## Planned code areas
 

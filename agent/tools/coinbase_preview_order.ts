@@ -1,7 +1,11 @@
 import { defineTool } from "eve/tools";
 
-import { requireCoinbaseAccess } from "../lib/coinbase-access";
+import {
+  coinbaseInteractiveCapabilityIds,
+  requireCoinbaseAccess,
+} from "../lib/coinbase-access";
 import { callCoinbaseMcpTool } from "../lib/coinbase-mcp";
+import { requireInteractiveToolCapabilities } from "../lib/interactive-tool-capabilities";
 import {
   coinbaseOrderSchema,
   createOrderPreviewToken,
@@ -30,6 +34,11 @@ export default defineTool({
     "Preview one exact Coinbase spot order without executing it. Returns estimated fees, fill price, slippage, and a five-minute token required by coinbase_create_order.",
   inputSchema: coinbaseOrderSchema,
   async execute(input, ctx) {
+    await requireInteractiveToolCapabilities({
+      capabilityIds: coinbaseInteractiveCapabilityIds("coinbase_preview_order"),
+      ctx,
+      toolId: "coinbase_preview_order",
+    });
     const principal = requireCoinbaseAccess(ctx);
     assertTradableSpotProduct(
       await callCoinbaseMcpTool(

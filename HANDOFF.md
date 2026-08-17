@@ -6,7 +6,7 @@ tracing the implementation, checking the installed Eve and Next.js semantics,
 and reviewing the regression coverage. Use it to form the initial system model;
 then verify task-specific details against current code before making a change.
 
-> **Specification status:** Specs 1–4 and Spec 4A are implemented and production accepted.
+> **Specification status:** Specs 1–4 and Specs 4A–4B are implemented and production accepted.
 > Specs 1 and 2 are on `main`; Spec 3 was deployed from the exact reviewed
 > source commit `9b6e01f` on `codex/spec-03` without pushing or merging it.
 > Spec 2's versioned strategy-pack framework and
@@ -19,26 +19,28 @@ then verify task-specific details against current code before making a change.
 > kill-switch rollback passed staged production acceptance on 2026-08-16. Spec
 > 4A's shared deterministic-first hybrid evidence jobs, bounded Eve worker,
 > extraction recovery, workspace semantic lane, repeated real-model corpus,
-> and child-first rollback passed final acceptance on 2026-08-16; all hybrid
-> flags remain off until a later consumer is separately accepted. The
+> and child-first rollback passed final acceptance on 2026-08-16. Spec 4B's
+> reviewed JPM discovery, transcript comparison, cited judgment, pack vertical,
+> real Photon alert/Discuss, and rollback passed final acceptance on 2026-08-17;
+> all new earnings, hybrid, dispatch, and alert flags remain off. The
 > spec files remain the authoritative split between production evidence and
 > deliberately deferred work.
 
-Snapshot date: 2026-08-16
+Snapshot date: 2026-08-17
 
-Repository baseline: `main`; Spec 4A accepted implementation commit
-`df4c75cccb59584785ce0e1690fb23251f09fd7d` merged through PR #9 as
-`a1b6b15de23b8459f58ba2dc6c7c6cddfea3e55d`.
+Repository baseline: `main`. Inspect the current Git log and merged PR for the
+accepted Spec 4B landing commit; immutable rollout receipts are recorded below.
 
 Production alias: <https://adaam.vercel.app>
 
-Production follows Git-backed `main`. The accepted Spec 4A implementation
-post-merge deployment is `dpl_81qfYCffFyKuF9S8ETJRr1N25p48`; its canonical
-alias returned HTTP 200 for `/` and `/skill`, and its bounded error-log query was
-empty. Later documentation-only `main` commits may replace the current artifact
-without changing this acceptance receipt. Query the alias and Vercel project
-before diagnosing or deploying. Never commit, push, deploy, or mutate an
-external service unless the owner asks.
+Production follows Git-backed `main`. The owner-authorized Spec 4B full-
+rollback artifact is `dpl_4AKpjdy1cWMCTY1QPQA9uvauRviE`; its canonical alias
+returned HTTP 200 for `/` and `/skill`, its removed acceptance route returned
+404, and its bounded error-log query was empty. A later Git-backed landing or
+documentation-only deployment may replace the current artifact without
+changing this acceptance receipt. Query the alias and Vercel project before
+diagnosing or deploying. Never commit, push, deploy, or mutate an external
+service unless the owner asks.
 
 ## Executive summary
 
@@ -56,7 +58,7 @@ architecture. Keep them distinct:
 | Research | Direct sources, public feeds, FMP/SEC-oriented skills, and guarded Masterkey fallback | Durable private ingestion of every paid or temporary result |
 | Trading | Allowlisted Coinbase reads and preview-bound spot-order approval | A generally safe live-trading surface or account-wide reconciliation |
 | Deliverables | Public-data reports and media on stable Eve URLs | Owner-private artifacts for portfolio, account, or personal data |
-| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC and Congressional findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, source-global SEC/House adapters, immutable canonical facts, isolated workspace projections, bounded hybrid recovery/semantic evidence, and real Specs 1–4A production acceptance | Push source events, real Spec 4B/4C consumers, and crash/operations hardening remain deferred |
+| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC, Congressional, and earnings findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, source-global SEC/House/earnings adapters, immutable canonical facts, isolated workspace projections, bounded hybrid recovery/semantic evidence, and real Specs 1–4B production acceptance | Push source events, a second Spec 4C consumer, broader reviewed issuer discovery, and crash/operations hardening remain deferred |
 | Authorization | Fail-closed deployment-owner mapping for Photon workspace paths plus a separate Coinbase allowlist | Owner-global enforcement across Telegram, HTTP, and every remaining private capability |
 
 `NORTH_STAR.md` describes the intended strategy-workspace architecture; it is
@@ -368,6 +370,51 @@ requirements: `pdfjs-dist` must load its explicitly traced native canvas and
 worker modules in Next server functions, and new pack-managed monitors must bind
 the authenticated Photon conversation subscription rather than a placeholder.
 
+### Earnings Call Changes
+
+Spec 4B ships `earnings-call-changes@1.0.0` through the existing catalog,
+workspace worker, public-source coordinator, hybrid semantic lane, findings,
+and Photon alert path. Owner configuration accepts one to eight immutable SEC
+issuer IDs. Reviewed source-family instances remain source-global while
+subscriptions, semantic results, budgets, findings, and alert context remain
+workspace-isolated. Familiar qualifying layouts normalize deterministically;
+registered layout changes may use the bounded Spec 4A recovery worker. Exact
+current/prior citations, deterministic language metrics, model facts,
+inferences, forecasts, recommendations, counterevidence, and invalidation
+conditions converge into one replay-safe finding. No broker capability is
+available to the worker or pack.
+
+The Sprint 5 independent review closed 16 validated findings, and the broad
+regression passed 46/46 gates. The repeated real-model benchmark and a live
+JPM Q2/Q1 source smoke both used `openai/gpt-5.4`. The live acquisition produced
+comparison `comparison.6d4f2c802720afd79f49e48ba01c21f7b1066f9e` and accepted
+finding
+`earnings-finding.7d3a2b8967a5d2dd3c2dba1ef10fa2cff2c1ffcd5b961587`
+with deterministic materiality score 86. Real Photon alert
+`alert_live_2ff5596971a9c6d2f913044e0dc0ccd7d34073a66f0194d7331a0b9b3dbf5e9b`
+completed as delivery
+`delivery_658a5eedf4d7149dd98ec1ff9322989dc33d0e1b19d8403d66bc712fa0e5bfb7`;
+Discuss was applied and its bounded context consumed. The existing conversation
+was already at its 12-session cap, so acceptance reused the active session and
+left its selection unchanged.
+
+The accepted staged sequence was source-only
+`dpl_2k54WvEA3jhLMCxyVC1sjoZZhxkn`, corrected hybrid
+`dpl_4h6N8EVLBHxjWMuyPLHF1Mx6teR2`, execution-on/alerts-off
+`dpl_GMEdWaa5WwhzjAoRxwdAzUNGtzEo`, one-alert
+`dpl_J4H33p3GzTPDuP1RuEYpUAiruHXD`, alert rollback
+`dpl_8UJkM2Hp2ATHhQVRKbWXoyeLcLdN`, and full rollback
+`dpl_4AKpjdy1cWMCTY1QPQA9uvauRviE`. The final staged alias returned 200 for
+`/` and `/skill`, the temporary acceptance route returned 404, and bounded
+error logs were empty. Final production values are `0` for the earnings source
+and execution flags, the hybrid parent and both children, workspace and pack-
+managed dispatch, and Photon alerts. The short-lived acceptance endpoint and
+secret were removed. JPM is the only v1 source family with accepted ongoing
+first-party listing discovery; other locked issuers remain explicit baseline-
+only or coverage-unavailable states. Over-envelope calls abstain without silent
+truncation, and crash-only ephemeral cleanup hardening is parked in
+`BACKLOG.md`.
+
 ### Hybrid evidence and reasoning
 
 Spec 4A adds two deterministic-first lanes over one shared foundation. Lane A
@@ -642,13 +689,14 @@ The most important differences between the working app and `NORTH_STAR.md` are:
 1. **Owner and workspace parity is Photon-only.** Durable owner mapping,
    assignment, runtimes, monitors, alerts, and manager controls exist for
    Photon's durable mode. Telegram and HTTP do not use that broker.
-2. **Real hybrid consumers and later strategies remain.** The versioned pack
+2. **A second hybrid consumer and later strategies remain.** The versioned pack
    framework, IPO reference pack, canonical SEC/House public-source adapters,
    and Congressional Signals are production accepted.
    [`Spec 4A`](specs/04a-hybrid-evidence-reasoning.md) implements the shared
-   deterministic-first/model-recovery foundation; Specs 4B and 4C must prove it with
-   two real consumers before Insider Clusters and shared signals resume in Specs
-   5–6.
+   deterministic-first/model-recovery foundation, and Spec 4B production-
+   accepts the first transcript consumer. Spec 4C must prove a different
+   connector/content shape before Insider Clusters and shared signals resume in
+   Specs 5–6.
 3. **Artifacts are public-only.** Private portfolio/account deliverables and
    safe recovery of paid temporary outputs require owner-private storage.
 4. **MCP ingestion is incomplete.** Normalized model context is safe and

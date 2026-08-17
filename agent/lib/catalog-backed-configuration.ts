@@ -1,4 +1,5 @@
 import { EARNINGS_CALL_ISSUER_CATALOG } from "./earnings-call-issuer-catalog";
+import { resolveEarningsCallPublicSource } from "./earnings-call-public-source-contract";
 
 export interface CatalogBackedFieldReference {
   readonly catalogDigest: string;
@@ -32,12 +33,19 @@ function requireCatalog(reference: CatalogBackedFieldReference) {
 export function resolveCatalogBackedOptions(
   reference: CatalogBackedFieldReference,
 ): readonly CatalogBackedOption[] {
-  return Object.freeze(requireCatalog(reference).entries.map((entry) => Object.freeze({
-    coverageReason: entry.coverage.reasonCode,
-    coverageState: entry.coverage.state,
-    id: entry.cik,
-    label: `${entry.ticker} — ${entry.companyName}`,
-  })));
+  return Object.freeze(requireCatalog(reference).entries.map((entry) => {
+    const reviewed = resolveEarningsCallPublicSource(`earnings-call-transcripts.${entry.cik}`);
+    const ongoingDiscovery = reviewed?.family.discoveryPolicy;
+    const coverage = ongoingDiscovery?.state === "coverage_unavailable"
+      ? { reasonCode: "coverage_not_reviewed", state: "coverage_unavailable" }
+      : entry.coverage;
+    return Object.freeze({
+      coverageReason: coverage.reasonCode,
+      coverageState: coverage.state,
+      id: entry.cik,
+      label: `${entry.ticker} — ${entry.companyName}`,
+    });
+  }));
 }
 
 export function assertCatalogBackedValues(

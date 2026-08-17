@@ -332,7 +332,7 @@ try {
   });
   assert.deepEqual(
     capabilities?.value.sources.slice(1).map(({ sourceId }) => sourceId),
-    ["earnings-call-transcripts.0000789019", "earnings-call-transcripts.0001326801"],
+    [],
   );
   const monitors = await listWorkspaceMonitors(targetScope, client);
   assert.equal(monitors.length, 1);
@@ -704,7 +704,7 @@ try {
     confirmedConsequences: true,
     configuration: {
       dailyTimes: ["08:30"],
-      selectedIssuerCiks: ["0000789019", "0001048911"],
+      selectedIssuerCiks: ["0000019617", "0001048911"],
       timezone: "America/Vancouver",
     },
     expectedBindingRevision: 1,
@@ -730,11 +730,11 @@ try {
   assert.equal(configuredCapabilities.revision, 2);
   assert.deepEqual(
     configuredCapabilities.value.sources.slice(1).map(({ sourceId }) => sourceId),
-    ["earnings-call-transcripts.0000789019", "earnings-call-transcripts.0001048911"],
+    ["earnings-call-transcripts.0000019617"],
   );
   const configuredBrief = await readWorkspaceDocument("brief", targetScope, client);
   assert.ok(configuredBrief.value.sourcePolicy.allowedSourceIds.includes(
-    "earnings-call-transcripts.0001048911",
+    "earnings-call-transcripts.0000019617",
   ));
   assert.ok(!configuredBrief.value.sourcePolicy.allowedSourceIds.includes(
     "earnings-call-transcripts.0001326801",
@@ -768,7 +768,7 @@ try {
       confirmedConsequences: true,
       configuration: {
         dailyTimes: ["08:30"],
-        selectedIssuerCiks: ["0000789019", "0001048911"],
+        selectedIssuerCiks: ["0000019617", "0001048911"],
         timezone: "America/Vancouver",
       },
       expectedBindingRevision: 1,

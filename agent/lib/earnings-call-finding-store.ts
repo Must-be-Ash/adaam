@@ -46,14 +46,36 @@ export const earningsCallFindingRecordSchema = z.object({
   finding: earningsFindingSchema,
   recordType: z.literal("earnings_call_finding_record"),
   schemaVersion: z.literal(1),
+  sourceCorrection: z.object({
+    conclusionChanged: z.boolean(),
+    correctionId: z.string().min(3).max(200),
+    correctiveAlertEligible: z.boolean(),
+    fromRevisionId: z.string().min(3).max(200),
+    priorAlerted: z.boolean(),
+    priorFindingId: z.string().min(3).max(200).nullable(),
+    reason: z.literal("source_correction"),
+    toRevisionId: z.string().min(3).max(200),
+  }).strict().optional(),
   sources: z.array(sourceSchema).min(2).max(3),
   ticker: z.string().regex(/^[A-Z][A-Z0-9.-]{0,9}$/u),
 }).strict().superRefine((record, context) => {
+  const current = record.sources.find(({ role }) => role === "current");
+  const correction = record.sourceCorrection;
   if (
     record.finding.workspaceId.length === 0 ||
     record.sources.filter(({ role }) => role === "current").length !== 1 ||
     record.sources.filter(({ role }) => role === "prior").length !== 1
   ) context.addIssue({ code: "custom", message: "earnings_finding_record_invalid" });
+  if (correction && (
+    correction.fromRevisionId === correction.toRevisionId ||
+    correction.toRevisionId !== current?.eventRevisionId ||
+    correction.conclusionChanged !==
+      record.finding.materiality.decisionReasons.includes("source_correction") ||
+    correction.correctiveAlertEligible !==
+      (correction.conclusionChanged && correction.priorAlerted) ||
+    (correction.priorFindingId === null &&
+      (correction.priorAlerted || correction.conclusionChanged))
+  )) context.addIssue({ code: "custom", message: "earnings_finding_correction_invalid" });
 });
 
 export type EarningsCallFindingRecord = z.infer<typeof earningsCallFindingRecordSchema>;
@@ -166,6 +188,21 @@ export async function persistEarningsCallFinding(
   if (serialize(existing) !== recordRaw) {
     throw new EarningsCallFindingStoreError("earnings_finding_conflict");
   }
+  const currentSource = record.sources.find(({ role }) => role === "current")!;
+  const eventHeadKey = key(input.scope, "event-head", currentSource.eventRevisionId);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const currentRaw = raw(await client.get(eventHeadKey));
+    if (currentRaw) {
+      const current = parse(currentRaw);
+      if (
+        current.createdAt > record.createdAt ||
+        (current.createdAt === record.createdAt &&
+          current.finding.findingId >= record.finding.findingId)
+      ) break;
+    }
+    if (await client.compareAndSet(eventHeadKey, currentRaw, recordRaw)) break;
+    if (attempt === 7) throw new EarningsCallFindingStoreError("earnings_finding_conflict");
+  }
   const headKey = key(input.scope, "head", "latest");
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const currentRaw = raw(await client.get(headKey));
@@ -181,6 +218,23 @@ export async function persistEarningsCallFinding(
     if (attempt === 7) throw new EarningsCallFindingStoreError("earnings_finding_conflict");
   }
   return stored.created ? "created" : "reused";
+}
+
+export async function readEarningsCallFindingByEventRevision(
+  scope: AuthorizedWorkspaceStoreScope,
+  eventRevisionId: string,
+  client: EarningsCallFindingStoreClient = store(),
+): Promise<EarningsCallFindingRecord | null> {
+  assertAuthorizedWorkspaceStoreScope(scope);
+  const value = await client.get(key(scope, "event-head", eventRevisionId));
+  if (value === null || value === undefined) return null;
+  const record = parse(value);
+  assertScope(scope, record.finding);
+  if (!record.sources.some((source) =>
+    source.role === "current" && source.eventRevisionId === eventRevisionId)) {
+    throw new EarningsCallFindingStoreError("earnings_finding_conflict");
+  }
+  return record;
 }
 
 export async function readEarningsCallFinding(

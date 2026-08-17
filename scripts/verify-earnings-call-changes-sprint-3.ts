@@ -44,6 +44,8 @@ import {
   publicSourceSubscriptionSchema,
 } from "../agent/lib/public-source-adapter-schema";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
+import { resolveReviewedPublicSource } from "../agent/lib/public-source-registry";
+import { resolveParameterizedStrategyPackSources } from "../agent/lib/strategy-pack-source-resolution";
 import type { WorkspaceBudgetLedgerClient } from "../agent/lib/workspace-budget-ledger";
 import {
   prepareInitialWorkspaceDocument,
@@ -75,7 +77,7 @@ class MemoryBlob implements HybridEvidenceBlobClient {
 const sha256 = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 const now = new Date();
 const ownerId = "owner_fixture";
-const modelId = "fixture/earnings-semantic-model";
+const modelId = "google/gemini-3.6-flash";
 const workspaces = [
   "123e4567-e89b-42d3-a456-426614174400",
   "123e4567-e89b-42d3-a456-426614174401",
@@ -105,34 +107,20 @@ assert.deepEqual(definitions.map(({ limits }) => [limits.maximumInputTokens, lim
   [4_000, 1_000],
 ]);
 
-const basePack = strategyPackCatalog.entries.find(({ id, version }) =>
-  id === "congressional-signals" && version === "1.3.0")!;
-const sourceId = "earnings-call-transcripts";
-const sourceContract = Object.freeze({
-  ...basePack.sources[0]!,
-  allowedOrigins: Object.freeze(["https://ir.example.com"]),
-  sourceId,
-});
-const packDigest = sha256("fixture-earnings-pack@1.0.0");
-const fixturePack = Object.freeze({
-  ...basePack,
-  contentDigest: packDigest,
-  evidenceContracts: Object.freeze(definitions.map((definition) => Object.freeze({
-    digest: definition.definitionDigest,
-    id: definition.definitionId,
-    version: definition.definitionVersion,
-  }))),
-  id: "fixture-earnings-pack",
-  sources: Object.freeze([sourceContract]),
-  version: "1.0.0",
-});
-const fixtureCatalog = Object.freeze({
-  resolve(input: { contentDigest?: string; id: string; version: string }) {
-    return input.id === fixturePack.id && input.version === fixturePack.version &&
-      (input.contentDigest === undefined || input.contentDigest === fixturePack.contentDigest)
-      ? fixturePack : null;
-  },
-});
+const fixturePack = strategyPackCatalog.entries.find(({ id, version }) =>
+  id === "earnings-call-changes" && version === "1.0.0")!;
+const selectedIssuerCik = "0000019617";
+const sourceId = `earnings-call-transcripts.${selectedIssuerCik}`;
+const sourceContract = resolveParameterizedStrategyPackSources(
+  fixturePack,
+  { selectedIssuerCiks: [selectedIssuerCik] },
+)[0]!;
+const reviewedSource = resolveReviewedPublicSource(sourceId);
+assert.equal(sourceContract.sourceId, sourceId);
+assert.equal(sourceContract.sourceInstanceId, reviewedSource.sourceInstance.sourceInstanceId);
+assert.equal(sourceContract.contractDigest, reviewedSource.sourceContract.contractDigest);
+assert.deepEqual(sourceContract.allowedOrigins, reviewedSource.sourceContract.allowedOrigins);
+const packDigest = fixturePack.contentDigest;
 
 const memory = new MemoryCas();
 const artifacts = createHybridEvidenceArtifactStore({
@@ -157,7 +145,7 @@ function seedWorkspace(workspaceId: string) {
     scope: authorized,
     value: {
       bindingRevision: 1,
-      configuration: {},
+      configuration: { selectedIssuerCiks: [selectedIssuerCik] },
       effectiveCapabilityManifestRevision: 1,
       health: { checkedAt: now.toISOString(), code: null, status: "healthy" },
       lastActiveSnapshot: {
@@ -194,7 +182,7 @@ function seedWorkspace(workspaceId: string) {
         contractDigest: sourceContract.contractDigest,
         contractVersion: sourceContract.contractVersion,
         origin: sourceContract.allowedOrigins[0]!,
-        sourceId,
+        sourceId: sourceContract.sourceId,
       }],
       workerModelPolicy: { allowedModelIds: [modelId], maximumOutputTokens: 2_000 },
     },
@@ -220,21 +208,23 @@ const projections = new Map<string, WorkspaceSemanticAuthorizationProjection>();
 function createProjection(input: {
   artifactByteCount: number; artifactDigest: string; eventRevisionId: string; revision: number; role: string; workspaceId: string;
 }): WorkspaceSemanticAuthorizationProjection {
-  const artifactUrl = `https://ir.example.com/transcripts/${input.role}.html`;
+  const reviewedEvent = reviewedSource.sourceFamily!.baselineEvents.find(({ role }) =>
+    role === (input.role.includes("Q2") ? "current" : "prior"))!;
+  const artifactUrl = reviewedEvent.artifactUrl;
   const payload = {
     artifactByteCount: input.artifactByteCount,
     artifactDigest: input.artifactDigest,
     artifactMediaType: "text/html" as const,
     artifactUrl,
-    callDate: "2026-08-17",
-    cik: "0000320193",
-    discoveryUrl: `https://ir.example.com/earnings/${input.role}`,
+    callDate: reviewedEvent.callDate,
+    cik: selectedIssuerCik,
+    discoveryUrl: reviewedEvent.discoveryUrl,
     fiscalPeriod: input.role,
     schemaVersion: "earnings-call-event/v1" as const,
     secContext: null,
   };
   const factBase = {
-    adapterId: "earnings-call-transcripts",
+    adapterId: reviewedSource.adapterDefinition.adapterId,
     createdObservedAt: now.toISOString(), extraction: { errorCode: null, state: "complete" as const },
     factSchemaVersion: "earnings-call-event/v1", payload, payloadDigest: digestPublicSourceValue(payload),
     provenance: {
@@ -242,7 +232,8 @@ function createProjection(input: {
       publicUrl: artifactUrl, rowEvidenceDigest: null,
     },
     recordType: "canonical_public_fact_revision" as const, schemaVersion: 1 as const,
-    sourceInstanceId: "source.earnings.fixture", sourceNativeId: `0000320193:${input.role}:2026-08-17`,
+    sourceInstanceId: reviewedSource.sourceInstance.sourceInstanceId,
+    sourceNativeId: `${selectedIssuerCik}:${input.role}:${reviewedEvent.callDate}`,
     sourceTimes: { publishedAt: now.toISOString(), updatedAt: now.toISOString() }, stableRowIdentity: "earnings_call",
   };
   const logicalKey = deriveCanonicalPublicFactLogicalKey(factBase);
@@ -252,7 +243,8 @@ function createProjection(input: {
   });
   const subscriptionId = `subscription.${sha256(`${input.workspaceId}:earnings`)}`;
   const subscription = publicSourceSubscriptionSchema.parse({
-    adapterDefinitionDigest: sourceContract.contractDigest, adapterVersion: "1.0.0",
+    adapterDefinitionDigest: reviewedSource.adapterDefinition.definitionDigest,
+    adapterVersion: reviewedSource.adapterDefinition.adapterVersion,
     deliveryCursor: { lastAcquisitionId: `acquisition.${input.role}.${input.revision}`, revision: input.revision },
     factSchemaVersions: ["earnings-call-event/v1"], filter: { kind: "all" }, lifecycleState: "active",
     monitorId: "monitor.fixture.earnings",
@@ -311,14 +303,16 @@ async function createEvidence(input: {
   const artifact = await artifacts.persist({
     acquisitionId: projection.projection.acquisitionId, authority: projection.fact.provenance.authority,
     bytes: Buffer.from(normalized.normalizedText, "utf8"),
-    canonicalPublicUrl: `https://ir.example.com/evidence/${input.fiscalPeriod}-${revision}.txt`,
+    canonicalPublicUrl: projection.fact.provenance.publicUrl,
     mediaType: "text/plain", now, observedAt: now.toISOString(), parserEligibility: null,
     sourceInstanceId: projection.fact.sourceInstanceId,
     structure: { characterCount: normalized.normalizedText.length, columnCount: null, pageCount: null, rowCount: null, sheetCount: null },
   });
   const event = earningsEventSchema.parse({
-    artifactByteCount: rawBytes.byteLength, artifactDigest: rawDigest, callDate: "2026-08-17",
-    cik: "0000320193", eventId: `event.${input.fiscalPeriod}`, fiscalPeriod: input.fiscalPeriod,
+    artifactByteCount: rawBytes.byteLength, artifactDigest: rawDigest,
+    callDate: reviewedSource.sourceFamily!.baselineEvents.find(({ fiscalPeriod }) =>
+      fiscalPeriod === input.fiscalPeriod)!.callDate,
+    cik: selectedIssuerCik, eventId: `event.${input.fiscalPeriod}`, fiscalPeriod: input.fiscalPeriod,
     observedAt: now.toISOString(), publishedAt: now.toISOString(), recordType: "earnings_call_event",
     revision, revisionId: eventRevisionId, schemaVersion: EARNINGS_CALL_SCHEMA_VERSION,
     secAccession: null, sourceInstanceId: projection.fact.sourceInstanceId,
@@ -335,8 +329,8 @@ async function createEvidence(input: {
 }
 
 async function pair(workspaceId: string, repeat = 1, priorRevision = 1) {
-  const current = await createEvidence({ current: true, fiscalPeriod: "FY2026-Q3", repeat, workspaceId });
-  const prior = await createEvidence({ current: false, fiscalPeriod: "FY2026-Q2", repeat, revision: priorRevision, workspaceId });
+  const current = await createEvidence({ current: true, fiscalPeriod: "FY2026-Q2", repeat, workspaceId });
+  const prior = await createEvidence({ current: false, fiscalPeriod: "FY2026-Q1", repeat, revision: priorRevision, workspaceId });
   return {
     comparison: createEarningsCallComparison({ current: current.record, prior: prior.record }),
     evidence: [{ ...current.evidence, role: "current" as const }, { ...prior.evidence, role: "prior" as const }],
@@ -348,10 +342,14 @@ function resolveProjection(reference: { factRevisionId: string }, workspaceId: s
 }
 
 let dispatches = 0;
-type CandidateMode = "accepted" | "abstained" | "bad_citation" | "fake_precision" | "missing_evidence";
+type CandidateMode = "accepted" | "abstained" | "absence_claim_abstained" |
+  "absence_claim_incomplete" |
+  "absence_claim_undeclared" | "advice_in_fact" | "bad_citation" |
+  "fake_precision" | "missing_evidence" | "numeric_in_rationale" |
+  "ordinary_negation";
 function clients(workspaceId: string, mode: CandidateMode = "accepted"): Parameters<typeof runEarningsCallSemanticComparison>[1] {
   return {
-    artifacts, budget: memory, catalog: fixtureCatalog, jobs: memory, lineage: memory,
+    artifacts, budget: memory, jobs: memory, lineage: memory,
     notifyHealth: async () => {},
     resolveProjection: async (reference) => resolveProjection(reference, workspaceId), semantic: memory, state: memory,
     async execute(prepared) {
@@ -383,10 +381,23 @@ function clients(workspaceId: string, mode: CandidateMode = "accepted"): Paramet
       }
       const analysisKind = prepared.record.job.definitionId === EARNINGS_CALL_COMPARISON_SECTION_DEFINITION_ID
         ? "section" : prepared.record.job.definitionId === EARNINGS_CALL_COMPARISON_SYNTHESIS_DEFINITION_ID ? "synthesis" : "comparison";
-      const assertion = { citations, statement: "Management language changed relative to the prior call." };
-      const noView = mode === "abstained";
+      const assertion = {
+        citations,
+        statement: mode === "advice_in_fact"
+          ? "We recommend buy exposure based on management language."
+          : mode === "ordinary_negation"
+            ? "Improved specificity does not guarantee outcomes."
+          : mode.startsWith("absence_claim")
+            ? "Management did not discuss customer churn."
+            : "Management language changed relative to the prior call.",
+      };
+      const noView = mode === "abstained" || mode === "absence_claim_abstained";
       const fields = {
         analysisKind, confidence: noView ? "low" : "medium", counterevidence: [],
+        absenceDependentAssertions: mode === "absence_claim_incomplete" ||
+          mode === "absence_claim_abstained"
+          ? [assertion.statement]
+          : [],
         coverage: { complete: true, memberIds: projection.members.map(({ memberId }: any) => memberId) },
         facts: [assertion],
         forecast: analysisKind === "section" || noView ? null : {
@@ -396,7 +407,9 @@ function clients(workspaceId: string, mode: CandidateMode = "accepted"): Paramet
           scenarios: [{ condition: "Execution remains stable.", direction: "positive", label: "base", rationale: "Guidance is more specific." }],
         },
         inferences: [assertion], outcome: noView ? "abstained" : "accepted",
-        rationale: "The cited current and prior passages support the bounded comparison.",
+        rationale: mode === "numeric_in_rationale"
+          ? "The cited change implies 37% upside."
+          : "The cited current and prior passages support the bounded comparison.",
         reasonCodes: [noView ? "evidence_incomplete" : "material_change"],
         recommendation: analysisKind === "section" ? null : {
           assumptions: ["The cited public transcript remains authoritative."],
@@ -436,6 +449,11 @@ assert.equal(accepted.state, "accepted");
 assert.equal(accepted.final?.evidence?.schemaVersion, 2);
 assert.deepEqual(accepted.final?.evidence?.schemaVersion === 2
   ? accepted.final.evidence.members.map(({ role }) => role) : [], ["current", "prior"]);
+assert.equal(
+  (accepted.final?.inputProjection as any)?.members.every((member: any) =>
+    member.semanticContext.coverage.liveCallCompleteness === "not_attested"),
+  true,
+);
 assert.equal(accepted.final?.evidence?.result.payload.forecast !== null, true);
 assert.equal(accepted.final?.evidence?.result.payload.recommendation !== null, true);
 assert.equal(accepted.final?.evidence?.result.citations.length >= 2, true);
@@ -458,10 +476,30 @@ const reversed = await prepareWorkspaceSemanticEvidenceBundleJob({
   definition: definitions[0]!, members: originalMembers, modelId, now, pack: fixturePack,
   scope: scope(workspaceA), workspaceGeneration: 1,
 }, {
-  catalog: fixtureCatalog, jobs: memory,
+  jobs: memory,
   resolveProjection: async (reference) => resolveProjection(reference, workspaceA), state: memory,
 });
 assert.notEqual(reversed.record.job.jobId, accepted.final?.record.job.jobId);
+
+await assert.rejects(() => prepareWorkspaceSemanticEvidenceBundleJob({
+  definition: definitions[0]!,
+  members: originalMembers.map((member, index) => index === 0 ? {
+    ...member,
+    projectionReference: {
+      ...member.projectionReference,
+      sourceId: "earnings-call-transcripts",
+    },
+  } : member),
+  modelId,
+  now,
+  pack: fixturePack,
+  scope: scope(workspaceA),
+  workspaceGeneration: 1,
+}, {
+  jobs: memory,
+  resolveProjection: async (reference) => resolveProjection(reference, workspaceA),
+  state: memory,
+}), /workspace_scope_mismatch/u);
 
 const corrected = await pair(workspaceA, 2, 2);
 const correctedRun = await runEarningsCallSemanticComparison({
@@ -493,7 +531,45 @@ assert.equal(abstained.final?.evidence?.result.disposition, "abstained");
 assert.equal(abstained.final?.strategyEvidence, null);
 assert.equal((abstained.final?.evidence?.result.payload.recommendation as any)?.stance, "no_view");
 
-for (const [index, mode] of (["bad_citation", "fake_precision", "missing_evidence"] as const).entries()) {
+const absenceDowngradePair = await pair(workspaceC, 2);
+const absenceDowngrade = await runEarningsCallSemanticComparison({
+  comparison: absenceDowngradePair.comparison,
+  environment,
+  evidence: absenceDowngradePair.evidence,
+  modelId,
+  now,
+  pack: fixturePack,
+  scope: scope(workspaceC),
+  workspaceGeneration: 1,
+}, clients(workspaceC, "absence_claim_abstained"));
+assert.equal(absenceDowngrade.state, "abstained");
+assert.deepEqual(
+  absenceDowngrade.final?.evidence?.result.payload.absenceDependentAssertions,
+  ["Management did not discuss customer churn."],
+);
+
+const ordinaryNegationPair = await pair(workspaceD, 20);
+const ordinaryNegation = await runEarningsCallSemanticComparison({
+  comparison: ordinaryNegationPair.comparison,
+  environment,
+  evidence: ordinaryNegationPair.evidence,
+  modelId,
+  now,
+  pack: fixturePack,
+  scope: scope(workspaceD),
+  workspaceGeneration: 1,
+}, clients(workspaceD, "ordinary_negation"));
+assert.equal(ordinaryNegation.state, "accepted");
+
+for (const [index, mode] of ([
+  "bad_citation",
+  "fake_precision",
+  "missing_evidence",
+  "advice_in_fact",
+  "numeric_in_rationale",
+  "absence_claim_undeclared",
+  "absence_claim_incomplete",
+] as const).entries()) {
   const unsafe = await pair(workspaceD, index + 2);
   const result = await runEarningsCallSemanticComparison({
     comparison: unsafe.comparison, environment, evidence: unsafe.evidence, modelId, now,
@@ -512,7 +588,7 @@ await assert.rejects(() => prepareWorkspaceSemanticEvidenceBundleJob({
   definition: definitions[0]!, members: originalMembers, modelId, now,
   pack: { ...fixturePack, contentDigest: sha256("wrong-pack") }, scope: scope(workspaceA), workspaceGeneration: 1,
 }, {
-  catalog: fixtureCatalog, jobs: memory,
+  jobs: memory,
   resolveProjection: async (reference) => resolveProjection(reference, workspaceA), state: memory,
 }), /workspace_scope_mismatch/u);
 

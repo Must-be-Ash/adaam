@@ -28,6 +28,21 @@ const eventSchema = z.object({
   }).strict(),
   role: z.enum(["current", "prior"]),
 }).strict();
+const discoveryPolicySchema = z.discriminatedUnion("state", [
+  z.object({
+    policyVersion: z.literal("1.0.0"),
+    reasonCode: z.literal("listing_contract_not_reviewed"),
+    state: z.literal("coverage_unavailable"),
+  }).strict(),
+  z.object({
+    artifactPathMetadataPattern: z.string().min(1).max(500),
+    listingUrl: z.string().url(),
+    maximumCandidateEvents: z.literal(4),
+    payloadFormat: z.literal("jpm_quarterly_earnings_json_v1"),
+    policyVersion: z.literal("1.0.0"),
+    state: z.literal("supported"),
+  }).strict(),
+]);
 
 const reviewedArtifacts = new Map<string, Readonly<{ byteCount: number; digest: string }>>([
   ["0000789019:FY2026-Q3", { byteCount: 345_521, digest: "b0bbe530c46206eec6d58c38af875c9e7231e98e0b5cd507372956917be7b7c5" }],
@@ -44,25 +59,26 @@ const reviewedArtifacts = new Map<string, Readonly<{ byteCount: number; digest: 
 
 export const reviewedParameterizedSourceFamilySchema = z.object({
   artifact: endpointSchema.extend({ mediaType: z.enum(["application/pdf", "text/html"]) }).strict(),
+  baselineEvents: z.array(eventSchema).length(2),
   catalogDigest: digestSchema,
   catalogId: z.literal("sec-issuers"),
   catalogRevision: z.number().int().positive(),
   cik: z.string().regex(/^\d{10}$/u),
   discovery: endpointSchema.omit({ mediaType: true }).strict(),
-  events: z.array(eventSchema).length(2),
+  discoveryPolicy: discoveryPolicySchema,
   familyDigest: digestSchema,
   familyId: z.string().regex(/^earnings-call-transcripts\.\d{10}$/u),
   maximumArtifactBytes: z.literal(8 * 1_024 * 1_024),
   maximumDiscoveryBytes: z.literal(2 * 1_024 * 1_024),
   maximumRedirects: z.literal(3),
   recordType: z.literal("reviewed_parameterized_source_family"),
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
 }).strict().superRefine((family, context) => {
   const { familyDigest, ...core } = family;
   if (
     digestPublicSourceValue(core) !== familyDigest ||
     family.familyId !== `earnings-call-transcripts.${family.cik}` ||
-    family.events.some((event) => {
+    family.baselineEvents.some((event) => {
       const discovery = new URL(event.discoveryUrl);
       const artifact = new URL(event.artifactUrl);
       return discovery.origin !== family.discovery.origin ||
@@ -72,8 +88,26 @@ export const reviewedParameterizedSourceFamilySchema = z.object({
         discovery.search !== "" || artifact.search !== "" ||
         discovery.hash !== "" || artifact.hash !== "";
     }) ||
-    new Set(family.events.map(({ role }) => role)).size !== 2
+    new Set(family.baselineEvents.map(({ role }) => role)).size !== 2
   ) context.addIssue({ code: "custom", message: "parameterized_source_family_invalid" });
+  if (family.discoveryPolicy.state === "supported") {
+    const listing = new URL(family.discoveryPolicy.listingUrl);
+    if (
+      listing.origin !== family.discovery.origin ||
+      listing.search !== "" ||
+      listing.hash !== "" ||
+      !new RegExp(family.discovery.pathPattern, "u").test(listing.pathname)
+    ) context.addIssue({ code: "custom", message: "parameterized_source_listing_invalid" });
+    try {
+      const groups = new RegExp(family.discoveryPolicy.artifactPathMetadataPattern, "u")
+        .exec(new URL(family.baselineEvents[0]!.artifactUrl).pathname)?.groups;
+      if (!groups?.fiscalYear || !groups.fiscalQuarter) {
+        context.addIssue({ code: "custom", message: "parameterized_source_metadata_pattern_invalid" });
+      }
+    } catch {
+      context.addIssue({ code: "custom", message: "parameterized_source_metadata_pattern_invalid" });
+    }
+  }
 });
 
 const adapterCore = {
@@ -117,17 +151,18 @@ export const EARNINGS_CALL_REVIEWED_SOURCE_FAMILIES = Object.freeze(
       catalogRevision: EARNINGS_CALL_ISSUER_CATALOG.revision,
       cik: source.cik,
       discovery: source.discovery,
-      events: source.events.map((event) => {
+      baselineEvents: source.baselineEvents.map((event) => {
         const reviewedArtifact = reviewedArtifacts.get(`${source.cik}:${event.fiscalPeriod}`);
         if (!reviewedArtifact) throw new Error("parameterized_source_artifact_lock_missing");
         return { ...event, reviewedArtifact };
       }),
+      discoveryPolicy: source.discoveryPolicy,
       familyId: `earnings-call-transcripts.${source.cik}`,
       maximumArtifactBytes: 8 * 1_024 * 1_024,
       maximumDiscoveryBytes: 2 * 1_024 * 1_024,
       maximumRedirects: 3,
       recordType: "reviewed_parameterized_source_family" as const,
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
     };
     return Object.freeze(reviewedParameterizedSourceFamilySchema.parse({
       ...core,
@@ -164,7 +199,8 @@ export function deriveEarningsCallPublicSource(family: ReviewedParameterizedSour
     lifecycleState: "active",
     recordType: "public_source_instance",
     schemaVersion: 1,
-    sourceInstanceId: `source.earnings-call-transcripts.${reviewed.cik}`,
+    sourceInstanceId:
+      `source.earnings-call-transcripts.${reviewed.cik}.${reviewed.familyDigest.slice(0, 16)}`,
   });
   return Object.freeze({
     adapterDefinition: EARNINGS_CALL_PUBLIC_SOURCE_ADAPTER,
@@ -177,7 +213,7 @@ export function deriveEarningsCallPublicSource(family: ReviewedParameterizedSour
       ])].sort()),
       canonicalUrl: configuration.canonicalUrl,
       contractDigest: reviewed.familyDigest,
-      contractVersion: "1.0.0",
+      contractVersion: "2.0.0",
       publicSource: Object.freeze({
         adapterDefinition: EARNINGS_CALL_PUBLIC_SOURCE_ADAPTER,
         sourceInstance,
@@ -195,4 +231,35 @@ const derivedSources = new Map(EARNINGS_CALL_REVIEWED_SOURCE_FAMILIES.map((famil
 
 export function resolveEarningsCallPublicSource(sourceId: string) {
   return derivedSources.get(sourceId) ?? null;
+}
+
+export type EarningsCallReviewedRequestKind =
+  | "issuer_discovery"
+  | "sec_submissions"
+  | "transcript_artifact";
+
+export function isReviewedEarningsCallRequestUrl(input: {
+  readonly kind: EarningsCallReviewedRequestKind;
+  readonly url: string;
+}): boolean {
+  let url: URL;
+  try {
+    url = new URL(input.url);
+  } catch {
+    return false;
+  }
+  if (
+    url.protocol !== "https:" || url.username !== "" || url.password !== "" ||
+    url.search !== "" || url.hash !== "" || url.toString() !== input.url
+  ) return false;
+  if (input.kind === "sec_submissions") {
+    const match = /^\/submissions\/CIK(?<cik>\d{10})\.json$/u.exec(url.pathname);
+    return url.origin === "https://data.sec.gov" &&
+      match?.groups?.cik !== undefined &&
+      EARNINGS_CALL_REVIEWED_SOURCE_FAMILIES.some(({ cik }) => cik === match.groups!.cik);
+  }
+  return EARNINGS_CALL_REVIEWED_SOURCE_FAMILIES.some((family) => {
+    const endpoint = input.kind === "issuer_discovery" ? family.discovery : family.artifact;
+    return url.origin === endpoint.origin && new RegExp(endpoint.pathPattern, "u").test(url.pathname);
+  });
 }

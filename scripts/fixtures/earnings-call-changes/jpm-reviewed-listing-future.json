@@ -1,0 +1,11 @@
+{
+  "items": [
+    { "year": "2027", "quarter": "1st", "docs": { "transcript": { "title": "1Q27 Earnings Transcript", "link": "/content/dam/jpmc/jpmorgan-chase-and-co/investor-relations/documents/quarterly-earnings/2027/1st-quarter/1Q27-earnings-transcript.pdf" } } },
+    { "year": "2026", "quarter": "4th", "docs": { "transcript": { "title": "4Q26 Earnings Transcript", "link": "/content/dam/jpmc/jpmorgan-chase-and-co/investor-relations/documents/quarterly-earnings/2026/4th-quarter/4Q26-earnings-transcript.pdf" } } },
+    { "year": "2026", "quarter": "3rd", "docs": { "transcript": { "title": "3Q26 Earnings Transcript", "link": "/content/dam/jpmc/jpmorgan-chase-and-co/investor-relations/documents/quarterly-earnings/2026/3rd-quarter/3Q26-earnings-transcript.pdf" } } },
+    { "year": "2026", "quarter": "2nd", "docs": { "transcript": { "title": "2Q26 Earnings Transcript", "link": "/content/dam/jpmc/jpmorgan-chase-and-co/investor-relations/documents/quarterly-earnings/2026/2nd-quarter/2Q26-earnings-transcript.pdf" } } },
+    { "year": "2026", "quarter": "1st", "docs": { "transcript": { "title": "1Q26 Earnings Transcript", "link": "/content/dam/jpmc/jpmorgan-chase-and-co/investor-relations/documents/quarterly-earnings/2026/1st-quarter/1q26-earnings-transcript.pdf" } } },
+    { "year": "2026", "quarter": "3rd", "docs": { "transcript": { "title": "3Q26 Earnings Transcript", "link": "https://evil.example/earnings-transcript.pdf" } } }
+  ],
+  "total-items": 6
+}

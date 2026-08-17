@@ -3,9 +3,11 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 export const EARNINGS_CALL_SCHEMA_VERSION = 1;
+export const EARNINGS_CALL_SOURCE_FAMILY_SCHEMA_VERSION = 2;
 
 export const EARNINGS_CALL_LIMITS = Object.freeze({
   maximumArtifactBytes: 8 * 1_024 * 1_024,
+  maximumArtifactPages: 64,
   maximumCatalogEntries: 5_000,
   maximumCitationsPerAssertion: 8,
   maximumComparisonMetrics: 64,
@@ -151,24 +153,41 @@ export const earningsIssuerCatalogRevisionSchema = z.object({
 });
 
 const reviewedEndpointSchema = z.object({
-  mediaTypes: z.array(z.enum(["application/pdf", "text/html"]))
+  mediaTypes: z.array(z.enum(["application/json", "application/pdf", "text/html"]))
     .min(1)
-    .max(2),
+    .max(3),
   origin: exactOriginSchema,
   pathPattern: z.string().min(1).max(500),
 }).strict();
+
+export const earningsSourceDiscoveryPolicySchema = z.discriminatedUnion("state", [
+  z.object({
+    policyVersion: z.literal("1.0.0"),
+    reasonCode: z.literal("listing_contract_not_reviewed"),
+    state: z.literal("coverage_unavailable"),
+  }).strict(),
+  z.object({
+    artifactPathMetadataPattern: z.string().min(1).max(500),
+    listingUrl: publicUrlSchema,
+    maximumCandidateEvents: z.literal(EARNINGS_CALL_LIMITS.maximumEventsPerBaseline),
+    payloadFormat: z.literal("jpm_quarterly_earnings_json_v1"),
+    policyVersion: z.literal("1.0.0"),
+    state: z.literal("supported"),
+  }).strict(),
+]);
 
 export const earningsSourceFamilySchema = z.object({
   artifact: reviewedEndpointSchema,
   cik: cikSchema,
   discovery: reviewedEndpointSchema,
+  discoveryPolicy: earningsSourceDiscoveryPolicySchema,
   familyDigest: digestSchema,
   familyId: identifierSchema,
   maximumArtifactBytes: z.number().int().positive()
     .max(EARNINGS_CALL_LIMITS.maximumArtifactBytes),
   maximumRedirects: z.number().int().min(0).max(3),
   recordType: z.literal("earnings_call_source_family"),
-  schemaVersion: z.literal(EARNINGS_CALL_SCHEMA_VERSION),
+  schemaVersion: z.literal(EARNINGS_CALL_SOURCE_FAMILY_SCHEMA_VERSION),
 }).strict().superRefine((family, context) => {
   const { familyDigest, ...core } = family;
   if (digestEarningsCallValue(core) !== familyDigest) {
@@ -181,8 +200,16 @@ export const earningsSourceFamilySchema = z.object({
       context.addIssue({ code: "custom", message: "invalid_source_path_pattern" });
     }
   }
-  if (family.discovery.mediaTypes.some((mediaType) => mediaType !== "text/html")) {
+  if (family.discovery.mediaTypes.some((mediaType) =>
+    !["application/json", "text/html"].includes(mediaType))) {
     context.addIssue({ code: "custom", message: "discovery_media_type_invalid" });
+  }
+  if (family.discoveryPolicy.state === "supported") {
+    const listing = new URL(family.discoveryPolicy.listingUrl);
+    if (
+      listing.origin !== family.discovery.origin ||
+      !new RegExp(family.discovery.pathPattern, "u").test(listing.pathname)
+    ) context.addIssue({ code: "custom", message: "discovery_listing_invalid" });
   }
 });
 

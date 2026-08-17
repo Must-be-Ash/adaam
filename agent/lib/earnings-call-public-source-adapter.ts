@@ -7,11 +7,14 @@ import {
   derivePublicSourceAcquisitionEligibilityId,
   ensurePublicSourceInstance,
   readCommittedPublicSourceAcquisitionForWindow,
+  readPublicSourceAcquisitionArtifactReferences,
+  readPublicSourceFactRevision,
   readLatestPublicSourceFactRevision,
   readPublicSourceAcquisitionJournal,
   readReusablePublicSourceAcquisition,
   recordPublicSourceAcquisitionOutcome,
   reservePublicSourceFairAccess,
+  writePublicSourceAcquisitionArtifactReferences,
   PublicSourceAcquisitionStoreError,
   type PublicSourceAcquisitionCommit,
   type PublicSourceAcquisitionStoreClient,
@@ -34,7 +37,7 @@ import {
 } from "./earnings-call-public-source-contract";
 import { resolveReviewedPublicSource } from "./public-source-registry";
 
-const SEC_MAXIMUM_RESPONSE_BYTES = 2 * 1_024 * 1_024;
+const SEC_MAXIMUM_RESPONSE_BYTES = 8 * 1_024 * 1_024;
 const SEC_MINIMUM_REQUEST_INTERVAL_MILLISECONDS = 125;
 const SEC_USER_AGENT_SCHEMA = z.string().trim().min(8).max(300).refine(
   (value) => /@|https?:\/\//u.test(value),
@@ -53,6 +56,7 @@ export interface EarningsCallPublicSourceResponse {
   readonly contentType: string;
   readonly finalUrl: string;
   readonly observedAt: string;
+  readonly redirectChain: readonly string[];
   readonly redirectCount: number;
   readonly requestedUrl: string;
   readonly status: number;
@@ -102,6 +106,11 @@ const sharedAcquisitions = new Map<
   string,
   Promise<Omit<SharedEarningsCallPublicSourceAcquisitionResult, "reused">>
 >();
+const defaultHydrationClientIdentity = Object.freeze({});
+const sharedHydrations = new WeakMap<
+  (request: EarningsCallPublicSourceRequest) => Promise<EarningsCallPublicSourceResponse>,
+  WeakMap<object, Map<string, Promise<readonly EarningsCallTransientArtifact[]>>>
+>();
 
 function exactReviewedUrl(
   value: string,
@@ -131,6 +140,11 @@ function validateResponse(input: {
   readonly response: EarningsCallPublicSourceResponse;
 }): void {
   const response = input.response;
+  if (
+    response.redirectChain.length !== response.redirectCount + 1 ||
+    response.redirectChain[0] !== response.requestedUrl ||
+    response.redirectChain.at(-1) !== response.finalUrl
+  ) throw new EarningsCallAcquisitionError("transport_redirect_forbidden");
   if (response.requestedUrl !== input.expectedUrl || response.status !== 200) {
     throw new EarningsCallAcquisitionError("transcript_coverage_unavailable");
   }
@@ -143,11 +157,121 @@ function validateResponse(input: {
     response.body.byteLength > input.maximumBytes
   ) throw new EarningsCallAcquisitionError("transport_response_oversized");
   if (input.endpoint) {
-    if (!exactReviewedUrl(response.finalUrl, input.endpoint)) {
+    const endpoint = input.endpoint;
+    if (response.redirectChain.some((url) => !exactReviewedUrl(url, endpoint))) {
       throw new EarningsCallAcquisitionError("transport_origin_forbidden");
     }
   } else if (response.finalUrl !== input.expectedUrl || response.redirectCount !== 0) {
     throw new EarningsCallAcquisitionError("transport_redirect_forbidden");
+  }
+}
+
+async function hydrateCommittedArtifacts(input: {
+  readonly acquisitionId: string;
+  readonly client?: PublicSourceAcquisitionStoreClient;
+  readonly family: ReviewedParameterizedSourceFamily;
+  readonly fetchResponse: (request: EarningsCallPublicSourceRequest) => Promise<EarningsCallPublicSourceResponse>;
+  readonly source: PublicSourceInstance;
+  readonly userAgent: string;
+}): Promise<readonly EarningsCallTransientArtifact[]> {
+  const revisionIds = await readPublicSourceAcquisitionArtifactReferences(
+    input.acquisitionId,
+    input.client,
+  );
+  if (!revisionIds) throw new EarningsCallAcquisitionError("transcript_coverage_unavailable");
+  const facts = await Promise.all(revisionIds.map((revisionId) =>
+    readPublicSourceFactRevision(revisionId, input.client)));
+  if (
+    facts.some((fact) =>
+      !fact || fact.sourceInstanceId !== input.source.sourceInstanceId ||
+      fact.adapterId !== "earnings-call-transcripts" ||
+      fact.payload.schemaVersion !== "earnings-call-event/v1")
+  ) throw new EarningsCallAcquisitionError("transcript_coverage_unavailable");
+  const fetched = await Promise.all(facts.map(async (fact) => {
+    if (!fact || fact.payload.schemaVersion !== "earnings-call-event/v1") {
+      throw new EarningsCallAcquisitionError("transcript_coverage_unavailable");
+    }
+    try {
+      return {
+        response: await input.fetchResponse({
+          headers: Object.freeze({
+            Accept: fact.payload.artifactMediaType,
+            "User-Agent": input.userAgent,
+          }),
+          kind: "transcript_artifact" as const,
+          maximumBytes: input.family.maximumArtifactBytes,
+          url: fact.payload.artifactUrl,
+        }),
+        status: "fulfilled" as const,
+      };
+    } catch (error) {
+      return { error, status: "rejected" as const };
+    }
+  }));
+  const artifacts = facts.map((fact, index) => {
+    if (!fact || fact.payload.schemaVersion !== "earnings-call-event/v1") {
+      throw new EarningsCallAcquisitionError("transcript_coverage_unavailable");
+    }
+    const fetchedArtifact = fetched[index]!;
+    if (fetchedArtifact.status === "rejected") throw fetchedArtifact.error;
+    const response = fetchedArtifact.response;
+    validateResponse({
+      endpoint: input.family.artifact,
+      expectedUrl: fact.payload.artifactUrl,
+      maximumBytes: input.family.maximumArtifactBytes,
+      maximumRedirects: input.family.maximumRedirects,
+      response,
+    });
+    validateArtifact(input.family, response);
+    if (
+      response.body.byteLength !== fact.payload.artifactByteCount ||
+      digestBytes(response.body) !== fact.payload.artifactDigest
+    ) throw new EarningsCallAcquisitionError("transcript_artifact_invalid");
+    return Object.freeze({
+      artifactBytes: response.body,
+      artifactDigest: fact.payload.artifactDigest,
+      artifactMediaType: fact.payload.artifactMediaType,
+      artifactUrl: fact.payload.artifactUrl,
+      factRevisionId: fact.revisionId,
+      fact,
+    });
+  });
+  return Object.freeze(artifacts);
+}
+
+async function hydrateCommittedArtifactsShared(input: {
+  readonly acquisitionId: string;
+  readonly client?: PublicSourceAcquisitionStoreClient;
+  readonly family: ReviewedParameterizedSourceFamily;
+  readonly fetchResponse: (request: EarningsCallPublicSourceRequest) => Promise<EarningsCallPublicSourceResponse>;
+  readonly source: PublicSourceInstance;
+  readonly userAgent: string;
+}): Promise<readonly EarningsCallTransientArtifact[]> {
+  let clients = sharedHydrations.get(input.fetchResponse);
+  if (!clients) {
+    clients = new WeakMap();
+    sharedHydrations.set(input.fetchResponse, clients);
+  }
+  const clientIdentity = input.client ?? defaultHydrationClientIdentity;
+  let acquisitions = clients.get(clientIdentity);
+  if (!acquisitions) {
+    acquisitions = new Map();
+    clients.set(clientIdentity, acquisitions);
+  }
+  const hydrationId = JSON.stringify([
+    input.acquisitionId,
+    input.family.familyDigest,
+    input.source.sourceInstanceId,
+    input.userAgent,
+  ]);
+  const active = acquisitions.get(hydrationId);
+  if (active) return active;
+  const started = hydrateCommittedArtifacts(input);
+  acquisitions.set(hydrationId, started);
+  try {
+    return await started;
+  } finally {
+    if (acquisitions.get(hydrationId) === started) acquisitions.delete(hydrationId);
   }
 }
 
@@ -194,6 +318,7 @@ const secSubmissionsSchema = z.object({
       acceptanceDateTime: z.array(z.string()),
       filingDate: z.array(z.string()),
       form: z.array(z.string()),
+      items: z.array(z.string()).optional(),
       primaryDocument: z.array(z.string()),
       reportDate: z.array(z.string()),
     }).passthrough(),
@@ -206,16 +331,32 @@ type SecContext = {
   readonly filingUrl: string;
 };
 
+type EarningsCallCandidateEvent = Readonly<{
+  artifactUrl: string;
+  callDate: string;
+  discoveryEvidence: "direct_link" | "reviewed_listing_payload" | "reviewed_path_template";
+  discoveryUrl: string;
+  fiscalPeriod: string;
+}>;
+
+function eventIdentity(event: Pick<EarningsCallCandidateEvent, "callDate" | "fiscalPeriod">): string {
+  return `${event.fiscalPeriod}:${event.callDate}`;
+}
+
 function secTimestamp(value: string): string | null {
-  if (!/^\d{14}$/u.test(value)) return null;
-  const timestamp = `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T${value.slice(8, 10)}:${value.slice(10, 12)}:${value.slice(12, 14)}Z`;
+  const timestamp = /^\d{14}$/u.test(value)
+    ? `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T${value.slice(8, 10)}:${value.slice(10, 12)}:${value.slice(12, 14)}Z`
+    : value;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})$/u.test(timestamp)) {
+    return null;
+  }
   return Number.isNaN(Date.parse(timestamp)) ? null : timestamp;
 }
 
 function secContexts(
   body: Uint8Array,
   cik: string,
-  events: ReviewedParameterizedSourceFamily["events"],
+  events: readonly EarningsCallCandidateEvent[],
 ): ReadonlyMap<string, SecContext> {
   let parsed: z.infer<typeof secSubmissionsSchema>;
   try {
@@ -233,8 +374,10 @@ function secContexts(
     throw new EarningsCallAcquisitionError("parser_incomplete");
   }
   const contexts = new Map<string, SecContext>();
-  for (const event of events) {
-    let best: { context: SecContext; distance: number } | null = null;
+  const claimedAccessions = new Set<string>();
+  for (const event of [...events].sort((left, right) =>
+    right.callDate.localeCompare(left.callDate))) {
+    let best: { context: SecContext; score: number } | null = null;
     for (let index = 0; index < length; index += 1) {
       if (recent.form[index] !== "8-K" && recent.form[index] !== "6-K") continue;
       const filingDate = recent.filingDate[index]!;
@@ -242,12 +385,15 @@ function secContexts(
       const eventTime = Date.parse(`${event.callDate}T00:00:00Z`);
       const evidenceTime = Date.parse(`${reportDate || filingDate}T00:00:00Z`);
       const distance = Math.abs(evidenceTime - eventTime) / 86_400_000;
-      if (!Number.isFinite(distance) || distance > 14 || (best && best.distance <= distance)) continue;
+      const earningsRelease = recent.items?.[index]?.split(",").includes("2.02") === true;
+      const score = distance * 2 + (earningsRelease ? 0 : 1);
+      if (!Number.isFinite(distance) || distance > 14 || (best && best.score <= score)) continue;
       const accessionNumber = recent.accessionNumber[index]!;
       const acceptanceDateTime = secTimestamp(recent.acceptanceDateTime[index]!);
       const primaryDocument = recent.primaryDocument[index]!;
       if (
         !/^\d{10}-\d{2}-\d{6}$/u.test(accessionNumber) ||
+        claimedAccessions.has(accessionNumber) ||
         !acceptanceDateTime ||
         !/^[A-Za-z0-9_.-]{1,200}$/u.test(primaryDocument)
       ) continue;
@@ -257,17 +403,135 @@ function secContexts(
           accessionNumber,
           filingUrl: `https://www.sec.gov/Archives/edgar/data/${Number(cik)}/${accessionNumber.replaceAll("-", "")}/${primaryDocument}`,
         },
-        distance,
+        score,
       };
     }
-    if (best) contexts.set(event.fiscalPeriod, best.context);
+    if (best) {
+      claimedAccessions.add(best.context.accessionNumber);
+      contexts.set(eventIdentity(event), best.context);
+    }
   }
   return contexts;
 }
 
+const jpmQuarterlyEarningsFeedSchema = z.object({
+  items: z.array(z.object({
+    docs: z.object({
+      transcript: z.object({
+        link: z.string().min(1).max(2_048),
+        title: z.string().min(1).max(200),
+      }).passthrough().optional(),
+    }).passthrough(),
+    quarter: z.enum(["1st", "2nd", "3rd", "4th"]),
+    year: z.string().regex(/^20\d{2}$/u),
+  }).passthrough()).max(256),
+  "total-items": z.number().int().nonnegative().max(10_000),
+}).passthrough();
+
+function earningsReleaseDate(
+  body: Uint8Array,
+  cik: string,
+  fiscalYear: string,
+  fiscalQuarter: string,
+): string | null {
+  let parsed: z.infer<typeof secSubmissionsSchema>;
+  try {
+    parsed = secSubmissionsSchema.parse(JSON.parse(decodeUtf8(body)));
+  } catch {
+    throw new EarningsCallAcquisitionError("parser_incomplete");
+  }
+  if (String(parsed.cik).padStart(10, "0") !== cik) {
+    throw new EarningsCallAcquisitionError("parser_incomplete");
+  }
+  const quarter = Number(fiscalQuarter);
+  const releaseYear = quarter === 4 ? Number(fiscalYear) + 1 : Number(fiscalYear);
+  const releaseMonth = [4, 7, 10, 1][quarter - 1]!;
+  const prefix = `${releaseYear}-${String(releaseMonth).padStart(2, "0")}-`;
+  const recent = parsed.filings.recent;
+  const candidates = recent.filingDate.flatMap((filingDate, index) => {
+    const items = recent.items?.[index] ?? "";
+    const reportDate = recent.reportDate[index] ?? "";
+    const primaryDocument = recent.primaryDocument[index] ?? "";
+    if (
+      recent.form[index] !== "8-K" ||
+      !items.split(",").includes("2.02") ||
+      !filingDate.startsWith(prefix) ||
+      reportDate !== filingDate ||
+      !/^jpm-\d{8}\.htm$/u.test(primaryDocument)
+    ) return [];
+    return [filingDate];
+  });
+  return new Set(candidates).size === 1 ? candidates[0]! : null;
+}
+
+function discoverCandidateEvents(
+  family: ReviewedParameterizedSourceFamily,
+  response: EarningsCallPublicSourceResponse,
+  secBody: Uint8Array,
+): readonly EarningsCallCandidateEvent[] {
+  if (family.discoveryPolicy.state !== "supported") return Object.freeze([]);
+  if (mediaType(response.contentType) !== "application/json") {
+    throw new EarningsCallAcquisitionError("parser_incomplete");
+  }
+  let feed: z.infer<typeof jpmQuarterlyEarningsFeedSchema>;
+  try {
+    feed = jpmQuarterlyEarningsFeedSchema.parse(JSON.parse(decodeUtf8(response.body)));
+  } catch {
+    throw new EarningsCallAcquisitionError("parser_incomplete");
+  }
+  const metadataPattern = new RegExp(family.discoveryPolicy.artifactPathMetadataPattern, "u");
+  const candidates = new Map<string, EarningsCallCandidateEvent>();
+  for (const item of feed.items) {
+    const transcript = item.docs.transcript;
+    if (!transcript) continue;
+    let artifactUrl: string;
+    try {
+      artifactUrl = new URL(transcript.link, family.discoveryPolicy.listingUrl).toString();
+    } catch {
+      continue;
+    }
+    const pathGroups = metadataPattern.exec(new URL(artifactUrl).pathname)?.groups;
+    if (!pathGroups?.fiscalYear || !pathGroups.fiscalQuarter) continue;
+    const fiscalPeriod = `FY${pathGroups.fiscalYear}-Q${pathGroups.fiscalQuarter}`;
+    const callDate = earningsReleaseDate(
+      secBody,
+      family.cik,
+      pathGroups.fiscalYear,
+      pathGroups.fiscalQuarter,
+    );
+    if (
+      !callDate ||
+      !exactReviewedUrl(artifactUrl, family.artifact)
+    ) continue;
+    if (
+      (pathGroups.fiscalYearShort !== undefined &&
+        pathGroups.fiscalYearShort !== pathGroups.fiscalYear.slice(-2)) ||
+      !new RegExp(`^${pathGroups.fiscalQuarter}Q${pathGroups.fiscalYear.slice(-2)} Earnings Transcript$`, "iu")
+        .test(transcript.title)
+    ) continue;
+    const candidate = Object.freeze({
+      artifactUrl,
+      callDate,
+      discoveryEvidence: "reviewed_listing_payload" as const,
+      discoveryUrl: family.discoveryPolicy.listingUrl,
+      fiscalPeriod,
+    });
+    const identity = eventIdentity(candidate);
+    const existing = candidates.get(identity);
+    if (existing && existing.artifactUrl !== candidate.artifactUrl) {
+      throw new EarningsCallAcquisitionError("parser_incomplete");
+    }
+    candidates.set(identity, candidate);
+  }
+  return Object.freeze([...candidates.values()]
+    .sort((left, right) => right.callDate.localeCompare(left.callDate) ||
+      right.fiscalPeriod.localeCompare(left.fiscalPeriod))
+    .slice(0, family.discoveryPolicy.maximumCandidateEvents));
+}
+
 function canonicalFact(input: {
   readonly artifact: EarningsCallPublicSourceResponse;
-  readonly event: ReviewedParameterizedSourceFamily["events"][number];
+  readonly event: EarningsCallCandidateEvent;
   readonly family: ReviewedParameterizedSourceFamily;
   readonly secContext: SecContext | null;
   readonly source: PublicSourceInstance;
@@ -426,14 +690,50 @@ async function acquire(input: {
   if (mediaType(sec.contentType) !== "application/json") {
     throw new EarningsCallAcquisitionError("parser_incomplete");
   }
-  const contexts = secContexts(sec.body, input.family.cik, input.family.events);
+  let events: readonly EarningsCallCandidateEvent[] = input.family.baselineEvents;
+  let reviewedListing: EarningsCallPublicSourceResponse | null = null;
+  if (input.family.discoveryPolicy.state === "supported") {
+    reviewedListing = await input.fetchResponse({
+      headers: Object.freeze({ Accept: "application/json", "User-Agent": input.userAgent }),
+      kind: "issuer_discovery",
+      maximumBytes: input.family.maximumDiscoveryBytes,
+      url: input.family.discoveryPolicy.listingUrl,
+    });
+    validateResponse({
+      endpoint: input.family.discovery,
+      expectedUrl: input.family.discoveryPolicy.listingUrl,
+      maximumBytes: input.family.maximumDiscoveryBytes,
+      maximumRedirects: input.family.maximumRedirects,
+      response: reviewedListing,
+    });
+    const discovered = discoverCandidateEvents(input.family, reviewedListing, sec.body);
+    if (discovered.length === 0) {
+      throw new EarningsCallAcquisitionError("transcript_coverage_unavailable");
+    }
+    const merged = new Map<string, EarningsCallCandidateEvent>(
+      input.family.baselineEvents.map((event) => [eventIdentity(event), event]),
+    );
+    for (const event of discovered) merged.set(eventIdentity(event), event);
+    events = Object.freeze([...merged.values()]
+      .sort((left, right) => right.callDate.localeCompare(left.callDate) ||
+        right.fiscalPeriod.localeCompare(left.fiscalPeriod))
+      .slice(0, input.family.discoveryPolicy.maximumCandidateEvents));
+  }
+  const contexts = secContexts(sec.body, input.family.cik, events);
+  if (
+    input.family.discoveryPolicy.state === "supported" &&
+    events.some((event) =>
+      event.discoveryEvidence === "reviewed_listing_payload" &&
+      !contexts.has(eventIdentity(event)))
+  ) throw new EarningsCallAcquisitionError("transcript_coverage_unavailable");
   const facts: CanonicalPublicFactRevision[] = [];
   const transientArtifacts: EarningsCallTransientArtifact[] = [];
   const artifactDigests: string[] = [];
   const observedTimes = [sec.observedAt];
-  for (const event of input.family.events) {
+  if (reviewedListing) observedTimes.push(reviewedListing.observedAt);
+  for (const event of events) {
     let discovery: EarningsCallPublicSourceResponse | null = null;
-    if (event.discoveryUrl !== event.artifactUrl) {
+    if (!reviewedListing && event.discoveryUrl !== event.artifactUrl) {
       discovery = await input.fetchResponse({
         headers: Object.freeze({ Accept: "text/html", "User-Agent": input.userAgent }),
         kind: "issuer_discovery",
@@ -472,7 +772,7 @@ async function acquire(input: {
       artifact,
       event,
       family: input.family,
-      secContext: contexts.get(event.fiscalPeriod) ?? null,
+      secContext: contexts.get(eventIdentity(event)) ?? null,
       source: input.source,
     });
     facts.push(fact);
@@ -490,10 +790,24 @@ async function acquire(input: {
       ? fact.payload.artifactDigest
       : "");
   }
+  const priorReads = await Promise.all(facts.map(async (fact) => {
+    try {
+      return {
+        fact: await readLatestPublicSourceFactRevision(fact.logicalKey, input.client),
+        status: "fulfilled" as const,
+      };
+    } catch (error) {
+      return { error, status: "rejected" as const };
+    }
+  }));
+  const priorFacts = priorReads.map((prior) => {
+    if (prior.status === "rejected") throw prior.error;
+    return prior.fact;
+  });
   const corrections: PublicSourceCorrection[] = [];
   const candidateFacts: CanonicalPublicFactRevision[] = [];
-  for (const fact of facts) {
-    const prior = await readLatestPublicSourceFactRevision(fact.logicalKey, input.client);
+  for (const [index, fact] of facts.entries()) {
+    const prior = priorFacts[index];
     if (!prior) {
       candidateFacts.push(fact);
     } else if (prior.revisionId !== fact.revisionId) {
@@ -527,7 +841,8 @@ async function acquire(input: {
       proposedNextCursor: {
         contentDigest,
         expectedRevision: input.source.cursor.revision,
-        watermark: [...input.family.events].sort((left, right) => right.callDate.localeCompare(left.callDate))[0]!.callDate,
+        watermark: events.reduce((latest, event) =>
+          event.callDate > latest ? event.callDate : latest, events[0]!.callDate),
       },
       recordType: "public_source_acquisition_result",
       retryAfterSeconds: null,
@@ -572,6 +887,31 @@ async function readCursorConflictWinner(input: {
   return null;
 }
 
+async function reuseCommittedAcquisition(input: {
+  readonly client?: PublicSourceAcquisitionStoreClient;
+  readonly family: ReviewedParameterizedSourceFamily;
+  readonly fetchResponse: (request: EarningsCallPublicSourceRequest) => Promise<EarningsCallPublicSourceResponse>;
+  readonly journal: PublicSourceAcquisitionJournal;
+  readonly result: EarningsCallPublicSourceAcquisition["result"];
+  readonly source: PublicSourceInstance;
+  readonly userAgent: string;
+}): Promise<Omit<SharedEarningsCallPublicSourceAcquisitionResult, "reused">> {
+  return Object.freeze({
+    acquisition: input.result,
+    baselineEstablished: input.result.baselineEstablished,
+    commit: null,
+    journal: input.journal,
+    transientArtifacts: await hydrateCommittedArtifactsShared({
+      acquisitionId: input.result.acquisitionId,
+      client: input.client,
+      family: input.family,
+      fetchResponse: input.fetchResponse,
+      source: input.source,
+      userAgent: input.userAgent,
+    }),
+  });
+}
+
 export async function runSharedEarningsCallPublicSourceAcquisition(input: {
   readonly client?: PublicSourceAcquisitionStoreClient;
   readonly fetchResponse: (request: EarningsCallPublicSourceRequest) => Promise<EarningsCallPublicSourceResponse>;
@@ -593,12 +933,16 @@ export async function runSharedEarningsCallPublicSourceAcquisition(input: {
   };
   const committedForWindow = await readCommittedPublicSourceAcquisitionForWindow(windowIdentity, input.client);
   if (committedForWindow) return Object.freeze({
-    acquisition: committedForWindow.result,
-    baselineEstablished: committedForWindow.result.baselineEstablished,
-    commit: null,
-    journal: committedForWindow.journal,
+    ...(await reuseCommittedAcquisition({
+      client: input.client,
+      family,
+      fetchResponse: input.fetchResponse,
+      journal: committedForWindow.journal,
+      result: committedForWindow.result,
+      source: reviewed.sourceInstance,
+      userAgent,
+    })),
     reused: true,
-    transientArtifacts: Object.freeze([]),
   });
   const source = await ensurePublicSourceInstance(reviewed.sourceInstance, input.client);
   const eligibility = {
@@ -607,24 +951,30 @@ export async function runSharedEarningsCallPublicSourceAcquisition(input: {
   };
   const reusable = await readReusablePublicSourceAcquisition(eligibility, input.client);
   if (reusable) return Object.freeze({
-    acquisition: reusable.result,
-    baselineEstablished: reusable.result.baselineEstablished,
-    commit: null,
-    journal: reusable.journal,
+    ...(await reuseCommittedAcquisition({
+      client: input.client,
+      family,
+      fetchResponse: input.fetchResponse,
+      journal: reusable.journal,
+      result: reusable.result,
+      source,
+      userAgent,
+    })),
     reused: true,
-    transientArtifacts: Object.freeze([]),
   });
   const eligibilityId = derivePublicSourceAcquisitionEligibilityId(eligibility);
   const active = sharedAcquisitions.get(eligibilityId);
   if (active) return Object.freeze({ ...(await active), reused: true });
   const started = (async (): Promise<Omit<SharedEarningsCallPublicSourceAcquisitionResult, "reused">> => {
     const raced = await readReusablePublicSourceAcquisition(eligibility, input.client);
-    if (raced) return Object.freeze({
-      acquisition: raced.result,
-      baselineEstablished: raced.result.baselineEstablished,
-      commit: null,
+    if (raced) return reuseCommittedAcquisition({
+      client: input.client,
+      family,
+      fetchResponse: input.fetchResponse,
       journal: raced.journal,
-      transientArtifacts: Object.freeze([]),
+      result: raced.result,
+      source,
+      userAgent,
     });
     let prepared: EarningsCallPublicSourceAcquisition;
     try {
@@ -655,6 +1005,10 @@ export async function runSharedEarningsCallPublicSourceAcquisition(input: {
       });
     }
     try {
+      await writePublicSourceAcquisitionArtifactReferences({
+        acquisitionId: prepared.result.acquisitionId,
+        factRevisionIds: prepared.transientArtifacts.map(({ factRevisionId }) => factRevisionId),
+      }, input.client);
       const commit = await commitPublicSourceAcquisition({ acquisition: prepared, client: input.client });
       return Object.freeze({
         acquisition: prepared.result,
@@ -670,12 +1024,14 @@ export async function runSharedEarningsCallPublicSourceAcquisition(input: {
       ) throw error;
       const winner = await readCursorConflictWinner({ client: input.client, source, window: input.window });
       if (!winner) throw error;
-      return Object.freeze({
-        acquisition: winner.result,
-        baselineEstablished: winner.result.baselineEstablished,
-        commit: null,
+      return reuseCommittedAcquisition({
+        client: input.client,
+        family,
+        fetchResponse: input.fetchResponse,
         journal: winner.journal,
-        transientArtifacts: Object.freeze([]),
+        result: winner.result,
+        source,
+        userAgent,
       });
     }
   })();

@@ -1,10 +1,15 @@
 import { EARNINGS_CALL_ISSUER_CATALOG } from "./earnings-call-issuer-catalog";
+import { resolveEarningsCallPublicSource } from "./earnings-call-public-source-contract";
 import {
   readEarningsCallFinding,
   readLatestEarningsCallFinding,
   type EarningsCallFindingRecord,
   type EarningsCallFindingStoreClient,
 } from "./earnings-call-finding-store";
+import {
+  readEarningsCallIssuerStatus,
+  type EarningsCallIssuerStatusStoreClient,
+} from "./earnings-call-status-store";
 import type { AuthorizedWorkspaceStoreScope } from "./workspace-store-authorization";
 
 export class EarningsCallPresentationError extends Error {
@@ -70,21 +75,92 @@ export async function readLatestEarningsCallFindingExplanation(
 }
 
 export async function readEarningsCallWorkspacePresentation(input: {
+  readonly monitor?: Readonly<{
+    readonly lifecycleState: "enabled" | "paused" | "paused_failure" | "retired" | "suspended_archived";
+    readonly sourceCheckpoint: Readonly<{ readonly contentDigest: string | null; readonly watermark: string | null }>;
+    readonly sources: readonly Readonly<{ readonly sourceId: string }>[];
+  }>;
   readonly scope: AuthorizedWorkspaceStoreScope;
   readonly selectedIssuerCiks: readonly string[];
-}, client?: EarningsCallFindingStoreClient) {
+  readonly sourceHealth?: readonly Readonly<{
+    readonly healthState: "degraded" | "healthy" | "idle" | "unavailable";
+    readonly sourceId: string;
+  }>[];
+}, clients?: EarningsCallFindingStoreClient | Readonly<{
+  readonly findings?: EarningsCallFindingStoreClient;
+  readonly statuses?: EarningsCallIssuerStatusStoreClient;
+}>) {
+  const findings = clients && "createOrRead" in clients ? clients : clients?.findings;
+  const statuses = clients && "createOrRead" in clients ? undefined : clients?.statuses;
   const selected = new Set(input.selectedIssuerCiks);
-  const coverage = EARNINGS_CALL_ISSUER_CATALOG.entries
-    .filter(({ cik }) => selected.has(cik))
-    .map((entry) => Object.freeze({
+  const entries = EARNINGS_CALL_ISSUER_CATALOG.entries.filter(({ cik }) => selected.has(cik));
+  const [latest, storedStatuses] = await Promise.all([
+    readLatestEarningsCallFinding(input.scope, findings),
+    Promise.all(entries.map(({ cik }) => readEarningsCallIssuerStatus(input.scope, cik, statuses))),
+  ]);
+  const sourceHealth = new Map((input.sourceHealth ?? []).map((health) => [health.sourceId, health]));
+  const coverage = entries.map((entry, index) => {
+    const sourceId = `earnings-call-transcripts.${entry.cik}`;
+    const reviewed = resolveEarningsCallPublicSource(sourceId);
+    const discoveryUnavailable = reviewed?.family.discoveryPolicy.state === "coverage_unavailable";
+    let projected = discoveryUnavailable
+      ? {
+          lastSuccessfulEventAt: null,
+          reasonCode: "coverage_not_reviewed" as const,
+          state: "coverage_unavailable" as const,
+        }
+      : storedStatuses[index]?.coverage ?? {
+          lastSuccessfulEventAt: null,
+          reasonCode: "awaiting_comparable_call" as const,
+          state: "awaiting_comparable_call" as const,
+        };
+    if (projected.state !== "coverage_unavailable") {
+      if (
+        !storedStatuses[index] &&
+        input.monitor?.sourceCheckpoint.watermark &&
+        input.monitor.sources.some((source) => source.sourceId === sourceId)
+      ) {
+        projected = {
+          lastSuccessfulEventAt: input.monitor.sourceCheckpoint.watermark,
+          reasonCode: null,
+          state: "baseline_ready",
+        };
+      }
+      if (latest?.cik === entry.cik) {
+        projected = {
+          lastSuccessfulEventAt: latest.createdAt,
+          reasonCode: null,
+          state: "current",
+        };
+      }
+      const health = sourceHealth.get(sourceId);
+      if (health && (health.healthState === "degraded" || health.healthState === "unavailable")) {
+        projected = {
+          lastSuccessfulEventAt: projected.lastSuccessfulEventAt,
+          reasonCode: "source_failed",
+          state: "degraded",
+        };
+      }
+      if (
+        input.monitor?.lifecycleState === "paused_failure" &&
+        input.monitor.sources.some((source) => source.sourceId === sourceId)
+      ) {
+        projected = {
+          lastSuccessfulEventAt: projected.lastSuccessfulEventAt ?? input.monitor.sourceCheckpoint.watermark,
+          reasonCode: "source_failed",
+          state: "paused_failure",
+        };
+      }
+    }
+    return Object.freeze({
       cik: entry.cik,
       companyName: entry.companyName,
-      lastSuccessfulEventAt: entry.coverage.lastSuccessfulEventAt,
-      reasonCode: entry.coverage.reasonCode,
-      state: entry.coverage.state,
+      lastSuccessfulEventAt: projected.lastSuccessfulEventAt,
+      reasonCode: projected.reasonCode,
+      state: projected.state,
       ticker: entry.ticker,
-    }));
-  const latest = await readLatestEarningsCallFinding(input.scope, client);
+    });
+  });
   return Object.freeze({
     coverage: Object.freeze(coverage),
     latestAnalysis: latest ? explainEarningsCallFinding(latest) : null,

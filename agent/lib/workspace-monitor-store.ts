@@ -263,7 +263,7 @@ const monitorSchema = z
         watermark: timestampSchema.nullable(),
       })
       .strict(),
-    sources: workspaceMonitorSourcesSchema,
+    sources: workspaceMonitorSourcesSchema.or(z.tuple([])),
     tighteningLimits: z
       .object({
         inputTokensPerRun: z.number().int().positive().nullable(),
@@ -280,6 +280,12 @@ const monitorSchema = z
   })
   .strict()
   .superRefine((monitor, context) => {
+    if (
+      monitor.sources.length === 0 &&
+      (monitor.lifecycleState === "enabled" || monitor.managedBy?.packId !== "earnings-call-changes")
+    ) {
+      context.addIssue({ code: "custom", message: "Monitor needs at least one runnable source." });
+    }
     if (new Set(monitor.requiredCapabilityIds).size !== monitor.requiredCapabilityIds.length) {
       context.addIssue({ code: "custom", message: "Duplicate capability." });
     }
@@ -1447,14 +1453,23 @@ export async function pauseWorkspaceMonitorAfterUncertainAlert(
 }
 
 export async function releaseWorkspaceMonitorLease(
-  input: { leaseToken: string; monitorId: string; scope: AuthorizedWorkspaceStoreScope },
+  input: {
+    leaseToken: string;
+    monitorId: string;
+    retryAt?: string;
+    scope: AuthorizedWorkspaceStoreScope;
+  },
   client: WorkspaceMonitorStoreClient = store(),
 ): Promise<boolean> {
   assertAuthorizedWorkspaceStoreScope(input.scope);
   const monitor = await getWorkspaceMonitor(input.scope, input.monitorId, client);
   if (!monitor) return false;
+  const retryAtMs = input.retryAt === undefined ? null : Date.parse(input.retryAt);
+  if (retryAtMs !== null && !Number.isFinite(retryAtMs)) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
   return client.releaseLease({
-    dueAtMs: dueAt(monitor),
+    dueAtMs: retryAtMs ?? dueAt(monitor),
     dueKey: DUE_KEY,
     inflightKey: INFLIGHT_KEY,
     leaseKey: leaseKey(input.scope, input.monitorId),

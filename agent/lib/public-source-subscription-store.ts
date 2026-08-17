@@ -276,8 +276,17 @@ export async function readAuthorizedPublicSourceProjection(input: {
   ) {
     throw new PublicSourceSubscriptionStoreError("public_source_subscription_corrupt");
   }
-  const fact = await readPublicSourceFactRevision(input.factRevisionId, clients.acquisition);
-  if (!fact || fact.sourceInstanceId !== subscription.sourceInstanceId) {
+  const [fact, journal] = await Promise.all([
+    readPublicSourceFactRevision(input.factRevisionId, clients.acquisition),
+    readPublicSourceAcquisitionJournal(projection.acquisitionId, clients.acquisition),
+  ]);
+  if (
+    !fact || fact.sourceInstanceId !== subscription.sourceInstanceId ||
+    !journal || journal.status !== "committed" ||
+    journal.sourceInstanceId !== subscription.sourceInstanceId ||
+    journal.adapterDefinitionDigest !== subscription.adapterDefinitionDigest ||
+    !journal.factRevisionIds.includes(fact.revisionId)
+  ) {
     throw new PublicSourceSubscriptionStoreError("public_source_subscription_corrupt");
   }
   return Object.freeze({ fact, projection });
