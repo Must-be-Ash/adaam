@@ -10,8 +10,12 @@ import {
   type HybridEvidenceJob,
 } from "./hybrid-evidence-schema";
 import type { HybridEvidenceBudgetReservation } from "./hybrid-evidence-budget";
+import {
+  HYBRID_MODEL_REASONING_VALUES,
+  type HybridModelReasoning,
+} from "./hybrid-evidence-model-routing";
 
-const MAX_AUTH_LIFETIME_MS = 15 * 60_000;
+export const HYBRID_EVIDENCE_WORKER_MAX_RUNTIME_MS = 15 * 60_000;
 const CLOCK_SKEW_MS = 60_000;
 const SECRET_PATTERN = /^[A-Za-z0-9_-]{43,}$/u;
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
@@ -40,6 +44,7 @@ const envelopeSchema = z.object({
   issuedAt: timestampSchema,
   jobId: z.string().min(3).max(200),
   modelId: z.string().min(3).max(200),
+  reasoning: z.enum(HYBRID_MODEL_REASONING_VALUES).default("high"),
   schemaVersion: z.literal(1),
   scope: hybridEvidenceScopeSchema,
 }).strict().superRefine((value, context) => {
@@ -50,7 +55,7 @@ const envelopeSchema = z.object({
     : "workspace";
   if (
     expires <= issued ||
-    expires - issued > MAX_AUTH_LIFETIME_MS ||
+    expires - issued > HYBRID_EVIDENCE_WORKER_MAX_RUNTIME_MS ||
     value.budget.scope !== expectedBudgetScope ||
     value.allowedLocators.some((locator) =>
       ("artifactDigest" in locator &&
@@ -99,6 +104,7 @@ export function createHybridEvidenceWorkerEnvelope(input: {
   issuedAt: Date;
   job: HybridEvidenceJob;
   locators: readonly EvidenceLocator[];
+  reasoning?: HybridModelReasoning;
   evidenceLimits: {
     maximumBytes: number;
     maximumPages: number;
@@ -126,6 +132,7 @@ export function createHybridEvidenceWorkerEnvelope(input: {
     issuedAt: input.issuedAt.toISOString(),
     jobId: input.job.jobId,
     modelId: input.job.modelId,
+    reasoning: input.reasoning ?? "high",
     schemaVersion: 1,
     scope: input.job.scope,
   });

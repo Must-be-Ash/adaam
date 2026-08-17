@@ -8,6 +8,7 @@ import { createNodeTargetedWorkflowRuntime } from "@adaam/eve-workspace-runtime-
 
 import {
   createHybridEvidenceWorkerEnvelope,
+  HYBRID_EVIDENCE_WORKER_MAX_RUNTIME_MS,
   hybridEvidenceWorkerExecutionAuth,
   requireHybridEvidenceWorkerAuth,
   signHybridEvidenceWorkerEnvelope,
@@ -16,6 +17,7 @@ import {
 import type { HybridEvidenceWorkerArtifactReader } from "./hybrid-evidence-artifact-store";
 import { createHybridEvidenceWorkerArtifactStore } from "./hybrid-evidence-artifact-store";
 import type { HybridEvidenceBudgetReservation } from "./hybrid-evidence-budget";
+import type { HybridModelReasoning } from "./hybrid-evidence-model-routing";
 import { readPublicSourceFactRevision } from "./public-source-acquisition-store";
 import {
   assertHybridEvidenceJobCurrent,
@@ -38,6 +40,7 @@ import {
   type WorkspaceSemanticEvidence,
 } from "./hybrid-evidence-semantic-store";
 import { resolveHybridEvidenceWorkerFixtureClients } from "./hybrid-evidence-worker-test-fixtures";
+import { createHybridEvidenceWorkerRuntimeConfig } from "./hybrid-evidence-worker-config";
 import { authorizeDeploymentWorkspaceStore } from "./workspace-store-authorization";
 
 export const HYBRID_EVIDENCE_WORKER_NODE_ID = "subagents/hybrid-evidence-worker";
@@ -173,6 +176,7 @@ export async function prepareHybridEvidenceWorkerRun(input: {
   locators: readonly EvidenceLocator[];
   now?: Date;
   prepared: HybridEvidenceJobRecord;
+  reasoning?: HybridModelReasoning;
 }): Promise<PreparedHybridEvidenceWorkerRun> {
   const now = input.now ?? new Date();
   const definition = hybridEvidenceJobDefinitionSchema.parse(input.definition);
@@ -189,7 +193,10 @@ export async function prepareHybridEvidenceWorkerRun(input: {
       digestHybridEvidenceValue(input.inputProjection) !== input.prepared.job.inputProjectionDigest)
   ) throw new HybridEvidenceWorkerError("input_projection_invalid");
   const expiresAt = new Date(
-    now.getTime() + Math.min(definition.limits.maximumRuntimeMs, 15 * 60_000),
+    now.getTime() + Math.min(
+      definition.limits.maximumRuntimeMs,
+      HYBRID_EVIDENCE_WORKER_MAX_RUNTIME_MS,
+    ),
   );
   const envelope = createHybridEvidenceWorkerEnvelope({
     budget: input.budget,
@@ -198,6 +205,7 @@ export async function prepareHybridEvidenceWorkerRun(input: {
     issuedAt: now,
     job: input.prepared.job,
     locators,
+    reasoning: input.reasoning,
     evidenceLimits: {
       maximumBytes: definition.limits.maximumEvidenceBytes,
       maximumPages: definition.limits.maximumPages,
@@ -396,16 +404,7 @@ export async function startHybridEvidenceWorkerTask(
   if (typeof token !== "string") throw new HybridEvidenceWorkerError("capability_denied");
   const envelope = verifyHybridEvidenceWorkerToken(token);
   const runtime = await createNodeTargetedWorkflowRuntime({
-    dynamicSubagentAgentConfig: {
-      description: "Execute one bounded public hybrid-evidence task with no conversational history.",
-      limits: {
-        maxInputTokensPerSession: envelope.budget.inputTokens,
-        maxOutputTokensPerSession: envelope.budget.outputTokens,
-        sessionTimeoutMs: 15 * 60_000,
-      },
-      model: envelope.modelId,
-      reasoning: "high",
-    },
+    dynamicSubagentAgentConfig: createHybridEvidenceWorkerRuntimeConfig(envelope),
     nodeId: request.nodeId,
   });
   return runtime.createSession({

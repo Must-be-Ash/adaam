@@ -11,6 +11,10 @@ import {
   createExtractionRecoveryDefinitions,
   EARNINGS_CALL_TRANSCRIPT_LAYOUT_DEFINITION_ID,
 } from "./hybrid-evidence-definition-registry";
+import {
+  assertHybridModelRouteAllowed,
+  resolveHybridTaskModelRoute,
+} from "./hybrid-evidence-model-routing";
 import { createAcceptedExtractionResult } from "./hybrid-evidence-extraction-recovery";
 import type { HybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
 import {
@@ -37,7 +41,10 @@ import {
   type PreparedHybridEvidenceWorkerRun,
 } from "./hybrid-evidence-worker";
 import type { WorkspaceBudgetLedgerClient } from "./workspace-budget-ledger";
-import type { WorkspaceGlobalBudgetClient } from "./workspace-dispatch-budget";
+import {
+  resolveHybridEvidenceDeploymentBudgetLimits,
+  type WorkspaceGlobalBudgetClient,
+} from "./workspace-dispatch-budget";
 import {
   earningsTranscriptSchema,
   type EarningsTranscript,
@@ -115,7 +122,6 @@ export async function runEarningsCallTranscriptLayoutRecovery(input: {
   readonly environment?: NodeJS.ProcessEnv;
   readonly eventRevisionId: string;
   readonly initiatingWorkspaceId: string;
-  readonly modelId: string;
   readonly observedAt: string;
   readonly sourceInstanceId: string;
   readonly sourceLogicalKey: string;
@@ -123,7 +129,15 @@ export async function runEarningsCallTranscriptLayoutRecovery(input: {
   readonly startWorker?: (request: PreparedHybridEvidenceWorkerRun["request"]) => Promise<RunHandle>;
 }): Promise<EarningsCallTranscriptRecoveryResult> {
   const now = new Date();
-  const definition = createExtractionRecoveryDefinitions([input.modelId]).find(
+  const route = resolveHybridTaskModelRoute(
+    "extraction_recovery",
+    input.environment,
+  );
+  assertHybridModelRouteAllowed(
+    route,
+    resolveHybridEvidenceDeploymentBudgetLimits(input.environment).allowedModelIds,
+  );
+  const definition = createExtractionRecoveryDefinitions([route.modelId]).find(
     ({ definitionId }) => definitionId === EARNINGS_CALL_TRANSCRIPT_LAYOUT_DEFINITION_ID,
   )!;
   const projectionText = `${input.sourceText}\n<!-- eve normalized transcript projection -->`;
@@ -167,7 +181,7 @@ export async function runEarningsCallTranscriptLayoutRecovery(input: {
       input.artifactMediaType,
     ]),
     locators: [locator],
-    modelId: input.modelId,
+    modelId: route.modelId,
     now,
     scope: {
       initiatingWorkspaceId: input.initiatingWorkspaceId,
@@ -243,6 +257,7 @@ export async function runEarningsCallTranscriptLayoutRecovery(input: {
     locators: [locator],
     now,
     prepared: record,
+    reasoning: route.reasoning,
   });
   try {
     const usage = input.dispatch

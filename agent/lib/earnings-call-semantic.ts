@@ -12,6 +12,7 @@ import {
   type WorkspaceSemanticEvidenceBundleRunResult,
   type WorkspaceSemanticModelUsage,
 } from "./hybrid-evidence-semantic";
+import type { HybridModelReasoning } from "./hybrid-evidence-model-routing";
 import type { HybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
 import type { HybridEvidenceJobStoreClient } from "./hybrid-evidence-job-store";
 import type { HybridEvidenceLineageStoreClient } from "./hybrid-evidence-lineage-store";
@@ -294,6 +295,7 @@ export async function runEarningsCallSemanticComparison(input: {
   environment?: NodeJS.ProcessEnv;
   evidence: readonly EarningsCallSemanticEvidenceInput[];
   modelId: string;
+  reasoning?: HybridModelReasoning;
   now?: Date;
   pack: { contentDigest: string; id: string; version: string };
   scope: AuthorizedWorkspaceStoreScope;
@@ -316,6 +318,7 @@ export async function runEarningsCallSemanticComparison(input: {
   const shared = {
     environment: input.environment,
     modelId: input.modelId,
+    reasoning: input.reasoning,
     now: input.now,
     pack: input.pack,
     scope: input.scope,

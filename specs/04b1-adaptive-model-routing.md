@@ -169,17 +169,17 @@ configuration, fixture, environment, or dependency changed.
 
 ### Sprint 1 — Select and wire models
 
-- [ ] Add the central task-purpose-to-model-class resolver and strict
+- [x] Add the central task-purpose-to-model-class resolver and strict
   configuration validation.
-- [ ] Pass the selected model and reasoning effort through the existing signed
+- [x] Pass the selected model and reasoning effort through the existing signed
   fresh-worker boundary without weakening existing authorization.
-- [ ] Wire current extraction-recovery callers to fast and semantic callers to
+- [x] Wire current extraction-recovery callers to fast and semantic callers to
   frontier; keep deterministic work model-free.
-- [ ] Preserve existing definition, capability, budget, citation, validation,
+- [x] Preserve existing definition, capability, budget, citation, validation,
   and result-storage checks.
-- [ ] Add one focused routing verifier covering no-model, fast, frontier,
+- [x] Add one focused routing verifier covering no-model, fast, frontier,
   missing/partial configuration, denied model, and unchanged root model.
-- [ ] Run the focused verifier, typecheck, and Eve build; mark verified items
+- [x] Run the focused verifier, typecheck, and Eve build; mark verified items
   and commit Sprint 1.
 
 Exit gate: deterministic fixtures make no model call; extraction dispatches the

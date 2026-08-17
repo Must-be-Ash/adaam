@@ -34,6 +34,7 @@ import {
   type IndependentPdfOcr,
 } from "./hybrid-evidence-pdf";
 import type { EvidenceLocator, HybridEvidenceJobDefinition } from "./hybrid-evidence-schema";
+import type { HybridModelReasoning } from "./hybrid-evidence-model-routing";
 import {
   advanceHybridSourceResultLineage,
   type HybridEvidenceLineageStoreClient,
@@ -221,6 +222,7 @@ export function createHouseHybridEvidenceRecovery(input: {
   readonly environment?: NodeJS.ProcessEnv;
   readonly initiatingWorkspaceId: string;
   readonly modelId: string;
+  readonly reasoning?: HybridModelReasoning;
 }): HouseHybridRecovery {
   const environment = input.environment ?? process.env;
   const artifacts = input.clients?.artifacts ?? createHybridEvidenceArtifactStore();
@@ -343,6 +345,7 @@ export function createHouseHybridEvidenceRecovery(input: {
         locators,
         now: processingNow,
         prepared: record,
+        reasoning: input.reasoning,
       });
       try {
         let workerUsage: HybridEvidenceModelUsage | void;
@@ -462,6 +465,7 @@ export const HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION = Object.freeze({
     readonly environment?: NodeJS.ProcessEnv;
     readonly initiatingWorkspaceId: string;
     readonly modelIds: readonly [extraction: string, independentOcr: string];
+    readonly reasoning: "provider-default" | "low";
   }): HouseHybridRecovery {
     return createHouseHybridEvidenceRecovery({
       allowedModelIds: input.modelIds,
@@ -475,6 +479,7 @@ export const HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION = Object.freeze({
       environment: input.environment,
       initiatingWorkspaceId: input.initiatingWorkspaceId,
       modelId: input.modelIds[0],
+      reasoning: input.reasoning,
     });
   },
 });

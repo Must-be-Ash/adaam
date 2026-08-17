@@ -38,6 +38,10 @@ import {
 import { startHybridEvidenceWorkerTask } from "./hybrid-evidence-worker";
 import { resolveHybridEvidenceFlags } from "./hybrid-evidence-flags";
 import {
+  assertHybridModelRouteAllowed,
+  resolveHybridTaskModelRoute,
+} from "./hybrid-evidence-model-routing";
+import {
   readPublicSourceCorrection,
   type PublicSourceAcquisitionStoreClient,
 } from "./public-source-acquisition-store";
@@ -59,7 +63,10 @@ import {
 import {
   EARNINGS_CALL_CHANGES_EVALUATION_TOOL_ID,
 } from "./strategy-pack-reference-catalog";
-import { strategyPackCatalog } from "./strategy-pack-catalog";
+import {
+  strategyPackCatalog,
+  type StrategyPackCatalogEntry,
+} from "./strategy-pack-catalog";
 import { resolveParameterizedStrategyPackSources } from "./strategy-pack-source-resolution";
 import {
   readWorkspaceFindingIdentityClaim,
@@ -257,13 +264,18 @@ function alertPresentationFromEarningsFact(
 
 async function processIssuer(input: {
   readonly artifacts: HybridEvidenceArtifactStore;
+  readonly allowedSemanticModelIds: readonly string[];
   readonly clients?: EarningsCallWorkspaceWorkerClients;
   readonly envelope: ReturnType<typeof requireWorkspaceWorkerAuth>;
   readonly environment: NodeJS.ProcessEnv;
-  readonly modelId: string;
   readonly monitor: WorkspaceMonitor;
   readonly now: Date;
-  readonly pack: { readonly contentDigest: string; readonly id: "earnings-call-changes"; readonly version: string };
+  readonly pack: Pick<
+    StrategyPackCatalogEntry,
+    "contentDigest" | "evidenceContracts" | "version"
+  > & {
+    readonly id: "earnings-call-changes";
+  };
   readonly scope: ReturnType<typeof authorizeWorkspaceWorkerStore>;
   readonly source: WorkspaceMonitor["sources"][number];
   readonly sourceLifecycle: EarningsCallSourceLifecycleStore;
@@ -401,14 +413,10 @@ async function processIssuer(input: {
     let transcript = deterministic;
     if (deterministic.state === "recovery_required") {
       const flags = resolveHybridEvidenceFlags(input.environment);
-      const recoveryModelId = input.environment.EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS
-        ?.split(",")
-        .map((value) => value.trim())
-        .find(Boolean) ?? null;
       const execute = input.clients?.semantic?.execute ??
         (async (prepared: Parameters<NonNullable<SemanticClients["execute"]>>[0]) =>
           drainHybridWorker(prepared.request));
-      const recovered = flags.extractionRecovery && recoveryModelId
+      const recovered = flags.extractionRecovery
         ? await runEarningsCallTranscriptLayoutRecovery({
             acquisitionId: coordinated.acquisition.acquisitionId,
             artifactDigest: deterministic.artifactDigest,
@@ -425,7 +433,6 @@ async function processIssuer(input: {
             environment: input.environment,
             eventRevisionId: event.revisionId,
             initiatingWorkspaceId: input.scope.workspaceId,
-            modelId: recoveryModelId,
             observedAt: event.observedAt,
             sourceInstanceId: event.sourceInstanceId,
             sourceLogicalKey: artifact.fact.logicalKey,
@@ -545,6 +552,20 @@ async function processIssuer(input: {
   const yearAgo = comparison.secondaryYearAgo
     ? normalized.find(({ record }) => record.event.revisionId === comparison.secondaryYearAgo!.eventRevisionId)
     : undefined;
+  const semanticRoute = resolveHybridTaskModelRoute(
+    "semantic_interpretation",
+    input.environment,
+  );
+  assertHybridModelRouteAllowed(semanticRoute, input.allowedSemanticModelIds);
+  const semanticDefinitions = createEarningsCallComparisonDefinitions([
+    semanticRoute.modelId,
+  ]);
+  if (!semanticDefinitions.every((definition) =>
+    input.pack.evidenceContracts?.some((contract) =>
+      contract.id === definition.definitionId &&
+      contract.version === definition.definitionVersion &&
+      contract.digest === definition.definitionDigest)
+  )) throw new EarningsCallWorkspaceWorkerError("earnings_call_strategy_invalid");
   const semantic = await runEarningsCallSemanticComparison({
     comparison,
     environment: input.environment,
@@ -553,9 +574,10 @@ async function processIssuer(input: {
       { ...prior.evidence, role: "prior" },
       ...(yearAgo ? [{ ...yearAgo.evidence, role: "year_ago" as const }] : []),
     ],
-    modelId: input.modelId,
+    modelId: semanticRoute.modelId,
     now: input.now,
     pack: input.pack,
+    reasoning: semanticRoute.reasoning,
     scope: input.scope,
     workspaceGeneration: input.envelope.strategyPack!.workspaceGeneration,
   }, {
@@ -796,14 +818,6 @@ export async function evaluateEarningsCallChangesForWorker(input: {
     throw new EarningsCallWorkspaceWorkerError("earnings_call_strategy_invalid");
   }
   const threshold = thresholdValue(strategy.value.configuration.materialityThreshold);
-  const modelId = capabilities.resolved.workerModelIds.find((candidate) => {
-    const definitions = createEarningsCallComparisonDefinitions([candidate]);
-    return definitions.every((definition) => pack.evidenceContracts?.some((contract) =>
-      contract.id === definition.definitionId &&
-      contract.version === definition.definitionVersion &&
-      contract.digest === definition.definitionDigest));
-  });
-  if (!modelId) throw new EarningsCallWorkspaceWorkerError("earnings_call_strategy_invalid");
   const artifacts = input.clients?.artifacts ?? input.clients?.semantic?.artifacts ??
     createHybridEvidenceEphemeralArtifactStore();
   // A prior delayed attempt authorizes only the next fresh acquisition. Clear
@@ -815,13 +829,18 @@ export async function evaluateEarningsCallChangesForWorker(input: {
     try {
       issuerResults.push(await processIssuer({
         artifacts,
+        allowedSemanticModelIds: capabilities.resolved.workerModelIds,
         clients: input.clients,
         envelope,
         environment,
-        modelId,
         monitor,
         now,
-        pack: { contentDigest: pack.contentDigest, id: "earnings-call-changes", version: pack.version },
+        pack: {
+          contentDigest: pack.contentDigest,
+          evidenceContracts: pack.evidenceContracts,
+          id: "earnings-call-changes",
+          version: pack.version,
+        },
         scope,
         source,
         sourceLifecycle,
