@@ -30,11 +30,14 @@ Primary source references:
 - Exa terms: <https://exa.ai/assets/Exa_Labs_Terms_of_Service.pdf>
 - White House copyright policy: <https://www.whitehouse.gov/copyright/>
 
-Credential provisioning note: `X_API_KEY`, `X_API_SECRET`, `X_BEARER_TOKEN`,
-and `EXA_API_KEY` were provisioned as Sensitive Vercel variables for Production
-and Preview on 2026-08-17. Secret presence is complete; Sprint 0 must still
-validate live authentication, access tier, declared use-case approval, and
-provider lifecycle terms before enabling the connector.
+Credential provisioning note: Spec 4C's scheduled provider integrations are
+limited to the direct X API and direct Exa Search API. `X_API_KEY`,
+`X_API_SECRET`, `X_BEARER_TOKEN`, and `EXA_API_KEY` are already present in the
+owner's gitignored local `.env.local` and were provisioned as Sensitive Vercel
+variables for Production and Preview on 2026-08-17. No credential value enters
+Git. Secret presence is complete; Sprint 0 must still validate live
+authentication, access tier, declared use-case approval, and provider lifecycle
+terms before enabling either connector.
 
 ## Objective
 
@@ -244,9 +247,8 @@ article support from a search result title.
 
 ### Direct Exa corroboration
 
-The current Masterkey/x402 capability remains denied to scheduled runtimes.
-Spec 4C must not weaken that boundary. Instead it adds the smallest reusable
-application-owned provider contract:
+Spec 4C uses the direct Exa API rather than a paid-tool broker. It adds the
+smallest reusable application-owned provider contract:
 
 ```text
 web_corroboration_search(input)
@@ -426,8 +428,8 @@ Only three new shared atomic units are justified:
    and other licensed or correction-sensitive sources.
 3. **`web_corroboration_search` provider interface.** A bounded, budgeted,
    provenance-bearing metadata search with Exa as the first optional provider.
-   It is not a generic paid-tool permission and does not relax Masterkey's
-   scheduled-runtime denial.
+   It authorizes only the configured Exa provider and does not create a generic
+   scheduled paid-tool permission.
 
 Everything else that is specific to Cramer belongs in
 `inverse-cramer@1.0.0`: identity binding, allowed content roles, inversion map,
