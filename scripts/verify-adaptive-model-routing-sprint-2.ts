@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 
-import { createEarningsCallComparisonDefinitions } from "../agent/lib/hybrid-evidence-definition-registry";
+import {
+  createEarningsCallComparisonDefinitions,
+  EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
+  EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
+} from "../agent/lib/hybrid-evidence-definition-registry";
 import { resolveHybridTaskModelRoute } from "../agent/lib/hybrid-evidence-model-routing";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import { resolveStrategyPackConfiguration } from "../agent/lib/strategy-pack-service";
@@ -48,7 +52,11 @@ const frontierRoute = resolveHybridTaskModelRoute(
 );
 const frontierContracts = createEarningsCallComparisonDefinitions([
   frontierRoute.modelId,
-], { maximumSessionInputTokens: 24_000 }).map(({ definitionDigest, definitionId, definitionVersion }) => ({
+], {
+  maximumRuntimeMs: EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
+  maximumSessionInputTokens: 24_000,
+  maximumSessionOutputTokens: EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
+}).map(({ definitionDigest, definitionId, definitionVersion }) => ({
   digest: definitionDigest,
   id: definitionId,
   version: definitionVersion,
@@ -103,7 +111,9 @@ assert.throws(
     pack: {
       evidenceContracts: [
         ...createEarningsCallComparisonDefinitions([legacyModelId], {
+          maximumRuntimeMs: EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
           maximumSessionInputTokens: 24_000,
+          maximumSessionOutputTokens: EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
         }).map(({ definitionDigest, definitionId, definitionVersion }) => ({
           digest: definitionDigest,
           id: definitionId,

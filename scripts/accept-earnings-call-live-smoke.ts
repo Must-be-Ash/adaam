@@ -113,7 +113,7 @@ for (const prepared of [
     value: {
       effectiveAt: now.toISOString(), maximumConcurrentWorkers: 1,
       maximumInputTokensPerDay: 24_000, maximumInputTokensPerRun: 24_000,
-      maximumOutputTokensPerDay: 4_000, maximumOutputTokensPerRun: 4_000,
+      maximumOutputTokensPerDay: 12_000, maximumOutputTokensPerRun: 12_000,
       maximumPaidPerCall: "1.00", maximumPaidPerDay: "1.00", maximumPaidPerMonth: "1.00",
       maximumScheduledRunsPerDay: 1, ownerTimezone: "UTC", unknownPriceFallbackCeiling: "1.00",
     },
@@ -129,7 +129,7 @@ for (const prepared of [
         allowedOrigins: resolvedSource.allowedOrigins, contractDigest: resolvedSource.contractDigest,
         contractVersion: resolvedSource.contractVersion, origin: resolvedSource.allowedOrigins[0]!, sourceId,
       }],
-      workerModelPolicy: { allowedModelIds: [route.modelId], maximumOutputTokens: 4_000 },
+      workerModelPolicy: { allowedModelIds: [route.modelId], maximumOutputTokens: 12_000 },
     },
   }),
   prepareInitialWorkspaceStrategyBinding({
@@ -426,8 +426,20 @@ try {
       assert.equal(completedJob?.job.state, "completed", JSON.stringify(events));
       assert.ok(workerProof.modelIds.every((modelId) => modelId === route.modelId));
       assert.ok(workerProof.generationIds.length > 0);
-      assert.ok(workerProof.toolNames.includes("read_hybrid_evidence_slice"));
+      assert.equal(workerProof.toolNames.filter((name) =>
+        name === "read_hybrid_evidence_bundle").length, 1);
+      assert.equal(workerProof.toolNames.includes("read_hybrid_evidence_slice"), false);
       assert.ok(workerProof.toolNames.includes("complete_hybrid_evidence_job"));
+      console.info(JSON.stringify({
+        workerExecutionReceipt: {
+          generationIds: workerProof.generationIds,
+          inputTokens: workerProof.inputTokens,
+          modelIds: workerProof.modelIds,
+          outputTokens: workerProof.outputTokens,
+          paidCostUsd: workerProof.paidCostUsd,
+          toolNames: workerProof.toolNames,
+        },
+      }));
       return { inputTokens: workerProof.inputTokens, outputTokens: workerProof.outputTokens, paidCostUsd: workerProof.paidCostUsd.toFixed(4) };
     },
   }));

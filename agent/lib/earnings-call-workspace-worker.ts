@@ -19,7 +19,11 @@ import {
 } from "./earnings-call-status-store";
 import { EARNINGS_CALL_ISSUER_CATALOG } from "./earnings-call-issuer-catalog";
 import { createEarningsCallFinding } from "./earnings-call-materiality";
-import { createEarningsCallComparisonDefinitions } from "./hybrid-evidence-definition-registry";
+import {
+  createEarningsCallComparisonDefinitions,
+  EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
+  EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
+} from "./hybrid-evidence-definition-registry";
 import { EARNINGS_CALL_POLICY, resolveEarningsCallFlags } from "./earnings-call-policy";
 import {
   EARNINGS_CALL_SCHEMA_VERSION,
@@ -189,7 +193,11 @@ function hasMatchingSemanticDefinitions(
   return createEarningsCallComparisonDefinitions(
     [modelId],
     pack.version === "1.0.1"
-      ? { maximumSessionInputTokens: EARNINGS_CALL_POLICY.semanticEnvelope.maximumAggregateInputTokens }
+      ? {
+          maximumRuntimeMs: EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
+          maximumSessionInputTokens: EARNINGS_CALL_POLICY.semanticEnvelope.maximumAggregateInputTokens,
+          maximumSessionOutputTokens: EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
+        }
       : {},
   ).every((definition) =>
     pack.evidenceContracts?.some((contract) =>

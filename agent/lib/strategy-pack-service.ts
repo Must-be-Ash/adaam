@@ -92,8 +92,8 @@ const SHARED_HARD_DENIALS = Object.freeze([
 const DEFAULT_BUDGET_CEILINGS = Object.freeze({
   maximumInputTokensPerDay: 100_000,
   maximumInputTokensPerRun: 25_000,
-  maximumOutputTokensPerDay: 20_000,
-  maximumOutputTokensPerRun: 4_000,
+  maximumOutputTokensPerDay: 96_000,
+  maximumOutputTokensPerRun: 12_000,
   maximumScheduledRunsPerDay: 8,
 });
 
@@ -1139,7 +1139,7 @@ async function executeCreateStrategyPackWorkspace(
     dependencies.capabilityInventory,
     dependencies.workerModelPolicy ?? {
       allowedModelIds: [environment.EVE_STRATEGY_PACK_WORKER_MODEL_ID ?? "google/gemini-3.6-flash"],
-      maximumOutputTokens: 4_000,
+      maximumOutputTokens: 12_000,
     },
   );
   const now = input.now ?? new Date();

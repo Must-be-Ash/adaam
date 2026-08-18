@@ -4,6 +4,8 @@ import {
   EARNINGS_CALL_COMPARISON_DEFINITION_ID,
   EARNINGS_CALL_COMPARISON_SECTION_DEFINITION_ID,
   EARNINGS_CALL_COMPARISON_SYNTHESIS_DEFINITION_ID,
+  EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
+  EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
   createEarningsCallComparisonDefinitions,
 } from "./hybrid-evidence-definition-registry";
 import {
@@ -317,7 +319,11 @@ export async function runEarningsCallSemanticComparison(input: {
   const definitions = createEarningsCallComparisonDefinitions(
     [input.modelId],
     input.pack.version === "1.0.1"
-      ? { maximumSessionInputTokens: EARNINGS_CALL_POLICY.semanticEnvelope.maximumAggregateInputTokens }
+      ? {
+          maximumRuntimeMs: EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
+          maximumSessionInputTokens: EARNINGS_CALL_POLICY.semanticEnvelope.maximumAggregateInputTokens,
+          maximumSessionOutputTokens: EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
+        }
       : {},
   );
   const shared = {

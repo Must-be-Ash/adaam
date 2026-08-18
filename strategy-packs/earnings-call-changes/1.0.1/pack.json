@@ -93,17 +93,17 @@
     {
       "id": "earnings-call-semantic-comparison",
       "version": "1.0.0",
-      "digest": "44959710b77c6fdd32a065e0d79457788d1d06bb13e13017a04ec50f9269ddb6"
+      "digest": "0f48172f825ca3f54476d757a6c7a92dc66efcee2bf2a36dd9d993a243bf5132"
     },
     {
       "id": "earnings-call-semantic-comparison-section",
       "version": "1.0.0",
-      "digest": "dea9ed4771ccd59d6a9a3493fbb1aed268630d83fcff365fa36651955560f463"
+      "digest": "e7616655c17ce2f8d1d7a8bb71c110c28c725162a7a18429592b2862164deafd"
     },
     {
       "id": "earnings-call-semantic-comparison-synthesis",
       "version": "1.0.0",
-      "digest": "5bb12dcbebed8857bb4cf7b99c1556301c20ead26c89416498fcbe8a2d62f401"
+      "digest": "0e0f48155da337624231d2e4647599cccd800ee01c8f5e6a266adc5f303aa61e"
     }
   ],
   "sources": [
@@ -135,7 +135,7 @@
       "alertPresentationId": "alert.earnings-call-change/v1",
       "suggestedBudget": {
         "maximumInputTokensPerRun": 24000,
-        "maximumOutputTokensPerRun": 4000,
+        "maximumOutputTokensPerRun": 12000,
         "maximumRunsPerDay": 8
       },
       "activationDefault": "paused",

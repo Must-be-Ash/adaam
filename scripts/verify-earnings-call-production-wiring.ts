@@ -440,7 +440,7 @@ function capabilityManifest(input: {
     })),
     workerModelPolicy: {
       allowedModelIds: [...new Set([input.semanticModelId, WORKSPACE_WORKER_MODEL_ID])],
-      maximumOutputTokens: 4_000,
+      maximumOutputTokens: 12_000,
     },
   };
 }
@@ -539,8 +539,8 @@ async function installWorkspace(
         maximumConcurrentWorkers: 2,
         maximumInputTokensPerDay: 100_000,
         maximumInputTokensPerRun: 24_000,
-        maximumOutputTokensPerDay: 20_000,
-        maximumOutputTokensPerRun: 4_000,
+        maximumOutputTokensPerDay: 100_000,
+        maximumOutputTokensPerRun: 12_000,
         maximumPaidPerCall: "1.00",
         maximumPaidPerDay: "10.00",
         maximumPaidPerMonth: "100.00",

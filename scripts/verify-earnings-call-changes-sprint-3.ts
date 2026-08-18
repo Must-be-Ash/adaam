@@ -25,7 +25,9 @@ import {
 } from "../agent/lib/hybrid-evidence-semantic-store";
 import {
   completeHybridEvidenceJobForWorker,
+  readHybridEvidenceBundleForWorker,
   readHybridEvidenceSliceForWorker,
+  stopHybridEvidenceWorkerAfterWorkspaceCompletion,
 } from "../agent/lib/hybrid-evidence-worker";
 import {
   planEarningsCallSemanticComparison,
@@ -94,6 +96,41 @@ const environment = {
   EVE_WORKSPACE_RUNTIME_ENABLED: "1",
   EVE_WORKSPACE_STATE_ENABLED: "1",
 } as const;
+
+let sourceCancelled = false;
+let cancelTurnId: string | null = null;
+const completionEvent = {
+  data: {
+    result: {
+      isError: false,
+      kind: "tool-result",
+      toolName: "complete_hybrid_evidence_job",
+    },
+    status: "completed",
+    turnId: "turn_fixture",
+  },
+  type: "action.result",
+} as const;
+const completionSource = new ReadableStream({
+  cancel() {
+    sourceCancelled = true;
+  },
+  start(controller) {
+    controller.enqueue(completionEvent);
+  },
+});
+const completionHandle = stopHybridEvidenceWorkerAfterWorkspaceCompletion({
+  events: completionSource,
+  sessionId: "session_fixture",
+} as never, async (turnId) => {
+  cancelTurnId = turnId;
+});
+const completionEvents = [];
+for await (const event of completionHandle.events) completionEvents.push(event);
+await new Promise<void>((resolve) => setImmediate(resolve));
+assert.deepEqual(completionEvents, [completionEvent]);
+assert.equal(cancelTurnId, "turn_fixture");
+assert.equal(sourceCancelled, true);
 
 const definitions = createEarningsCallComparisonDefinitions([modelId]);
 assert.deepEqual(definitions.map(({ definitionId }) => definitionId), [
@@ -354,8 +391,8 @@ function clients(workspaceId: string, mode: CandidateMode = "accepted"): Paramet
     resolveProjection: async (reference) => resolveProjection(reference, workspaceId), semantic: memory, state: memory,
     async execute(prepared) {
       dispatches += 1;
-      assert.equal(prepared.request.input.message.includes("Use only read_hybrid_evidence_slice and complete_hybrid_evidence_job"), true);
-      assert.equal(prepared.request.input.message.includes("request all required text_span locators together in one parallel tool step"), true);
+      assert.equal(prepared.request.input.message.includes("Use only read_hybrid_evidence_bundle and complete_hybrid_evidence_job"), true);
+      assert.equal(prepared.request.input.message.includes("Read the complete signed evidence bundle in one tool call"), true);
       assert.equal(prepared.request.input.message.includes("call complete_hybrid_evidence_job immediately using its authoritative schema"), true);
       const body = JSON.parse(prepared.request.input.message.match(/<hybrid-evidence-job-v1>\n([\s\S]+)\n<\/hybrid-evidence-job-v1>/u)![1]!);
       const projection = body.inputProjection;
@@ -370,6 +407,24 @@ function clients(workspaceId: string, mode: CandidateMode = "accepted"): Paramet
         spanDigest: span.evidenceSpanDigest, start: span.citation.start,
       }));
       const ctx = { session: { auth: { current: prepared.request.auth, initiator: prepared.request.auth } } };
+      const bundle = await readHybridEvidenceBundleForWorker({
+        clients: {
+          artifacts,
+          jobs: memory,
+          readSemanticResult: async ({ resultId }) =>
+            readWorkspaceSemanticEvidence({ resultId, scope: scope(workspaceId) }, memory),
+          readSourceFact: async (factRevisionId) =>
+            [...projections.values()].find(({ fact }) =>
+              fact.revisionId === factRevisionId)?.fact ?? null,
+        },
+        ctx,
+        environment,
+      });
+      assert.equal(bundle.slices.length, body.locators.length);
+      assert.equal(bundle.totalByteCount, bundle.slices.reduce(
+        (total, slice) => total + slice.byteCount,
+        0,
+      ));
       const semanticLocator = body.locators.find((locator: any) => locator.kind === "semantic_result");
       if (semanticLocator) {
         const slice = await readHybridEvidenceSliceForWorker({

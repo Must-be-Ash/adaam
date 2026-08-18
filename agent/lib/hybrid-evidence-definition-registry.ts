@@ -25,6 +25,8 @@ export const EARNINGS_CALL_COMPARISON_SECTION_DEFINITION_ID =
   "earnings-call-semantic-comparison-section";
 export const EARNINGS_CALL_COMPARISON_SYNTHESIS_DEFINITION_ID =
   "earnings-call-semantic-comparison-synthesis";
+export const EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS = 180_000;
+export const EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS = 12_000;
 export const SPREADSHEET_ROLE_DEFINITION_ID = "reviewed-spreadsheet-role-mapping";
 export const SEMANTIC_PUBLIC_TEXT_DEFINITION_ID = "semantic-public-text-reference";
 
@@ -534,7 +536,11 @@ export function createWorkspaceSemanticDefinition(input: {
 
 export function createEarningsCallComparisonDefinitions(
   modelIds: readonly string[],
-  options: { readonly maximumSessionInputTokens?: number } = {},
+  options: {
+    readonly maximumRuntimeMs?: number;
+    readonly maximumSessionInputTokens?: number;
+    readonly maximumSessionOutputTokens?: number;
+  } = {},
 ): readonly HybridEvidenceJobDefinition[] {
   const envelope = EARNINGS_CALL_POLICY.semanticEnvelope;
   const common = {
@@ -554,7 +560,10 @@ export function createEarningsCallComparisonDefinitions(
       definitionId: EARNINGS_CALL_COMPARISON_DEFINITION_ID,
       limits: {
         maximumInputTokens: options.maximumSessionInputTokens ?? envelope.maximumSingleJobInputTokens,
-        maximumOutputTokens: envelope.maximumSingleJobOutputTokens,
+        maximumOutputTokens: options.maximumSessionOutputTokens ?? envelope.maximumSingleJobOutputTokens,
+        ...(options.maximumRuntimeMs === undefined
+          ? {}
+          : { maximumRuntimeMs: options.maximumRuntimeMs }),
       },
       promptId: "compare-earnings-call-evidence",
       validatorId: "earnings-call-semantic-validator",
@@ -564,7 +573,10 @@ export function createEarningsCallComparisonDefinitions(
       definitionId: EARNINGS_CALL_COMPARISON_SECTION_DEFINITION_ID,
       limits: {
         maximumInputTokens: options.maximumSessionInputTokens ?? envelope.maximumSectionInputTokens,
-        maximumOutputTokens: envelope.maximumSectionOutputTokens,
+        maximumOutputTokens: options.maximumSessionOutputTokens ?? envelope.maximumSectionOutputTokens,
+        ...(options.maximumRuntimeMs === undefined
+          ? {}
+          : { maximumRuntimeMs: options.maximumRuntimeMs }),
       },
       promptId: "analyze-earnings-call-section",
       validatorId: "earnings-call-semantic-validator",
@@ -574,7 +586,10 @@ export function createEarningsCallComparisonDefinitions(
       definitionId: EARNINGS_CALL_COMPARISON_SYNTHESIS_DEFINITION_ID,
       limits: {
         maximumInputTokens: options.maximumSessionInputTokens ?? envelope.maximumSynthesisInputTokens,
-        maximumOutputTokens: envelope.maximumSynthesisOutputTokens,
+        maximumOutputTokens: options.maximumSessionOutputTokens ?? envelope.maximumSynthesisOutputTokens,
+        ...(options.maximumRuntimeMs === undefined
+          ? {}
+          : { maximumRuntimeMs: options.maximumRuntimeMs }),
       },
       promptId: "synthesize-earnings-call-sections",
       validatorId: "earnings-call-semantic-validator",
