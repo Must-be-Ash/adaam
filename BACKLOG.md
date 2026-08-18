@@ -501,17 +501,16 @@ the repository, so a fresh fork does not contain them.
 
 ## 6. Model routing and token efficiency
 
-Active deterministic/fast/frontier routing work moved to
-`specs/04b1-adaptive-model-routing.md`. Implement and track it there rather than
-from this backlog.
+Deterministic/fast/frontier routing is complete in
+`specs/04b1-adaptive-model-routing.md`. Keep only follow-on runtime and routing
+ideas here.
 
-- [ ] Add an Eve runtime primitive that either batches signed evidence reads or
-  enforces a true per-model-call token/time ceiling before retrying the
-  GPT-5.4/high production routing smoke. The current task-mode session checks
-  provider-reported aggregate usage only after each call, so model-selected
-  sequential reads can exceed the 24,000-token job budget and an active call can
-  settle after the 60-second signed job window. Keep semantic rollout flags off
-  until the exact signed worker journey durably completes and validates.
+- [ ] Add a first-class Eve runtime primitive for per-call output/time ceilings
+  or cancellation immediately after a terminal tool result. Spec 4B.1 does not
+  depend on it: its semantic worker uses one bounded evidence bundle read and
+  completion-triggered cancellation, and the controlled production journey
+  durably completed and validated. The primitive would simplify future
+  multi-tool jobs.
 - [ ] Add a middle/balanced model tier only if repository-owned workload evals
   demonstrate a useful quality/cost boundary beyond the initial fast/frontier
   policy.
@@ -529,11 +528,12 @@ from this backlog.
 - [ ] Do not reintroduce blunt cumulative session token caps as the primary cost
   control.
 
-Current state: Spec 4B.1 implements a shared registered-purpose router for
-no-model, fast, and frontier work. Haiku 4.5/provider-default is qualified for
-bounded extraction and GPT-5.4/high is bound to the new immutable Earnings pack;
-production semantic rollout remains off pending the exact live completion
-journey above. There is intentionally no linked fast-to-frontier route chain.
+Current state: Spec 4B.1 production-accepts a shared registered-purpose router
+for no-model, fast, and frontier work. Haiku 4.5/provider-default is qualified
+for bounded extraction and GPT-5.4/high is bound to the immutable Earnings
+1.0.1 pack. Production routing is configured, while the hybrid and workspace
+dispatch flags remain off by rollout choice. There is intentionally no linked
+fast-to-frontier route chain.
 
 ## 7. Testing, CI, and observability
 

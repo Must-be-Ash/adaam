@@ -6,7 +6,7 @@ tracing the implementation, checking the installed Eve and Next.js semantics,
 and reviewing the regression coverage. Use it to form the initial system model;
 then verify task-specific details against current code before making a change.
 
-> **Specification status:** Specs 1–4 and Specs 4A–4B are implemented and production accepted.
+> **Specification status:** Specs 1–4 and Specs 4A–4B.1 are implemented and production accepted.
 > Specs 1 and 2 are on `main`; Spec 3 was deployed from the exact reviewed
 > source commit `9b6e01f` on `codex/spec-03` without pushing or merging it.
 > Spec 2's versioned strategy-pack framework and
@@ -25,9 +25,9 @@ then verify task-specific details against current code before making a change.
 > all new earnings, hybrid, dispatch, and alert flags remain off. Spec 4B.1's
 > central deterministic/fast/frontier resolver, Haiku 4.5/provider-default
 > extraction qualification, GPT-5.4/high semantic route, and immutable Earnings
-> 1.0.1 binding are implemented locally. Production acceptance remains blocked
-> because Eve's task-mode aggregate token check cannot guarantee a bounded
-> multi-tool GPT-5.4/high completion; all related production flags remain off.
+> 1.0.1 binding passed production acceptance on 2026-08-17. Its bounded frontier
+> worker completed with exact citations, validation, usage, and cost; all
+> related production flags remain off.
 > The spec files remain the
 > authoritative split between production evidence and deliberately deferred
 > work.
@@ -64,7 +64,7 @@ architecture. Keep them distinct:
 | Research | Direct sources, public feeds, FMP/SEC-oriented skills, and guarded Masterkey fallback | Durable private ingestion of every paid or temporary result |
 | Trading | Allowlisted Coinbase reads and preview-bound spot-order approval | A generally safe live-trading surface or account-wide reconciliation |
 | Deliverables | Public-data reports and media on stable Eve URLs | Owner-private artifacts for portfolio, account, or personal data |
-| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC, Congressional, and earnings findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, source-global SEC/House/earnings adapters, immutable canonical facts, isolated workspace projections, bounded hybrid recovery/semantic evidence, and real Specs 1–4B production acceptance | Spec 4B.1 adaptive model routing, push source events, a second Spec 4C consumer, broader reviewed issuer discovery, and crash/operations hardening remain deferred |
+| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC, Congressional, and earnings findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, source-global SEC/House/earnings adapters, immutable canonical facts, isolated workspace projections, bounded hybrid recovery/semantic evidence, task-aware no-model/fast/frontier routing, and real Specs 1–4B.1 production acceptance | Push source events, a second Spec 4C consumer, broader reviewed issuer discovery, and crash/operations hardening remain deferred |
 | Authorization | Fail-closed deployment-owner mapping for Photon workspace paths plus a separate Coinbase allowlist | Owner-global enforcement across Telegram, HTTP, and every remaining private capability |
 
 `NORTH_STAR.md` describes the intended strategy-workspace architecture; it is
@@ -469,6 +469,22 @@ USD 1 per call, USD 10 per day, and USD 100 per month. Specs 4B and 4C own any
 consumer-specific connector, strategy, and rollout; do not enable a child merely
 because the foundation exists.
 
+Spec 4B.1 centrally maps registered task purposes to no-model, fast, or
+frontier execution without changing Eve's root conversational model.
+`anthropic/claude-haiku-4.5` at provider-default reasoning passed the repeated
+extraction corpus with 100% supported recovery and safety at about 62% lower
+accepted-work cost than `openai/gpt-5.4`; the frontier lane uses GPT-5.4/high.
+The owner-authorized production acceptance ran signed turn
+`wrun_01M09B542327KMZMDPJJ2DW4FT`, made one bounded evidence-bundle read and one
+completion call, and durably completed job
+`hybrid-job.a870a3c662055aa09c9d36b2ece5bd0346274d758ed6a7538f36dab34b3cec19`
+with accepted facts, inferences, and three exact citations. Gateway generations
+`gen_01M09B549ACRV8276CQ5QEP50B` and
+`gen_01M09B58B6A5HX4QZWEDQ0Z40D` used 15,692 input tokens, 9,399 output tokens,
+4,608 cached-input tokens, and USD 0.169847. Production holds the exact routing
+configuration, but the hybrid parent, both child lanes, and workspace dispatch
+remain `0`.
+
 ### Approval state machine
 
 Photon's financial approval is durable application state, not model prose. The
@@ -706,17 +722,16 @@ The most important differences between the working app and `NORTH_STAR.md` are:
 1. **Owner and workspace parity is Photon-only.** Durable owner mapping,
    assignment, runtimes, monitors, alerts, and manager controls exist for
    Photon's durable mode. Telegram and HTTP do not use that broker.
-2. **Adaptive routing, a second hybrid consumer, and later strategies remain.**
+2. **A second hybrid consumer and later strategies remain.**
    The versioned pack framework, IPO reference pack, canonical SEC/House
    public-source adapters, and Congressional Signals are production accepted.
    [`Spec 4A`](specs/04a-hybrid-evidence-reasoning.md) implements the shared
    deterministic-first/model-recovery foundation, and Spec 4B production-
-   accepts the first transcript consumer. Planned
-   [`Spec 4B.1`](specs/04b1-adaptive-model-routing.md) adds centrally qualified
-   deterministic/fast/frontier routing for fresh bounded tasks before Spec 4C
-   proves a different connector/content shape. Current hybrid callers still
-   select exact model IDs directly. Insider Clusters and shared signals resume
-   after those proofs in Specs 5–6.
+   accepts the first transcript consumer.
+   [`Spec 4B.1`](specs/04b1-adaptive-model-routing.md) production-accepts
+   centrally qualified deterministic/fast/frontier routing for fresh bounded
+   tasks. Spec 4C next proves a different connector/content shape; Insider
+   Clusters and shared signals resume after that proof in Specs 5–6.
 3. **Artifacts are public-only.** Private portfolio/account deliverables and
    safe recovery of paid temporary outputs require owner-private storage.
 4. **MCP ingestion is incomplete.** Normalized model context is safe and

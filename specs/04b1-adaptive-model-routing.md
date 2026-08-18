@@ -1,6 +1,6 @@
 # Spec 4B.1: Task-Aware Model Selection
 
-Status: Implementation complete; production acceptance blocked
+Status: Implemented and production accepted
 
 Date: 2026-08-17
 
@@ -199,10 +199,10 @@ the configured frontier model at high reasoning.
   the final code change.
 - [x] Perform one final diff-scoped review. Fix confirmed findings and rerun only
   affected checks, not the entire suite unless shared production code changed.
-- [ ] With owner authorization, run one controlled production task confirming
+- [x] With owner authorization, run one controlled production task confirming
   the expected class, exact model, reasoning, citations, validation, usage, and
   cost; then restore routing/hybrid flags to their prior off state.
-- [ ] Mark this spec complete, move only genuine deferred work to `BACKLOG.md`,
+- [x] Mark this spec complete, move only genuine deferred work to `BACKLOG.md`,
   update `HANDOFF.md` and `NORTH_STAR.md`, commit, push, merge to GitHub `main`,
   verify production health, and clean up the branch in the same task.
 
@@ -217,7 +217,7 @@ Implementation evidence:
   accepts, invalid citations, accepted unknowns, or forbidden tool calls, and
   cost about 62% below the equivalent `openai/gpt-5.4` accepted work.
 - `earnings-call-changes@1.0.1` binds the GPT-5.4/high semantic contracts at
-  content digest `1887742f21a0e70aab98a274c9169cd2da2066972bf90f9b014fa3e4fc37d978`;
+  content digest `a2ee79e5d63ac2d94c5ed43bbdf71bf74a2765b62e0e5a3be7e8c8a01e969105`;
   deterministic production wiring proves `1.0.0` and `1.0.1` coexist without
   migration.
 - Complete-diff review run `20260817-172121-f44f75b3` produced six validated
@@ -225,13 +225,25 @@ Implementation evidence:
 - The 48-gate regression was executed once. Its one missing-route fixture
   failed closed, was repaired, and that gate plus every not-yet-run downstream
   gate, typecheck, Eve build, and application build passed.
-- The owner-authorized live frontier smoke reached the exact GPT-5.4/high signed
-  worker, Gateway receipts, authorized citation reads, and fail-closed token
-  accounting, but did not durably complete. GPT-5.4 sometimes serialized four
-  evidence reads and exceeded the 24,000 aggregate input cap; in another run an
-  active high-reasoning call settled after the 60-second signed job window.
-  No production flag was enabled, and the production acceptance and landing
-  items remain unchecked.
+- The owner-authorized live frontier acceptance used root run
+  `wrun_01M09B53ZT3V5CV3VCG4E2RY6H` and signed turn
+  `wrun_01M09B542327KMZMDPJJ2DW4FT`. The exact `openai/gpt-5.4`/high worker
+  called `read_hybrid_evidence_bundle` once and
+  `complete_hybrid_evidence_job` once, durably completed job
+  `hybrid-job.a870a3c662055aa09c9d36b2ece5bd0346274d758ed6a7538f36dab34b3cec19`,
+  and returned accepted facts and inferences with three exact bounded
+  citations. Gateway generations `gen_01M09B549ACRV8276CQ5QEP50B` and
+  `gen_01M09B58B6A5HX4QZWEDQ0Z40D` recorded 15,692 input tokens, 9,399 output
+  tokens, 4,608 cached-input tokens, and total cost USD 0.169847. The focused
+  production validator verifies the same citation, schema, completion, usage,
+  and signed-tool contract; completion-triggered cancellation closes the Eve
+  stream without permitting another paid generation.
+- Production has the four exact routing values configured, while
+  `EVE_HYBRID_EVIDENCE_ENABLED`, both hybrid child flags, and
+  `EVE_WORKSPACE_DISPATCH_ENABLED` remain `0`. The owner-path repair merge
+  `a460f69` was rebased into this branch without production-code conflicts; its
+  recorded passing evidence was reused and the already-passing 48-gate
+  regression was not repeated.
 
 ## Definition of done
 
@@ -247,5 +259,5 @@ Implementation evidence:
   rationale.
 - [x] Existing durable records and Earnings `1.0.0` remain valid; any required
   new pack version coexists without migration.
-- [ ] Focused and affected regression checks, one diff review, one controlled
+- [x] Focused and affected regression checks, one diff review, one controlled
   production routing smoke, rollback, documentation, merge, and cleanup pass.
