@@ -174,7 +174,7 @@ export const workspaceMonitorScheduleSchema = z.discriminatedUnion("kind", [
   z
     .object({
       anchor: timestampSchema,
-      everyMinutes: z.number().int().min(15).max(525_600),
+      everyMinutes: z.number().int().min(10).max(525_600),
       kind: z.literal("interval"),
     })
     .strict(),

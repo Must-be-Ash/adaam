@@ -13,6 +13,10 @@ import {
   EARNINGS_CALL_CHANGES_EVALUATION_TOOL_ID,
   evaluateEarningsCallChangesTool,
 } from "../../../lib/earnings-call-workspace-worker";
+import {
+  evaluatePublicCommentarySignalsTool,
+} from "../../../lib/public-commentary-workspace-worker";
+import { INVERSE_CRAMER_EVALUATION_TOOL_ID } from "../../../lib/strategy-pack-reference-catalog";
 import fetchPublicSource from "../../../tools/fetch_public_source";
 import {
   completeWorkspaceRunTool,
@@ -24,6 +28,13 @@ import {
 } from "../../../lib/workspace-worker-control-plane";
 
 const registry = Object.freeze([
+  {
+    definition: evaluatePublicCommentarySignalsTool as ToolDefinition,
+    metadata: {
+      category: "control_plane" as const,
+      id: INVERSE_CRAMER_EVALUATION_TOOL_ID,
+    },
+  },
   {
     definition: evaluateEarningsCallChangesTool as ToolDefinition,
     metadata: {

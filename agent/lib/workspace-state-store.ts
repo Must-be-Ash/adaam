@@ -365,7 +365,7 @@ const budgetValueSchema = z.object({
   maximumPaidPerCall: decimalSchema.nullable(),
   maximumPaidPerDay: decimalSchema.nullable(),
   maximumPaidPerMonth: decimalSchema.nullable(),
-  maximumScheduledRunsPerDay: z.number().int().positive().max(32),
+  maximumScheduledRunsPerDay: z.number().int().positive().max(144),
   ownerTimezone: z.string().min(1).max(80).refine((value) => {
     try {
       new Intl.DateTimeFormat("en", { timeZone: value });

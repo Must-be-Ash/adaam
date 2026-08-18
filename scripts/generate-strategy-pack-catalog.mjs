@@ -184,9 +184,12 @@ function validateUniqueAndCapabilities(manifest, path) {
   );
   const sources = new Set(manifest.sources.map((source) => source.sourceId));
   for (const monitor of manifest.monitors) {
+    const scheduleReferenceValid = "intervalMinutesConfigurationKey" in monitor
+      ? configuration.get(monitor.intervalMinutesConfigurationKey)?.kind === "bounded_enum"
+      : configuration.get(monitor.timezoneConfigurationKey)?.kind === "iana_timezone" &&
+        configuration.get(monitor.dailyTimesConfigurationKey)?.kind === "daily_local_times";
     if (
-      configuration.get(monitor.timezoneConfigurationKey)?.kind !== "iana_timezone" ||
-      configuration.get(monitor.dailyTimesConfigurationKey)?.kind !== "daily_local_times" ||
+      !scheduleReferenceValid ||
       monitor.sourceIds.some((id) => !sources.has(id)) ||
       monitor.requiredCapabilityIds.some((id) => !required.has(id))
     ) {

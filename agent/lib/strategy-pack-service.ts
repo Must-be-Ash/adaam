@@ -94,7 +94,7 @@ const DEFAULT_BUDGET_CEILINGS = Object.freeze({
   maximumInputTokensPerRun: 25_000,
   maximumOutputTokensPerDay: 96_000,
   maximumOutputTokensPerRun: 12_000,
-  maximumScheduledRunsPerDay: 8,
+  maximumScheduledRunsPerDay: 144,
 });
 
 export const strategyPackMutationConfigurationSchema = z.record(
@@ -957,6 +957,31 @@ function rejectionReceipt(input: {
   });
 }
 
+function strategyPackMonitorSchedule(
+  monitor: StrategyPackCatalogEntry["monitors"][number],
+  configuration: Record<string, string | string[]>,
+  now: Date,
+) {
+  if ("intervalMinutesConfigurationKey" in monitor) {
+    const configured = configuration[monitor.intervalMinutesConfigurationKey];
+    const match = typeof configured === "string"
+      ? /^minutes_(10|15|30|60)$/u.exec(configured)
+      : null;
+    if (!match) throw new StrategyPackServiceError("strategy_pack_invalid_request");
+    return {
+      anchor: now.toISOString(),
+      everyMinutes: Number(match[1]),
+      kind: "interval" as const,
+    };
+  }
+  const timezone = configuration[monitor.timezoneConfigurationKey];
+  const times = configuration[monitor.dailyTimesConfigurationKey];
+  if (typeof timezone !== "string" || !Array.isArray(times)) {
+    throw new StrategyPackServiceError("strategy_pack_invalid_request");
+  }
+  return { kind: "daily_local" as const, times: [...times], timezone };
+}
+
 function monitorPreparations(input: {
   activate: Set<string>;
   budget: WorkspaceBudgetPolicyValue;
@@ -967,12 +992,11 @@ function monitorPreparations(input: {
   scope: AuthorizedWorkspaceStoreScope;
 }): PreparedWorkspaceMonitorCreate[] {
   return input.pack.monitors.map((monitor) => {
-    const timezone = input.configuration[monitor.timezoneConfigurationKey];
-    const times = input.configuration[monitor.dailyTimesConfigurationKey];
-    if (typeof timezone !== "string" || !Array.isArray(times)) {
-      throw new StrategyPackServiceError("strategy_pack_invalid_request");
-    }
-    const schedule = { kind: "daily_local" as const, times: times as string[], timezone };
+    const schedule = strategyPackMonitorSchedule(
+      monitor,
+      input.configuration,
+      input.now,
+    );
     const next = nextWorkspaceMonitorOccurrence(schedule, input.now);
     const sources = resolveStrategyPackSourceInstances(
       input.pack,
@@ -1119,17 +1143,11 @@ async function executeCreateStrategyPackWorkspace(
   }
   for (const resourceId of requestedActivation) {
     const monitor = pack.monitors.find((candidate) => candidate.resourceId === resourceId)!;
-    if (
-      !request.configuration ||
-      !Object.prototype.hasOwnProperty.call(
-        request.configuration,
-        monitor.timezoneConfigurationKey,
-      ) ||
-      !Object.prototype.hasOwnProperty.call(
-        request.configuration,
-        monitor.dailyTimesConfigurationKey,
-      )
-    ) {
+    const requiredScheduleKeys = "intervalMinutesConfigurationKey" in monitor
+      ? [monitor.intervalMinutesConfigurationKey]
+      : [monitor.timezoneConfigurationKey, monitor.dailyTimesConfigurationKey];
+    if (!request.configuration || requiredScheduleKeys.some((key) =>
+      !Object.prototype.hasOwnProperty.call(request.configuration, key))) {
       throw new StrategyPackServiceError("strategy_pack_invalid_request");
     }
   }
@@ -1396,15 +1414,11 @@ function lifecycleMonitorSchedule(
   pack: StrategyPackCatalogEntry,
   configuration: Record<string, string | string[]>,
   resourceId: string,
+  now: Date,
 ) {
   const resource = pack.monitors.find((monitor) => monitor.resourceId === resourceId);
   if (!resource) throw new StrategyPackServiceError("strategy_pack_unavailable");
-  const timezone = configuration[resource.timezoneConfigurationKey];
-  const times = configuration[resource.dailyTimesConfigurationKey];
-  if (typeof timezone !== "string" || !Array.isArray(times)) {
-    throw new StrategyPackServiceError("strategy_pack_invalid_request");
-  }
-  return { kind: "daily_local" as const, times: [...times], timezone };
+  return strategyPackMonitorSchedule(resource, configuration, now);
 }
 
 function unboundCapabilities(
@@ -1692,7 +1706,7 @@ async function mutateStrategyPackWorkspace(
         pauseReason: "strategy_pack_configuration",
         publicSourceIds: monitorSources.map(({ sourceId }) => sourceId)
           .filter(isReviewedPublicSource),
-        schedule: lifecycleMonitorSchedule(pack, configured.configuration, resourceId),
+        schedule: lifecycleMonitorSchedule(pack, configured.configuration, resourceId, now),
         scope,
         sources: monitorSources.map((source) => ({
           accessClassification: source.accessClassification,

@@ -383,6 +383,7 @@ assert.deepEqual(
     "congressional-signals@1.3.0",
     "earnings-call-changes@1.0.0",
     "earnings-call-changes@1.0.1",
+    "inverse-cramer@1.0.0",
     "ipo-filings@1.0.0",
   ],
 );

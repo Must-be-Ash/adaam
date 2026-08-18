@@ -9,8 +9,11 @@ import {
   HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER,
   HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
   HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL,
+  X_PUBLIC_STATEMENTS_PUBLIC_SOURCE_ADAPTER,
+  X_PUBLIC_STATEMENTS_SOURCE_ID,
 } from "./strategy-pack-reference-catalog";
 import { earningsFindingSchema } from "./earnings-call-schema";
+import { commentaryFindingSchema } from "./public-commentary-schema";
 
 export const SEC_IPO_FACT_SCHEMA_VERSION = 1;
 export const SEC_IPO_NORMALIZER_VERSION = "sec-ipo-atom/1.0.0";
@@ -137,13 +140,37 @@ export const earningsCallChangeFactSchema = z.object({
   ) context.addIssue({ code: "custom", message: "earnings_call_change_fact_invalid" });
 });
 
+export const publicCommentarySignalFactSchema = z.object({
+  filingIdentity: z.string().min(1).max(160),
+  finding: commentaryFindingSchema,
+  kind: z.literal("public_commentary_signal"),
+  observedAt: timestampSchema,
+  schemaVersion: z.literal(1),
+  source: z.object({
+    accessClassification: z.literal("public"),
+    canonicalUrl: z.string().url().max(2_048),
+    origin: z.literal(X_PUBLIC_STATEMENTS_PUBLIC_SOURCE_ADAPTER.authorityOrigin),
+    sourceId: z.literal(X_PUBLIC_STATEMENTS_SOURCE_ID),
+  }).strict(),
+}).strict().superRefine((fact, context) => {
+  const corrective = fact.finding.outcome === "corrected" || fact.finding.outcome === "retracted";
+  if (
+    fact.filingIdentity !== fact.finding.findingId ||
+    (fact.finding.outcome !== "accepted" && !corrective) ||
+    (!fact.finding.materiality.alertEligible && !corrective) ||
+    new URL(fact.source.canonicalUrl).origin !== fact.source.origin
+  ) context.addIssue({ code: "custom", message: "public_commentary_signal_fact_invalid" });
+});
+
 export const workspaceFindingFactSchema = z.discriminatedUnion("kind", [
   secIpoFilingFactSchema,
   congressionalFilingSignalFactSchema,
   earningsCallChangeFactSchema,
+  publicCommentarySignalFactSchema,
 ]);
 
 export type SecIpoFilingFact = z.infer<typeof secIpoFilingFactSchema>;
 export type CongressionalFilingSignalFact = z.infer<typeof congressionalFilingSignalFactSchema>;
 export type EarningsCallChangeFact = z.infer<typeof earningsCallChangeFactSchema>;
+export type PublicCommentarySignalFact = z.infer<typeof publicCommentarySignalFactSchema>;
 export type WorkspaceFindingFact = z.infer<typeof workspaceFindingFactSchema>;

@@ -41,6 +41,7 @@ import {
 } from "../lib/public-source-health";
 import { readCongressionalWorkspacePresentation } from "../lib/congressional-signal-presentation";
 import { readEarningsCallWorkspacePresentation } from "../lib/earnings-call-presentation";
+import { readPublicCommentaryWorkspacePresentation } from "../lib/public-commentary-presentation";
 import {
   getWorkspaceMonitor,
   listWorkspaceMonitors,
@@ -397,11 +398,37 @@ async function publicManagerState(
             state: "unavailable" as const,
           }))
         : null;
-      const strategyPack = congressionalSignals || earningsCallChanges
+      const publicCommentary = inspectedStrategyPack?.state === "active" &&
+          inspectedStrategyPack.pack?.id === "inverse-cramer"
+        ? await (() => {
+            const monitorRecord = monitors.find((candidate) =>
+              candidate.managedBy?.packId === "inverse-cramer");
+            const monitor = publicMonitors.find((candidate) =>
+              candidate.monitorId === monitorRecord?.monitorId);
+            const health = monitor?.publicSourceHealth[0];
+            return readPublicCommentaryWorkspacePresentation({
+              credentialStatus: process.env.X_BEARER_TOKEN ? "configured" : "missing",
+              estimatedCostUsd: "0.005000",
+              monitor: monitorRecord ? {
+                lifecycleState: monitorRecord.lifecycleState,
+                sourceCheckpoint: monitorRecord.sourceCheckpoint,
+              } : null,
+              scope,
+              sourceStatus: !health ? "disabled"
+                : health.healthState === "healthy" ? "healthy"
+                : health.healthState === "degraded" ? "degraded"
+                : "unavailable",
+            });
+          })().catch(() => Object.freeze({
+            state: "unavailable" as const,
+          }))
+        : null;
+      const strategyPack = congressionalSignals || earningsCallChanges || publicCommentary
         ? Object.freeze({
             ...inspectedStrategyPack,
             ...(congressionalSignals ? { congressionalSignals } : {}),
             ...(earningsCallChanges ? { earningsCallChanges } : {}),
+            ...(publicCommentary ? { publicCommentary } : {}),
           })
         : inspectedStrategyPack;
       return {
@@ -1190,6 +1217,41 @@ export function workspaceHtml(nonce: string, origin: string): string {
             citations.append(locatorLine);
             details.append(stance, support, counter, analysisCoverage, citations);
           }
+        }
+        const commentary = strategyPack.publicCommentary;
+        if (commentary) {
+          const status = document.createElement("p");
+          status.className = "runtime-detail";
+          status.textContent = commentary.state === "unavailable"
+            ? "Public commentary runtime · unavailable"
+            : "Public commentary runtime · monitor " + commentary.monitorState +
+              " · source " + commentary.sourceStatus + " · credential " + commentary.credentialStatus +
+              " · lifecycle " + commentary.lifecycle + " · checkpoint " + (commentary.sourceCheckpoint || "none");
+          const cost = document.createElement("p");
+          cost.className = "runtime-detail";
+          cost.textContent = commentary.state === "unavailable"
+            ? "Cost and coverage · unavailable"
+            : "Cost and coverage · " + commentary.cost.mode.replaceAll("_", " ") +
+              " · estimated $" + commentary.cost.estimatedUsd + " · related coverage " + commentary.coverage;
+          const outcomes = document.createElement("p");
+          outcomes.className = "runtime-detail";
+          outcomes.textContent = commentary.state === "unavailable"
+            ? "Analysis outcomes · unavailable"
+            : "Analysis outcomes · accepted " + commentary.outcomes.accepted +
+              " · no view " + commentary.outcomes.noView + " · abstained " + commentary.outcomes.abstained +
+              " · quarantined " + commentary.outcomes.quarantined + " · corrected " + commentary.outcomes.corrected +
+              " · retracted " + commentary.outcomes.retracted;
+          const latest = document.createElement("p");
+          latest.className = "runtime-detail";
+          latest.textContent = commentary.state === "unavailable"
+            ? "Latest analysis · unavailable"
+            : commentary.latestAnalysis
+              ? "Latest analysis · " + commentary.latestAnalysis.outcome + " · direction " +
+                (commentary.latestAnalysis.direction || "none") + " · confidence " + commentary.latestAnalysis.confidence +
+                " · horizon " + commentary.latestAnalysis.horizon + " · " + commentary.latestAnalysis.statementRevisionId +
+                " · " + commentary.latestAnalysis.directionDisclosure
+              : "Latest analysis · none";
+          details.append(status, cost, outcomes, latest);
         }
         row.append(details);
         return row;

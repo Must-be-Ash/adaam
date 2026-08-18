@@ -717,30 +717,48 @@ remain `0`, and Sprint 3 has not started.
 
 ### Sprint 3 — Inverse Cramer pack and owner vertical
 
-- [ ] Publish immutable `inverse-cramer@1.0.0` strategy files, catalog entry,
+- [x] Publish immutable `inverse-cramer@1.0.0` strategy files, catalog entry,
   identity binding, source reference, monitor, configuration, playbook, risk
   defaults, policy reference, and evals.
-- [ ] Route the compiled workspace worker through acquisition projection,
+- [x] Route the compiled workspace worker through acquisition projection,
   extraction, optional related-source search, frontier interpretation, policy,
   finding, checkpoint, and generic alert staging with stale-generation and
   replay protection.
-- [ ] Render monitor/source/credential/cost/lifecycle/coverage status, accepted
+- [x] Render monitor/source/credential/cost/lifecycle/coverage status, accepted
   findings, no-view/abstention/quarantine states, and corrections in Manage.
-- [ ] Add one read-only public-commentary explanation capability and presentation
+- [x] Add one read-only public-commentary explanation capability and presentation
   path; Discuss must enter the bound workspace and resolve the exact current
   finding/evidence revision without importing another workspace's context.
-- [ ] Present at most one material workspace-labeled alert per statement policy
+- [x] Present at most one material workspace-labeled alert per statement policy
   revision with primary citation, coverage label, direction, rationale,
   confidence, horizon, **Discuss**, and **Manage**; expose no broker capability.
-- [ ] Prove overlapping workspaces do not share settings, semantic results,
+- [x] Prove overlapping workspaces do not share settings, semantic results,
   budgets, findings, alert context, or chat history, including after an edit or
   deletion correction.
-- [ ] Pass `verify:public-commentary-signals:sprint-3` plus focused pack/runtime,
+- [x] Pass `verify:public-commentary-signals:sprint-3` plus focused pack/runtime,
   finding/alert, owner-surface, correction, budget, and isolation checks.
 
 Exit: an owner can configure and use Inverse Cramer end to end locally, and one
 qualifying statement creates one cited research alert without an executable
 trade.
+
+Local evidence: `inverse-cramer@1.0.0` is cataloged with the pinned X identity,
+ten-minute interval support, a paused monitor, alerts and related search off by
+default, registered policy and semantic digests, hard financial denials, and
+bounded evals. The compiled worker capability validates the signed generation,
+active pack/monitor, and replay before invoking the staged public-commentary
+pipeline and committing its checkpoint, finding, and generic alert. The Sprint
+3 verifier drives one final statement through acquisition projection,
+disabled related search, frontier-result validation, deterministic extraction
+and policy, workspace-scoped persistence, correction, Manage, and exact
+read-only explanation; it proves one cited alert, replay silence, no broker
+surface, and separate configuration, budgets, semantic jobs, findings, alert
+context, and chat context across two workspaces. Focused Sprint 0–3, pack,
+runtime, owner-surface, finding, alert, budget, worker-isolation,
+cross-workspace isolation, typecheck, catalog-generation, and compiled Eve
+build gates pass. The X, Exa, and Inverse Cramer production flags remain unset
+(therefore off), and no live or paid provider call, alert delivery, trade,
+deployment, or environment mutation occurred. Sprint 4 has not started.
 
 ### Sprint 4 — one final audit, two acceptances, rollout, and landing
 

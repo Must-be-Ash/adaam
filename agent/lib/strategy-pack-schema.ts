@@ -274,11 +274,9 @@ const sourceSchema = z
     }
   });
 
-const monitorSchema = z
-  .object({
+const monitorBase = {
     activationDefault: z.enum(["draft", "paused"]),
     alertPresentationId: stableIdSchema,
-    dailyTimesConfigurationKey: z.string().min(2).max(80),
     displayName: z.string().trim().min(1).max(160),
     findingSchemaId: stableIdSchema,
     instructionPath: relativePathSchema,
@@ -294,12 +292,23 @@ const monitorSchema = z
       .object({
         maximumInputTokensPerRun: z.number().int().positive().max(10_000_000),
         maximumOutputTokensPerRun: z.number().int().positive().max(100_000),
-        maximumRunsPerDay: z.number().int().positive().max(32),
+        maximumRunsPerDay: z.number().int().positive().max(144),
       })
       .strict(),
-    timezoneConfigurationKey: z.string().min(2).max(80),
-  })
-  .strict()
+  } as const;
+
+const monitorSchema = z
+  .union([
+    z.object({
+      ...monitorBase,
+      dailyTimesConfigurationKey: z.string().min(2).max(80),
+      timezoneConfigurationKey: z.string().min(2).max(80),
+    }).strict(),
+    z.object({
+      ...monitorBase,
+      intervalMinutesConfigurationKey: z.string().min(2).max(80),
+    }).strict(),
+  ])
   .superRefine((monitor, context) => {
     if (
       !sortedUnique(monitor.requiredCapabilityIds) ||
