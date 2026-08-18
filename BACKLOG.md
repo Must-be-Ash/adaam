@@ -1,6 +1,6 @@
 # Eve backlog and parked work
 
-Snapshot date: 2026-08-16
+Snapshot date: 2026-08-17
 Application baseline: Specs 1–4A are production accepted; global workspace
 dispatch, pack-managed dispatch, Photon alerts, and Congressional execution are
 rolled back off.
@@ -94,6 +94,9 @@ Current state: the Photon processing guard is Eve-session scoped, expires after
 
 ### Complete financial execution safety
 
+- [ ] Run an owner-authorized, read-only live Coinbase authentication smoke;
+  local compatibility coverage reaches only a fake provider and must not be
+  represented as proof of provider authentication.
 - [ ] Bind every enabled mutation to owner, principal, workspace/session,
   generation, broker account, exact normalized action, displayed-preview hash,
   request ID, and expiry.

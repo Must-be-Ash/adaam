@@ -175,8 +175,11 @@ is derived from the authenticated principal and physical iMessage thread.
 - `Main` keeps the physical thread's original Eve continuation.
 - Additional sessions use a synthetic Eve thread ID containing the internal
   workspace ID and generation. Replies are mapped back to the physical thread.
-- The registry supports at most 12 sessions and uses revisions, stable mutation
-  IDs, expected generations, and atomic Redis Lua operations.
+- The registry supports at most 12 active/selectable sessions and 48 retained
+  session records. Archived sessions remain durable but do not consume active
+  creation capacity; restoring one is rejected while 12 active sessions exist.
+  Creation never prunes retained history. The registry uses revisions, stable
+  mutation IDs, expected generations, and atomic Redis Lua operations.
 - A current financial approval is an atomic lock against session mutations.
 - The manager is authorized by a 15-minute capability token in the URL fragment,
   keeping it out of server access logs and query strings.
@@ -504,6 +507,14 @@ reconciliation. Resolve an uncertain result against Coinbase's authoritative
 state and ask the owner before further action. Do not delete the guard to force
 progress.
 
+Interactive Coinbase capability resolution treats a durable legacy `Main`
+workspace with no persisted strategy document exactly like an explicitly
+unbound workspace. Active strategy packs still apply their hard Coinbase
+capability denials, while stale, disabled, and unavailable managed runtimes
+remain explicit failures. The local regression reaches a fake provider through
+the production preview executor; it does not prove live Coinbase provider
+authentication.
+
 Each Coinbase tool call uses a fresh credential-isolated CLI MCP process with
 history disabled and a minimal environment. `bounded-stdio-transport.ts` limits
 each JSON-RPC frame to 8 MiB before parsing and preserves upstream spawn,
@@ -717,6 +728,9 @@ The most important differences between the working app and `NORTH_STAR.md` are:
 
 Other known edges:
 
+- local fake-provider coverage proves the repaired Coinbase owner path but not
+  live provider authentication; an owner-authorized read-only smoke is still
+  required before describing that boundary as production-proven;
 - verify current Eve 0.33 negative text-decision behavior (`deny` versus
   `cancel`) before changing compatibility logic;
 - old durable sessions can become unusable across incompatible Eve upgrades;
@@ -763,6 +777,7 @@ Focused regression scripts map to the important boundaries:
 | `verify:approvals` | Photon approval parsing, binding, and lifecycle behavior |
 | `verify:sessions` | legacy session migration behavior |
 | `verify:workspaces` | named-session registry and Photon routing |
+| `verify:workspaces:create-browser` | production-rendered Spectrum create behavior: success clears the field, while HTTP 400/409 preserve and refocus it and keep the failure visible after refresh |
 | `verify:artifacts` | narrow input schemas, chart data, chart display math, one-shot guard, manifests, deterministic IDs, and safe URLs |
 | `verify:approvals:redis` | approval transitions against a real Redis instance |
 | `verify:workspaces:redis` | workspace atomicity against a real Redis instance |
@@ -773,7 +788,10 @@ Focused regression scripts map to the important boundaries:
 | `verify:workspace-runtime:photon-rollout` | explicit legacy/durable configuration and fail-closed authorization matrix |
 | `verify:workspace-runtime:redis` | workspace leases, budgets, checkpoints, lifecycle, migration, and alert uncertainty against Redis |
 | `eval:coinbase` | fixture-backed model/tool behavior with no real Coinbase call |
+| `verify:interactive-tool-capabilities` | durable legacy Main with an absent strategy key reaches the ordinary Coinbase boundary through a fake provider; explicit unbound remains allowed and active packs remain denied |
+| `verify:strategy-pack-runtime` | stale and genuinely unavailable managed strategy runtimes remain distinguishable from legacy/unbound state |
 | `verify:strategy-packs` and `verify:strategy-pack-*` | deterministic catalog, atomic mutations, runtime isolation, owner-surface parity, privacy-safe observability, and Spectrum behavior |
+| `verify:strategy-pack-mutations` | active-capacity and retained-history-capacity rejections remain distinct on transactional pack creation without pruning session history |
 | `verify:strategy-packs:acceptance` | empty-state local vertical path through pack creation, scheduler, worker evaluation, durable alert, Photon adapter, Discuss, next ingress, and rollback switches |
 | `verify:public-source-adapters:contracts` | minimal SEC/House contracts, representative House layout feasibility, channel neutrality, and fixed observation catalogs |
 | `verify:public-source-adapters:sec` | acquisition journal, immutable SEC facts, parity, correction/replay, and explicit legacy rollback behavior |
@@ -783,7 +801,11 @@ Focused regression scripts map to the important boundaries:
 
 The Redis checks require exported environment variables and do not load
 `.env.local`. Model evals do not exercise the Photon webhook, Redis delivery,
-Spectrum UI, or iMessage response path.
+Spectrum UI, or iMessage response path. The owner-path repair's focused tests
+do not exercise Coinbase authentication or a live provider. The repair passed
+`npm run typecheck`, direct Eve build with non-routable fixture Redis values,
+and direct Next production build on 2026-08-17; no production service was
+contacted.
 
 At this snapshot, the Specs 1–4 deterministic matrices, Redis races, TypeScript,
 the compiled Eve build, the Next.js production build, and read-only live
