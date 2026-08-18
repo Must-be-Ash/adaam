@@ -699,10 +699,16 @@ requires exact subject-statement citations across facts, inferences, forecast,
 recommendation, catalysts, risks, counterevidence, and invalidation conditions;
 hostile text cannot select tools or policy. Sprint 0/1, adaptive-routing,
 hybrid-semantic, workspace-budget, typecheck, and Eve build affected gates pass
-with all three production flags still `0`. A reviewed eight-case, three-run
-real-model benchmark and runner are frozen, but the paid runner has not been
-executed because exact owner authorization for that paid call has not yet been
-granted; the final Sprint 2 checkbox and exit gate therefore remain open.
+with all three production flags still `0`. The owner-authorized eight-case,
+three-run GPT-5.4 benchmark completed 24 calls with zero invalid citations,
+zero unsafe accepts, and 100% target, quotation, abstention, and explanation
+scores. Its per-run stance scores were 87.5%, 87.5%, and 75%, so it correctly
+failed the frozen 85% floor. The failure exposed one ambiguous unknown fixture:
+all three runs reasonably classified wording that denied a directional view as
+`neutral` rather than the intended `unclear`. That fixture now states its
+unknown target and direction explicitly; focused verification and typecheck
+pass, but a fresh paid 24-call run requires separate owner authorization. The
+final Sprint 2 checkbox and exit gate therefore remain open.
 
 ### Sprint 3 — Inverse Cramer pack and owner vertical
 

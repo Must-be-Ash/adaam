@@ -51,7 +51,7 @@
     {
       "id": "unclear-target-and-stance",
       "tags": ["unknown", "abstention"],
-      "statement": { "attribution": "direct", "role": "original", "cashtags": [], "text": "Interesting developments today, but there is not enough here to identify a target or directional investment view." },
+      "statement": { "attribution": "direct", "role": "original", "cashtags": [], "text": "The target is unnamed and my directional investment view is unclear; I cannot tell which way it points." },
       "expected": { "outcome": "abstained", "stance": "unclear", "targetSymbols": [], "voiceOwnership": "speaker", "direction": null },
       "review": { "status": "reviewed", "reviewedBy": "sprint_2_contract_review", "reviewedAt": "2026-08-18" }
     },
