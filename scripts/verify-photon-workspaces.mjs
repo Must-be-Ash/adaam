@@ -10,8 +10,12 @@ import {
   getPhotonWorkspaceManagerState,
   getPhotonWorkspaceState,
   mintPhotonWorkspaceManager,
+  PHOTON_WORKSPACE_LIMIT,
+  PHOTON_WORKSPACE_RETAINED_LIMIT,
   PhotonWorkspaceApprovalBlockedError,
   PhotonWorkspaceConflictError,
+  PhotonWorkspaceValidationError,
+  photonWorkspaceRegistryStorageKey,
   renamePhotonWorkspace,
   restorePhotonWorkspace,
   savePhotonWorkspaceSession,
@@ -396,6 +400,139 @@ const reconciled = await createPhotonWorkspace(
   lostResponseClient,
 );
 assert.ok(findPhotonWorkspaceByName(reconciled, "Reconciled"));
+
+function seededWorkspace(index, status) {
+  const now = 1_700_000_000_000 + index;
+  return {
+    ...(status === "archived" ? { archivedAtMs: now } : {}),
+    continuation: index === 0 ? "physical" : "isolated",
+    createdAtMs: now,
+    generation: 1,
+    id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    name: index === 0 ? "Main" : `Session ${index + 1}`,
+    normalizedName: index === 0 ? "main" : `session ${index + 1}`,
+    status,
+    updatedAtMs: now,
+  };
+}
+
+function seedRegistry(client, scope, workspaces) {
+  client.values.set(
+    photonWorkspaceRegistryStorageKey(scope.principalId, scope.threadId),
+    JSON.stringify({
+      activeWorkspaceId: workspaces.find(({ status }) => status === "active").id,
+      revision: 0,
+      schemaVersion: 1,
+      workspaces,
+    }),
+  );
+}
+
+const mixedCapacityClient = new MemoryStore();
+const mixedCapacityScope = {
+  principalId: "imessage:mixed-capacity-owner",
+  threadId: "imessage:mixed-capacity-thread",
+};
+const mixedCapacityWorkspaces = Array.from(
+  { length: PHOTON_WORKSPACE_LIMIT },
+  (_, index) => seededWorkspace(index, index < 4 ? "active" : "archived"),
+);
+seedRegistry(mixedCapacityClient, mixedCapacityScope, mixedCapacityWorkspaces);
+const createdBelowActiveLimit = await createPhotonWorkspace(
+  { ...mixedCapacityScope, name: "demo", select: true },
+  mixedCapacityClient,
+);
+assert.equal(createdBelowActiveLimit.workspaces.length, 13);
+assert.equal(
+  createdBelowActiveLimit.workspaces.filter(({ status }) => status === "active").length,
+  5,
+  "eight archived sessions must not consume the 12 active-session capacity",
+);
+assert.equal(createdBelowActiveLimit.activeWorkspace.name, "demo");
+
+const fullActiveClient = new MemoryStore();
+const fullActiveScope = {
+  principalId: "imessage:full-active-owner",
+  threadId: "imessage:full-active-thread",
+};
+const fullActiveWorkspaces = Array.from(
+  { length: PHOTON_WORKSPACE_LIMIT },
+  (_, index) => seededWorkspace(index, "active"),
+);
+seedRegistry(fullActiveClient, fullActiveScope, fullActiveWorkspaces);
+await assert.rejects(
+  createPhotonWorkspace(
+    { ...fullActiveScope, name: "Over capacity" },
+    fullActiveClient,
+  ),
+  (error) =>
+    error instanceof PhotonWorkspaceValidationError &&
+    /at most 12 active sessions/u.test(error.message),
+  "creation must fail when 12 non-archived sessions already exist",
+);
+
+const restoreAtCapacityClient = new MemoryStore();
+const restoreAtCapacityScope = {
+  principalId: "imessage:restore-capacity-owner",
+  threadId: "imessage:restore-capacity-thread",
+};
+const restoreAtCapacityWorkspaces = [
+  ...fullActiveWorkspaces,
+  seededWorkspace(PHOTON_WORKSPACE_LIMIT, "archived"),
+];
+seedRegistry(
+  restoreAtCapacityClient,
+  restoreAtCapacityScope,
+  restoreAtCapacityWorkspaces,
+);
+await assert.rejects(
+  restorePhotonWorkspace(
+    {
+      ...restoreAtCapacityScope,
+      workspaceId: restoreAtCapacityWorkspaces.at(-1).id,
+    },
+    restoreAtCapacityClient,
+  ),
+  (error) =>
+    error instanceof PhotonWorkspaceValidationError &&
+    /at most 12 active sessions/u.test(error.message),
+  "restoring an archived session must fail when active capacity is full",
+);
+
+const retainedCapacityClient = new MemoryStore();
+const retainedCapacityScope = {
+  principalId: "imessage:retained-capacity-owner",
+  threadId: "imessage:retained-capacity-thread",
+};
+const retainedCapacityWorkspaces = Array.from(
+  { length: PHOTON_WORKSPACE_RETAINED_LIMIT },
+  (_, index) => seededWorkspace(index, index < 4 ? "active" : "archived"),
+);
+seedRegistry(
+  retainedCapacityClient,
+  retainedCapacityScope,
+  retainedCapacityWorkspaces,
+);
+await assert.rejects(
+  createPhotonWorkspace(
+    { ...retainedCapacityScope, name: "No pruning" },
+    retainedCapacityClient,
+  ),
+  (error) =>
+    error instanceof PhotonWorkspaceValidationError &&
+    /48-record retained session history limit/u.test(error.message),
+  "retained history must remain separately bounded without consuming active capacity",
+);
+const retainedCapacityState = await getPhotonWorkspaceState(
+  retainedCapacityScope,
+  retainedCapacityClient,
+);
+assert.equal(retainedCapacityState.workspaces.length, PHOTON_WORKSPACE_RETAINED_LIMIT);
+assert.equal(
+  retainedCapacityState.workspaces.filter(({ status }) => status === "archived").length,
+  PHOTON_WORKSPACE_RETAINED_LIMIT - 4,
+  "rejecting creation at the retained-history bound must not delete archived records",
+);
 
 const isolatedScope = {
   principalId: "imessage:another-owner",

@@ -6,8 +6,11 @@ import { fileURLToPath } from "node:url";
 
 import { photonApprovalGuardKey } from "../agent/lib/photon-approval-store.ts";
 import {
+  archivePhotonWorkspace,
   createPhotonWorkspace,
+  findPhotonWorkspaceByName,
   getPhotonWorkspaceState,
+  PHOTON_WORKSPACE_RETAINED_LIMIT,
 } from "../agent/lib/photon-workspace-store.ts";
 import {
   createStrategyPackCatalog,
@@ -896,6 +899,68 @@ try {
   assert.equal(capacity.receipt.outcome, "rejected");
   assert.equal(capacity.receipt.rejectionCode, "capacity_exhausted");
   assert.equal((await getPhotonWorkspaceState(routing, client)).workspaces.length, 12);
+
+  const retainedClient = new MemoryStore();
+  let retainedState = await getPhotonWorkspaceState(routing, retainedClient);
+  while (retainedState.workspaces.length < PHOTON_WORKSPACE_RETAINED_LIMIT) {
+    const name = `Retained ${retainedState.workspaces.length}`;
+    retainedState = await createPhotonWorkspace({
+      ...routing,
+      expectedRevision: retainedState.revision,
+      name,
+    }, retainedClient);
+    const createdWorkspace = findPhotonWorkspaceByName(retainedState, name);
+    assert.ok(createdWorkspace);
+    retainedState = await archivePhotonWorkspace({
+      ...routing,
+      expectedRevision: retainedState.revision,
+      workspaceId: createdWorkspace.id,
+    }, retainedClient);
+  }
+  const retainedDependencies = {
+    ...dependencies,
+    monitorClient: retainedClient,
+    stateClient: retainedClient,
+    transactionClient: retainedClient,
+    workspaceClient: retainedClient,
+  };
+  const retainedCapacity = await createStrategyPackWorkspace({
+    ...routing,
+    request: {
+      ...request,
+      expectedRegistryRevision: retainedState.revision,
+      name: "Retained Capacity",
+    },
+    requestIdentity: deriveEveStrategyPackMutationIdentity({
+      ingressId: `ingress_${"8".repeat(64)}`,
+      operationOrdinal: 0,
+      stepId: "step_retained_capacity",
+      turnId: "turn_retained_capacity",
+    }),
+    sourceAssignment: {
+      generation: retainedState.activeWorkspace.generation,
+      workspaceId: retainedState.activeWorkspace.id,
+    },
+  }, retainedDependencies);
+  assert.equal(retainedCapacity.receipt.outcome, "rejected");
+  assert.equal(
+    retainedCapacity.receipt.rejectionCode,
+    "retained_capacity_exhausted",
+  );
+  const retainedStateAfterRejection = await getPhotonWorkspaceState(
+    routing,
+    retainedClient,
+  );
+  assert.equal(
+    retainedStateAfterRejection.workspaces.length,
+    PHOTON_WORKSPACE_RETAINED_LIMIT,
+  );
+  assert.equal(
+    retainedStateAfterRejection.workspaces.filter(
+      ({ status }) => status === "archived",
+    ).length,
+    PHOTON_WORKSPACE_RETAINED_LIMIT - 1,
+  );
 
   const ipoClient = new MemoryStore();
   const ipoInitial = await getPhotonWorkspaceState(routing, ipoClient);
