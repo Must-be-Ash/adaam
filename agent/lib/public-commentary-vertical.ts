@@ -58,6 +58,7 @@ import {
 } from "./workspace-state-store";
 import type { WebCorroborationProvider } from "./web-corroboration-search";
 import { compileWebCorroborationQuery } from "./web-corroboration-search";
+import { marketSymbolSchema } from "./strategy-pack-schema";
 
 export const INVERSE_CRAMER_POLICY = createCommentaryPolicyDefinition({
   displayName: "Inverse Cramer",
@@ -77,26 +78,43 @@ export interface PublicCommentarySourceBinding {
 }
 
 const PUBLIC_COMMENTARY_OCCURRENCE_LIMITS = Object.freeze({
+  batchSize: 8,
   maximumFactIdentities: 8,
   maximumFacts: 8,
-  maximumStatements: 8,
+  // The X continuation store retains at most 500 timeline items and a single
+  // occurrence can add the eight bounded rehydration results. Keep the
+  // projection envelope aligned with that durable source envelope so a
+  // completed continuation is processed in batches instead of quarantined.
+  maximumStatements: 508,
   maximumSummaryCharacters: 2_000,
 });
 const EXA_SEARCH_RESERVATION_USD = "0.007000";
 
 const publicCommentaryConfigurationSchema = z.object({
   alerts: z.enum(["disabled", "enabled"]),
-  cadenceMinutes: z.enum(["minutes_10", "minutes_15", "minutes_30", "minutes_60"]),
+  cadenceMinutes: z.enum([
+    "minutes_10", "minutes_15", "minutes_30", "minutes_60",
+    "hours_1", "hours_6", "hours_12", "hours_24",
+  ]),
+  firstRunLookback: z.enum(["off", "hours_1", "hours_6", "hours_12", "hours_24"]).default("off"),
   includeQuotePosts: z.enum(["exclude", "include"]),
   includeReplies: z.enum(["exclude", "include"]),
   minimumConfidence: z.enum(["low", "medium", "high"]),
   minimumMateriality: z.enum(["threshold_50", "threshold_65", "threshold_80"]),
   relatedSourceSearch: z.enum(["disabled", "enabled"]),
-  selectedSymbols: z.array(z.string().regex(/^[A-Z][A-Z0-9.-]{0,15}$/u)).max(8),
+  selectedSymbols: z.array(marketSymbolSchema).max(32),
   timezone: z.string().min(1).max(100),
 }).strict();
 
 type PublicCommentaryConfiguration = z.infer<typeof publicCommentaryConfigurationSchema>;
+
+export function partitionPublicCommentaryStatements<T>(values: readonly T[]): readonly (readonly T[])[] {
+  const batches: T[][] = [];
+  for (let offset = 0; offset < values.length; offset += PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.batchSize) {
+    batches.push(values.slice(offset, offset + PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.batchSize));
+  }
+  return Object.freeze(batches.map((batch) => Object.freeze(batch)));
+}
 
 const confidenceRank = { high: 3, low: 1, medium: 2 } as const;
 
@@ -526,6 +544,31 @@ function localCorroboration(input: {
   });
 }
 
+async function settleCorroborationBudget(input: Readonly<{
+  corroboration: WebCorroborationSearch;
+  now: Date;
+  runId: string;
+  scope: AuthorizedWorkspaceStoreScope;
+}>, client?: WorkspaceBudgetLedgerClient): Promise<void> {
+  if (input.corroboration.status === "not_run" || input.corroboration.status === "not_applicable") return;
+  const ledger = await readWorkspaceBudgetLedger(input.scope, client);
+  const reservation = ledger.reservations.find(({ runId }) => runId === input.runId);
+  if (!reservation || reservation.state === "reconciled" || reservation.state === "released") return;
+  const outcome = input.corroboration.status === "unavailable" ? "uncertain" as const
+    : "reconciled" as const;
+  await reconcileWorkspaceRunBudget({
+    ...(outcome === "reconciled" ? {
+      actualInputTokens: 0,
+      actualOutputTokens: 0,
+      actualPaidCost: input.corroboration.cost.amountUsd,
+    } : {}),
+    now: input.now,
+    outcome,
+    runId: input.runId,
+    scope: input.scope,
+  }, client);
+}
+
 async function runBudgetedCorroboration(input: {
   readonly attemptId: string;
   readonly configuration: PublicCommentaryConfiguration;
@@ -552,6 +595,12 @@ async function runBudgetedCorroboration(input: {
       cached.queryDigest !== input.query.queryDigest ||
       cached.statementRevisionId !== input.statementRevisionId
     ) throw new Error("public_commentary_attempt_conflict");
+    await settleCorroborationBudget({
+      corroboration: cached.corroboration,
+      now: input.now,
+      runId: input.attemptId,
+      scope: input.scope,
+    }, clients.budget);
     return cached.corroboration;
   }
   const flags = resolvePublicCommentaryRuntimeFlags(input.environment);
@@ -647,16 +696,9 @@ async function runBudgetedCorroboration(input: {
     }, clients.budget);
     throw error;
   }
-  await reconcileWorkspaceRunBudget({
-    ...(corroboration.status === "not_run" ? {} : {
-      actualInputTokens: 0,
-      actualOutputTokens: 0,
-      actualPaidCost: corroboration.cost.amountUsd,
-    }),
+  await settleCorroborationBudget({
+    corroboration,
     now: input.now,
-    outcome: corroboration.status === "not_run" ? "released"
-      : corroboration.status === "unavailable" ? "uncertain"
-      : "reconciled",
     runId: input.attemptId,
     scope: input.scope,
   }, clients.budget);
@@ -665,6 +707,7 @@ async function runBudgetedCorroboration(input: {
 
 export function createPublicCommentaryPipeline(input: {
   readonly acquireAndProject: (request: Readonly<{
+    firstRunLookback: PublicCommentaryConfiguration["firstRunLookback"];
     scope: AuthorizedWorkspaceStoreScope;
     window: Readonly<{ endAt: string; startAt: string }>;
   }>) => Promise<Readonly<{
@@ -698,7 +741,11 @@ export function createPublicCommentaryPipeline(input: {
       window: Readonly<{ endAt: string; startAt: string }>;
     }>) {
       const configuration = publicCommentaryConfigurationSchema.parse(request.configuration);
-      const acquired = await input.acquireAndProject({ scope: request.scope, window: request.window });
+      const acquired = await input.acquireAndProject({
+        firstRunLookback: configuration.firstRunLookback,
+        scope: request.scope,
+        window: request.window,
+      });
       const occurrenceId = `commentary-occurrence.${digestPublicCommentaryValue([
         request.monitorId,
         request.configurationGeneration,
@@ -723,94 +770,104 @@ export function createPublicCommentaryPipeline(input: {
         throw new Error("public_commentary_occurrence_statements_overflow");
       }
       const accepted: Awaited<ReturnType<typeof materializePublicCommentarySignal>>[] = [];
-      for (const projected of acquired.statements) {
-        const statement = publicStatementSchema.parse(projected.statement);
-        if (
-          publicStatementRole(statement) === "repost" ||
-          (publicStatementRole(statement) === "reply" && configuration.includeReplies === "exclude") ||
-          (publicStatementRole(statement) === "quote" && configuration.includeQuotePosts === "exclude")
-        ) continue;
-        const extraction = (await extractCommentaryMetadata({
-          environment: request.environment,
-          recover: input.recoverExtraction,
-          statement,
-          text: projected.plaintext,
-        })).extraction;
-        const targetTerms = extraction.targets.flatMap(({ displayName, symbol }) =>
-          symbol ? [symbol] : [displayName]).slice(0, 8);
-        const query = compileWebCorroborationQuery({
-          endPublishedAt: request.window.endAt,
-          publicTargetTerms: targetTerms.length ? targetTerms : [projected.statement.speaker.displayLabel],
-          publicTopicTerms: [],
-          startPublishedAt: request.window.startAt,
-        });
-        const attemptId = publicCommentaryStatementAttemptId({
-          configurationGeneration: request.configurationGeneration,
-          queryDigest: query.queryDigest,
-          statementRevisionId: projected.statementRevisionId,
-        });
-        const corroboration = await runBudgetedCorroboration({
-          attemptId,
-          configuration,
-          configurationGeneration: request.configurationGeneration,
-          environment: request.environment,
-          now: new Date(request.window.endAt),
-          provider: input.corroboration,
-          query,
-          scope: request.scope,
-          statementRevisionId: projected.statementRevisionId,
-        }, { attempts: input.attempts, budget: input.budget, state: input.state });
-        const semanticRun = await input.interpret({
-          attemptId,
-          corroboration,
-          plaintext: projected.plaintext,
-          statement,
-          statementRevisionId: projected.statementRevisionId,
-        });
-        if (semanticRun.record.job.state === "quarantined" || semanticRun.evidence === null) {
-          continue;
+      for (const batch of partitionPublicCommentaryStatements(acquired.statements)) {
+        const prepared = await Promise.allSettled(batch.map(async (projected) => {
+          const statement = publicStatementSchema.parse(projected.statement);
+          if (
+            publicStatementRole(statement) === "repost" ||
+            (publicStatementRole(statement) === "reply" && configuration.includeReplies === "exclude") ||
+            (publicStatementRole(statement) === "quote" && configuration.includeQuotePosts === "exclude")
+          ) return null;
+          const extraction = (await extractCommentaryMetadata({
+            environment: request.environment,
+            recover: input.recoverExtraction,
+            statement,
+            text: projected.plaintext,
+          })).extraction;
+          const targetTerms = extraction.targets.flatMap(({ displayName, symbol }) =>
+            symbol ? [symbol] : [displayName]).slice(0, 8);
+          const query = compileWebCorroborationQuery({
+            endPublishedAt: request.window.endAt,
+            publicTargetTerms: targetTerms.length ? targetTerms : [projected.statement.speaker.displayLabel],
+            publicTopicTerms: [],
+            startPublishedAt: request.window.startAt,
+          });
+          const attemptId = publicCommentaryStatementAttemptId({
+            configurationGeneration: request.configurationGeneration,
+            queryDigest: query.queryDigest,
+            statementRevisionId: projected.statementRevisionId,
+          });
+          const corroboration = await runBudgetedCorroboration({
+            attemptId,
+            configuration,
+            configurationGeneration: request.configurationGeneration,
+            environment: request.environment,
+            now: new Date(request.window.endAt),
+            provider: input.corroboration,
+            query,
+            scope: request.scope,
+            statementRevisionId: projected.statementRevisionId,
+          }, { attempts: input.attempts, budget: input.budget, state: input.state });
+          const semanticRun = await input.interpret({
+            attemptId,
+            corroboration,
+            plaintext: projected.plaintext,
+            statement,
+            statementRevisionId: projected.statementRevisionId,
+          });
+          if (semanticRun.record.job.state === "quarantined" || semanticRun.evidence === null) {
+            return null;
+          }
+          return Object.freeze({
+            corroboration,
+            extraction,
+            projected,
+            semanticResult: semanticRun.evidence.result,
+            statement,
+          });
+        }));
+        const rejected = prepared.find((result): result is PromiseRejectedResult => result.status === "rejected");
+        if (rejected) throw rejected.reason;
+        for (const result of prepared) {
+          if (result.status !== "fulfilled" || result.value === null) continue;
+          const { corroboration, extraction, projected, semanticResult, statement } = result.value;
+          accepted.push(await materializePublicCommentarySignal({
+            configuration: {
+              alerts: configuration.alerts,
+              minimumConfidence: configuration.minimumConfidence,
+              minimumMateriality: configuration.minimumMateriality,
+              selectedSymbols: configuration.selectedSymbols,
+            },
+            configurationGeneration: request.configurationGeneration,
+            contextSearchRevisionId: corroboration.requestId,
+            corroboration,
+            extractionDefinitionDigest: digestPublicCommentaryValue(["commentary-extraction", "1.0.0"]),
+            fastModelId: request.environment.EVE_HYBRID_FAST_MODEL_ID ?? "anthropic/claude-haiku-4.5",
+            frontierModelId: semanticResult.model.modelId,
+            interpretationDefinitionDigest: semanticResult.definition.definitionDigest,
+            monitorId: request.monitorId,
+            now: new Date(request.window.endAt),
+            ownerId: request.ownerId,
+            pack: request.pack,
+            policy: input.policy,
+            extraction,
+            plaintext: projected.plaintext,
+            scope: request.scope,
+            semanticResult,
+            source: projected.source,
+            statement,
+            statementRevisionId: projected.statementRevisionId,
+          }, input.findings));
         }
-        const semanticResult = semanticRun.evidence.result;
-        accepted.push(await materializePublicCommentarySignal({
-          configuration: {
-            alerts: configuration.alerts,
-            minimumConfidence: configuration.minimumConfidence,
-            minimumMateriality: configuration.minimumMateriality,
-            selectedSymbols: configuration.selectedSymbols,
-          },
-          configurationGeneration: request.configurationGeneration,
-          contextSearchRevisionId: corroboration.requestId,
-          corroboration,
-          extractionDefinitionDigest: digestPublicCommentaryValue(["commentary-extraction", "1.0.0"]),
-          fastModelId: request.environment.EVE_HYBRID_FAST_MODEL_ID ?? "anthropic/claude-haiku-4.5",
-          frontierModelId: semanticResult.model.modelId,
-          interpretationDefinitionDigest: semanticResult.definition.definitionDigest,
-          monitorId: request.monitorId,
-          now: new Date(request.window.endAt),
-          ownerId: request.ownerId,
-          pack: request.pack,
-          policy: input.policy,
-          extraction,
-          plaintext: projected.plaintext,
-          scope: request.scope,
-          semanticResult,
-          source: projected.source,
-          statement,
-          statementRevisionId: projected.statementRevisionId,
-        }, input.findings));
       }
-      const material = accepted.filter(({ genericFinding }) => genericFinding !== null);
-      const facts = material.flatMap(({ genericFinding }) => genericFinding!.facts ?? []);
-      const factIdentities = material.flatMap(({ genericFinding }) => genericFinding!.factIdentities);
-      if (
-        facts.length > PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumFacts ||
-        factIdentities.length > PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumFactIdentities
-      ) {
-        await quarantineOverflow("facts_overflow");
-        throw new Error("public_commentary_occurrence_facts_overflow");
-      }
-      const aggregateSummary = material.length === 0 ? null : [
-        `${material.length} validated public-commentary research candidate${material.length === 1 ? "" : "s"}.`,
+      const allMaterial = accepted.filter(({ genericFinding }) => genericFinding !== null);
+      const material = allMaterial.slice(0, PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumFacts);
+      const facts = material.flatMap(({ genericFinding }) => genericFinding!.facts ?? [])
+        .slice(0, PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumFacts);
+      const factIdentities = material.flatMap(({ genericFinding }) => genericFinding!.factIdentities)
+        .slice(0, PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumFactIdentities);
+      const aggregateSummary = allMaterial.length === 0 ? null : [
+        `${allMaterial.length} validated public-commentary research candidate${allMaterial.length === 1 ? "" : "s"}.`,
         `Statement findings: ${factIdentities.join(", ")}.`,
       ].join(" ");
       if (aggregateSummary && aggregateSummary.length > PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumSummaryCharacters) {
@@ -828,7 +885,7 @@ export function createPublicCommentaryPipeline(input: {
         summary: aggregateSummary,
       });
       return Object.freeze({
-        alertPresentation: material[0]?.alertPresentation ?? null,
+        alertPresentation: allMaterial.find(({ alertPresentation }) => alertPresentation !== null)?.alertPresentation ?? null,
         analyzedStatements: acquired.statements.length,
         checkpoint: acquired.checkpoint,
         finding,

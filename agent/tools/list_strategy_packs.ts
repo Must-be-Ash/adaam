@@ -1,7 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 
-import { listStrategyPacks } from "../lib/strategy-pack-service";
+import { listLatestStrategyPacks } from "../lib/strategy-pack-service";
 import { requirePhotonWorkspaceToolScope } from "../lib/workspace-runtime-scope";
 
 export default defineTool({
@@ -10,6 +10,6 @@ export default defineTool({
   inputSchema: z.object({}).strict(),
   execute(_input, ctx) {
     requirePhotonWorkspaceToolScope(ctx);
-    return listStrategyPacks();
+    return listLatestStrategyPacks();
   },
 });

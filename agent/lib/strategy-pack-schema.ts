@@ -57,6 +57,24 @@ const relativePathSchema = z
 const localTimeSchema = z
   .string()
   .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u);
+export const marketSymbolSchema = z.string().regex(/^[A-Z][A-Z0-9.-]{0,15}$/u);
+
+const STRATEGY_PACK_INTERVAL_MINUTES = Object.freeze({
+  hours_1: 60,
+  hours_6: 360,
+  hours_12: 720,
+  hours_24: 1_440,
+  minutes_10: 10,
+  minutes_15: 15,
+  minutes_30: 30,
+  minutes_60: 60,
+} as const);
+
+export function strategyPackIntervalMinutes(value: string): number | null {
+  return Object.prototype.hasOwnProperty.call(STRATEGY_PACK_INTERVAL_MINUTES, value)
+    ? STRATEGY_PACK_INTERVAL_MINUTES[value as keyof typeof STRATEGY_PACK_INTERVAL_MINUTES]
+    : null;
+}
 
 function sortedUnique(values: readonly string[]): boolean {
   return (
@@ -198,6 +216,22 @@ const canonicalIdListConfigurationSchema = z
     }
   });
 
+const boundedTokenListConfigurationSchema = z.object({
+  ...configurationFieldBase,
+  default: z.array(marketSymbolSchema).max(32),
+  kind: z.literal("bounded_token_list"),
+  maximumItems: z.number().int().positive().max(32),
+  minimumItems: z.number().int().nonnegative().max(32),
+  tokenFormat: z.literal("market_symbol"),
+}).strict().superRefine((field, context) => {
+  if (
+    field.minimumItems > field.maximumItems ||
+    field.default.length < field.minimumItems ||
+    field.default.length > field.maximumItems ||
+    !sortedUnique(field.default)
+  ) context.addIssue({ code: "custom", message: "strategy_pack_bounded_token_list_invalid" });
+});
+
 const catalogIdListConfigurationSchema = z.object({
   ...configurationFieldBase,
   catalogDigest: digestSchema,
@@ -222,6 +256,7 @@ export const strategyPackConfigurationFieldSchema = z.discriminatedUnion(
     timezoneConfigurationSchema,
     dailyTimesConfigurationSchema,
     boundedEnumConfigurationSchema,
+    boundedTokenListConfigurationSchema,
     canonicalIdListConfigurationSchema,
     catalogIdListConfigurationSchema,
   ],

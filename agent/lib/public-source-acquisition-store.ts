@@ -43,6 +43,7 @@ export interface PublicSourcePreparedAcquisition {
   readonly corrections: readonly PublicSourceCorrection[];
   readonly facts: readonly CanonicalPublicFactRevision[];
   readonly retractions: readonly PublicSourceRetraction[];
+  readonly requestVariantDigest?: string;
   readonly result: PublicSourceAcquisitionResult;
   readonly window: { readonly endAt: string; readonly startAt: string };
 }
@@ -128,6 +129,7 @@ export interface PublicSourceAcquisitionEligibility {
   readonly accessClassification: "public";
   readonly adapterDefinitionDigest: string;
   readonly expectedCursorRevision: number;
+  readonly requestVariantDigest?: string;
   readonly sourceInstanceId: string;
   readonly window: { readonly endAt: string; readonly startAt: string };
 }
@@ -153,6 +155,7 @@ export function derivePublicSourceAcquisitionEligibilityId(
       eligibility.window.endAt,
       eligibility.accessClassification,
       eligibility.expectedCursorRevision,
+      eligibility.requestVariantDigest ?? null,
     ]))
     .digest("hex");
 }
@@ -167,6 +170,7 @@ function derivePublicSourceAcquisitionWindowId(
       window.window.startAt,
       window.window.endAt,
       window.accessClassification,
+      window.requestVariantDigest ?? null,
     ]))
     .digest("hex");
 }
@@ -579,6 +583,7 @@ export async function readReusablePublicSourceAcquisition(
       journal.sourceInstanceId === eligibility.sourceInstanceId &&
       journal.adapterDefinitionDigest === eligibility.adapterDefinitionDigest &&
       journal.expectedCursorRevision === eligibility.expectedCursorRevision &&
+      (journal.requestVariantDigest ?? null) === (eligibility.requestVariantDigest ?? null) &&
       JSON.stringify(journal.window) === JSON.stringify(eligibility.window),
   }, client);
 }
@@ -595,6 +600,7 @@ export async function readCommittedPublicSourceAcquisitionForWindow(
     validateJournal: (journal) =>
       journal.sourceInstanceId === window.sourceInstanceId &&
       journal.adapterDefinitionDigest === window.adapterDefinitionDigest &&
+      (journal.requestVariantDigest ?? null) === (window.requestVariantDigest ?? null) &&
       JSON.stringify(journal.window) === JSON.stringify(window.window),
   }, client);
 }
@@ -616,6 +622,7 @@ async function publishPublicSourceAcquisition(
   const window = {
     accessClassification: eligibility.accessClassification,
     adapterDefinitionDigest: eligibility.adapterDefinitionDigest,
+    requestVariantDigest: eligibility.requestVariantDigest,
     sourceInstanceId: eligibility.sourceInstanceId,
     window: eligibility.window,
   };
@@ -902,6 +909,7 @@ export async function commitPublicSourceAcquisition(input: {
     preparedAt: result.observedAt,
     proposedCursor: result.proposedNextCursor,
     recordType: "public_source_acquisition_journal",
+    requestVariantDigest: input.acquisition.requestVariantDigest,
     schemaVersion: 1,
     sourceInstanceId: result.sourceInstanceId,
     status: "prepared",
@@ -986,6 +994,7 @@ export async function commitPublicSourceAcquisition(input: {
     accessClassification: "public",
     adapterDefinitionDigest: result.adapterDefinitionDigest,
     expectedCursorRevision: result.proposedNextCursor.expectedRevision,
+    requestVariantDigest: input.acquisition.requestVariantDigest,
     sourceInstanceId: result.sourceInstanceId,
     window: input.acquisition.window,
   }, result.acquisitionId, client);

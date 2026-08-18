@@ -309,6 +309,53 @@ assert.equal(
 assert.deepEqual(continuationRequests.map((request) => new URL(request.url).searchParams.get("pagination_token")), [null, "continuation-2", "continuation-3"]);
 assert.equal((await readPublicSourceInstance(source.sourceInstance.sourceInstanceId, continuationStore))?.cursor.watermark, "104");
 
+const lookbackStore = new MemoryStore();
+const lookbackEvidence = { ...evidence, client: lookbackStore };
+const lookbackStartAt = "2026-08-18T05:30:00.000Z";
+const lookbackRequests: XPublicStatementRequest[] = [];
+const lookbackFetch = async (request: XPublicStatementRequest) => {
+  lookbackRequests.push(request);
+  const token = new URL(request.url).searchParams.get("pagination_token");
+  if (token === null) return response(request, { data: [fixturePosts.original], meta: { next_token: "lookback-2" } });
+  if (token === "lookback-2") return response(request, { data: [fixturePosts.quote], meta: { next_token: "lookback-3" } });
+  assert.equal(token, "lookback-3");
+  return response(request, { data: [fixturePosts.reply], meta: { newest_id: "103" } });
+};
+const lookbackPartial = await runSharedXPublicStatementAcquisition({
+  client: lookbackStore,
+  evidence: lookbackEvidence,
+  fetchResponse: lookbackFetch,
+  firstRunStartAt: lookbackStartAt,
+  sourceId: X_PUBLIC_STATEMENTS_SOURCE_ID,
+  window: { endAt: "2026-08-18T06:30:00.000Z", startAt: "2026-08-18T06:29:00.000Z" },
+});
+assert.equal(lookbackPartial.acquisition.errorCode, "pagination_bounds_exceeded");
+assert.equal(lookbackPartial.baselineEstablished, false);
+const lookbackRequestCount = lookbackRequests.length;
+const mismatchedLookbackResume = await runSharedXPublicStatementAcquisition({
+  client: lookbackStore,
+  evidence: lookbackEvidence,
+  fetchResponse: lookbackFetch,
+  sourceId: X_PUBLIC_STATEMENTS_SOURCE_ID,
+  window: { endAt: "2026-08-18T06:30:30.000Z", startAt: "2026-08-18T06:30:00.000Z" },
+});
+assert.equal(mismatchedLookbackResume.acquisition.errorCode, "pagination_bounds_exceeded");
+assert.equal(lookbackRequests.length, lookbackRequestCount, "a different query must not consume another lookback continuation");
+const lookbackComplete = await runSharedXPublicStatementAcquisition({
+  client: lookbackStore,
+  evidence: lookbackEvidence,
+  fetchResponse: lookbackFetch,
+  firstRunStartAt: lookbackStartAt,
+  sourceId: X_PUBLIC_STATEMENTS_SOURCE_ID,
+  window: { endAt: "2026-08-18T06:31:00.000Z", startAt: "2026-08-18T06:30:00.000Z" },
+});
+assert.equal(lookbackComplete.acquisition.status, "complete");
+assert.equal(lookbackComplete.baselineEstablished, false);
+assert.equal(lookbackComplete.statements.length, 3);
+assert.ok(lookbackRequests.every((request) =>
+  new URL(request.url).searchParams.get("start_time") === lookbackStartAt &&
+  !new URL(request.url).searchParams.has("since_id")));
+
 for (const [label, thrown, expectedCode] of [
   ["timeout", Object.assign(new Error("fixture timeout"), { name: "TimeoutError" }), "transport_timeout"],
   ["transport", new Error("fixture connection reset"), "acquisition_uncertain"],

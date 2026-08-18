@@ -319,6 +319,59 @@ function exactSpan(text: string) {
   });
 }
 
+const NAMED_ASSET_ALIASES = Object.freeze([
+  { aliases: ["Alphabet"], displayName: "Alphabet", symbol: "GOOGL", type: "equity" as const },
+  { aliases: ["Amazon"], displayName: "Amazon", symbol: "AMZN", type: "equity" as const },
+  { aliases: ["Bitcoin"], displayName: "Bitcoin", symbol: "BTC", type: "crypto_asset" as const },
+  { aliases: ["Coinbase"], displayName: "Coinbase", symbol: "COIN", type: "equity" as const },
+  { aliases: ["Ethereum"], displayName: "Ethereum", symbol: "ETH", type: "crypto_asset" as const },
+  { aliases: ["Intel"], displayName: "Intel", symbol: "INTC", type: "equity" as const },
+  { aliases: ["Meta Platforms"], displayName: "Meta Platforms", symbol: "META", type: "equity" as const },
+  { aliases: ["Microsoft"], displayName: "Microsoft", symbol: "MSFT", type: "equity" as const },
+  { aliases: ["Nvidia"], displayName: "Nvidia", symbol: "NVDA", type: "equity" as const },
+  { aliases: ["Tesla"], displayName: "Tesla", symbol: "TSLA", type: "equity" as const },
+]);
+
+function namedAssetMatches(text: string) {
+  return NAMED_ASSET_ALIASES.filter(({ aliases }) => aliases.some((alias) =>
+    new RegExp(`\\b${RegExp.escape(alias)}\\b`, "u").test(text)));
+}
+
+function explicitCommentaryStance(text: string) {
+  const bullish = /\b(?:bullish|constructive|optimistic|upside|long)\b/iu.test(text);
+  const bearish = /\b(?:bearish|cautious|pessimistic|downside|short)\b/iu.test(text);
+  return bullish && bearish ? "mixed" as const
+    : bullish ? "bullish" as const
+    : bearish ? "bearish" as const
+    : "unclear" as const;
+}
+
+export async function recoverNamedAssetCommentaryMetadata(input: Readonly<{
+  deterministic: z.infer<typeof commentaryExtractionSchema>;
+  text: string;
+}>) {
+  const matches = namedAssetMatches(input.text);
+  if (matches.length !== 1) return input.deterministic;
+  const stance = explicitCommentaryStance(input.text);
+  return commentaryExtractionSchema.parse({
+    ...input.deterministic,
+    confidence: stance === "bullish" || stance === "bearish" ? "high" : "low",
+    extractionId: `commentary-extraction.${digestPublicCommentaryValue([
+      input.deterministic.extractionId,
+      "named-asset-recovery",
+      matches[0]!.symbol,
+      stance,
+    ])}`,
+    stance,
+    targets: [{
+      displayName: matches[0]!.displayName,
+      symbol: matches[0]!.symbol,
+      type: matches[0]!.type,
+    }],
+    topic: stance === "bullish" || stance === "bearish" ? "investment_view" : "market_commentary",
+  });
+}
+
 export type CommentaryExtractionOutcome = Readonly<{
   extraction: z.infer<typeof commentaryExtractionSchema>;
   recovery: Readonly<{
@@ -343,10 +396,13 @@ export async function extractCommentaryMetadata(input: {
     throw new Error("commentary_content_digest_mismatch");
   }
   const cashtags = [...new Set(statement.entities.cashtags)].sort();
-  const hasBullish = /\b(?:bullish|constructive|optimistic|upside|long)\b/iu.test(input.text);
-  const hasBearish = /\b(?:bearish|cautious|pessimistic|downside|short)\b/iu.test(input.text);
-  const stance = hasBullish && hasBearish ? "mixed" : hasBullish ? "bullish" : hasBearish ? "bearish" : "unclear";
-  const targets = cashtags.map((symbol) => ({ displayName: symbol, symbol, type: "equity" as const }));
+  const namedMatches = cashtags.length === 0 ? namedAssetMatches(input.text) : [];
+  const ambiguousNamedAssets = namedMatches.length > 1;
+  const explicitStance = explicitCommentaryStance(input.text);
+  const stance = ambiguousNamedAssets || cashtags.length === 0 ? "unclear" as const : explicitStance;
+  const targets = cashtags.length > 0
+    ? cashtags.map((symbol) => ({ displayName: symbol, symbol, type: "equity" as const }))
+    : [];
   const role = publicStatementRole(statement);
   const voiceOwnership = statement.attribution === "direct" && role !== "quote"
     ? "speaker" as const
@@ -372,7 +428,9 @@ export async function extractCommentaryMetadata(input: {
     topic: stance !== "unclear" && targets.length > 0 ? "investment_view" : targets.length > 0 ? "market_commentary" : "other",
     voiceOwnership,
   });
-  const needsRecovery = deterministic.stance === "unclear" || deterministic.targets.length === 0 || deterministic.voiceOwnership === "unclear";
+  const needsRecovery = !ambiguousNamedAssets && (
+    deterministic.stance === "unclear" || deterministic.targets.length === 0 || deterministic.voiceOwnership === "unclear"
+  );
   const route = needsRecovery
     ? resolveHybridTaskModelRoute("extraction_recovery", input.environment)
     : resolveHybridTaskModelRoute("deterministic_processing", input.environment);

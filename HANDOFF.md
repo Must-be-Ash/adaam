@@ -28,7 +28,8 @@ then verify task-specific details against current code before making a change.
 > 1.0.1 binding passed production acceptance on 2026-08-17. Its bounded frontier
 > worker completed with exact citations, validation, usage, and cost; all
 > related production flags remain off. Spec 4C's X-backed Public Commentary
-> Signals foundation, `inverse-cramer@1.0.0` pack, revocable evidence,
+> Signals foundation, immutable `inverse-cramer@1.0.0` and `1.1.0` packs,
+> revocable evidence,
 > correction handling, real-source/model acceptance, provider-neutral reuse
 > proof, and staged rollback passed final acceptance on 2026-08-18. Its X,
 > Exa, and execution flags remain off.
@@ -430,7 +431,7 @@ truncation, and crash-only ephemeral cleanup hardening is parked in
 
 ### Public Commentary Signals
 
-Spec 4C ships `inverse-cramer@1.0.0` through a reusable, provider-neutral
+Spec 4C ships immutable `inverse-cramer@1.0.0` and `1.1.0` through a reusable, provider-neutral
 Public Commentary Signals vertical. The production source is the pinned Jim
 Cramer X user timeline; source-global acquisition and edit/deletion rehydration
 feed workspace-isolated semantic attempts, findings, budgets, alerts, Discuss,
@@ -439,6 +440,27 @@ payload and supports deterministic correction, supersession, deletion purge,
 and replay. The policy inverts only a clearly attributable bullish or bearish
 investment stance; mixed, quoted, joking, neutral, irrelevant, or ambiguous
 statements abstain. The worker has no trading or broker capability.
+
+The narrow 1.1 follow-up retains every 1.0 byte and exact-version resolution,
+while the pack-creation catalog shows only the latest version of each pack.
+Inverse Cramer 1.1 adds 1, 6, 12, and 24 hour polling, plus an explicit
+off/1/6/12/24-hour first-run lookback clamped to the activation watermark.
+X continues with `since_id`; revision-zero lookback pagination persists its
+original `start_time`, binds reuse and continuation to that exact query mode,
+and processes the full 500-source-item plus eight-rehydration envelope in
+deterministic batches of eight without treating an ordinary backlog as an
+occurrence overflow. Expensive preparation is bounded to one batch while
+durable finding materialization stays ordered. The
+empty alert watchlist means every safely resolved asset, while a nonempty
+bounded ticker/token list filters alerts without suppressing findings. The
+deterministic named-asset path resolves unambiguous Intel commentary to INTC;
+multiple named assets abstain rather than guessing. Creation surfaces,
+including Eve's pack-list tool, expose only the latest version; exact historical
+versions remain registered for replay and provenance. These runtime additions
+do not re-accept Spec 4C and do not enable production execution.
+
+A free-form arbitrary-person/arbitrary-policy Public Commentary Strategy
+Builder remains a proposed follow-up. It is intentionally outside this patch.
 
 The independent three-pass audit closed all validated P1/P2 findings and the
 final relevant regression passed. A corrected live X smoke returned HTTP 200,
@@ -852,6 +874,7 @@ Focused regression scripts map to the important boundaries:
 | `verify:congressional-signals:sprint-0` through `:sprint-5` | live-layout viability, versioned policy/evidence, history/corrections/clusters, owner surfaces, full official roster, replay, and workspace isolation |
 | `verify:public-commentary-signals:sprint-0` through `:sprint-3` | X source/retention contracts, revocable lifecycle and pagination, provider-neutral semantic policy, worker projection, findings, correction, Discuss, Manage, budgets, and isolation |
 | `verify:public-commentary-signals:sprint-4-reuse` | signed official-web reuse through the same public-statement, validator, policy, finding, alert, correction/purge, replay, and isolation path without a production source-specific branch |
+| `verify:public-commentary-signals:follow-up` | immutable Inverse Cramer 1.0/1.1 registration, latest-only creation catalog, long cadence mapping, activation-clamped lookback, 8-item batching, bounded ticker/token configuration, Intel/INTC resolution, inverse direction, and ambiguity abstention |
 
 The Redis checks require exported environment variables and do not load
 `.env.local`. Model evals do not exercise the Photon webhook, Redis delivery,

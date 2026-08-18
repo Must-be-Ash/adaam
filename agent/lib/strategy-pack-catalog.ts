@@ -22,6 +22,7 @@ export interface ModelSafeStrategyPackSummary {
     readonly key: string;
     readonly kind:
       | "bounded_enum"
+      | "bounded_token_list"
       | "canonical_id_list"
       | "catalog_id_list"
       | "daily_local_times"
@@ -49,6 +50,23 @@ function catalogKey(id: string, version: string): string {
   return `${id}@${version}`;
 }
 
+function modelSafeSummaries(entries: readonly StrategyPackCatalogEntry[]) {
+  return deepFreeze(entries.map((entry) => ({
+    availability: entry.availability,
+    configuration: entry.configuration.map((field) => ({
+      key: field.key,
+      kind: field.kind,
+      label: field.label,
+      required: field.required,
+    })),
+    description: entry.description,
+    displayName: entry.displayName,
+    id: entry.id,
+    maturity: entry.maturity,
+    version: entry.version,
+  })));
+}
+
 export function createStrategyPackCatalog(
   definitions: readonly StrategyPackDefinition[],
   options: {
@@ -58,6 +76,7 @@ export function createStrategyPackCatalog(
   readonly catalogDigest: string;
   readonly entries: readonly StrategyPackCatalogEntry[];
   listModelSafe(): readonly ModelSafeStrategyPackSummary[];
+  listLatestModelSafe(): readonly ModelSafeStrategyPackSummary[];
   resolve(input: {
     readonly contentDigest?: string;
     readonly id: string;
@@ -97,22 +116,11 @@ export function createStrategyPackCatalog(
     catalogDigest,
     entries: frozenEntries,
     listModelSafe(): readonly ModelSafeStrategyPackSummary[] {
-      return deepFreeze(
-        frozenEntries.map((entry) => ({
-          availability: entry.availability,
-          configuration: entry.configuration.map((field) => ({
-            key: field.key,
-            kind: field.kind,
-            label: field.label,
-            required: field.required,
-          })),
-          description: entry.description,
-          displayName: entry.displayName,
-          id: entry.id,
-          maturity: entry.maturity,
-          version: entry.version,
-        })),
-      );
+      return modelSafeSummaries(frozenEntries);
+    },
+    listLatestModelSafe(): readonly ModelSafeStrategyPackSummary[] {
+      return modelSafeSummaries(frozenEntries.filter((entry, index) =>
+        frozenEntries[index + 1]?.id !== entry.id));
     },
     resolve(input): StrategyPackCatalogEntry | null {
       const entry = byKey.get(catalogKey(input.id, input.version)) ?? null;

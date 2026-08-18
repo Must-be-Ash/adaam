@@ -20,6 +20,7 @@ const itemSchema = z.object({
 }).strict();
 const indexSchema = z.object({
   expectedCursorRevision: z.number().int().nonnegative(),
+  firstRunStartAt: z.string().datetime({ offset: true }).nullable().optional(),
   items: z.array(itemSchema).max(MAX_ITEMS),
   nextToken: z.string().min(1).max(500),
   pagesRead: z.number().int().positive().max(500),
@@ -82,6 +83,7 @@ export async function readXPublicStatementPaginationItems(
 
 export async function appendXPublicStatementPaginationContinuation(input: {
   readonly expectedCursorRevision: number;
+  readonly firstRunStartAt?: string | null;
   readonly items: readonly XPublicStatementPaginationItem[];
   readonly nextToken: string;
   readonly pagesRead: number;
@@ -89,19 +91,24 @@ export async function appendXPublicStatementPaginationContinuation(input: {
   readonly sourceInstanceId: string;
 }, client: RevocableEvidenceStoreClient): Promise<XPublicStatementPaginationContinuation> {
   const key = indexKey(input.sourceInstanceId);
-  for (const item of input.items) {
-    const record = recordSchema.parse({ ...item, recordType: "x_public_statement_pagination_item", schemaVersion: 1 });
-    const serialized = JSON.stringify(record);
-    const recordKey = itemKey(input.sourceInstanceId, record.fact.revisionId);
-    if (!(await client.compareAndSet(recordKey, null, serialized)) && raw(await client.get(recordKey)) !== serialized) {
-      throw new Error("x_pagination_continuation_conflict");
-    }
+  for (let offset = 0; offset < input.items.length; offset += 8) {
+    await Promise.all(input.items.slice(offset, offset + 8).map(async (item) => {
+      const record = recordSchema.parse({ ...item, recordType: "x_public_statement_pagination_item", schemaVersion: 1 });
+      const serialized = JSON.stringify(record);
+      const recordKey = itemKey(input.sourceInstanceId, record.fact.revisionId);
+      if (!(await client.compareAndSet(recordKey, null, serialized)) && raw(await client.get(recordKey)) !== serialized) {
+        throw new Error("x_pagination_continuation_conflict");
+      }
+    }));
   }
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const currentRaw = raw(await client.get(key));
     const current = currentRaw === null ? null : indexSchema.parse(JSON.parse(currentRaw));
     if (current && current.expectedCursorRevision !== input.expectedCursorRevision) {
       throw new Error("x_pagination_continuation_stale");
+    }
+    if (current && (current.firstRunStartAt ?? null) !== (input.firstRunStartAt ?? null)) {
+      throw new Error("x_pagination_continuation_conflict");
     }
     const byRevision = new Map((current?.items ?? []).map((item) => [item.factRevisionId, item]));
     for (const item of input.items) {
@@ -119,6 +126,7 @@ export async function appendXPublicStatementPaginationContinuation(input: {
     }
     const next = indexSchema.parse({
       expectedCursorRevision: input.expectedCursorRevision,
+      firstRunStartAt: input.firstRunStartAt ?? null,
       items: [...byRevision.values()],
       nextToken: input.nextToken,
       pagesRead: (current?.pagesRead ?? 0) + input.pagesRead,
@@ -137,8 +145,9 @@ export async function clearXPublicStatementPaginationContinuation(
   continuation: XPublicStatementPaginationContinuation,
   client: RevocableEvidenceStoreClient,
 ): Promise<void> {
-  for (const item of continuation.items) {
-    await client.delete(itemKey(continuation.sourceInstanceId, item.factRevisionId));
+  for (let offset = 0; offset < continuation.items.length; offset += 8) {
+    await Promise.all(continuation.items.slice(offset, offset + 8).map((item) =>
+      client.delete(itemKey(continuation.sourceInstanceId, item.factRevisionId))));
   }
   await client.delete(indexKey(continuation.sourceInstanceId));
 }

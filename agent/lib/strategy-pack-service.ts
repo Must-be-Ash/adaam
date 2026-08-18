@@ -80,6 +80,7 @@ import { inspectWorkspaceHybridEvidence } from "./hybrid-evidence-semantic";
 import type { WorkspaceSemanticEvidenceStoreClient } from "./hybrid-evidence-semantic-store";
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
 import type { PublicSourceSubscriptionStoreClient } from "./public-source-subscription-store";
+import { marketSymbolSchema, strategyPackIntervalMinutes } from "./strategy-pack-schema";
 
 const REQUEST_BYTE_LIMIT = 16_384;
 const SHARED_HARD_DENIALS = Object.freeze([
@@ -236,6 +237,16 @@ export function listStrategyPacks(
   return Object.freeze({ count: packs.length, packs });
 }
 
+export function listLatestStrategyPacks(
+  dependencies: StrategyPackServiceReadDependencies = {},
+): {
+  readonly count: number;
+  readonly packs: ReturnType<StrategyPackCatalog["listLatestModelSafe"]>;
+} {
+  const packs = requireStrategyPackCatalog(dependencies).listLatestModelSafe();
+  return Object.freeze({ count: packs.length, packs });
+}
+
 function packInspection(pack: StrategyPackCatalogEntry) {
   return Object.freeze({
     availability: pack.availability,
@@ -251,6 +262,11 @@ function packInspection(pack: StrategyPackCatalogEntry) {
         ...(field.kind === "catalog_id_list"
           ? { options: resolveCatalogBackedOptions(field) }
           : {}),
+        ...("maximumItems" in field ? {
+          maximumItems: field.maximumItems,
+          minimumItems: field.minimumItems,
+        } : {}),
+        ...(field.kind === "bounded_token_list" ? { tokenFormat: field.tokenFormat } : {}),
         default: Array.isArray(field.default)
           ? Object.freeze([...field.default])
           : field.default,
@@ -756,34 +772,42 @@ export function resolveStrategyPackConfiguration(
       if (supplied) ownerOverrides[field.key] = value;
       continue;
     }
+    const normalizedValue = field.kind === "bounded_token_list" && Array.isArray(value)
+      ? value.map((entry) => typeof entry === "string" ? entry.trim().toUpperCase() : entry)
+        .sort((left, right) => typeof left === "string" && typeof right === "string"
+          ? left.localeCompare(right)
+          : 0)
+      : value;
     if (
-      !Array.isArray(value) ||
-      value.length < field.minimumItems ||
-      value.length > field.maximumItems ||
-      value.some((entry) => typeof entry !== "string") ||
-      new Set(value).size !== value.length ||
-      value.some((entry, index) => index > 0 && value[index - 1]! > entry)
+      !Array.isArray(normalizedValue) ||
+      normalizedValue.length < field.minimumItems ||
+      normalizedValue.length > field.maximumItems ||
+      normalizedValue.some((entry) => typeof entry !== "string") ||
+      new Set(normalizedValue).size !== normalizedValue.length ||
+      normalizedValue.some((entry, index) => index > 0 && normalizedValue[index - 1]! > entry)
     ) {
       throw new StrategyPackServiceError("strategy_pack_invalid_request");
     }
     if (
       field.kind === "daily_local_times"
-        ? value.some((entry) => !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(entry))
+        ? normalizedValue.some((entry) => !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(entry))
         : field.kind === "catalog_id_list"
           ? (() => {
               try {
-                assertCatalogBackedValues(field, value as string[]);
+                assertCatalogBackedValues(field, normalizedValue as string[]);
                 return false;
               } catch {
                 return true;
               }
             })()
-          : value.some((entry) => !field.allowedValues.includes(entry))
+          : field.kind === "bounded_token_list"
+            ? normalizedValue.some((entry) => !marketSymbolSchema.safeParse(entry).success)
+            : normalizedValue.some((entry) => !field.allowedValues.includes(entry))
     ) {
       throw new StrategyPackServiceError("strategy_pack_invalid_request");
     }
-    configuration[field.key] = value as string[];
-    if (supplied) ownerOverrides[field.key] = value as string[];
+    configuration[field.key] = normalizedValue as string[];
+    if (supplied) ownerOverrides[field.key] = normalizedValue as string[];
   }
   return { configuration, ownerOverrides };
 }
@@ -957,6 +981,12 @@ function rejectionReceipt(input: {
   });
 }
 
+export function resolveStrategyPackIntervalMinutes(value: string): number {
+  const minutes = strategyPackIntervalMinutes(value);
+  if (minutes === null) throw new StrategyPackServiceError("strategy_pack_invalid_request");
+  return minutes;
+}
+
 function strategyPackMonitorSchedule(
   monitor: StrategyPackCatalogEntry["monitors"][number],
   configuration: Record<string, string | string[]>,
@@ -964,13 +994,10 @@ function strategyPackMonitorSchedule(
 ) {
   if ("intervalMinutesConfigurationKey" in monitor) {
     const configured = configuration[monitor.intervalMinutesConfigurationKey];
-    const match = typeof configured === "string"
-      ? /^minutes_(10|15|30|60)$/u.exec(configured)
-      : null;
-    if (!match) throw new StrategyPackServiceError("strategy_pack_invalid_request");
+    if (typeof configured !== "string") throw new StrategyPackServiceError("strategy_pack_invalid_request");
     return {
       anchor: now.toISOString(),
-      everyMinutes: Number(match[1]),
+      everyMinutes: resolveStrategyPackIntervalMinutes(configured),
       kind: "interval" as const,
     };
   }

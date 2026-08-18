@@ -97,6 +97,7 @@ type CoordinatorFetch =
   | {
       readonly adapterId: "x-public-statements";
       readonly evidence: XRevocableEvidenceOptions;
+      readonly firstRunStartAt?: string | null;
       readonly fetchResponse: (
         request: XPublicStatementRequest,
       ) => Promise<XPublicStatementResponse>;
@@ -336,6 +337,7 @@ export async function coordinatePublicSourceOccurrence(input: {
             client: input.clients?.acquisition,
             evidence: xFetch.evidence,
             fetchResponse: xFetch.fetchResponse,
+            firstRunStartAt: xFetch.firstRunStartAt,
             sourceId: input.sourceId,
             window,
           })

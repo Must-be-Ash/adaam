@@ -20,7 +20,7 @@ import {
   createStrategyPackWorkspaceFromSelection,
   inspectStrategyPack,
   inspectStrategyPackWorkspace,
-  listStrategyPacks,
+  listLatestStrategyPacks,
   mintSpectrumStrategyPackMutationIdentity,
   removeStrategyPackWorkspaceFromSelection,
   strategyPackMutationConfigurationSchema,
@@ -293,7 +293,7 @@ async function publicManagerState(
   const base = publicState(state);
   const flags = resolveStrategyPackFlags();
   const strategyPackCatalog = flags.catalog
-    ? listStrategyPacks().packs.map((summary) =>
+    ? listLatestStrategyPacks().packs.map((summary) =>
         inspectStrategyPack({ id: summary.id, version: summary.version }).pack)
     : [];
   const packMutationIdentity = flags.mutations
@@ -848,9 +848,17 @@ export function workspaceHtml(nonce: string, origin: string): string {
         (pack) => pack.id + "@" + pack.version === packSelect.value,
       );
 
+      const configurationChoiceLabel = (value) => {
+        const cadence = /^(minutes|hours)_(\d+)$/.exec(value);
+        if (cadence) return cadence[2] + " " + cadence[1];
+        return value === "off" ? "Off" : value.replaceAll("_", " ");
+      };
+
       const configurationValue = (field, control) => {
-        if (field.kind === "daily_local_times") {
-          return [...new Set(control.value.split(",").map((item) => item.trim()).filter(Boolean))].sort();
+        if (field.kind === "daily_local_times" || field.kind === "bounded_token_list") {
+          return [...new Set(control.value.split(",").map((item) =>
+            field.kind === "bounded_token_list" ? item.trim().toUpperCase() : item.trim()
+          ).filter(Boolean))].sort();
         }
         if (field.kind === "canonical_id_list" || field.kind === "catalog_id_list") {
           return Array.from(control.selectedOptions).map((option) => option.value).sort();
@@ -873,6 +881,16 @@ export function workspaceHtml(nonce: string, origin: string): string {
         return null;
       };
 
+      const tokenListIssue = (field, control) => {
+        const values = configurationValue(field, control);
+        if (values.length < field.minimumItems) return "Enter at least " + field.minimumItems + " symbols.";
+        if (values.length > field.maximumItems) return "Enter no more than " + field.maximumItems + " symbols.";
+        if (values.some((value) => !/^[A-Z][A-Z0-9.-]{0,15}$/.test(value))) {
+          return "Use ticker or token symbols containing only letters, numbers, periods, or hyphens.";
+        }
+        return null;
+      };
+
       const renderPackConfiguration = () => {
         packConfigurationFields.replaceChildren();
         const pack = selectedPack();
@@ -881,7 +899,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
         for (const field of pack.configuration) {
           const wrapper = document.createElement("div");
           wrapper.className = "pack-field" +
-            (field.kind === "canonical_id_list" || field.kind === "catalog_id_list" ? " full" : "");
+            (["bounded_token_list", "canonical_id_list", "catalog_id_list"].includes(field.kind) ? " full" : "");
           const label = document.createElement("label");
           const id = "pack-configuration-" + field.key;
           label.htmlFor = id;
@@ -892,7 +910,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
             control.multiple = field.kind === "canonical_id_list" || field.kind === "catalog_id_list";
             const choices = field.kind === "catalog_id_list"
               ? field.options
-              : field.allowedValues.map((value) => ({ id: value, label: value }));
+              : field.allowedValues.map((value) => ({ id: value, label: configurationChoiceLabel(value) }));
             if (control.multiple) control.size = Math.min(8, choices.length);
             for (const choice of choices) {
               const option = document.createElement("option");
@@ -911,14 +929,20 @@ export function workspaceHtml(nonce: string, origin: string): string {
             }
           } else {
             control = document.createElement("input");
-            control.maxLength = field.kind === "daily_local_times" ? 160 : 80;
+            control.maxLength = field.kind === "bounded_token_list"
+              ? field.maximumItems * 18
+              : field.kind === "daily_local_times" ? 512 : 80;
             control.autocomplete = "off";
             control.value = Array.isArray(field.default) ? field.default.join(", ") : field.default;
+            if (field.kind === "bounded_token_list") {
+              control.placeholder = "Add tickers or tokens, separated by commas (for example INTC, BTC)";
+              control.setAttribute("aria-description", "Enter up to " + field.maximumItems + " market symbols. Leave empty for all resolved assets.");
+            }
           }
           control.id = id;
           control.dataset.configurationKey = field.key;
           control.title = field.description;
-          control.required = field.required;
+          control.required = field.required && (!("minimumItems" in field) || field.minimumItems > 0);
           if (field.kind === "catalog_id_list") {
             const search = document.createElement("input");
             const selectorStatus = document.createElement("p");
@@ -982,6 +1006,25 @@ export function workspaceHtml(nonce: string, origin: string): string {
             });
             wrapper.append(label, search, control, selectorStatus);
             announceSelection("Issuer catalog loaded · " + control.options.length + " companies available");
+          } else if (field.kind === "bounded_token_list") {
+            const selectorStatus = document.createElement("p");
+            const statusId = id + "-status";
+            selectorStatus.id = statusId;
+            selectorStatus.className = "runtime-detail";
+            selectorStatus.setAttribute("role", "status");
+            selectorStatus.setAttribute("aria-live", "polite");
+            control.setAttribute("aria-describedby", statusId);
+            const validateTokens = () => {
+              const issue = tokenListIssue(field, control);
+              control.setCustomValidity(issue || "");
+              control.setAttribute("aria-invalid", String(Boolean(issue)));
+              const count = configurationValue(field, control).length;
+              selectorStatus.textContent = issue || count + " of " + field.maximumItems +
+                " symbols · " + (count === 0 ? "all resolved assets may alert" : "alerts filtered to this watchlist");
+            };
+            control.addEventListener("input", validateTokens);
+            wrapper.append(label, control, selectorStatus);
+            validateTokens();
           } else {
             wrapper.append(label, control);
           }
@@ -997,9 +1040,10 @@ export function workspaceHtml(nonce: string, origin: string): string {
           const answer = prompt(field.label + choices,
             Array.isArray(existing) ? existing.join(", ") : existing);
           if (answer === null) return null;
-          if (field.kind === "daily_local_times" || field.kind === "canonical_id_list" || field.kind === "catalog_id_list") {
+          if (["bounded_token_list", "daily_local_times", "canonical_id_list", "catalog_id_list"].includes(field.kind)) {
             configuration[field.key] = [...new Set(answer.split(",")
-              .map((value) => value.trim()).filter(Boolean))].sort();
+              .map((value) => field.kind === "bounded_token_list" ? value.trim().toUpperCase() : value.trim())
+              .filter(Boolean))].sort();
           } else {
             configuration[field.key] = answer.trim();
           }
@@ -1537,7 +1581,8 @@ export function workspaceHtml(nonce: string, origin: string): string {
         const affected = (pendingWorkspace?.strategyPack?.managedMonitors || [])
           .map((monitor) => monitor.name).join(", ") || "none";
         const cadence = action.configuration
-          ? action.configuration.dailyTimes.join(", ") + " · " + action.configuration.timezone
+          ? action.configuration.cadenceMinutes ??
+            ((action.configuration.dailyTimes || []).join(", ") + " · " + action.configuration.timezone)
           : "removed";
         status.textContent = "Applying strategy-pack " + operation + "… Affected managed work: " + affected +
           ". Cadence: " + cadence + ". Budget timing follows the configured timezone. Conflicting controls are disabled.";
@@ -1685,6 +1730,20 @@ export function workspaceHtml(nonce: string, origin: string): string {
             packActivate.checked,
           );
           invalidCatalogControl.control.focus();
+          return;
+        }
+        const invalidTokenControl = selected.configuration
+          .filter((field) => field.kind === "bounded_token_list")
+          .map((field) => ({
+            control: packConfigurationFields.querySelector('[data-configuration-key="' + field.key + '"]'),
+            field,
+          }))
+          .find(({ control, field }) => tokenListIssue(field, control));
+        if (invalidTokenControl) {
+          invalidTokenControl.control.setAttribute("aria-invalid", "true");
+          status.classList.add("error");
+          status.textContent = tokenListIssue(invalidTokenControl.field, invalidTokenControl.control);
+          invalidTokenControl.control.focus();
           return;
         }
         await packMutate({

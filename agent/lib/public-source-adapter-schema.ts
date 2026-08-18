@@ -346,6 +346,7 @@ export const publicSourceAcquisitionJournalSchema = z.object({
   preparedAt: timestampSchema,
   proposedCursor: proposedCursorSchema,
   recordType: z.literal("public_source_acquisition_journal"),
+  requestVariantDigest: digestSchema.optional(),
   schemaVersion: z.literal(1),
   sourceInstanceId: idSchema,
   status: z.enum(["prepared", "committed"]),

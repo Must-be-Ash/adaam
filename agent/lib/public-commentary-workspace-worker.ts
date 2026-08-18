@@ -41,7 +41,10 @@ import {
 } from "./public-commentary-finding-store";
 import { resolvePublicCommentaryRuntimeFlags } from "./public-commentary-flags";
 import { publicStatementSchema } from "./public-commentary-schema";
-import { createCommentarySemanticDefinition } from "./public-commentary-semantics";
+import {
+  createCommentarySemanticDefinition,
+  recoverNamedAssetCommentaryMetadata,
+} from "./public-commentary-semantics";
 import {
   createPublicCommentaryPipeline,
   materializePublicCommentaryCorrection,
@@ -54,6 +57,7 @@ import {
 import { INVERSE_CRAMER_EVALUATION_TOOL_ID } from "./strategy-pack-reference-catalog";
 import { X_PUBLIC_STATEMENTS_SOURCE_ID } from "./strategy-pack-reference-catalog";
 import { strategyPackCatalog } from "./strategy-pack-catalog";
+import { strategyPackIntervalMinutes } from "./strategy-pack-schema";
 import {
   getWorkspaceMonitor,
   isWorkspaceMonitorCheckpointOnlyBaseline,
@@ -152,6 +156,7 @@ export interface PublicCommentaryWorkspaceWorkerClients extends WorkspaceWorkerC
       window: Readonly<{ endAt: string; startAt: string }>;
     }>): Promise<PublicCommentaryPipelineResult>;
   }>;
+  readonly recoverExtraction?: Parameters<typeof createPublicCommentaryPipeline>[0]["recoverExtraction"];
 }
 
 export class PublicCommentaryWorkspaceWorkerError extends Error {
@@ -187,6 +192,33 @@ function resolveXEvidence(
     encryptionKey,
     keyReference,
   });
+}
+
+export function resolvePublicCommentaryFirstRunLookbackStart(input: {
+  readonly activationWatermark?: string | null;
+  readonly firstRunLookback: "off" | "hours_1" | "hours_6" | "hours_12" | "hours_24";
+  readonly initialBaseline: boolean;
+  readonly windowEndAt: string;
+}): string | null {
+  if (!input.initialBaseline || input.firstRunLookback === "off") return null;
+  if (!input.activationWatermark) {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_monitor_invalid");
+  }
+  const lookbackMinutes = strategyPackIntervalMinutes(input.firstRunLookback);
+  const end = Date.parse(input.windowEndAt);
+  const activation = Date.parse(input.activationWatermark);
+  if (lookbackMinutes === null || !Number.isFinite(end) || !Number.isFinite(activation) || activation > end) {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_monitor_invalid");
+  }
+  return new Date(Math.max(activation, end - lookbackMinutes * 60_000)).toISOString();
+}
+
+export function resolvePublicCommentaryCommitInitialBaseline(input: Readonly<{
+  checkpointOnlyBaseline: boolean;
+  firstRunLookback: unknown;
+}>): boolean {
+  return input.checkpointOnlyBaseline &&
+    (input.firstRunLookback === undefined || input.firstRunLookback === "off");
 }
 
 async function drainHybridWorker(
@@ -240,7 +272,7 @@ export function createProductionPublicCommentaryPipeline(input: {
   }>[] = [];
 
   const pipeline = createPublicCommentaryPipeline({
-    acquireAndProject: async ({ scope, window }) => {
+    acquireAndProject: async ({ firstRunLookback, scope, window }) => {
       occurrenceCorrections = [];
       pendingRehydrationAcknowledgements = [];
       const authorized = await authorizeWorkspaceSourceFetch({
@@ -271,15 +303,22 @@ export function createProductionPublicCommentaryPipeline(input: {
       }, clients?.sourceCoverage);
       let coordinated: Awaited<ReturnType<typeof coordinatePublicSourceOccurrence>>;
       try {
+        const firstRunStartAt = resolvePublicCommentaryFirstRunLookbackStart({
+          activationWatermark: input.monitor.activationWatermark,
+          firstRunLookback,
+          initialBaseline: isWorkspaceMonitorCheckpointOnlyBaseline(input.monitor),
+          windowEndAt: window.endAt,
+        });
         coordinated = await coordinatePublicSourceOccurrence({
         clients: {
           acquisition: clients?.acquisition,
           subscription: clients?.subscription,
         },
         environment: input.environment,
-        fetch: {
-          adapterId: "x-public-statements",
-          evidence,
+          fetch: {
+            adapterId: "x-public-statements",
+            evidence,
+            firstRunStartAt,
           fetchResponse: timelineReservation.state === "reserved"
             ? fetchResponse
             : async () => { throw new Error("x_paid_timeline_replay_without_receipt"); },
@@ -311,26 +350,17 @@ export function createProductionPublicCommentaryPipeline(input: {
           }, clients?.semantic?.budget);
           throw new PublicCommentaryWorkspaceWorkerError("public_commentary_source_unavailable");
         }
-        const acquisitionComplete = coordinated.acquisition.status === "complete" ||
-          coordinated.acquisition.status === "no_change";
-        if (!acquisitionComplete && !coordinated.reused) {
-          await reconcileWorkspaceRunBudget({
-            now: input.now,
-            outcome: "uncertain",
-            runId: timelineReservationId,
-            scope,
-          }, clients?.semantic?.budget);
-        } else {
-          await reconcileWorkspaceRunBudget({
+        await reconcileWorkspaceRunBudget({
+          ...(coordinated.reused ? {} : {
             actualInputTokens: 0,
             actualOutputTokens: 0,
             actualPaidCost: coordinated.xReceipt.amountUsd,
-            now: input.now,
-            outcome: coordinated.reused ? "released" : "reconciled",
-            runId: timelineReservationId,
-            scope,
-          }, clients?.semantic?.budget);
-        }
+          }),
+          now: input.now,
+          outcome: coordinated.reused ? "released" : "reconciled",
+          runId: timelineReservationId,
+          scope,
+        }, clients?.semantic?.budget);
       }
       if (!coordinated.projection || !coordinated.workspaceCheckpoint) {
         throw new PublicCommentaryWorkspaceWorkerError("public_commentary_source_unavailable");
@@ -580,8 +610,10 @@ export function createProductionPublicCommentaryPipeline(input: {
         scope,
         sourceId: authorized.sourceId,
       }, clients?.sourceCoverage);
-      const baseline = coordinated.baselineEstablished ||
+      const lookbackActive = firstRunLookback !== "off" &&
         isWorkspaceMonitorCheckpointOnlyBaseline(input.monitor);
+      const baseline = !lookbackActive && (coordinated.baselineEstablished ||
+        isWorkspaceMonitorCheckpointOnlyBaseline(input.monitor));
       const statements = baseline ? [] : await Promise.all(projections
         .filter((projection, index, values) => values.findIndex(({ fact }) =>
           fact.revisionId === projection.fact.revisionId) === index)
@@ -632,6 +664,7 @@ export function createProductionPublicCommentaryPipeline(input: {
     budget: clients?.semantic?.budget,
     corroboration: clients?.corroboration ?? createExaWebCorroborationProvider(),
     findings: clients?.commentaryFindings,
+    recoverExtraction: clients?.recoverExtraction ?? recoverNamedAssetCommentaryMetadata,
     state: clients?.state,
     interpret: async ({ plaintext, statement, statementRevisionId }) => {
       const subject = semanticSubjects.get(statementRevisionId);
@@ -850,7 +883,10 @@ export async function evaluatePublicCommentarySignalsForWorker(input: {
       ctx: input.ctx,
       environment,
       finding: result.finding,
-      initialBaseline: isWorkspaceMonitorCheckpointOnlyBaseline(monitor),
+      initialBaseline: resolvePublicCommentaryCommitInitialBaseline({
+        checkpointOnlyBaseline: isWorkspaceMonitorCheckpointOnlyBaseline(monitor),
+        firstRunLookback: strategy.value.configuration.firstRunLookback ?? "off",
+      }),
       now,
       toolId: INVERSE_CRAMER_EVALUATION_TOOL_ID,
     }),
@@ -862,7 +898,7 @@ export const evaluatePublicCommentarySignalsTool = defineTool({
   description: "Run the bounded Inverse Cramer acquisition-projection, extraction, optional related-source search, semantic interpretation, registered policy, persistence, checkpoint, and at-most-once alert pipeline.",
   inputSchema: z.object({}).strict(),
   outputSchema: z.object({
-    analyzedStatements: z.number().int().nonnegative().max(200),
+    analyzedStatements: z.number().int().nonnegative().max(508),
     outcome: z.enum(["finding_staged", "no_match"]),
     replayed: z.boolean(),
     runId: z.string().min(1).max(160),

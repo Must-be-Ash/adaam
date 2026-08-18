@@ -201,6 +201,7 @@ export function createXPublicStatementFetch(options: {
 }
 
 export function createXTimelineRequest(input: {
+  readonly firstRunStartAt?: string | null;
   readonly paginationToken?: string;
   readonly sourceInstance: PublicSourceInstance;
 }): XPublicStatementRequest {
@@ -211,12 +212,25 @@ export function createXTimelineRequest(input: {
   url.searchParams.set("expansions", "author_id,edit_history_tweet_ids,in_reply_to_user_id,referenced_tweets.id");
   url.searchParams.set("max_results", "100");
   url.searchParams.set("tweet.fields", "author_id,conversation_id,created_at,edit_controls,edit_history_tweet_ids,entities,in_reply_to_user_id,referenced_tweets,text,withheld");
-  if (source.cursor.revision > 0) {
+  if (input.firstRunStartAt) {
+    const start = new Date(input.firstRunStartAt);
+    if (!Number.isFinite(start.getTime()) || start.toISOString() !== input.firstRunStartAt) {
+      throw new Error("x_start_time_invalid");
+    }
+    url.searchParams.set("start_time", input.firstRunStartAt);
+  } else if (source.cursor.revision > 0) {
     if (source.cursor.watermark === null) throw new Error("x_since_id_missing");
     url.searchParams.set("since_id", source.cursor.watermark);
   }
   if (input.paginationToken) url.searchParams.set("pagination_token", input.paginationToken);
   return Object.freeze({ kind: "timeline", url: url.toString() });
+}
+
+function xTimelineRequestVariantDigest(firstRunStartAt: string | null): string {
+  return digestPublicSourceValue([
+    "x-public-statements-timeline-request",
+    firstRunStartAt === null ? { mode: "cursor" } : { mode: "lookback", startAt: firstRunStartAt },
+  ]);
 }
 
 export function createXExactPostRequest(postId: string): XPublicStatementRequest {
@@ -489,15 +503,15 @@ async function normalizeXPublicStatementPages(input: {
   const posts = input.parsedPages.flatMap((page) => page.data ?? [])
     .sort((left, right) => BigInt(left.id) < BigInt(right.id) ? -1 : 1);
   const normalized: XPublicStatementPaginationItem[] = [];
-  for (const post of posts) {
-    if (postRole(post) === "repost") continue;
-    normalized.push(await canonicalFact({
-      client: input.client,
-      evidence: input.evidence,
-      observedAt: input.observedAt,
-      post,
-      sourceInstance: input.sourceInstance,
-    }));
+  for (let offset = 0; offset < posts.length; offset += 8) {
+    const batch = posts.slice(offset, offset + 8).filter((post) => postRole(post) !== "repost");
+    normalized.push(...await Promise.all(batch.map((post) => canonicalFact({
+        client: input.client,
+        evidence: input.evidence,
+        observedAt: input.observedAt,
+        post,
+        sourceInstance: input.sourceInstance,
+      }))));
   }
   return Object.freeze(normalized);
 }
@@ -570,6 +584,7 @@ function errorAcquisition(input: {
 export async function acquireXPublicStatements(input: {
   readonly client?: PublicSourceAcquisitionStoreClient;
   readonly evidence: XRevocableEvidenceOptions;
+  readonly firstRunStartAt?: string | null;
   readonly responses: readonly XPublicStatementResponse[];
   readonly sourceInstance: PublicSourceInstance;
   readonly window: { readonly endAt: string; readonly startAt: string };
@@ -577,6 +592,7 @@ export async function acquireXPublicStatements(input: {
   readonly priorPostsRead?: number;
 }): Promise<XPublicStatementAcquisition> {
   const sourceInstance = publicSourceInstanceSchema.parse(input.sourceInstance);
+  const requestVariantDigest = xTimelineRequestVariantDigest(input.firstRunStartAt ?? null);
   const configuration = xConfiguration(sourceInstance);
   const parsedPages = input.responses.map(parseBody);
   const currentPostsRead = parsedPages.reduce((total, page) => total + (page.data?.length ?? 0), 0);
@@ -590,7 +606,7 @@ export async function acquireXPublicStatements(input: {
     currentPostsRead,
     bounded && !hasUnconsumedPage,
   );
-  if (bounded && hasUnconsumedPage && sourceInstance.cursor.revision === 0) {
+  if (bounded && hasUnconsumedPage && sourceInstance.cursor.revision === 0 && !input.firstRunStartAt) {
     const observedAt = input.responses.at(-1)?.observedAt ?? input.window.endAt;
     const observedIds = parsedPages.flatMap((page) => [
       ...(page.data ?? []).map(({ id }) => id),
@@ -614,6 +630,7 @@ export async function acquireXPublicStatements(input: {
         facts: Object.freeze([]),
         receipt: acquisitionReceipt,
         retractions: Object.freeze([]),
+        requestVariantDigest,
         result: publicSourceAcquisitionResultSchema.parse({
           acquisitionId,
           adapterDefinitionDigest: sourceInstance.adapterDefinitionDigest,
@@ -690,13 +707,14 @@ export async function acquireXPublicStatements(input: {
     input.window,
     contentDigest,
   ])}`;
-  const baselineEstablished = sourceInstance.cursor.revision === 0;
+  const baselineEstablished = sourceInstance.cursor.revision === 0 && !input.firstRunStartAt;
   return Object.freeze({
     baselineEstablished,
     corrections,
     facts,
     receipt: acquisitionReceipt,
     retractions: Object.freeze([]),
+    requestVariantDigest,
     result: publicSourceAcquisitionResultSchema.parse({
       acquisitionId: id,
       adapterDefinitionDigest: sourceInstance.adapterDefinitionDigest,
@@ -780,13 +798,17 @@ export async function runSharedXPublicStatementAcquisition(input: {
   readonly client?: PublicSourceAcquisitionStoreClient;
   readonly evidence: XRevocableEvidenceOptions;
   readonly fetchResponse: (request: XPublicStatementRequest) => Promise<XPublicStatementResponse>;
+  readonly firstRunStartAt?: string | null;
   readonly sourceId: string;
   readonly window: { readonly endAt: string; readonly startAt: string };
 }): Promise<SharedXPublicStatementAcquisitionResult> {
   const reviewed = resolveReviewedPublicSource(input.sourceId);
+  const requestedFirstRunStartAt = input.firstRunStartAt ?? null;
+  const requestVariantDigest = xTimelineRequestVariantDigest(requestedFirstRunStartAt);
   const committedForWindow = await readCommittedPublicSourceAcquisitionForWindow({
     accessClassification: "public",
     adapterDefinitionDigest: reviewed.sourceInstance.adapterDefinitionDigest,
+    requestVariantDigest,
     sourceInstanceId: reviewed.sourceInstance.sourceInstanceId,
     window: input.window,
   }, input.client);
@@ -810,10 +832,31 @@ export async function runSharedXPublicStatementAcquisition(input: {
     await clearXPublicStatementPaginationContinuation(continuation, input.evidence.client);
     continuation = null;
   }
+  if (continuation && (continuation.firstRunStartAt ?? null) !== requestedFirstRunStartAt) {
+    const failure = errorAcquisition({
+      code: "pagination_bounds_exceeded",
+      observedAt: input.window.endAt,
+      receipt: replayReceipt,
+      sourceInstance,
+      window: input.window,
+    });
+    await recordPublicSourceAcquisitionOutcome(failure.result, input.client);
+    return Object.freeze({
+      acquisition: failure.result,
+      baselineEstablished: false,
+      commit: null,
+      journal: null,
+      receipt: failure.receipt,
+      reused: false,
+      statements: Object.freeze([]),
+    });
+  }
+  const firstRunStartAt = requestedFirstRunStartAt;
   const eligibility = {
     accessClassification: "public" as const,
     adapterDefinitionDigest: sourceInstance.adapterDefinitionDigest,
     expectedCursorRevision: sourceInstance.cursor.revision,
+    requestVariantDigest,
     sourceInstanceId: sourceInstance.sourceInstanceId,
     window: input.window,
   };
@@ -839,6 +882,7 @@ export async function runSharedXPublicStatementAcquisition(input: {
     try {
       for (let page = 0; page < xConfiguration(sourceInstance).maximumPagesPerPoll; page += 1) {
         const response = await input.fetchResponse(createXTimelineRequest({
+          firstRunStartAt,
           paginationToken,
           sourceInstance,
         }));
@@ -868,7 +912,7 @@ export async function runSharedXPublicStatementAcquisition(input: {
       }
       const parsedPages = responses.map(parseBody);
       const nextToken = parsedPages.at(-1)?.meta?.next_token;
-      if (nextToken && sourceInstance.cursor.revision > 0) {
+      if (nextToken && (sourceInstance.cursor.revision > 0 || firstRunStartAt !== null)) {
         const observedAt = responses.at(-1)?.observedAt ?? input.window.endAt;
         const normalized = await normalizeXPublicStatementPages({
           client: input.client,
@@ -879,6 +923,7 @@ export async function runSharedXPublicStatementAcquisition(input: {
         });
         continuation = await appendXPublicStatementPaginationContinuation({
           expectedCursorRevision: sourceInstance.cursor.revision,
+          firstRunStartAt,
           items: normalized,
           nextToken,
           pagesRead: responses.length,
@@ -908,6 +953,7 @@ export async function runSharedXPublicStatementAcquisition(input: {
       const prepared = await acquireXPublicStatements({
         client: input.client,
         evidence: input.evidence,
+        firstRunStartAt,
         priorItems,
         priorPostsRead: continuation?.postsRead,
         responses,

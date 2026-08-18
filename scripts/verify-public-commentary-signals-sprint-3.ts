@@ -303,7 +303,7 @@ const configuration = {
   minimumConfidence: "medium" as const,
   minimumMateriality: "threshold_65" as const,
   relatedSourceSearch: "disabled" as const,
-  selectedSymbols: ["AAPL"],
+  selectedSymbols: [],
   timezone: "UTC",
 };
 const stageOrder: string[] = [];
@@ -462,11 +462,14 @@ assert.equal(filteredResult.analyzedStatements, 2);
 assert.equal(filteredResult.finding, null);
 
 let overflowSemanticCalls = 0;
+let overflowSemanticActive = 0;
+let overflowSemanticMaximumActive = 0;
 const overflowAttempts = new MemoryAttemptStore();
+const overflowFindings = new MemoryStore();
 const overflowPipeline = createPublicCommentaryPipeline({
   acquireAndProject: async () => ({
-    checkpoint: { contentDigest: "7".repeat(64), watermark: "208" },
-    statements: Array.from({ length: 9 }, (_, index) => ({
+    checkpoint: { contentDigest: "7".repeat(64), watermark: "707" },
+    statements: Array.from({ length: 508 }, (_, index) => ({
       plaintext: text,
       source: base.source,
       statement: statement({ editChainIds: [String(200 + index)], stablePostId: String(200 + index) }),
@@ -475,17 +478,60 @@ const overflowPipeline = createPublicCommentaryPipeline({
   }),
   attempts: overflowAttempts,
   corroboration: { async search() { throw new Error("overflow_must_not_search"); } },
-  interpret: async () => { overflowSemanticCalls += 1; throw new Error("overflow_must_not_run_semantics"); },
+  findings: overflowFindings,
+  interpret: async () => {
+    overflowSemanticCalls += 1;
+    overflowSemanticActive += 1;
+    overflowSemanticMaximumActive = Math.max(overflowSemanticMaximumActive, overflowSemanticActive);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    overflowSemanticActive -= 1;
+    return { evidence: { result: semanticResultA }, record: { job: { state: "accepted" } }, strategyEvidence: { result: semanticResultA } } as never;
+  },
 });
-await assert.rejects(
-  overflowPipeline.run({ ...paidRequest, configuration, configurationGeneration: 5, environment: {} }),
-  /public_commentary_occurrence_statements_overflow/u,
-);
-assert.equal(overflowSemanticCalls, 0);
+const overflowResult = await overflowPipeline.run({
+  ...paidRequest,
+  configuration,
+  configurationGeneration: 5,
+  environment: {},
+});
+assert.equal(overflowResult.analyzedStatements, 508);
+assert.equal(overflowSemanticCalls, 508);
+assert.equal(overflowSemanticMaximumActive, 8, "semantic preparation must use deterministic eight-item batches");
+assert.equal(overflowResult.finding?.factIdentities.length, 8);
 assert.equal(
   [...overflowAttempts.values.values()].some((value) => value.includes('"reason":"statements_overflow"')),
+  false,
+  "a normal multi-batch backlog must not quarantine the occurrence",
+);
+
+let overEnvelopeSemanticCalls = 0;
+const overEnvelopeAttempts = new MemoryAttemptStore();
+const overEnvelopePipeline = createPublicCommentaryPipeline({
+  acquireAndProject: async () => ({
+    checkpoint: { contentDigest: "6".repeat(64), watermark: "708" },
+    statements: Array.from({ length: 509 }, (_, index) => ({
+      plaintext: text,
+      source: base.source,
+      statement: statement({ editChainIds: [String(300 + index)], stablePostId: String(300 + index) }),
+      statementRevisionId: `statement.x.${300 + index}.1`,
+    })),
+  }),
+  attempts: overEnvelopeAttempts,
+  corroboration: { async search() { throw new Error("over_envelope_must_not_search"); } },
+  interpret: async () => {
+    overEnvelopeSemanticCalls += 1;
+    throw new Error("over_envelope_must_not_run_semantics");
+  },
+});
+await assert.rejects(
+  overEnvelopePipeline.run({ ...paidRequest, configuration, configurationGeneration: 6, environment: {} }),
+  /public_commentary_occurrence_statements_overflow/u,
+);
+assert.equal(overEnvelopeSemanticCalls, 0);
+assert.equal(
+  [...overEnvelopeAttempts.values.values()].some((value) => value.includes('"reason":"statements_overflow"')),
   true,
-  "occurrence overflow must be durably inspectable",
+  "only a source-envelope violation should quarantine the occurrence",
 );
 
 const acceptedA = await materializePublicCommentarySignal({ ...base, configuration, scope: scopeA, semanticResult: semanticResultA }, store);
@@ -503,12 +549,14 @@ assert.equal(store.values.size, storedCount);
 
 const acceptedB = await materializePublicCommentarySignal({
   ...base,
-  configuration: { ...configuration, alerts: "disabled", selectedSymbols: ["TSLA"] },
+  configuration: { ...configuration, alerts: "enabled", selectedSymbols: ["TSLA"] },
   scope: scopeB,
   semanticResult: semanticResultB,
 }, store);
 assert.equal(acceptedB.alertPresentation, null);
 assert.equal(acceptedB.record.finding.materiality.alertEligible, false);
+assert.equal(acceptedB.record.finding.outcome, "accepted", "a nonmatching watchlist filters the alert, not the finding");
+assert.deepEqual(acceptedB.record.finding.materiality.decisionReasons, ["target_not_selected"]);
 assert.notEqual(acceptedB.record.finding.findingId, acceptedA.record.finding.findingId);
 await assert.rejects(readPublicCommentaryFindingExplanation({ findingId: acceptedA.record.finding.findingId, scope: scopeB }, store), /public_commentary_finding_not_found/u);
 assert.equal((await readLatestPublicCommentaryFindingExplanation(scopeA, store)).findingId, acceptedA.record.finding.findingId);
