@@ -728,6 +728,7 @@ The most important differences between the working app and `NORTH_STAR.md` are:
    ambiguous worker-start accounting, revision freshness, atomic lifecycle
    convergence, log/privacy catalog enforcement, and Eve private-runtime
    compatibility are parked after the remaining product specs.
+
 Other known edges:
 
 - local fake-provider coverage proves the repaired Coinbase owner path but not
@@ -870,6 +871,7 @@ Chart-only and image-only iMessage smokes remain outstanding.
     event may be older than the newly created monitor window. Permit that cursor
     only for an authenticated initial no-finding baseline with no prior
     checkpoint; ordinary runs must retain the stricter window fence.
+
 ## Code map
 
 Read the files for the area being changed; the groupings below show how the
