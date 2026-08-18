@@ -1,0 +1,47 @@
+{
+  "recordType": "public_commentary_x_live_validation",
+  "schemaVersion": 1,
+  "performedAt": "2026-08-18T05:41:43.000Z",
+  "authorization": {
+    "maximumAuthorizedCostUsd": "0.040000",
+    "maximumOperationCostUsd": "0.035000"
+  },
+  "privacy": {
+    "credentialValuesLogged": false,
+    "postIdsLogged": false,
+    "postTextLogged": false
+  },
+  "identity": {
+    "status": 200,
+    "rateLimit": 300,
+    "rateRemaining": 299,
+    "numericUserId": "14216123",
+    "displayName": "Jim Cramer",
+    "username": "jimcramer",
+    "protected": false,
+    "verified": false,
+    "isIdentityVerified": false,
+    "parody": false,
+    "withheld": false
+  },
+  "timeline": {
+    "status": 200,
+    "rateLimit": 10000,
+    "rateRemaining": 9999,
+    "returnedPosts": 5,
+    "allAuthorsMatchPinnedUser": true,
+    "hasNextToken": true,
+    "fieldCoverage": {
+      "authorId": 5,
+      "conversationId": 5,
+      "createdAt": 5,
+      "editControls": 5,
+      "editHistoryPostIds": 5,
+      "entities": 2,
+      "inReplyToUserId": 0,
+      "referencedPosts": 0,
+      "text": 5,
+      "withheld": 0
+    }
+  }
+}

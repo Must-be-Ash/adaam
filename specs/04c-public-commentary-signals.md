@@ -557,7 +557,7 @@ inspectable only to the extent current evidence rights permit.
   edits/deletions, and display. Record current pricing, quotas, rate limits,
   termination obligations, and whether a suitable compliance endpoint is
   available on the chosen tier.
-- [ ] Verify and pin Jim Cramer's numeric X user ID with the owner; lock the
+- [x] Verify and pin Jim Cramer's numeric X user ID with the owner; lock the
   exact endpoint, fields, expansions, post-role filters, ten-minute cadence,
   edit-finalization delay, pagination bounds, and activation baseline rules.
 - [x] Freeze the `public-statement/v1`, revocable-evidence, extraction,
@@ -583,10 +583,18 @@ remain incompatible, stop for an owner decision.
 Sprint 0 evidence (2026-08-17): the focused verifier passes 24 bounded intended-
 outcome cases and reports only the six explicitly deferred production seams;
 TypeScript passes for the application and focused verifier. The source contract
-records the current official X/Exa boundary but remains fail-closed as
-`pending_owner_evidence`, `pending_owner_verification`, and
+records the current official X/Exa boundary. Source authorization and lifecycle
+access remain fail-closed as `pending_owner_evidence` and
 `chosen_tier_unverified`. The corpus remains unchecked until human review, and
 Sprint 0 has not met its exit gate.
+
+Live X evidence (2026-08-18): after the owner authorized the previously stated
+`$0.04` ceiling, one exact username lookup and one five-result user-timeline
+request succeeded for numeric user ID `14216123`. Both returned `200`; all five
+timeline authors matched the pinned ID, documented edit fields were present,
+pagination was available, and the response reported app-window limits of `300`
+for identity lookup and `10,000` for the timeline. Maximum operation cost was
+`$0.035`; no credential value, post ID, or post text was logged or committed.
 
 ### Sprint 1 — public statements, X acquisition, and revocable lifecycle
 

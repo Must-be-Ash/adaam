@@ -57,6 +57,57 @@ const corpus = z.object({
   "utf8",
 )));
 
+const liveValidation = z.object({
+  authorization: z.object({
+    maximumAuthorizedCostUsd: z.literal("0.040000"),
+    maximumOperationCostUsd: z.literal("0.035000"),
+  }).strict(),
+  identity: z.object({
+    displayName: z.literal("Jim Cramer"),
+    isIdentityVerified: z.boolean(),
+    numericUserId: z.string().regex(/^\d{1,20}$/u),
+    parody: z.literal(false),
+    protected: z.literal(false),
+    rateLimit: z.literal(300),
+    rateRemaining: z.number().int().nonnegative().max(300),
+    status: z.literal(200),
+    username: z.literal("jimcramer"),
+    verified: z.boolean(),
+    withheld: z.literal(false),
+  }).strict(),
+  performedAt: z.string().datetime({ offset: true }),
+  privacy: z.object({
+    credentialValuesLogged: z.literal(false),
+    postIdsLogged: z.literal(false),
+    postTextLogged: z.literal(false),
+  }).strict(),
+  recordType: z.literal("public_commentary_x_live_validation"),
+  schemaVersion: z.literal(1),
+  timeline: z.object({
+    allAuthorsMatchPinnedUser: z.literal(true),
+    fieldCoverage: z.object({
+      authorId: z.literal(5),
+      conversationId: z.literal(5),
+      createdAt: z.literal(5),
+      editControls: z.literal(5),
+      editHistoryPostIds: z.literal(5),
+      entities: z.number().int().nonnegative().max(5),
+      inReplyToUserId: z.number().int().nonnegative().max(5),
+      referencedPosts: z.number().int().nonnegative().max(5),
+      text: z.literal(5),
+      withheld: z.number().int().nonnegative().max(5),
+    }).strict(),
+    hasNextToken: z.boolean(),
+    rateLimit: z.literal(10_000),
+    rateRemaining: z.number().int().nonnegative().max(10_000),
+    returnedPosts: z.literal(5),
+    status: z.literal(200),
+  }).strict(),
+}).strict().parse(JSON.parse(await readFile(
+  new URL("./fixtures/public-commentary-signals/x-live-validation-2026-08-18.json", import.meta.url),
+  "utf8",
+)));
+
 const requiredTags = [
   "explicit_bullish", "explicit_bearish", "no_view", "cashtag", "implicit_entity",
   "quote_post", "quotation_only", "reply", "repost", "sarcasm", "mixed_stance",
@@ -85,7 +136,9 @@ assert.deepEqual(
   inverseCramerSprint0ContractSchema.parse(INVERSE_CRAMER_SPRINT_0_CONTRACT),
   INVERSE_CRAMER_SPRINT_0_CONTRACT,
 );
-assert.equal(INVERSE_CRAMER_SPRINT_0_CONTRACT.identity.approvalState, "pending_owner_verification");
+assert.equal(INVERSE_CRAMER_SPRINT_0_CONTRACT.identity.approvalState, "verified");
+assert.equal(INVERSE_CRAMER_SPRINT_0_CONTRACT.identity.numericUserId, liveValidation.identity.numericUserId);
+assert.equal(INVERSE_CRAMER_SPRINT_0_CONTRACT.identity.verifiedAt, liveValidation.performedAt);
 assert.equal(INVERSE_CRAMER_SPRINT_0_CONTRACT.referenceCadenceMinutes, 10);
 assert.equal(INVERSE_CRAMER_SPRINT_0_CONTRACT.allowedPostRoles.repost, false);
 assert.deepEqual(
@@ -295,5 +348,6 @@ process.stdout.write(JSON.stringify({
   missingProductionSeams: corpus.missingProductionSeams,
   sourceApprovalState: PUBLIC_COMMENTARY_SOURCE_CONTRACT.authorization.approvalState,
   identityApprovalState: INVERSE_CRAMER_SPRINT_0_CONTRACT.identity.approvalState,
+  pinnedNumericUserId: liveValidation.identity.numericUserId,
   status: "contracts_green_production_seams_intentionally_missing",
 }, null, 2) + "\n");

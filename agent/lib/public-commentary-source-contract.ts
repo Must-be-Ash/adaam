@@ -104,6 +104,7 @@ export const publicCommentarySourceContractSchema = z.object({
       useCaseAndThirdPartyProcessorApprovalRequired: z.literal(true),
     }).strict(),
     rateLimits: z.object({
+      identityLookupPerAppPerWindow: z.literal(300),
       timelinePerAppPerWindow: z.literal(10_000),
       timelinePerUserPerWindow: z.literal(900),
       windowMinutes: z.literal(15),
@@ -140,7 +141,9 @@ export const publicCommentarySourceContractSchema = z.object({
       sinceIdRequiredAfterBaseline: z.literal(true),
       userFields: z.tuple([
         z.literal("id"),
+        z.literal("is_identity_verified"),
         z.literal("name"),
+        z.literal("parody"),
         z.literal("protected"),
         z.literal("username"),
         z.literal("verified"),
@@ -229,6 +232,7 @@ export const PUBLIC_COMMENTARY_SOURCE_CONTRACT = publicCommentarySourceContractS
       useCaseAndThirdPartyProcessorApprovalRequired: true,
     },
     rateLimits: {
+      identityLookupPerAppPerWindow: 300,
       timelinePerAppPerWindow: 10_000,
       timelinePerUserPerWindow: 900,
       windowMinutes: 15,
@@ -247,7 +251,7 @@ export const PUBLIC_COMMENTARY_SOURCE_CONTRACT = publicCommentarySourceContractS
       paginationTokenRequiredForNextPage: true,
       postFields: ["conversation_id", "created_at", "edit_controls", "entities", "text", "withheld"],
       sinceIdRequiredAfterBaseline: true,
-      userFields: ["id", "name", "protected", "username", "verified", "withheld"],
+      userFields: ["id", "is_identity_verified", "name", "parody", "protected", "username", "verified", "withheld"],
     },
   },
 });
