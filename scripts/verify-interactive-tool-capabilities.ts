@@ -13,10 +13,12 @@ import {
 import { photonAuth } from "../agent/lib/photon-auth";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import { resolveParameterizedStrategyPackSources } from "../agent/lib/strategy-pack-source-resolution";
+import { executeCoinbasePreviewOrder } from "../agent/tools/coinbase_preview_order";
 import {
   prepareInitialWorkspaceDocument,
   prepareInitialWorkspaceStrategyBinding,
   type WorkspaceCapabilityManifestValue,
+  workspaceDocumentStorageKey,
 } from "../agent/lib/workspace-state-store";
 import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization";
 import { projectPhotonWorkspaceRuntimeScope } from "../agent/lib/workspace-runtime-scope";
@@ -50,6 +52,8 @@ const environment = {
 };
 const memory = new MemoryStore();
 process.env.COINBASE_ALLOWED_PRINCIPALS = principalId;
+process.env.COINBASE_KEY_ID = "fixture-key-id";
+process.env.COINBASE_KEY_SECRET = "fixture-key-secret";
 
 function context(workspaceId: string) {
   const scope = projectPhotonWorkspaceRuntimeScope({
@@ -261,5 +265,62 @@ assert.deepEqual(
   { channel: "imessage", id: principalId },
   "an unbound workspace must continue through the ordinary Coinbase principal gate",
 );
+
+async function testLegacyMainWithAbsentStrategyDocumentReachesCoinbaseProviderBoundary() {
+  const legacyMainWorkspaceId = "323e4567-e89b-42d3-a456-426614174000";
+  const legacyMainScope = authorizeDeploymentWorkspaceStore(
+    { ownerId, workspaceId: legacyMainWorkspaceId },
+    environment,
+  );
+  assert.equal(
+    memory.values.has(workspaceDocumentStorageKey("strategy", legacyMainScope)),
+    false,
+    "legacy Main must begin with no strategy key",
+  );
+
+  const providerCalls: string[] = [];
+  const result = await executeCoinbasePreviewOrder(
+    {
+      productId: "BTC-USD",
+      quoteSize: "1.00",
+      side: "BUY",
+      type: "market",
+    },
+    {
+      ...context(legacyMainWorkspaceId),
+      abortSignal: new AbortController().signal,
+      callId: "call_fixture_legacy_main_preview",
+      toolName: "coinbase_preview_order",
+    } as never,
+    {
+      callCoinbaseMcpTool: async (toolName) => {
+        providerCalls.push(toolName);
+        if (toolName === "coinbase_products_get") {
+          return { product_id: "BTC-USD", product_type: "SPOT", status: "ONLINE" };
+        }
+        if (toolName === "coinbase_orders_preview") {
+          return { preview_id: "fixture-preview", product_id: "BTC-USD" };
+        }
+        throw new Error(`unexpected fake Coinbase provider call: ${toolName}`);
+      },
+      requireInteractiveToolCapabilities: (input) =>
+        requireInteractiveToolCapabilities({
+          ...input,
+          catalog: strategyPackCatalog,
+          environment,
+          stateClient: memory,
+        }),
+    },
+  );
+
+  assert.deepEqual(
+    providerCalls,
+    ["coinbase_products_get", "coinbase_orders_preview"],
+    "legacy Main with an absent strategy document must reach the ordinary fake Coinbase provider boundary",
+  );
+  assert.equal(result.preview.preview_id, "fixture-preview");
+}
+
+await testLegacyMainWithAbsentStrategyDocumentReachesCoinbaseProviderBoundary();
 
 console.log("Interactive strategy-workspace tool capability verification passed.");

@@ -198,7 +198,7 @@ async function resolveActiveRuntime(input: {
     input.scope,
     input.stateClient,
   );
-  if (!strategy) return unavailable();
+  if (!strategy) return null;
   if (strategy.schemaVersion !== 2) {
     return strategy.value.strategyPack === null &&
       Object.keys(strategy.value.configuration).length === 0
