@@ -560,10 +560,10 @@ inspectable only to the extent current evidence rights permit.
 - [ ] Verify and pin Jim Cramer's numeric X user ID with the owner; lock the
   exact endpoint, fields, expansions, post-role filters, ten-minute cadence,
   edit-finalization delay, pagination bounds, and activation baseline rules.
-- [ ] Freeze the `public-statement/v1`, revocable-evidence, extraction,
+- [x] Freeze the `public-statement/v1`, revocable-evidence, extraction,
   interpretation, context-search, policy, finding, materiality, correction,
   cost, and flag schemas with explicit size/cardinality limits.
-- [ ] Freeze source-authorization versus attribution versus related-coverage
+- [x] Freeze source-authorization versus attribution versus related-coverage
   vocabulary and the exact user-facing copy for weak, conflicting, missing,
   unrun, and unavailable corroboration.
 - [ ] Lock a compact human-reviewed fixture/eval corpus covering explicit
@@ -572,13 +572,21 @@ inspectable only to the extent current evidence rights permit.
   multiple targets, external allegations, unknown sources, conflicting links,
   edits, deletion/protection/withholding, duplicates, pagination gaps,
   oversized/hostile content, budget failure, and Trump/Iran reuse.
-- [ ] Add `verify:public-commentary-signals:sprint-0` so the intended contracts
+- [x] Add `verify:public-commentary-signals:sprint-0` so the intended contracts
   fail only at unimplemented seams.
 
 Exit: X access and revocable retention are demonstrably viable, Exa's optional
 boundary is frozen, and the product/evidence contracts are reviewable before
 production code. If X terms, app approval, processor use, or purge behavior
 remain incompatible, stop for an owner decision.
+
+Sprint 0 evidence (2026-08-17): the focused verifier passes 24 bounded intended-
+outcome cases and reports only the six explicitly deferred production seams;
+TypeScript passes for the application and focused verifier. The source contract
+records the current official X/Exa boundary but remains fail-closed as
+`pending_owner_evidence`, `pending_owner_verification`, and
+`chosen_tier_unverified`. The corpus remains unchecked until human review, and
+Sprint 0 has not met its exit gate.
 
 ### Sprint 1 — public statements, X acquisition, and revocable lifecycle
 

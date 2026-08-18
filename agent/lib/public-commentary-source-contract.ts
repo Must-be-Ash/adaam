@@ -1,0 +1,253 @@
+import { z } from "zod";
+
+const httpsUrlSchema = z.string().url().max(2_048).refine((value) => value.startsWith("https://"));
+
+export const publicCommentarySourceContractSchema = z.object({
+  authorization: z.object({
+    approvalState: z.enum(["approved", "denied", "pending_owner_evidence"]),
+    blockingReason: z.enum([
+      "approved_use_case_and_model_processor_scope_not_yet_evidenced",
+      "owner_determined_incompatible",
+    ]).nullable(),
+    requiredApprovedUses: z.tuple([
+      z.literal("scheduled_public_commentary_analysis"),
+      z.literal("selected_model_processors"),
+      z.literal("encrypted_revocable_storage"),
+      z.literal("edits_deletions_protection_withholding"),
+      z.literal("owner_display_and_citations"),
+    ]),
+    selectedProcessors: z.tuple([
+      z.literal("vercel_ai_gateway"),
+      z.literal("anthropic"),
+      z.literal("openai"),
+    ]),
+    runtimeMustFailClosed: z.literal(true),
+  }).strict().superRefine((authorization, context) => {
+    if ((authorization.approvalState === "approved") !== (authorization.blockingReason === null)) {
+      context.addIssue({ code: "custom", message: "source_authorization_state_invalid" });
+    }
+  }),
+  exa: z.object({
+    authorizationBoundary: z.literal("compiled_public_terms_and_metadata_only"),
+    billing: z.object({
+      authoritativeSource: z.literal("provider_billing_counter"),
+      documentedUsdPerSearchUpToTenResults: z.literal("0.007000"),
+      responseCostIsEstimate: z.literal(true),
+    }).strict(),
+    endpoint: z.literal("https://api.exa.ai/search"),
+    documentation: z.object({
+      pricingUrl: httpsUrlSchema,
+      searchUrl: httpsUrlSchema,
+    }).strict(),
+    forbiddenInputs: z.tuple([
+      z.literal("exact_x_quote"),
+      z.literal("x_post_id"),
+      z.literal("owner_chat"),
+      z.literal("private_workspace_context"),
+      z.literal("secrets"),
+    ]),
+    maximumResults: z.literal(5),
+    method: z.literal("POST"),
+    requestMode: z.object({
+      category: z.literal("news"),
+      contents: z.literal(false),
+      deterministicPublicationWindow: z.literal(true),
+      generatedAnswer: z.literal(false),
+      subpageCrawling: z.literal(false),
+    }).strict(),
+    terms: z.object({
+      providerReceivesInputOutputLicense: z.literal(true),
+      reviewedAt: z.string().date(),
+      url: httpsUrlSchema,
+    }).strict(),
+  }).strict(),
+  recordType: z.literal("public_commentary_source_contract"),
+  reviewedAt: z.string().date(),
+  schemaVersion: z.literal(1),
+  x: z.object({
+    billing: z.object({
+      authoritativeSource: z.literal("x_developer_console"),
+      documentedMonthlyPostReadCap: z.literal(3_000_000),
+      documentedUsdPerPostRead: z.literal("0.005000"),
+      priceReviewRequiredBeforeEnablement: z.literal(true),
+      resourceDeduplicationWithinUtcDayIsSoftGuarantee: z.literal(true),
+    }).strict(),
+    editFinalizationDelayMinutes: z.literal(30),
+    documentation: z.object({
+      pricingUrl: httpsUrlSchema,
+      rateLimitsUrl: httpsUrlSchema,
+      timelineUrl: httpsUrlSchema,
+    }).strict(),
+    lifecycle: z.object({
+      complianceEndpointAvailability: z.enum(["available", "chosen_tier_unverified", "unavailable"]),
+      dailyActiveSetRehydration: z.literal(true),
+      exactPostLookupBeforeDisplayOrReplay: z.literal(true),
+      selectedMechanism: z.literal("daily_exact_post_lookup"),
+      selectedMechanismAccessState: z.enum(["available", "chosen_tier_unverified", "unavailable"]),
+      providerChangePurgeDeadlineHours: z.literal(24),
+      purgeTriggers: z.tuple([
+        z.literal("deleted"),
+        z.literal("protected"),
+        z.literal("withheld"),
+        z.literal("credential_removed"),
+        z.literal("provider_termination"),
+      ]),
+      retainedAfterPurge: z.literal("permitted_non_content_tombstone_only"),
+      terminationPurge: z.literal("immediate_before_connector_shutdown"),
+    }).strict(),
+    policy: z.object({
+      agreementUrl: httpsUrlSchema,
+      editBehaviorUrl: httpsUrlSchema,
+      policyUrl: httpsUrlSchema,
+      reviewedAt: z.string().date(),
+      trainingFoundationModelsForbidden: z.literal(true),
+      useCaseAndThirdPartyProcessorApprovalRequired: z.literal(true),
+    }).strict(),
+    rateLimits: z.object({
+      timelinePerAppPerWindow: z.literal(10_000),
+      timelinePerUserPerWindow: z.literal(900),
+      windowMinutes: z.literal(15),
+      runtimeReadsHeaders: z.tuple([
+        z.literal("x-rate-limit-limit"),
+        z.literal("x-rate-limit-remaining"),
+        z.literal("x-rate-limit-reset"),
+      ]),
+    }).strict(),
+    timeline: z.object({
+      exactPostLookupEndpoint: z.literal("https://api.x.com/2/tweets"),
+      endpointTemplate: z.literal("https://api.x.com/2/users/{id}/tweets"),
+      availableExclusions: z.tuple([z.literal("replies"), z.literal("retweets")]),
+      identityLookupEndpointTemplate: z.literal("https://api.x.com/2/users/by/username/{username}"),
+      expansions: z.tuple([
+        z.literal("author_id"),
+        z.literal("edit_history_post_ids"),
+        z.literal("in_reply_to_user_id"),
+        z.literal("referenced_posts"),
+      ]),
+      maximumPagesPerPoll: z.literal(2),
+      maximumPostsPerPoll: z.literal(200),
+      maximumResultsPerPage: z.literal(100),
+      minimumResultsPerPage: z.literal(5),
+      paginationTokenRequiredForNextPage: z.literal(true),
+      postFields: z.tuple([
+        z.literal("conversation_id"),
+        z.literal("created_at"),
+        z.literal("edit_controls"),
+        z.literal("entities"),
+        z.literal("text"),
+        z.literal("withheld"),
+      ]),
+      sinceIdRequiredAfterBaseline: z.literal(true),
+      userFields: z.tuple([
+        z.literal("id"),
+        z.literal("name"),
+        z.literal("protected"),
+        z.literal("username"),
+        z.literal("verified"),
+        z.literal("withheld"),
+      ]),
+    }).strict(),
+  }).strict(),
+}).strict();
+
+export const PUBLIC_COMMENTARY_SOURCE_CONTRACT = publicCommentarySourceContractSchema.parse({
+  authorization: {
+    approvalState: "pending_owner_evidence",
+    blockingReason: "approved_use_case_and_model_processor_scope_not_yet_evidenced",
+    requiredApprovedUses: [
+      "scheduled_public_commentary_analysis",
+      "selected_model_processors",
+      "encrypted_revocable_storage",
+      "edits_deletions_protection_withholding",
+      "owner_display_and_citations",
+    ],
+    selectedProcessors: ["vercel_ai_gateway", "anthropic", "openai"],
+    runtimeMustFailClosed: true,
+  },
+  exa: {
+    authorizationBoundary: "compiled_public_terms_and_metadata_only",
+    billing: {
+      authoritativeSource: "provider_billing_counter",
+      documentedUsdPerSearchUpToTenResults: "0.007000",
+      responseCostIsEstimate: true,
+    },
+    endpoint: "https://api.exa.ai/search",
+    documentation: {
+      pricingUrl: "https://exa.ai/pricing?tab=api",
+      searchUrl: "https://exa.ai/docs/reference/search",
+    },
+    forbiddenInputs: ["exact_x_quote", "x_post_id", "owner_chat", "private_workspace_context", "secrets"],
+    maximumResults: 5,
+    method: "POST",
+    requestMode: {
+      category: "news",
+      contents: false,
+      deterministicPublicationWindow: true,
+      generatedAnswer: false,
+      subpageCrawling: false,
+    },
+    terms: {
+      providerReceivesInputOutputLicense: true,
+      reviewedAt: "2026-08-17",
+      url: "https://exa.ai/assets/Exa_Labs_Terms_of_Service.pdf",
+    },
+  },
+  recordType: "public_commentary_source_contract",
+  reviewedAt: "2026-08-17",
+  schemaVersion: 1,
+  x: {
+    billing: {
+      authoritativeSource: "x_developer_console",
+      documentedMonthlyPostReadCap: 3_000_000,
+      documentedUsdPerPostRead: "0.005000",
+      priceReviewRequiredBeforeEnablement: true,
+      resourceDeduplicationWithinUtcDayIsSoftGuarantee: true,
+    },
+    editFinalizationDelayMinutes: 30,
+    documentation: {
+      pricingUrl: "https://docs.x.com/x-api/getting-started/pricing",
+      rateLimitsUrl: "https://docs.x.com/x-api/fundamentals/rate-limits",
+      timelineUrl: "https://docs.x.com/x-api/users/get-posts",
+    },
+    lifecycle: {
+      complianceEndpointAvailability: "chosen_tier_unverified",
+      dailyActiveSetRehydration: true,
+      exactPostLookupBeforeDisplayOrReplay: true,
+      selectedMechanism: "daily_exact_post_lookup",
+      selectedMechanismAccessState: "chosen_tier_unverified",
+      providerChangePurgeDeadlineHours: 24,
+      purgeTriggers: ["deleted", "protected", "withheld", "credential_removed", "provider_termination"],
+      retainedAfterPurge: "permitted_non_content_tombstone_only",
+      terminationPurge: "immediate_before_connector_shutdown",
+    },
+    policy: {
+      agreementUrl: "https://docs.x.com/developer-terms/agreement",
+      editBehaviorUrl: "https://docs.x.com/x-api/fundamentals/edit-posts",
+      policyUrl: "https://docs.x.com/developer-terms/policy",
+      reviewedAt: "2026-08-17",
+      trainingFoundationModelsForbidden: true,
+      useCaseAndThirdPartyProcessorApprovalRequired: true,
+    },
+    rateLimits: {
+      timelinePerAppPerWindow: 10_000,
+      timelinePerUserPerWindow: 900,
+      windowMinutes: 15,
+      runtimeReadsHeaders: ["x-rate-limit-limit", "x-rate-limit-remaining", "x-rate-limit-reset"],
+    },
+    timeline: {
+      exactPostLookupEndpoint: "https://api.x.com/2/tweets",
+      endpointTemplate: "https://api.x.com/2/users/{id}/tweets",
+      availableExclusions: ["replies", "retweets"],
+      identityLookupEndpointTemplate: "https://api.x.com/2/users/by/username/{username}",
+      expansions: ["author_id", "edit_history_post_ids", "in_reply_to_user_id", "referenced_posts"],
+      maximumPagesPerPoll: 2,
+      maximumPostsPerPoll: 200,
+      maximumResultsPerPage: 100,
+      minimumResultsPerPage: 5,
+      paginationTokenRequiredForNextPage: true,
+      postFields: ["conversation_id", "created_at", "edit_controls", "entities", "text", "withheld"],
+      sinceIdRequiredAfterBaseline: true,
+      userFields: ["id", "name", "protected", "username", "verified", "withheld"],
+    },
+  },
+});

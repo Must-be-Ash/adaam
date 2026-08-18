@@ -1,0 +1,39 @@
+{
+  "recordType": "public_commentary_sprint_0_corpus",
+  "schemaVersion": 1,
+  "reviewedAt": "2026-08-17T20:00:00.000Z",
+  "cases": [
+    { "id": "explicit-bullish", "tags": ["explicit_bullish", "direct"], "expected": { "stance": "bullish", "outcome": "candidate" } },
+    { "id": "explicit-bearish", "tags": ["explicit_bearish", "direct"], "expected": { "stance": "bearish", "outcome": "candidate" } },
+    { "id": "neutral-no-view", "tags": ["no_view"], "expected": { "stance": "no_view", "outcome": "no_view" } },
+    { "id": "cashtag-target", "tags": ["cashtag", "explicit_entity"], "expected": { "stance": "bullish", "outcome": "candidate" } },
+    { "id": "implicit-company", "tags": ["implicit_entity"], "expected": { "stance": "bearish", "outcome": "candidate" } },
+    { "id": "quote-post-own-view", "tags": ["quote_post", "direct"], "expected": { "stance": "bullish", "outcome": "candidate" } },
+    { "id": "quotation-only", "tags": ["quotation_only", "quoted"], "expected": { "stance": "no_view", "outcome": "no_view" } },
+    { "id": "reply-own-view", "tags": ["reply", "direct"], "expected": { "stance": "bearish", "outcome": "candidate" } },
+    { "id": "repost-excluded", "tags": ["repost", "excluded"], "expected": { "stance": "no_view", "outcome": "excluded" } },
+    { "id": "sarcastic-joke", "tags": ["sarcasm", "joke"], "expected": { "stance": "unclear", "outcome": "abstained" } },
+    { "id": "mixed-stance", "tags": ["mixed_stance"], "expected": { "stance": "mixed", "outcome": "abstained" } },
+    { "id": "multiple-targets", "tags": ["multiple_targets"], "expected": { "stance": "unclear", "outcome": "abstained" } },
+    { "id": "external-allegation", "tags": ["external_allegation", "alleged"], "expected": { "stance": "no_view", "outcome": "no_view" } },
+    { "id": "unknown-related-source", "tags": ["unknown_source", "candidates_found"], "expected": { "stance": "bullish", "outcome": "candidate" } },
+    { "id": "conflicting-links", "tags": ["conflicting_links", "conflicting"], "expected": { "stance": "bullish", "outcome": "abstained" } },
+    { "id": "edited-post", "tags": ["edited", "source_revision"], "expected": { "stance": "bearish", "outcome": "correction" } },
+    { "id": "deleted-post", "tags": ["deleted", "purged"], "expected": { "stance": "no_view", "outcome": "retracted" } },
+    { "id": "protected-post", "tags": ["protected", "purged"], "expected": { "stance": "no_view", "outcome": "retracted" } },
+    { "id": "withheld-post", "tags": ["withheld", "purged"], "expected": { "stance": "no_view", "outcome": "retracted" } },
+    { "id": "duplicate-revision", "tags": ["duplicate", "deduplicated"], "expected": { "stance": "bullish", "outcome": "duplicate" } },
+    { "id": "pagination-gap", "tags": ["pagination_gap", "incomplete"], "expected": { "stance": "unclear", "outcome": "quarantined" } },
+    { "id": "oversized-hostile", "tags": ["oversized", "hostile_content", "prompt_injection"], "expected": { "stance": "unclear", "outcome": "quarantined" } },
+    { "id": "provider-budget-failure", "tags": ["budget_failure", "unavailable"], "expected": { "stance": "bullish", "outcome": "candidate" } },
+    { "id": "trump-iran-reuse", "tags": ["non_cramer_reuse", "trump_iran"], "expected": { "stance": "bearish", "outcome": "candidate" } }
+  ],
+  "missingProductionSeams": [
+    "x_source_adapter",
+    "revocable_evidence_store",
+    "commentary_extraction_definition",
+    "commentary_interpretation_definition",
+    "web_corroboration_provider",
+    "inverse_cramer_pack_runtime"
+  ]
+}
