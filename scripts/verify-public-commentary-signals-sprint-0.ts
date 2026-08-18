@@ -108,6 +108,48 @@ const liveValidation = z.object({
   "utf8",
 )));
 
+const rehydrationValidation = z.object({
+  access: z.object({
+    billingModel: z.literal("pay_per_use"),
+    enterpriseComplianceStreamAssumed: z.literal(false),
+    selectedLifecycleMechanism: z.literal("bounded_exact_post_rehydration"),
+  }).strict(),
+  authorization: z.object({
+    maximumAuthorizedCostUsd: z.literal("0.030000"),
+    maximumOperationCostUsd: z.literal("0.030000"),
+  }).strict(),
+  exactLookup: z.object({
+    authorMatchesPinnedUser: z.literal(true),
+    createdAtPresent: z.literal(true),
+    editControlsPresent: z.literal(true),
+    editHistoryPresent: z.literal(true),
+    idMatchesRequested: z.literal(true),
+    rateLimit: z.literal(450),
+    rateRemaining: z.number().int().nonnegative().max(450),
+    status: z.literal(200),
+    textPresent: z.literal(true),
+    withheldPresent: z.boolean(),
+  }).strict(),
+  privacy: z.object({
+    credentialValuesLogged: z.literal(false),
+    postIdsLogged: z.literal(false),
+    postTextLogged: z.literal(false),
+  }).strict(),
+  recordType: z.literal("public_commentary_x_rehydration_validation"),
+  recordedAt: z.string().datetime({ offset: true }),
+  schemaVersion: z.literal(1),
+  timeline: z.object({
+    allAuthorsMatchPinnedUser: z.literal(true),
+    rateLimit: z.literal(10_000),
+    rateRemaining: z.number().int().nonnegative().max(10_000),
+    returnedPosts: z.literal(5),
+    status: z.literal(200),
+  }).strict(),
+}).strict().parse(JSON.parse(await readFile(
+  new URL("./fixtures/public-commentary-signals/x-rehydration-validation-2026-08-18.json", import.meta.url),
+  "utf8",
+)));
+
 const requiredTags = [
   "explicit_bullish", "explicit_bearish", "no_view", "cashtag", "implicit_entity",
   "quote_post", "quotation_only", "reply", "repost", "sarcasm", "mixed_stance",
@@ -131,7 +173,13 @@ assert.deepEqual(PUBLIC_COMMENTARY_SOURCE_CONTRACT.x.timeline.expansions, [
 assert.deepEqual(PUBLIC_COMMENTARY_SOURCE_CONTRACT.x.timeline.postFields, [
   "conversation_id", "created_at", "edit_controls", "entities", "text", "withheld",
 ]);
-assert.equal(PUBLIC_COMMENTARY_SOURCE_CONTRACT.authorization.approvalState, "pending_owner_evidence");
+assert.equal(PUBLIC_COMMENTARY_SOURCE_CONTRACT.authorization.approvalState, "approved");
+assert.equal(PUBLIC_COMMENTARY_SOURCE_CONTRACT.authorization.blockingReason, null);
+assert.equal(PUBLIC_COMMENTARY_SOURCE_CONTRACT.x.billing.accessModel, "pay_per_use");
+assert.equal(PUBLIC_COMMENTARY_SOURCE_CONTRACT.x.lifecycle.complianceEndpointAvailability, "unavailable");
+assert.equal(PUBLIC_COMMENTARY_SOURCE_CONTRACT.x.lifecycle.selectedMechanismAccessState, "available");
+assert.equal(PUBLIC_COMMENTARY_SOURCE_CONTRACT.x.rateLimits.exactPostLookupPerAppPerWindow, rehydrationValidation.exactLookup.rateLimit);
+assert.equal(PUBLIC_COMMENTARY_SOURCE_CONTRACT.x.timeline.exactPostLookupEndpoint, "https://api.x.com/2/tweets/{id}");
 assert.deepEqual(
   inverseCramerSprint0ContractSchema.parse(INVERSE_CRAMER_SPRINT_0_CONTRACT),
   INVERSE_CRAMER_SPRINT_0_CONTRACT,

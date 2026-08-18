@@ -1,0 +1,38 @@
+{
+  "recordType": "public_commentary_x_rehydration_validation",
+  "schemaVersion": 1,
+  "recordedAt": "2026-08-18T05:57:37.000Z",
+  "authorization": {
+    "maximumAuthorizedCostUsd": "0.030000",
+    "maximumOperationCostUsd": "0.030000"
+  },
+  "privacy": {
+    "credentialValuesLogged": false,
+    "postIdsLogged": false,
+    "postTextLogged": false
+  },
+  "timeline": {
+    "status": 200,
+    "rateLimit": 10000,
+    "rateRemaining": 9999,
+    "returnedPosts": 5,
+    "allAuthorsMatchPinnedUser": true
+  },
+  "exactLookup": {
+    "status": 200,
+    "rateLimit": 450,
+    "rateRemaining": 449,
+    "idMatchesRequested": true,
+    "authorMatchesPinnedUser": true,
+    "createdAtPresent": true,
+    "editControlsPresent": true,
+    "editHistoryPresent": true,
+    "textPresent": true,
+    "withheldPresent": false
+  },
+  "access": {
+    "billingModel": "pay_per_use",
+    "enterpriseComplianceStreamAssumed": false,
+    "selectedLifecycleMechanism": "bounded_exact_post_rehydration"
+  }
+}

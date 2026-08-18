@@ -21,6 +21,16 @@ export const publicCommentarySourceContractSchema = z.object({
       z.literal("anthropic"),
       z.literal("openai"),
     ]),
+    approvalBasis: z.literal("owner_confirmed_watchtower_monitor_read_only_public_commentary_research"),
+    approvedUseCase: z.literal("watchtower-monitor read-only public-commentary investment research"),
+    ownerConfirmedAt: z.string().datetime({ offset: true }),
+    processorBoundary: z.object({
+      applicationInferenceOnly: z.literal(true),
+      foundationModelTraining: z.literal(false),
+      onwardRedistribution: z.literal(false),
+      rawContentInPermanentFindings: z.literal(false),
+      revocationPropagationRequired: z.literal(true),
+    }).strict(),
     runtimeMustFailClosed: z.literal(true),
   }).strict().superRefine((authorization, context) => {
     if ((authorization.approvalState === "approved") !== (authorization.blockingReason === null)) {
@@ -66,7 +76,9 @@ export const publicCommentarySourceContractSchema = z.object({
   schemaVersion: z.literal(1),
   x: z.object({
     billing: z.object({
-      authoritativeSource: z.literal("x_developer_console"),
+      accessModel: z.literal("pay_per_use"),
+      activeAccessValidatedAt: z.string().datetime({ offset: true }),
+      authoritativeSource: z.literal("official_x_docs_and_direct_api_receipts"),
       documentedMonthlyPostReadCap: z.literal(3_000_000),
       documentedUsdPerPostRead: z.literal("0.005000"),
       priceReviewRequiredBeforeEnablement: z.literal(true),
@@ -74,12 +86,19 @@ export const publicCommentarySourceContractSchema = z.object({
     }).strict(),
     editFinalizationDelayMinutes: z.literal(30),
     documentation: z.object({
+      complianceUrl: httpsUrlSchema,
+      exactPostLookupUrl: httpsUrlSchema,
+      llmsUrl: httpsUrlSchema,
+      mcpUrl: httpsUrlSchema,
       pricingUrl: httpsUrlSchema,
       rateLimitsUrl: httpsUrlSchema,
+      searchIntroductionUrl: httpsUrlSchema,
+      skillUrl: httpsUrlSchema,
       timelineUrl: httpsUrlSchema,
     }).strict(),
     lifecycle: z.object({
       complianceEndpointAvailability: z.enum(["available", "chosen_tier_unverified", "unavailable"]),
+      complianceEndpointEvidence: z.literal("assumed_unavailable_without_enterprise_access_proof"),
       dailyActiveSetRehydration: z.literal(true),
       exactPostLookupBeforeDisplayOrReplay: z.literal(true),
       selectedMechanism: z.literal("daily_exact_post_lookup"),
@@ -105,6 +124,7 @@ export const publicCommentarySourceContractSchema = z.object({
     }).strict(),
     rateLimits: z.object({
       identityLookupPerAppPerWindow: z.literal(300),
+      exactPostLookupPerAppPerWindow: z.literal(450),
       timelinePerAppPerWindow: z.literal(10_000),
       timelinePerUserPerWindow: z.literal(900),
       windowMinutes: z.literal(15),
@@ -115,7 +135,7 @@ export const publicCommentarySourceContractSchema = z.object({
       ]),
     }).strict(),
     timeline: z.object({
-      exactPostLookupEndpoint: z.literal("https://api.x.com/2/tweets"),
+      exactPostLookupEndpoint: z.literal("https://api.x.com/2/tweets/{id}"),
       endpointTemplate: z.literal("https://api.x.com/2/users/{id}/tweets"),
       availableExclusions: z.tuple([z.literal("replies"), z.literal("retweets")]),
       identityLookupEndpointTemplate: z.literal("https://api.x.com/2/users/by/username/{username}"),
@@ -155,8 +175,8 @@ export const publicCommentarySourceContractSchema = z.object({
 
 export const PUBLIC_COMMENTARY_SOURCE_CONTRACT = publicCommentarySourceContractSchema.parse({
   authorization: {
-    approvalState: "pending_owner_evidence",
-    blockingReason: "approved_use_case_and_model_processor_scope_not_yet_evidenced",
+    approvalState: "approved",
+    blockingReason: null,
     requiredApprovedUses: [
       "scheduled_public_commentary_analysis",
       "selected_model_processors",
@@ -165,6 +185,16 @@ export const PUBLIC_COMMENTARY_SOURCE_CONTRACT = publicCommentarySourceContractS
       "owner_display_and_citations",
     ],
     selectedProcessors: ["vercel_ai_gateway", "anthropic", "openai"],
+    approvalBasis: "owner_confirmed_watchtower_monitor_read_only_public_commentary_research",
+    approvedUseCase: "watchtower-monitor read-only public-commentary investment research",
+    ownerConfirmedAt: "2026-08-18T05:57:37.000Z",
+    processorBoundary: {
+      applicationInferenceOnly: true,
+      foundationModelTraining: false,
+      onwardRedistribution: false,
+      rawContentInPermanentFindings: false,
+      revocationPropagationRequired: true,
+    },
     runtimeMustFailClosed: true,
   },
   exa: {
@@ -196,11 +226,13 @@ export const PUBLIC_COMMENTARY_SOURCE_CONTRACT = publicCommentarySourceContractS
     },
   },
   recordType: "public_commentary_source_contract",
-  reviewedAt: "2026-08-17",
+  reviewedAt: "2026-08-18",
   schemaVersion: 1,
   x: {
     billing: {
-      authoritativeSource: "x_developer_console",
+      accessModel: "pay_per_use",
+      activeAccessValidatedAt: "2026-08-18T05:57:37.000Z",
+      authoritativeSource: "official_x_docs_and_direct_api_receipts",
       documentedMonthlyPostReadCap: 3_000_000,
       documentedUsdPerPostRead: "0.005000",
       priceReviewRequiredBeforeEnablement: true,
@@ -208,16 +240,23 @@ export const PUBLIC_COMMENTARY_SOURCE_CONTRACT = publicCommentarySourceContractS
     },
     editFinalizationDelayMinutes: 30,
     documentation: {
+      complianceUrl: "https://docs.x.com/x-api/compliance/batch-compliance/introduction",
+      exactPostLookupUrl: "https://docs.x.com/x-api/posts/get-post-by-id",
+      llmsUrl: "https://docs.x.com/tools/llms-txt",
+      mcpUrl: "https://docs.x.com/tools/mcp",
       pricingUrl: "https://docs.x.com/x-api/getting-started/pricing",
       rateLimitsUrl: "https://docs.x.com/x-api/fundamentals/rate-limits",
+      searchIntroductionUrl: "https://docs.x.com/x-api/posts/search/introduction",
+      skillUrl: "https://docs.x.com/tools/skill-md",
       timelineUrl: "https://docs.x.com/x-api/users/get-posts",
     },
     lifecycle: {
-      complianceEndpointAvailability: "chosen_tier_unverified",
+      complianceEndpointAvailability: "unavailable",
+      complianceEndpointEvidence: "assumed_unavailable_without_enterprise_access_proof",
       dailyActiveSetRehydration: true,
       exactPostLookupBeforeDisplayOrReplay: true,
       selectedMechanism: "daily_exact_post_lookup",
-      selectedMechanismAccessState: "chosen_tier_unverified",
+      selectedMechanismAccessState: "available",
       providerChangePurgeDeadlineHours: 24,
       purgeTriggers: ["deleted", "protected", "withheld", "credential_removed", "provider_termination"],
       retainedAfterPurge: "permitted_non_content_tombstone_only",
@@ -233,13 +272,14 @@ export const PUBLIC_COMMENTARY_SOURCE_CONTRACT = publicCommentarySourceContractS
     },
     rateLimits: {
       identityLookupPerAppPerWindow: 300,
+      exactPostLookupPerAppPerWindow: 450,
       timelinePerAppPerWindow: 10_000,
       timelinePerUserPerWindow: 900,
       windowMinutes: 15,
       runtimeReadsHeaders: ["x-rate-limit-limit", "x-rate-limit-remaining", "x-rate-limit-reset"],
     },
     timeline: {
-      exactPostLookupEndpoint: "https://api.x.com/2/tweets",
+      exactPostLookupEndpoint: "https://api.x.com/2/tweets/{id}",
       endpointTemplate: "https://api.x.com/2/users/{id}/tweets",
       availableExclusions: ["replies", "retweets"],
       identityLookupEndpointTemplate: "https://api.x.com/2/users/by/username/{username}",

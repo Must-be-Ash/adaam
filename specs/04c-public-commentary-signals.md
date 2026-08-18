@@ -552,7 +552,7 @@ inspectable only to the extent current evidence rights permit.
 - [x] Provision `X_API_KEY`, `X_API_SECRET`, `X_BEARER_TOKEN`, and
   `EXA_API_KEY` as Sensitive Vercel variables for Production and Preview, with
   matching empty names in `.env.example` and no values in Git.
-- [ ] Verify the owner-approved X developer use case permits this scheduled
+- [x] Verify the owner-approved X developer use case permits this scheduled
   public-commentary analysis, the selected model processors, required storage,
   edits/deletions, and display. Record current pricing, quotas, rate limits,
   termination obligations, and whether a suitable compliance endpoint is
@@ -566,7 +566,7 @@ inspectable only to the extent current evidence rights permit.
 - [x] Freeze source-authorization versus attribution versus related-coverage
   vocabulary and the exact user-facing copy for weak, conflicting, missing,
   unrun, and unavailable corroboration.
-- [ ] Lock a compact human-reviewed fixture/eval corpus covering explicit
+- [x] Lock a compact human-reviewed fixture/eval corpus covering explicit
   bullish/bearish views, no view, cashtags, implicit entities, quote posts,
   quotation-only text, replies, repost exclusion, jokes/sarcasm, mixed stance,
   multiple targets, external allegations, unknown sources, conflicting links,
@@ -580,13 +580,16 @@ boundary is frozen, and the product/evidence contracts are reviewable before
 production code. If X terms, app approval, processor use, or purge behavior
 remain incompatible, stop for an owner decision.
 
-Sprint 0 evidence (2026-08-17): the focused verifier passes 24 bounded intended-
+Sprint 0 evidence (2026-08-18): the focused verifier passes 24 bounded intended-
 outcome cases and reports only the six explicitly deferred production seams;
-TypeScript passes for the application and focused verifier. The source contract
-records the current official X/Exa boundary. Source authorization and lifecycle
-access remain fail-closed as `pending_owner_evidence` and
-`chosen_tier_unverified`. The corpus remains unchecked until human review, and
-Sprint 0 has not met its exit gate.
+TypeScript passes for the application and focused verifier. The owner confirmed
+`watchtower-monitor` is intended for Eve's read-only public-commentary
+investment research and directed continuation after reviewing the linked
+corpus. The source contract records the approved inference-only processor
+boundary, official X policy/API documentation, active Pay Per Use access, and a
+fail-closed revocable-storage/display boundary. No Enterprise compliance stream
+is assumed; bounded exact-post rehydration is the selected mechanism. Sprint 0
+has met its exit gate with production execution still disabled.
 
 Live X evidence (2026-08-18): after the owner authorized the previously stated
 `$0.04` ceiling, one exact username lookup and one five-result user-timeline
@@ -595,6 +598,15 @@ timeline authors matched the pinned ID, documented edit fields were present,
 pagination was available, and the response reported app-window limits of `300`
 for identity lookup and `10,000` for the timeline. Maximum operation cost was
 `$0.035`; no credential value, post ID, or post text was logged or committed.
+
+Lifecycle access evidence (2026-08-18): under a separate owner-authorized
+`$0.03` ceiling, one five-result timeline request and one exact-post lookup both
+returned `200`. The exact lookup matched the requested post and pinned author,
+returned creation/edit-history/edit-control/text fields, and reported an app-
+window limit of `450`; the timeline again matched all five authors and reported
+`10,000`. The metadata-only receipt records active Pay Per Use access and no
+Enterprise compliance assumption; no credential value, post ID, or post text
+was logged or committed.
 
 ### Sprint 1 — public statements, X acquisition, and revocable lifecycle
 
