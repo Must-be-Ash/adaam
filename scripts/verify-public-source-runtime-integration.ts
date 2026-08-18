@@ -48,6 +48,12 @@ const fullyEnabled = {
   EVE_PUBLIC_SOURCE_PROJECTIONS_ENABLED: "1",
   EVE_SEC_PUBLIC_SOURCE_ADAPTER_ENABLED: "1",
 };
+const routedRecovery = {
+  EVE_HYBRID_FAST_MODEL_ID: "fixture/extractor",
+  EVE_HYBRID_FAST_MODEL_REASONING: "provider-default",
+  EVE_HYBRID_FRONTIER_MODEL_ID: "fixture/frontier",
+  EVE_HYBRID_FRONTIER_MODEL_REASONING: "high",
+};
 
 assert.equal(resolveSecPublicSourceRuntimePath({}), "legacy_sec_workspace_worker");
 assert.equal(resolveHousePublicSourceRuntimePath({}), "disabled");
@@ -192,6 +198,7 @@ let singleModelFetches = 0;
 await assert.rejects(coordinatePublicSourceOccurrence({
   environment: {
     ...fullyEnabled,
+    ...routedRecovery,
     EVE_HYBRID_EVIDENCE_ENABLED: "1",
     EVE_HYBRID_EXTRACTION_RECOVERY_ENABLED: "1",
     EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS: "fixture/extractor",
@@ -214,6 +221,7 @@ const extensionResult = await coordinatePublicSourceOccurrence({
   clients: { acquisition: extensionStore, hybridLineage: extensionStore, subscription: extensionStore },
   environment: {
     ...fullyEnabled,
+    ...routedRecovery,
     EVE_HYBRID_EVIDENCE_ENABLED: "1",
     EVE_HYBRID_EXTRACTION_RECOVERY_ENABLED: "1",
     EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS: "fixture/extractor,fixture/independent-ocr",

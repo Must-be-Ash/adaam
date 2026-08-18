@@ -8,6 +8,11 @@ import type { HybridEvidenceJobStoreClient } from "./hybrid-evidence-job-store";
 import type { HybridEvidenceLineageStoreClient } from "./hybrid-evidence-lineage-store";
 import { resolveHybridEvidenceFlags } from "./hybrid-evidence-flags";
 import {
+  assertHybridModelRouteAllowed,
+  resolveHybridTaskModelRoute,
+  type HybridTaskModelRoute,
+} from "./hybrid-evidence-model-routing";
+import {
   HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION,
   type HouseHybridEvidenceRecoveryClients,
 } from "./house-hybrid-evidence-recovery";
@@ -89,6 +94,7 @@ export interface PublicSourceHybridRecoveryExtension {
     readonly environment?: NodeJS.ProcessEnv;
     readonly initiatingWorkspaceId: string;
     readonly modelIds: readonly [extraction: string, independentOcr: string];
+    readonly reasoning: "provider-default" | "low";
   }): HouseHybridRecovery;
 }
 
@@ -218,6 +224,31 @@ export async function coordinatePublicSourceOccurrence(input: {
     ?.split(",")
     .map((value) => value.trim())
     .filter(Boolean) ?? [];
+  let recoveryRoute: Extract<HybridTaskModelRoute, { executionClass: "fast" }> | null = null;
+  let frontierModelId: string | null = null;
+  if (
+    input.fetch.adapterId === "house-financial-disclosures" &&
+    hybridFlags.extractionRecovery
+  ) {
+    try {
+      recoveryRoute = resolveHybridTaskModelRoute(
+        "extraction_recovery",
+        environment,
+      );
+      frontierModelId = resolveHybridTaskModelRoute(
+        "semantic_interpretation",
+        environment,
+      ).modelId;
+      assertHybridModelRouteAllowed(recoveryRoute, recoveryModelIds);
+    } catch {
+      throw new PublicSourceCoordinatorError("public_source_misconfigured");
+    }
+  }
+  const independentOcrModelId = recoveryRoute
+    ? recoveryModelIds.find((modelId) =>
+        modelId !== recoveryRoute.modelId &&
+        modelId !== frontierModelId) ?? null
+    : null;
   const recoveryExtension = input.fetch.adapterId === "house-financial-disclosures"
     ? resolveHybridRecoveryExtension({
         adapterId: input.fetch.adapterId,
@@ -228,8 +259,8 @@ export async function coordinatePublicSourceOccurrence(input: {
     input.fetch.adapterId === "house-financial-disclosures" &&
     hybridFlags.extractionRecovery &&
     (
-      recoveryModelIds.length < 2 ||
-      recoveryModelIds[0] === recoveryModelIds[1] ||
+      !recoveryRoute ||
+      !independentOcrModelId ||
       !recoveryExtension
     )
   ) throw new PublicSourceCoordinatorError("public_source_misconfigured");
@@ -291,7 +322,8 @@ export async function coordinatePublicSourceOccurrence(input: {
               },
               environment,
               initiatingWorkspaceId: input.scope.workspaceId,
-              modelIds: [recoveryModelIds[0]!, recoveryModelIds[1]!],
+              modelIds: [recoveryRoute!.modelId, independentOcrModelId!],
+              reasoning: recoveryRoute!.reasoning,
             })
           : undefined,
         sourceId: input.sourceId,

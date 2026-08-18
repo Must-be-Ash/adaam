@@ -1,6 +1,6 @@
 # Spec 4B.1: Task-Aware Model Selection
 
-Status: Planned
+Status: Implemented and production accepted
 
 Date: 2026-08-17
 
@@ -169,17 +169,17 @@ configuration, fixture, environment, or dependency changed.
 
 ### Sprint 1 — Select and wire models
 
-- [ ] Add the central task-purpose-to-model-class resolver and strict
+- [x] Add the central task-purpose-to-model-class resolver and strict
   configuration validation.
-- [ ] Pass the selected model and reasoning effort through the existing signed
+- [x] Pass the selected model and reasoning effort through the existing signed
   fresh-worker boundary without weakening existing authorization.
-- [ ] Wire current extraction-recovery callers to fast and semantic callers to
+- [x] Wire current extraction-recovery callers to fast and semantic callers to
   frontier; keep deterministic work model-free.
-- [ ] Preserve existing definition, capability, budget, citation, validation,
+- [x] Preserve existing definition, capability, budget, citation, validation,
   and result-storage checks.
-- [ ] Add one focused routing verifier covering no-model, fast, frontier,
+- [x] Add one focused routing verifier covering no-model, fast, frontier,
   missing/partial configuration, denied model, and unchanged root model.
-- [ ] Run the focused verifier, typecheck, and Eve build; mark verified items
+- [x] Run the focused verifier, typecheck, and Eve build; mark verified items
   and commit Sprint 1.
 
 Exit gate: deterministic fixtures make no model call; extraction dispatches the
@@ -188,21 +188,21 @@ the configured frontier model at high reasoning.
 
 ### Sprint 2 — Qualify, prove, and land
 
-- [ ] Qualify the selected fast model against the existing extraction corpus
+- [x] Qualify the selected fast model against the existing extraction corpus
   and compare its accepted-work cost with the frontier model.
-- [ ] Reuse matching Spec 4B frontier evidence or run only the missing/stale
+- [x] Reuse matching Spec 4B frontier evidence or run only the missing/stale
   frontier qualification.
-- [ ] If required by immutable evidence-contract digests, publish the smallest
+- [x] If required by immutable evidence-contract digests, publish the smallest
   new Earnings pack version and prove old/new coexistence without migration.
-- [ ] Run the affected hybrid, Earnings, strategy-pack, worker, budget,
+- [x] Run the affected hybrid, Earnings, strategy-pack, worker, budget,
   isolation, typecheck, Eve-build, and application-build regression once after
   the final code change.
-- [ ] Perform one final diff-scoped review. Fix confirmed findings and rerun only
+- [x] Perform one final diff-scoped review. Fix confirmed findings and rerun only
   affected checks, not the entire suite unless shared production code changed.
-- [ ] With owner authorization, run one controlled production task confirming
+- [x] With owner authorization, run one controlled production task confirming
   the expected class, exact model, reasoning, citations, validation, usage, and
   cost; then restore routing/hybrid flags to their prior off state.
-- [ ] Mark this spec complete, move only genuine deferred work to `BACKLOG.md`,
+- [x] Mark this spec complete, move only genuine deferred work to `BACKLOG.md`,
   update `HANDOFF.md` and `NORTH_STAR.md`, commit, push, merge to GitHub `main`,
   verify production health, and clean up the branch in the same task.
 
@@ -210,19 +210,54 @@ Exit gate: the existing hybrid system demonstrably uses a qualified cheap model
 for objective extraction and a qualified frontier model for judgment, without
 changing evidence quality, authority, or the human decision boundary.
 
+Implementation evidence:
+
+- `anthropic/claude-haiku-4.5` at provider-default reasoning passed two repeated
+  extraction-corpus runs with 100% supported recovery and safety, zero unsafe
+  accepts, invalid citations, accepted unknowns, or forbidden tool calls, and
+  cost about 62% below the equivalent `openai/gpt-5.4` accepted work.
+- `earnings-call-changes@1.0.1` binds the GPT-5.4/high semantic contracts at
+  content digest `a2ee79e5d63ac2d94c5ed43bbdf71bf74a2765b62e0e5a3be7e8c8a01e969105`;
+  deterministic production wiring proves `1.0.0` and `1.0.1` coexist without
+  migration.
+- Complete-diff review run `20260817-172121-f44f75b3` produced six validated
+  findings; all were repaired and their affected checks pass.
+- The 48-gate regression was executed once. Its one missing-route fixture
+  failed closed, was repaired, and that gate plus every not-yet-run downstream
+  gate, typecheck, Eve build, and application build passed.
+- The owner-authorized live frontier acceptance used root run
+  `wrun_01M09B53ZT3V5CV3VCG4E2RY6H` and signed turn
+  `wrun_01M09B542327KMZMDPJJ2DW4FT`. The exact `openai/gpt-5.4`/high worker
+  called `read_hybrid_evidence_bundle` once and
+  `complete_hybrid_evidence_job` once, durably completed job
+  `hybrid-job.a870a3c662055aa09c9d36b2ece5bd0346274d758ed6a7538f36dab34b3cec19`,
+  and returned accepted facts and inferences with three exact bounded
+  citations. Gateway generations `gen_01M09B549ACRV8276CQ5QEP50B` and
+  `gen_01M09B58B6A5HX4QZWEDQ0Z40D` recorded 15,692 input tokens, 9,399 output
+  tokens, 4,608 cached-input tokens, and total cost USD 0.169847. The focused
+  production validator verifies the same citation, schema, completion, usage,
+  and signed-tool contract; completion-triggered cancellation closes the Eve
+  stream without permitting another paid generation.
+- Production has the four exact routing values configured, while
+  `EVE_HYBRID_EVIDENCE_ENABLED`, both hybrid child flags, and
+  `EVE_WORKSPACE_DISPATCH_ENABLED` remain `0`. The owner-path repair merge
+  `a460f69` was rebased into this branch without production-code conflicts; its
+  recorded passing evidence was reused and the already-passing 48-gate
+  regression was not repeated.
+
 ## Definition of done
 
-- [ ] No-model, fast, and frontier tasks select the correct execution class.
-- [ ] Models and reasoning effort are centrally configured rather than
+- [x] No-model, fast, and frontier tasks select the correct execution class.
+- [x] Models and reasoning effort are centrally configured rather than
   strategy-hard-coded.
-- [ ] Existing extraction and semantic tasks use the intended models through
+- [x] Existing extraction and semantic tasks use the intended models through
   the existing fresh hybrid worker.
-- [ ] Fast-model evals meet the existing safety/quality threshold and show a
+- [x] Fast-model evals meet the existing safety/quality threshold and show a
   meaningful cost advantage.
-- [ ] Semantic outputs retain citations, facts/inferences/forecasts/
+- [x] Semantic outputs retain citations, facts/inferences/forecasts/
   recommendations, counterevidence, invalidation conditions, and concise
   rationale.
-- [ ] Existing durable records and Earnings `1.0.0` remain valid; any required
+- [x] Existing durable records and Earnings `1.0.0` remain valid; any required
   new pack version coexists without migration.
-- [ ] Focused and affected regression checks, one diff review, one controlled
+- [x] Focused and affected regression checks, one diff review, one controlled
   production routing smoke, rollback, documentation, merge, and cleanup pass.

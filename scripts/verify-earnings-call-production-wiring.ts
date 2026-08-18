@@ -21,6 +21,7 @@ import {
 } from "../agent/lib/hybrid-evidence-artifact-store";
 import type { HybridEvidenceJobStoreClient } from "../agent/lib/hybrid-evidence-job-store";
 import type { HybridEvidenceLineageStoreClient } from "../agent/lib/hybrid-evidence-lineage-store";
+import { verifyHybridEvidenceWorkerToken } from "../agent/lib/hybrid-evidence-auth";
 import { hybridEvidenceJobSchema } from "../agent/lib/hybrid-evidence-schema";
 import {
   listWorkspaceSemanticJobSummaries,
@@ -84,6 +85,7 @@ import { createEarningsCallSourceLifecycleStore } from "../agent/lib/earnings-ca
 import {
   prepareWorkspaceWorkerRecovery,
   prepareWorkspaceWorkerRun,
+  WORKSPACE_WORKER_MODEL_ID,
 } from "../agent/lib/workspace-worker-runner";
 
 class MemoryCas implements
@@ -334,6 +336,7 @@ globalThis.Date = new Proxy(Date, {
 const ownerId = "owner_fixture_earnings_production";
 const sourceId = "earnings-call-transcripts.0000019617";
 const semanticModelId = "google/gemini-3.6-flash";
+const frontierSemanticModelId = "openai/gpt-5.4";
 const recoveryModelId = "openai/gpt-5.5";
 const liveNow = new Date("2026-10-13T18:00:00.000Z");
 const baselineNow = new Date(liveNow.getTime() - 16 * 60_000);
@@ -346,6 +349,10 @@ const environment = {
   EVE_HYBRID_EXTRACTION_RECOVERY_ENABLED: "1",
   EVE_HYBRID_SEMANTIC_REASONING_ENABLED: "1",
   EVE_HYBRID_SOURCE_RECOVERY_CONCURRENT_WORKERS: "2",
+  EVE_HYBRID_FAST_MODEL_ID: recoveryModelId,
+  EVE_HYBRID_FAST_MODEL_REASONING: "low",
+  EVE_HYBRID_FRONTIER_MODEL_ID: semanticModelId,
+  EVE_HYBRID_FRONTIER_MODEL_REASONING: "high",
   EVE_HYBRID_SOURCE_RECOVERY_INPUT_TOKENS_PER_DAY: "100000",
   EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS: recoveryModelId,
   EVE_HYBRID_SOURCE_RECOVERY_OUTPUT_TOKENS_PER_DAY: "20000",
@@ -357,6 +364,7 @@ const environment = {
   EVE_STRATEGY_PACK_CATALOG_ENABLED: "1",
   EVE_STRATEGY_PACK_MANAGED_DISPATCH_ENABLED: "1",
   EVE_STRATEGY_PACK_RUNTIME_ENABLED: "1",
+  EVE_STRATEGY_PACK_WORKER_MODEL_ID: semanticModelId,
   EVE_WORKSPACE_DISPATCH_ENABLED: "1",
   EVE_WORKSPACE_GLOBAL_CONCURRENT_WORKERS: "8",
   EVE_WORKSPACE_RUNTIME_AUTH_SECRET: Buffer.alloc(32, 62).toString("base64url"),
@@ -366,6 +374,13 @@ Object.assign(process.env, environment);
 
 const pack = strategyPackCatalog.resolve({ id: "earnings-call-changes", version: "1.0.0" });
 assert.ok(pack);
+const frontierPack = strategyPackCatalog.resolve({ id: "earnings-call-changes", version: "1.0.1" });
+assert.ok(frontierPack);
+const frontierEnvironment = {
+  ...environment,
+  EVE_HYBRID_FRONTIER_MODEL_ID: frontierSemanticModelId,
+  EVE_STRATEGY_PACK_WORKER_MODEL_ID: frontierSemanticModelId,
+} satisfies NodeJS.ProcessEnv;
 const resource = pack.monitors[0]!;
 const sources = resolveParameterizedStrategyPackSources(
   pack,
@@ -400,18 +415,22 @@ const artifacts = createHybridEvidenceEphemeralArtifactStore({
   },
 });
 const sourceLifecycle = createEarningsCallSourceLifecycleStore(lifecycleMemory);
+const semanticRoutes = new Map<string, { modelId: string; reasoning: "high" }>();
 
-function capabilityManifest(): WorkspaceCapabilityManifestValue {
+function capabilityManifest(input: {
+  readonly pack: NonNullable<typeof pack>;
+  readonly semanticModelId: string;
+}): WorkspaceCapabilityManifestValue {
   return {
     connectionIds: [],
     controlPlaneToolIds: [EARNINGS_CALL_CHANGES_EVALUATION_TOOL_ID],
     financialToolIds: [],
-    hardDeniedCapabilityIds: [...pack!.capabilities.hardDenied].sort(),
+    hardDeniedCapabilityIds: [...input.pack.capabilities.hardDenied].sort(),
     maximumDataAccessClassification: "public",
     paidResearchAllowed: false,
     providerTools: [],
     researchToolIds: [],
-    skills: pack!.skills.map(({ id, version }) => ({ id, version })),
+    skills: input.pack.skills.map(({ id, version }) => ({ id, version })),
     sources: sources.map((source) => ({
       allowedOrigins: [...source.allowedOrigins],
       contractDigest: source.contractDigest,
@@ -419,30 +438,41 @@ function capabilityManifest(): WorkspaceCapabilityManifestValue {
       origin: new URL(source.canonicalUrl).origin,
       sourceId: source.sourceId,
     })),
-    workerModelPolicy: { allowedModelIds: [semanticModelId], maximumOutputTokens: 4_000 },
+    workerModelPolicy: {
+      allowedModelIds: [...new Set([input.semanticModelId, WORKSPACE_WORKER_MODEL_ID])],
+      maximumOutputTokens: 12_000,
+    },
   };
 }
 
-async function installWorkspace(workspaceId: string) {
+async function installWorkspace(
+  workspaceId: string,
+  options: {
+    readonly pack: NonNullable<typeof pack>;
+    readonly semanticModelId: string;
+  } = { pack, semanticModelId },
+) {
+  const boundPack = options.pack;
+  const boundResource = boundPack.monitors[0]!;
   const scope = authorizeDeploymentWorkspaceStore({ ownerId, workspaceId }, environment);
   const monitor = await createWorkspaceMonitor({
     activateManagedMonitor: true,
     deliverySubscriptionId: `delivery.${workspaceId}`,
     idempotencyKey: `earnings-production-${workspaceId}`,
-    instruction: resource.instruction,
+    instruction: boundResource.instruction,
     managedBy: {
       bindingRevision: 1,
       kind: "strategy_pack",
-      packContentDigest: pack!.contentDigest,
-      packId: pack!.id,
-      packVersion: pack!.version,
-      resourceId: resource.resourceId,
+      packContentDigest: boundPack.contentDigest,
+      packId: boundPack.id,
+      packVersion: boundPack.version,
+      resourceId: boundResource.resourceId,
     },
-    name: resource.displayName,
+    name: boundResource.displayName,
     nextOccurrenceAt: baselineNow.toISOString(),
     now: new Date(baselineNow.getTime() - 60_000),
     publicSourceIds: [sourceId],
-    requiredCapabilityIds: [...resource.requiredCapabilityIds],
+    requiredCapabilityIds: [...boundResource.requiredCapabilityIds],
     schedule: { anchor: baselineNow.toISOString(), everyMinutes: 15, kind: "interval" },
     scope,
     sources: sources.map((source) => ({
@@ -455,9 +485,9 @@ async function installWorkspace(workspaceId: string) {
   const snapshot = {
     bindingRevision: 1,
     capabilityManifestRevision: 1,
-    packContentDigest: pack!.contentDigest,
-    packId: pack!.id,
-    packVersion: pack!.version,
+    packContentDigest: boundPack.contentDigest,
+    packId: boundPack.id,
+    packVersion: boundPack.version,
     workspaceGeneration: 1,
   };
   const strategy: WorkspaceStrategyBindingValue = {
@@ -473,10 +503,10 @@ async function installWorkspace(workspaceId: string) {
     lastActiveSnapshot: snapshot,
     lifecycleState: "active",
     managedResources: {
-      [resource.resourceId]: { monitorId: monitor.monitorId, sourceIds: [sourceId] },
+      [boundResource.resourceId]: { monitorId: monitor.monitorId, sourceIds: [sourceId] },
     },
     ownerOverrides: {},
-    pack: { contentDigest: pack!.contentDigest, id: pack!.id, version: pack!.version },
+    pack: { contentDigest: boundPack.contentDigest, id: boundPack.id, version: boundPack.version },
     pendingSnapshot: null,
     timestamps: {
       activatedAt: baselineNow.toISOString(),
@@ -509,8 +539,8 @@ async function installWorkspace(workspaceId: string) {
         maximumConcurrentWorkers: 2,
         maximumInputTokensPerDay: 100_000,
         maximumInputTokensPerRun: 24_000,
-        maximumOutputTokensPerDay: 20_000,
-        maximumOutputTokensPerRun: 4_000,
+        maximumOutputTokensPerDay: 100_000,
+        maximumOutputTokensPerRun: 12_000,
         maximumPaidPerCall: "1.00",
         maximumPaidPerDay: "10.00",
         maximumPaidPerMonth: "100.00",
@@ -519,10 +549,15 @@ async function installWorkspace(workspaceId: string) {
         unknownPriceFallbackCeiling: "1.00",
       },
     }),
-    prepareInitialWorkspaceDocument("capabilities", { now: baselineNow, scope, value: capabilityManifest() }),
+    prepareInitialWorkspaceDocument("capabilities", {
+      now: baselineNow,
+      scope,
+      value: capabilityManifest({ pack: boundPack, semanticModelId: options.semanticModelId }),
+    }),
     prepareInitialWorkspaceStrategyBinding({ now: baselineNow, scope, value: strategy }),
   ]) state.values.set(prepared.key, prepared.raw);
-  return { monitor, scope };
+  semanticRoutes.set(workspaceId, { modelId: options.semanticModelId, reasoning: "high" });
+  return { monitor, pack: boundPack, scope };
 }
 
 const baselineListing = Buffer.from(JSON.stringify({
@@ -656,11 +691,14 @@ function recoveryCandidate(sourceText: string) {
 }
 
 async function completeFixtureModel(prepared: PreparedHybridEvidenceWorkerRun) {
+  const envelope = verifyHybridEvidenceWorkerToken(prepared.token, {}, environment);
   const body = JSON.parse(prepared.request.input.message.match(
     /<hybrid-evidence-job-v1>\n([\s\S]+)\n<\/hybrid-evidence-job-v1>/u,
   )![1]!) as any;
   const ctx = { session: { auth: { current: prepared.request.auth, initiator: prepared.request.auth } } };
   if (prepared.record.job.definitionId === EARNINGS_CALL_TRANSCRIPT_LAYOUT_DEFINITION_ID) {
+    assert.equal(envelope.modelId, recoveryModelId);
+    assert.equal(envelope.reasoning, "low");
     recoveryDispatches += 1;
     const locator = body.locators.find((candidate: any) => candidate.kind === "text_span");
     const slice = await readHybridEvidenceSliceForWorker({
@@ -681,6 +719,10 @@ async function completeFixtureModel(prepared: PreparedHybridEvidenceWorkerRun) {
   const workspaceId = prepared.record.job.scope.kind === "workspace"
     ? prepared.record.job.scope.workspaceId
     : "unexpected";
+  assert.deepEqual(
+    { modelId: envelope.modelId, reasoning: envelope.reasoning },
+    semanticRoutes.get(workspaceId),
+  );
   semanticDispatches.set(workspaceId, (semanticDispatches.get(workspaceId) ?? 0) + 1);
   const projection = body.inputProjection;
   const bindings = projection.members.flatMap((member: any) =>
@@ -804,30 +846,41 @@ async function claim(workspace: Awaited<ReturnType<typeof installWorkspace>>, no
   }
 }
 
-async function prepare(job: ClaimedWorkspaceMonitor, now: Date) {
+async function prepare(
+  job: ClaimedWorkspaceMonitor,
+  now: Date,
+  options: { readonly environment: NodeJS.ProcessEnv; readonly pack: NonNullable<typeof pack> } = {
+    environment,
+    pack,
+  },
+) {
   const dispatchBudget = await reserveWorkspaceMonitorDispatchBudget(job, {
     clients: { global: budget, state, workspace: budget },
-    environment,
+    environment: options.environment,
     now,
   });
   const prepared = await prepareWorkspaceWorkerRun({
     claimed: job,
     clients: { sourceCoverage: coverage, state, strategyPackCatalog },
     dispatchBudget,
-    environment,
+    environment: options.environment,
     now,
   });
-  assert.equal(prepared.envelope.strategyPack?.packContentDigest, pack!.contentDigest);
+  assert.equal(prepared.envelope.strategyPack?.packContentDigest, options.pack.contentDigest);
   assert.equal(prepared.envelope.sources[0]?.sourceId, sourceId);
   return { dispatchBudget, prepared };
 }
 
-async function evaluate(job: ClaimedWorkspaceMonitor, now: Date) {
-  const { dispatchBudget, prepared } = await prepare(job, now);
+async function evaluate(
+  job: ClaimedWorkspaceMonitor,
+  now: Date,
+  options?: { readonly environment: NodeJS.ProcessEnv; readonly pack: NonNullable<typeof pack> },
+) {
+  const { dispatchBudget, prepared } = await prepare(job, now, options);
   const result = await evaluateEarningsCallChangesForWorker({
     clients: workerClients,
     ctx: { session: { auth: { current: prepared.request.auth } } },
-    environment,
+    environment: options?.environment ?? environment,
     now,
   });
   earningsCallWorkspaceWorkerOutputSchema.parse({
@@ -849,10 +902,19 @@ async function evaluate(job: ClaimedWorkspaceMonitor, now: Date) {
 const workspaceA = await installWorkspace("123e4567-e89b-42d3-a456-426614176101");
 const workspaceB = await installWorkspace("123e4567-e89b-42d3-a456-426614176102");
 const workspaceC = await installWorkspace("123e4567-e89b-42d3-a456-426614176103");
+const workspaceD = await installWorkspace("123e4567-e89b-42d3-a456-426614176104", {
+  pack: frontierPack,
+  semanticModelId: frontierSemanticModelId,
+});
 
 sourcePhase = "baseline";
-for (const workspace of [workspaceA, workspaceB, workspaceC]) {
-  const result = await evaluate(await claim(workspace, baselineNow), baselineNow);
+for (const [workspace, options] of [
+  [workspaceA, undefined],
+  [workspaceB, undefined],
+  [workspaceC, undefined],
+  [workspaceD, { environment: frontierEnvironment, pack: frontierPack }],
+] as const) {
+  const result = await evaluate(await claim(workspace, baselineNow), baselineNow, options);
   assert.equal(result.result.outcome.outcome, "no_match");
   assert.equal(result.result.materialFindings, 0, "activation baseline must remain silent");
 }
@@ -950,6 +1012,15 @@ assert.equal([...acquisition.values.values()].filter((raw) =>
 const earningsB = await readLatestEarningsCallFinding(workspaceB.scope, earnings);
 assert.ok(earningsB);
 assert.notEqual(earningsA.finding.findingId, earningsB.finding.findingId);
+const liveD = await evaluate(await claim(workspaceD, liveNow), liveNow, {
+  environment: frontierEnvironment,
+  pack: frontierPack,
+});
+assert.equal(liveD.result.outcome.outcome, "finding_staged");
+assert.ok(
+  (semanticDispatches.get(workspaceD.scope.workspaceId) ?? 0) > 0,
+  "the 1.0.1 binding must execute GPT-5.4/high through the signed worker",
+);
 assert.equal(await readLatestEarningsCallFinding(workspaceC.scope, earnings), null);
 assert.equal(await readWorkspaceRunOutcome(workspaceB.scope, liveA.prepared.envelope.occurrenceKey, findings), null);
 const alertB = await readWorkspaceAlert(workspaceB.scope, liveB.result.outcome.finding!.findingId, alerts);

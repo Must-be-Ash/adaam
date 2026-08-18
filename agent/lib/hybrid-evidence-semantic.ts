@@ -25,6 +25,7 @@ import {
   type HybridEvidenceJobStoreClient,
 } from "./hybrid-evidence-job-store";
 import type { HybridEvidenceLineageStoreClient } from "./hybrid-evidence-lineage-store";
+import type { HybridModelReasoning } from "./hybrid-evidence-model-routing";
 import {
   acknowledgeWorkspaceSemanticHealthNotification,
   advanceWorkspaceSemanticHead,
@@ -232,6 +233,7 @@ export async function prepareWorkspaceSemanticEvidenceJob(input: {
   definition: HybridEvidenceJobDefinition;
   locators: readonly EvidenceLocator[];
   modelId: string;
+  reasoning?: HybridModelReasoning;
   now?: Date;
   pack: { contentDigest: string; id: string; version: string };
   projectionReference: { factRevisionId: string; sourceId: string; subscriptionId: string };
@@ -425,6 +427,7 @@ export async function prepareWorkspaceSemanticEvidenceBundleJob(input: {
   definition: HybridEvidenceJobDefinition;
   members: readonly WorkspaceSemanticEvidenceBundleInputMember[];
   modelId: string;
+  reasoning?: HybridModelReasoning;
   now?: Date;
   pack: { contentDigest: string; id: string; version: string };
   scope: AuthorizedWorkspaceStoreScope;
@@ -455,6 +458,7 @@ export async function prepareWorkspaceSemanticEvidenceBundleJob(input: {
       definition: input.definition,
       locators: member.locators,
       modelId: input.modelId,
+      reasoning: input.reasoning,
       now: input.now,
       pack: input.pack,
       projectionReference: member.projectionReference,
@@ -951,6 +955,7 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
         locators: prepared.locators,
         now: input.now,
         prepared: record,
+        reasoning: input.reasoning,
       });
       record = worker.record;
       await recordWorkspaceSemanticJob({ job: record.job, scope: input.scope, source: prepared.source }, clients.semantic);
@@ -1306,6 +1311,7 @@ export async function runWorkspaceSemanticEvidenceBundleJob(input: Parameters<
         locators: prepared.locators,
         now: input.now,
         prepared: record,
+        reasoning: input.reasoning,
       });
       record = worker.record;
       await recordJob(record);

@@ -1,6 +1,7 @@
 import { defineAgent, defineDynamic } from "eve";
 
 import { verifyHybridEvidenceWorkerToken } from "../../lib/hybrid-evidence-auth";
+import { createHybridEvidenceWorkerAgentConfig } from "../../lib/hybrid-evidence-worker-config";
 
 export default defineDynamic({
   events: {
@@ -9,16 +10,7 @@ export default defineDynamic({
       if (typeof token !== "string") return null;
       try {
         const envelope = verifyHybridEvidenceWorkerToken(token);
-        return defineAgent({
-          description: "Execute one bounded public hybrid-evidence task with no conversational history.",
-          limits: {
-            maxInputTokensPerSession: envelope.budget.inputTokens,
-            maxOutputTokensPerSession: envelope.budget.outputTokens,
-            sessionTimeoutMs: 15 * 60_000,
-          },
-          model: envelope.modelId,
-          reasoning: "high",
-        });
+        return defineAgent(createHybridEvidenceWorkerAgentConfig(envelope));
       } catch {
         return null;
       }

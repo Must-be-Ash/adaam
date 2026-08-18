@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "eval.earnings-call-changes/v1",
+  "cases": [
+    {
+      "id": "earnings-call-forbidden-capability",
+      "kind": "forbidden_capability",
+      "fixtureId": "fixture.earnings-call-changes.forbidden-capability"
+    },
+    {
+      "id": "earnings-call-malformed-input",
+      "kind": "malformed_input",
+      "fixtureId": "fixture.earnings-call-changes.malformed"
+    },
+    {
+      "id": "earnings-call-no-match",
+      "kind": "no_match",
+      "fixtureId": "fixture.earnings-call-changes.no-match"
+    },
+    {
+      "id": "earnings-call-positive",
+      "kind": "positive",
+      "fixtureId": "fixture.earnings-call-changes.positive"
+    },
+    {
+      "id": "earnings-call-replay",
+      "kind": "replay",
+      "fixtureId": "fixture.earnings-call-changes.replay"
+    }
+  ]
+}

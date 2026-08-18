@@ -4,6 +4,8 @@ import {
   EARNINGS_CALL_COMPARISON_DEFINITION_ID,
   EARNINGS_CALL_COMPARISON_SECTION_DEFINITION_ID,
   EARNINGS_CALL_COMPARISON_SYNTHESIS_DEFINITION_ID,
+  EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
+  EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
   createEarningsCallComparisonDefinitions,
 } from "./hybrid-evidence-definition-registry";
 import {
@@ -12,6 +14,7 @@ import {
   type WorkspaceSemanticEvidenceBundleRunResult,
   type WorkspaceSemanticModelUsage,
 } from "./hybrid-evidence-semantic";
+import type { HybridModelReasoning } from "./hybrid-evidence-model-routing";
 import type { HybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
 import type { HybridEvidenceJobStoreClient } from "./hybrid-evidence-job-store";
 import type { HybridEvidenceLineageStoreClient } from "./hybrid-evidence-lineage-store";
@@ -294,6 +297,7 @@ export async function runEarningsCallSemanticComparison(input: {
   environment?: NodeJS.ProcessEnv;
   evidence: readonly EarningsCallSemanticEvidenceInput[];
   modelId: string;
+  reasoning?: HybridModelReasoning;
   now?: Date;
   pack: { contentDigest: string; id: string; version: string };
   scope: AuthorizedWorkspaceStoreScope;
@@ -312,10 +316,20 @@ export async function runEarningsCallSemanticComparison(input: {
   }
   const allSpans = plan.jobs.flatMap(({ spans }) => spans);
   const citationSpansByKey = prepareCitationSpans(validated.evidence, allSpans);
-  const definitions = createEarningsCallComparisonDefinitions([input.modelId]);
+  const definitions = createEarningsCallComparisonDefinitions(
+    [input.modelId],
+    input.pack.version === "1.0.1"
+      ? {
+          maximumRuntimeMs: EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
+          maximumSessionInputTokens: EARNINGS_CALL_POLICY.semanticEnvelope.maximumAggregateInputTokens,
+          maximumSessionOutputTokens: EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
+        }
+      : {},
+  );
   const shared = {
     environment: input.environment,
     modelId: input.modelId,
+    reasoning: input.reasoning,
     now: input.now,
     pack: input.pack,
     scope: input.scope,

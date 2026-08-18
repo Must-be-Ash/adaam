@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "id": "earnings-call-changes",
+  "version": "1.0.1",
+  "displayName": "Earnings Call Changes",
+  "description": "Compare complete current and prior earnings-call transcripts for material, cited changes in management language and outlook.",
+  "maturity": "experimental",
+  "compatibility": {
+    "coreSchemaVersion": 1,
+    "workspaceSchemaVersion": 1,
+    "strategyPackSchemaVersion": 1
+  },
+  "workspaceInstructionPath": "workspace.md",
+  "configuration": [
+    {
+      "key": "timezone",
+      "kind": "iana_timezone",
+      "label": "Timezone",
+      "description": "Timezone used for local daily transcript checks.",
+      "required": true,
+      "default": "UTC",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "key": "dailyTimes",
+      "kind": "daily_local_times",
+      "label": "Daily check times",
+      "description": "Unique local times when the selected issuers may be checked.",
+      "required": true,
+      "default": ["09:00", "16:00"],
+      "minimumItems": 1,
+      "maximumItems": 8,
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "key": "selectedIssuerCiks",
+      "kind": "catalog_id_list",
+      "label": "Companies",
+      "description": "Select 1–8 coverage-reviewed issuers. Tickers and names resolve to canonical SEC CIKs before save.",
+      "required": true,
+      "catalogId": "sec-issuers",
+      "catalogRevision": 1,
+      "catalogDigest": "a245bb50765e41bc27ae9b1df6eabab3bf70d6c9cc4aeebbecf4f2babd3ee95e",
+      "default": ["0000789019"],
+      "minimumItems": 1,
+      "maximumItems": 8,
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "key": "materialityThreshold",
+      "kind": "bounded_enum",
+      "label": "Materiality threshold",
+      "description": "Deterministic minimum score required before an accepted analysis can alert.",
+      "required": true,
+      "allowedValues": ["threshold_50", "threshold_65", "threshold_80"],
+      "default": "threshold_65",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
+    }
+  ],
+  "skills": [
+    {
+      "id": "earnings-call-change-analysis",
+      "version": "1.0.0",
+      "description": "Apply the bounded earnings-call comparison playbook without widening sources or authority.",
+      "instructionPath": "playbook.md"
+    }
+  ],
+  "capabilities": {
+    "required": [
+      "evaluate_earnings_call_changes",
+      "skill.earnings-call-change-analysis"
+    ],
+    "hardDenied": [
+      "broker.mutation",
+      "coinbase_create_order",
+      "filesystem",
+      "interactive.approval",
+      "masterkey_mcp",
+      "private.history",
+      "shell",
+      "web.search"
+    ]
+  },
+  "evidenceContracts": [
+    {
+      "id": "earnings-call-semantic-comparison",
+      "version": "1.0.0",
+      "digest": "0f48172f825ca3f54476d757a6c7a92dc66efcee2bf2a36dd9d993a243bf5132"
+    },
+    {
+      "id": "earnings-call-semantic-comparison-section",
+      "version": "1.0.0",
+      "digest": "e7616655c17ce2f8d1d7a8bb71c110c28c725162a7a18429592b2862164deafd"
+    },
+    {
+      "id": "earnings-call-semantic-comparison-synthesis",
+      "version": "1.0.0",
+      "digest": "0e0f48155da337624231d2e4647599cccd800ee01c8f5e6a266adc5f303aa61e"
+    }
+  ],
+  "sources": [
+    {
+      "sourceId": "earnings-call-transcripts",
+      "contractVersion": "1.0.0",
+      "contractDigest": "8832172086d8e5f582d94cfa9ce32b7c2927c313b41ffea853c3ae9d3fedaf73",
+      "canonicalUrl": "https://data.sec.gov/submissions/CIK0000000000.json",
+      "allowedOrigins": ["https://data.sec.gov"],
+      "accessClassification": "public",
+      "parameterization": {
+        "catalogId": "sec-issuers",
+        "catalogRevision": 1,
+        "catalogDigest": "a245bb50765e41bc27ae9b1df6eabab3bf70d6c9cc4aeebbecf4f2babd3ee95e",
+        "selectionConfigurationKey": "selectedIssuerCiks"
+      }
+    }
+  ],
+  "monitors": [
+    {
+      "resourceId": "compare-earnings-calls",
+      "displayName": "Compare earnings calls",
+      "instructionPath": "monitors/compare-earnings-calls.md",
+      "timezoneConfigurationKey": "timezone",
+      "dailyTimesConfigurationKey": "dailyTimes",
+      "sourceIds": ["earnings-call-transcripts"],
+      "requiredCapabilityIds": ["evaluate_earnings_call_changes"],
+      "findingSchemaId": "earnings-call-change/v1",
+      "alertPresentationId": "alert.earnings-call-change/v1",
+      "suggestedBudget": {
+        "maximumInputTokensPerRun": 24000,
+        "maximumOutputTokensPerRun": 12000,
+        "maximumRunsPerDay": 8
+      },
+      "activationDefault": "paused",
+      "overridableFields": ["schedule"]
+    }
+  ],
+  "evaluationsPath": "evals.json"
+}

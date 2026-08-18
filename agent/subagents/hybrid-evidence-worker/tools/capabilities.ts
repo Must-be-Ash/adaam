@@ -10,6 +10,8 @@ import { createHybridEvidenceWorkerArtifactStore } from "../../../lib/hybrid-evi
 import { evidenceLocatorSchema } from "../../../lib/hybrid-evidence-schema";
 import {
   completeHybridEvidenceJobForWorker,
+  hybridEvidenceBundleToModelOutput,
+  readHybridEvidenceBundleForWorker,
   readHybridEvidenceSliceForWorker,
   workerCandidateSchema,
 } from "../../../lib/hybrid-evidence-worker";
@@ -22,7 +24,7 @@ const readHybridEvidenceSlice = defineTool({
     const fixture = resolveHybridEvidenceWorkerFixtureClients();
     const artifacts = fixture?.artifacts ?? createHybridEvidenceWorkerArtifactStore();
     return readHybridEvidenceSliceForWorker({
-      clients: { artifacts, jobs: fixture?.jobs },
+      clients: { artifacts, jobs: fixture?.jobs, readSourceFact: fixture?.readSourceFact },
       ctx,
       locator,
     });
@@ -47,6 +49,25 @@ const completeHybridEvidenceJob = defineTool({
       jobClient: resolveHybridEvidenceWorkerFixtureClients()?.jobs,
     });
   },
+});
+
+const readHybridEvidenceBundle = defineTool({
+  description: "Read the complete bounded public evidence bundle authorized by this signed workspace job.",
+  inputSchema: z.object({}).strict(),
+  async execute(_input, ctx) {
+    const fixture = resolveHybridEvidenceWorkerFixtureClients();
+    const artifacts = fixture?.artifacts ?? createHybridEvidenceWorkerArtifactStore();
+    return readHybridEvidenceBundleForWorker({
+      clients: {
+        artifacts,
+        jobs: fixture?.jobs,
+        readSemanticResult: fixture?.readSemanticResult,
+        readSourceFact: fixture?.readSourceFact,
+      },
+      ctx,
+    });
+  },
+  toModelOutput: hybridEvidenceBundleToModelOutput,
 });
 
 const fixtureReadHybridEvidenceSlice = defineTool({
@@ -89,7 +110,13 @@ function resolve(ctx: {
   const token = ctx.session.auth.current?.attributes.hybrid_evidence_runtime_token;
   if (typeof token !== "string") return null;
   try {
-    verifyHybridEvidenceWorkerToken(token);
+    const envelope = verifyHybridEvidenceWorkerToken(token);
+    if (envelope.scope.kind === "workspace") {
+      return {
+        read_hybrid_evidence_bundle: readHybridEvidenceBundle,
+        complete_hybrid_evidence_job: completeHybridEvidenceJob,
+      };
+    }
     if (
       process.env.NODE_ENV === "test" &&
       process.env.VERCEL === undefined &&

@@ -14,6 +14,7 @@ import {
   type HybridEvidenceBlobClient,
 } from "../agent/lib/hybrid-evidence-artifact-store";
 import type { HybridEvidenceJobStoreClient } from "../agent/lib/hybrid-evidence-job-store";
+import { verifyHybridEvidenceWorkerToken } from "../agent/lib/hybrid-evidence-auth";
 import type { HybridEvidenceLineageStoreClient } from "../agent/lib/hybrid-evidence-lineage-store";
 import { resolveHybridEvidenceFlags } from "../agent/lib/hybrid-evidence-flags";
 import {
@@ -69,6 +70,10 @@ const environment = {
   EVE_DEPLOYMENT_OWNER_ID: "owner_fixture_recovery",
   EVE_HYBRID_EVIDENCE_AUTH_SECRET: Buffer.alloc(32, 7).toString("base64url"),
   EVE_HYBRID_SOURCE_RECOVERY_CONCURRENT_WORKERS: "2",
+  EVE_HYBRID_FAST_MODEL_ID: modelId,
+  EVE_HYBRID_FAST_MODEL_REASONING: "low",
+  EVE_HYBRID_FRONTIER_MODEL_ID: "openai/gpt-5.4",
+  EVE_HYBRID_FRONTIER_MODEL_REASONING: "high",
   EVE_HYBRID_SOURCE_RECOVERY_INPUT_TOKENS_PER_DAY: "100000",
   EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS: modelId,
   EVE_HYBRID_SOURCE_RECOVERY_OUTPUT_TOKENS_PER_DAY: "20000",
@@ -161,6 +166,9 @@ const artifacts = createHybridEvidenceEphemeralArtifactStore({
 let dispatches = 0;
 const complete = async (prepared: PreparedHybridEvidenceWorkerRun, value: typeof candidate) => {
   dispatches += 1;
+  const envelope = verifyHybridEvidenceWorkerToken(prepared.token, {}, environment);
+  assert.equal(envelope.modelId, modelId);
+  assert.equal(envelope.reasoning, "low");
   await completeHybridEvidenceJobForWorker({
     candidate: value,
     ctx: { session: { auth: { current: prepared.request.auth } } },
