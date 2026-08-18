@@ -677,7 +677,7 @@ path was enabled.
 - [x] Prove weak/unknown/conflicting sources stay visible, Exa metadata is not
   promoted to proof, missing Exa never drops the statement, hostile content
   cannot change policy/tools, and invalid citations quarantine safely.
-- [ ] Pass `verify:public-commentary-signals:sprint-2` and a focused repeated
+- [x] Pass `verify:public-commentary-signals:sprint-2` and a focused repeated
   model benchmark with zero invalid citations/unsafe accepts and frozen minimum
   stance, target, quotation, abstention, and explanation thresholds.
 
@@ -707,8 +707,13 @@ failed the frozen 85% floor. The failure exposed one ambiguous unknown fixture:
 all three runs reasonably classified wording that denied a directional view as
 `neutral` rather than the intended `unclear`. That fixture now states its
 unknown target and direction explicitly; focused verification and typecheck
-pass, but a fresh paid 24-call run requires separate owner authorization. The
-final Sprint 2 checkbox and exit gate therefore remain open.
+pass. The separately owner-authorized corrected rerun completed at
+`2026-08-18T15:53:42.830Z` using `openai/gpt-5.4`, with retries disabled and 24
+total calls. Per-run stance agreement was 100%, 87.5%, and 100%; target,
+quotation, abstention, and explanation agreement was 100% in every run, with
+zero invalid citations and zero unsafe accepts. The frozen benchmark passed,
+the final Sprint 2 checkbox and exit gate are met, all three production flags
+remain `0`, and Sprint 3 has not started.
 
 ### Sprint 3 — Inverse Cramer pack and owner vertical
 
