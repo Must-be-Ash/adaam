@@ -728,19 +728,6 @@ The most important differences between the working app and `NORTH_STAR.md` are:
    ambiguous worker-start accounting, revision freshness, atomic lifecycle
    convergence, log/privacy catalog enforcement, and Eve private-runtime
    compatibility are parked after the remaining product specs.
-7. **Two owner-path defects are diagnosed but not repaired.** The Spec 4B final
-   hardening commit added a strategy-pack capability guard to Coinbase. In
-   durable `Main`, an absent legacy strategy document is currently classified
-   as `strategy_pack_runtime_unavailable`, so brokerage requests can stop before
-   the ordinary Coinbase principal/provider path. Separately, the session
-   registry has always counted archived records toward its 12-record limit, and
-   the manager clears a failed create input because its mutation helper absorbs
-   the failure. Production Spec 4B acceptance encountered the full registry and
-   reused an active session; that was not proof of the promised creation flow.
-   Treat provider authentication and the intended active-versus-retained
-   capacity policy as separate questions. Do not place an order, delete archived
-   sessions, or mutate production while diagnosing either issue.
-
 Other known edges:
 
 - local fake-provider coverage proves the repaired Coinbase owner path but not
@@ -883,23 +870,6 @@ Chart-only and image-only iMessage smokes remain outstanding.
     event may be older than the newly created monitor window. Permit that cursor
     only for an authenticated initial no-finding baseline with no prior
     checkpoint; ordinary runs must retain the stricter window fence.
-14. **Green command counts are not coverage.** The Spec 4B 46-gate regression
-    passed while omitting `Main -> Coinbase preview` and a production-shaped
-    full registry attempting session creation. Define regression manifests by
-    distinct owner journeys and changed entry points, not script count.
-15. **Explicit default state is not legacy absence.** A verifier that persists
-    `lifecycleState: unbound` does not prove behavior for an old workspace with
-    no strategy record. Durable guards and migrations must exercise the absent
-    pre-change shape separately.
-16. **Acceptance cannot route around a blocker.** Reusing an active session at
-    the 12-session cap proved only the reused-session path. If the promised
-    create/configure journey cannot run, acceptance is blocked until the
-    mismatch is resolved or explicitly rescoped.
-17. **Late hardening can create product regressions.** A review fix that touches
-    an existing shared entry point must be isolated and earn that entry point's
-    real owner-journey regression test. Do not hide cross-subsystem behavior
-    inside a large final hardening commit.
-
 ## Code map
 
 Read the files for the area being changed; the groupings below show how the
