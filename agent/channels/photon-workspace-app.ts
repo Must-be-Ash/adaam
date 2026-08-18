@@ -1407,7 +1407,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
       };
 
       const mutate = async (action) => {
-        if (!state || busy) return;
+        if (!state || busy) return false;
         busy = true;
         render();
         status.classList.remove("error");
@@ -1423,11 +1423,14 @@ export function workspaceHtml(nonce: string, origin: string): string {
             ? "Fresh routing is active, but cleanup of the prior session could not be confirmed."
             : "Active session: " +
               state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId).name;
+          return true;
         } catch (error) {
-          status.classList.add("error");
-          status.textContent =
+          const message =
             error instanceof Error ? error.message : "Could not update sessions.";
           if (error && error.status === 409) await load();
+          status.classList.add("error");
+          status.textContent = message;
+          return false;
         } finally {
           busy = false;
           render();
@@ -1581,8 +1584,12 @@ export function workspaceHtml(nonce: string, origin: string): string {
         event.preventDefault();
         const name = nameInput.value.trim();
         if (!name) return;
-        await mutate({ action: "create", name, select: true });
-        nameInput.value = "";
+        const created = await mutate({ action: "create", name, select: true });
+        if (created) {
+          nameInput.value = "";
+        } else {
+          nameInput.focus();
+        }
       });
 
       packForm.addEventListener("submit", async (event) => {

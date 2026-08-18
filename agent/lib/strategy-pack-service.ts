@@ -5,9 +5,11 @@ import { z } from "zod";
 import { photonApprovalGuardKey } from "./photon-approval-store";
 import { resolvePhotonOwnerConversationIdentity } from "./owner-identity";
 import {
+  activePhotonWorkspaceCount,
   normalizePhotonWorkspaceName,
   normalizePhotonWorkspaceNameKey,
   PHOTON_WORKSPACE_LIMIT,
+  PHOTON_WORKSPACE_RETAINED_LIMIT,
   photonWorkspaceRegistryStorageKey,
   photonWorkspaceStoreClient,
   preparePhotonWorkspaceGenerationRollover,
@@ -1141,7 +1143,10 @@ async function executeCreateStrategyPackWorkspace(
   const nowIso = now.toISOString();
   const targetWorkspaceId = (dependencies.idFactory ?? randomUUID)();
   let rejectionCode: "capacity_exhausted" | "duplicate_name" | null = null;
-  if (registryRecord.registry.workspaces.length >= PHOTON_WORKSPACE_LIMIT) {
+  if (
+    activePhotonWorkspaceCount(registryRecord.registry) >= PHOTON_WORKSPACE_LIMIT ||
+    registryRecord.registry.workspaces.length >= PHOTON_WORKSPACE_RETAINED_LIMIT
+  ) {
     rejectionCode = "capacity_exhausted";
   } else {
     const normalizedName = normalizePhotonWorkspaceNameKey(

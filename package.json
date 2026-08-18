@@ -120,6 +120,7 @@
     "verify:workspace-runtime:recovery-schedule": "jiti scripts/verify-workspace-recovery-schedule.ts",
     "verify:workspace-runtime:schedule-runbook": "node scripts/verify-workspace-schedule-runbook.mjs",
     "verify:workspaces": "node scripts/verify-photon-workspaces.mjs",
+    "verify:workspaces:create-browser": "jiti scripts/verify-photon-workspace-create-browser.mjs",
     "verify:workspaces:redis": "node scripts/verify-photon-workspaces-redis.mjs"
   },
   "dependencies": {

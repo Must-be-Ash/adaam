@@ -12,6 +12,7 @@ const MANAGER_REQUEST_KEY_PREFIX = "eve:photon:v1:workspace-manager-request:";
 const MANAGER_TTL_SECONDS = 15 * 60;
 const ALERT_ACTION_TTL_SECONDS = 10 * 60;
 export const PHOTON_WORKSPACE_LIMIT = 12;
+export const PHOTON_WORKSPACE_RETAINED_LIMIT = 48;
 const MAX_CAS_ATTEMPTS = 5;
 
 const COMPARE_AND_SET_SCRIPT = `
@@ -53,7 +54,10 @@ const registrySchema = z
     pendingAlertContext: pendingAlertContextSchema.optional(),
     revision: z.number().int().nonnegative(),
     schemaVersion: z.literal(1),
-    workspaces: z.array(workspaceSchema).min(1).max(PHOTON_WORKSPACE_LIMIT),
+    workspaces: z
+      .array(workspaceSchema)
+      .min(1)
+      .max(PHOTON_WORKSPACE_RETAINED_LIMIT),
   })
   .superRefine((registry, context) => {
     const ids = new Set<string>();
@@ -203,6 +207,12 @@ export class PhotonWorkspaceValidationError extends Error {
     super(message);
     this.name = "PhotonWorkspaceValidationError";
   }
+}
+
+export function activePhotonWorkspaceCount(
+  registry: Pick<PhotonWorkspaceRegistry, "workspaces">,
+): number {
+  return registry.workspaces.filter(({ status }) => status === "active").length;
 }
 
 let redisClient: Redis | undefined;
@@ -667,9 +677,14 @@ export function preparePhotonWorkspaceRegistryCreation(input: {
 }): { registry: PhotonWorkspaceRegistry; workspace: PhotonWorkspace } {
   const name = normalizePhotonWorkspaceName(input.name);
   const normalizedName = normalizePhotonWorkspaceNameKey(name);
-  if (input.current.workspaces.length >= PHOTON_WORKSPACE_LIMIT) {
+  if (activePhotonWorkspaceCount(input.current) >= PHOTON_WORKSPACE_LIMIT) {
     throw new PhotonWorkspaceValidationError(
-      `A conversation can have at most ${PHOTON_WORKSPACE_LIMIT} sessions.`,
+      `A conversation can have at most ${PHOTON_WORKSPACE_LIMIT} active sessions.`,
+    );
+  }
+  if (input.current.workspaces.length >= PHOTON_WORKSPACE_RETAINED_LIMIT) {
+    throw new PhotonWorkspaceValidationError(
+      `This conversation has reached its ${PHOTON_WORKSPACE_RETAINED_LIMIT}-record retained session history limit. No session history was deleted.`,
     );
   }
   if (
@@ -768,9 +783,14 @@ export async function createPhotonWorkspace(
   const result = await mutateRegistry(
     input,
     (registry) => {
-      if (registry.workspaces.length >= PHOTON_WORKSPACE_LIMIT) {
+      if (activePhotonWorkspaceCount(registry) >= PHOTON_WORKSPACE_LIMIT) {
         throw new PhotonWorkspaceValidationError(
-          `A conversation can have at most ${PHOTON_WORKSPACE_LIMIT} sessions.`,
+          `A conversation can have at most ${PHOTON_WORKSPACE_LIMIT} active sessions.`,
+        );
+      }
+      if (registry.workspaces.length >= PHOTON_WORKSPACE_RETAINED_LIMIT) {
+        throw new PhotonWorkspaceValidationError(
+          `This conversation has reached its ${PHOTON_WORKSPACE_RETAINED_LIMIT}-record retained session history limit. No session history was deleted.`,
         );
       }
       if (
@@ -976,6 +996,11 @@ export async function restorePhotonWorkspace(
       if (!target || target.status !== "archived") {
         throw new PhotonWorkspaceValidationError(
           "That session is not archived.",
+        );
+      }
+      if (activePhotonWorkspaceCount(registry) >= PHOTON_WORKSPACE_LIMIT) {
+        throw new PhotonWorkspaceValidationError(
+          `A conversation can have at most ${PHOTON_WORKSPACE_LIMIT} active sessions.`,
         );
       }
       return {
