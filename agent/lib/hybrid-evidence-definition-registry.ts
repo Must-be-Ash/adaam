@@ -15,6 +15,7 @@ import {
   type HybridEvidenceJobDefinition,
 } from "./hybrid-evidence-schema";
 import { workspaceSemanticEvidenceRoleSchema } from "./hybrid-evidence-semantic-store";
+import { commentarySemanticValidationContract } from "./public-commentary-semantics";
 
 export const HOUSE_DOCUMENT_ROW_DEFINITION_ID = "house-ptr-document-row-recovery";
 export const EARNINGS_CALL_TRANSCRIPT_LAYOUT_DEFINITION_ID =
@@ -338,6 +339,7 @@ export const workspaceSemanticValidationRegistry = createWorkspaceSemanticValida
   earningsCallSemanticValidationContract,
   earningsCallSectionSemanticValidationContract,
   earningsCallSynthesisSemanticValidationContract,
+  commentarySemanticValidationContract,
 ]);
 
 function reviewedDefinition(input: {

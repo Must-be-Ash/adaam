@@ -56,6 +56,8 @@ export const workspaceSemanticEvidenceRoleSchema = z.enum([
   "prior",
   "year_ago",
   "section",
+  "subject_statement",
+  "context_reference",
 ]);
 const memberSchema = z.object({
   memberId: idSchema,
@@ -92,8 +94,8 @@ const evidenceV2Schema = z.object({
   source: sourceSchema,
   workspaceId: z.string().uuid(),
 }).strict().superRefine((record, context) => {
-  const nonSectionRoles = record.members
-    .filter(({ role }) => role !== "section")
+  const singletonRoles = record.members
+    .filter(({ role }) => role !== "section" && role !== "context_reference")
     .map(({ role }) => role);
   if (
     record.result.purpose !== "semantic_interpretation" ||
@@ -101,7 +103,9 @@ const evidenceV2Schema = z.object({
     record.result.scope.ownerId !== record.ownerId ||
     record.result.scope.workspaceId !== record.workspaceId ||
     new Set(record.members.map(({ memberId }) => memberId)).size !== record.members.length ||
-    new Set(nonSectionRoles).size !== nonSectionRoles.length ||
+    new Set(singletonRoles).size !== singletonRoles.length ||
+    record.members.filter(({ role }) => role === "subject_statement").length > 1 ||
+    record.members.filter(({ role }) => role === "context_reference").length > 5 ||
     !record.members.some(({ source }) => JSON.stringify(source) === JSON.stringify(record.source))
   ) {
     context.addIssue({ code: "custom", message: "workspace_semantic_scope_invalid" });

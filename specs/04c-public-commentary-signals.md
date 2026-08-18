@@ -659,22 +659,22 @@ path was enabled.
 
 ### Sprint 2 — extraction, corroboration, interpretation, and policy
 
-- [ ] Register commentary semantic evidence roles and an immutable commentary
+- [x] Register commentary semantic evidence roles and an immutable commentary
   definition/output validator without creating a second hybrid execution lane.
-- [ ] Implement deterministic metadata/entity extraction, bounded fast-model
+- [x] Implement deterministic metadata/entity extraction, bounded fast-model
   recovery, exact permitted citations, voice ownership, unknown handling, and
   model routing through Spec 4B.1.
-- [ ] Add the provider-neutral `web_corroboration_search` contract and direct
+- [x] Add the provider-neutral `web_corroboration_search` contract and direct
   Exa metadata-only provider with secret isolation, generic query compilation,
   result/domain bounds, provenance, exact cost, no blind retries, and explicit
   success/not-found/disabled/unavailable states.
-- [ ] Register a speaker-neutral deterministic commentary-policy interface and
+- [x] Register a speaker-neutral deterministic commentary-policy interface and
   the versioned inversion map; reject any unregistered transform or model-
   invented action.
-- [ ] Produce validated facts, inference, scenarios/forecast, recommendation,
+- [x] Produce validated facts, inference, scenarios/forecast, recommendation,
   confidence, horizon, assumptions, catalysts, risks, counterevidence, and
   invalidation conditions while clearly labeling rule-derived direction.
-- [ ] Prove weak/unknown/conflicting sources stay visible, Exa metadata is not
+- [x] Prove weak/unknown/conflicting sources stay visible, Exa metadata is not
   promoted to proof, missing Exa never drops the statement, hostile content
   cannot change policy/tools, and invalid citations quarantine safely.
 - [ ] Pass `verify:public-commentary-signals:sprint-2` and a focused repeated
@@ -684,6 +684,25 @@ path was enabled.
 Exit: one final statement deterministically produces a cited interpretation and
 policy decision, a safe no-view, or a durable quarantine in the correct
 workspace, within source and model budgets.
+
+Sprint 2 implementation evidence (2026-08-18): the focused verifier registers
+`subject_statement` and metadata-only `context_reference` roles in the existing
+workspace-semantic lane, binds the immutable commentary definition to the
+shared frontier route, proves deterministic extraction and one-attempt fast
+recovery, quarantines invalid spans, and applies only the registered
+speaker-neutral inversion transform. The direct Exa adapter is exercised with
+an injected transport: one request, `news`, deterministic date bounds, five
+metadata-only results maximum, no contents/synthesis, exact provider request ID
+and cost, secret-free records, and visible disabled, unavailable, weak, and
+conflicting states that retain the primary statement. The semantic validator
+requires exact subject-statement citations across facts, inferences, forecast,
+recommendation, catalysts, risks, counterevidence, and invalidation conditions;
+hostile text cannot select tools or policy. Sprint 0/1, adaptive-routing,
+hybrid-semantic, workspace-budget, typecheck, and Eve build affected gates pass
+with all three production flags still `0`. A reviewed eight-case, three-run
+real-model benchmark and runner are frozen, but the paid runner has not been
+executed because exact owner authorization for that paid call has not yet been
+granted; the final Sprint 2 checkbox and exit gate therefore remain open.
 
 ### Sprint 3 — Inverse Cramer pack and owner vertical
 
