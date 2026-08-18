@@ -608,27 +608,54 @@ window limit of `450`; the timeline again matched all five authors and reported
 Enterprise compliance assumption; no credential value, post ID, or post text
 was logged or committed.
 
+Contract discovery note (2026-08-18): Context7 was not installed or exposed in
+this workspace, and no available recommended plugin provided it. The official
+X `llms.txt`, `skill.md`, MCP, search, exact-post, rate-limit, edit, policy, and
+agreement documents were therefore used as the authoritative general-contract
+fallback; direct bearer API probes remain authoritative for this app's actual
+access.
+
 ### Sprint 1 — public statements, X acquisition, and revocable lifecycle
 
-- [ ] Extend the closed public-source adapter/fact registries with one X public-
+- [x] Extend the closed public-source adapter/fact registries with one X public-
   statement adapter and `public-statement/v1`, preserving existing adapters and
   source-global acquisition behavior unchanged.
-- [ ] Implement deployment-secret authentication, exact-origin/endpoint and
+- [x] Implement deployment-secret authentication, exact-origin/endpoint and
   pinned-user enforcement, `since_id`, bounded pagination, completeness,
   rate-limit/cost receipts, deterministic JSON parsing, content bounds,
   canonical links, post roles, edit chains, activation baseline, and replay.
-- [ ] Add the reusable revocable-evidence envelope/payload interface without
+- [x] Add the reusable revocable-evidence envelope/payload interface without
   copying raw X text into permanent blobs, logs, or immutable finding prose.
-- [ ] Implement provisional/final, edit, delete, protection, withholding,
+- [x] Implement provisional/final, edit, delete, protection, withholding,
   rehydration/compliance, purge, tombstone, invalidation, and correction events.
-- [ ] Prove two workspaces reuse one source acquisition and lifecycle event while
+- [x] Prove two workspaces reuse one source acquisition and lifecycle event while
   retaining separate configuration generations, model jobs, budgets, findings,
   and chat context.
-- [ ] Pass `verify:public-commentary-signals:sprint-1` plus focused public-source,
+- [x] Pass `verify:public-commentary-signals:sprint-1` plus focused public-source,
   artifact-lifecycle, replay, budget, and isolation checks.
 
 Exit: new Cramer posts become bounded normalized statement facts with compliant
 lifecycle and exact lineage, but no semantic recommendation or alert exists.
+
+Sprint 1 evidence (2026-08-18): the focused verifier proves a two-page,
+five-read acquisition produces four bounded `public-statement/v1` facts after
+repost exclusion, charges a deterministic `$0.025000` receipt, establishes the
+activation baseline, records `since_id=104`, and replays the same source-global
+window with zero external reads. Raw fixture text exists only in the encrypted,
+deletable payload client; canonical facts, acquisition records, projections,
+workspace records, and verifier output contain references and digests only.
+Exact-post rehydration covers provisional, final, edited, deleted, protected,
+withheld, unavailable, purged, and tombstoned states with correction/purge
+events. Two workspaces share the acquisition and lifecycle event while keeping
+separate configuration generations, model-job IDs, budget scopes, finding
+scopes, chat contexts, subscriptions, and pack bindings. The Sprint 0 verifier,
+public-source adapter/runtime contracts, hybrid artifact/job/budget contracts,
+workspace budget/dispatch ledgers, and cross-workspace isolation checks also
+pass, and the Eve agent build succeeds with the provisioned main environment
+loaded read-only. All three public-commentary flags remain `0` in
+`.env.example`; no
+semantic recommendation, alert, production schedule, or production execution
+path was enabled.
 
 ### Sprint 2 — extraction, corroboration, interpretation, and policy
 

@@ -6,12 +6,14 @@ export const PUBLIC_SOURCE_ADAPTER_IDS = [
   "earnings-call-transcripts",
   "house-financial-disclosures",
   "sec-latest-filings",
+  "x-public-statements",
 ] as const;
 
 export const PUBLIC_SOURCE_FACT_SCHEMA_VERSIONS = [
   "earnings-call-event/v1",
   "house-ptr-filing/v1",
   "house-ptr-transaction/v1",
+  "public-statement/v1",
   "sec-filing/v1",
 ] as const;
 
@@ -26,6 +28,7 @@ export const PUBLIC_SOURCE_ERROR_CODES = [
   "archive_ratio_exceeded",
   "fact_invalid",
   "journal_conflict",
+  "pagination_bounds_exceeded",
   "parser_incomplete",
   "pdf_execution_timeout",
   "pdf_invalid",
@@ -33,7 +36,9 @@ export const PUBLIC_SOURCE_ERROR_CODES = [
   "pdf_page_limit_exceeded",
   "pdf_scanned_unsupported",
   "pdf_text_limit_exceeded",
+  "rate_limit_exhausted",
   "source_cursor_conflict",
+  "source_identity_mismatch",
   "source_instance_inactive",
   "source_instance_invalid",
   "transcript_artifact_invalid",
@@ -161,7 +166,9 @@ export const publicSourceAdapterDefinitionSchema = z.object({
     ? ["sec-filing/v1"]
     : definition.adapterId === "earnings-call-transcripts"
       ? ["earnings-call-event/v1"]
-      : ["house-ptr-filing/v1", "house-ptr-transaction/v1"];
+      : definition.adapterId === "x-public-statements"
+        ? ["public-statement/v1"]
+        : ["house-ptr-filing/v1", "house-ptr-transaction/v1"];
   if (
     definition.minimumCadenceMinutes > definition.maximumCadenceMinutes ||
     JSON.stringify(definition.factSchemaVersions) !== JSON.stringify(expectedSchemas) ||
@@ -204,6 +211,23 @@ const earningsCallSourceConfigurationSchema = z.object({
   }
 });
 
+const xPublicStatementSourceConfigurationSchema = z.object({
+  canonicalUrl: z.string().max(2_048).refine((value) =>
+    /^https:\/\/api\.x\.com\/2\/users\/\d{1,20}\/tweets$/u.test(value),
+  ),
+  displayLabel: z.string().trim().min(1).max(160),
+  excludeReposts: z.literal(true),
+  kind: z.literal("x_public_statements_user"),
+  maximumPagesPerPoll: z.literal(2),
+  maximumPostsPerPoll: z.literal(200),
+  numericUserId: z.string().regex(/^\d{1,20}$/u),
+  username: z.string().regex(/^[A-Za-z0-9_]{1,15}$/u),
+}).strict().superRefine((configuration, context) => {
+  if (!configuration.canonicalUrl.endsWith(`/users/${configuration.numericUserId}/tweets`)) {
+    context.addIssue({ code: "custom", message: "source_instance_invalid" });
+  }
+});
+
 const sourceCursorSchema = z.object({
   contentDigest: digestSchema.nullable(),
   revision: z.number().int().nonnegative(),
@@ -220,6 +244,7 @@ export const publicSourceInstanceSchema = z.object({
     earningsCallSourceConfigurationSchema,
     secSourceConfigurationSchema,
     houseSourceConfigurationSchema,
+    xPublicStatementSourceConfigurationSchema,
   ]),
   configurationDigest: digestSchema,
   cursor: sourceCursorSchema,
@@ -232,7 +257,9 @@ export const publicSourceInstanceSchema = z.object({
     ? "sec-latest-filings"
     : instance.configuration.kind === "earnings_call_issuer"
       ? "earnings-call-transcripts"
-      : "house-financial-disclosures";
+      : instance.configuration.kind === "x_public_statements_user"
+        ? "x-public-statements"
+        : "house-financial-disclosures";
   if (
     instance.adapterId !== expectedAdapter ||
     new URL(instance.configuration.canonicalUrl).origin !== instance.authorityOrigin ||
@@ -433,10 +460,47 @@ const housePtrTransactionPayloadSchema = z.object({
   year: z.number().int().min(2012).max(2100),
 }).strict();
 
+const xPublicStatementPayloadSchema = z.object({
+  schemaVersion: z.literal("public-statement/v1"),
+  statement: z.object({
+    attribution: z.enum(["direct", "quoted", "alleged", "conflicting"]),
+    canonicalUrl: publicUrlSchema,
+    contentDigest: digestSchema,
+    contentReference: z.object({
+      envelopeId: idSchema,
+      revision: z.number().int().positive().max(1_000),
+    }).strict(),
+    editChainIds: z.array(z.string().regex(/^\d{1,20}$/u)).min(1).max(6),
+    editableUntil: timestampSchema.nullable(),
+    entities: z.object({
+      cashtags: z.array(z.string().regex(/^[A-Z][A-Z0-9.-]{0,9}$/u)).max(32),
+      mentions: z.array(z.string().regex(/^[A-Za-z0-9_]{1,15}$/u)).max(32),
+      urls: z.array(publicUrlSchema).max(32),
+    }).strict(),
+    lifecycle: z.enum(["provisional", "final", "edited", "unavailable"]),
+    observedAt: timestampSchema,
+    provider: z.literal("x"),
+    publishedAt: timestampSchema,
+    references: z.object({
+      conversationId: z.string().regex(/^\d{1,20}$/u),
+      referencedPostIds: z.array(z.string().regex(/^\d{1,20}$/u)).max(16),
+    }).strict(),
+    revision: z.number().int().positive().max(1_000),
+    role: z.enum(["original", "reply", "quote"]),
+    speaker: z.object({
+      displayLabel: z.string().trim().min(1).max(160),
+      stableId: z.string().regex(/^\d{1,20}$/u),
+      username: z.string().regex(/^[A-Za-z0-9_]{1,15}$/u),
+    }).strict(),
+    stablePostId: z.string().regex(/^\d{1,20}$/u),
+  }).strict(),
+}).strict();
+
 export const canonicalPublicFactPayloadSchema = z.discriminatedUnion("schemaVersion", [
   earningsCallEventPayloadSchema,
   housePtrFilingPayloadSchema,
   housePtrTransactionPayloadSchema,
+  xPublicStatementPayloadSchema,
   secFilingPayloadSchema,
 ]);
 
@@ -449,7 +513,7 @@ export const canonicalPublicFactRevisionSchema = z.object({
   payload: canonicalPublicFactPayloadSchema,
   payloadDigest: digestSchema,
   provenance: z.object({
-    authority: z.enum(["House Clerk", "Issuer IR", "SEC"]),
+    authority: z.enum(["House Clerk", "Issuer IR", "SEC", "X"]),
     documentDigest: digestSchema.nullable(),
     publicUrl: publicUrlSchema,
     rowEvidenceDigest: digestSchema.nullable(),
@@ -467,7 +531,7 @@ export const canonicalPublicFactRevisionSchema = z.object({
 }).strict().superRefine((fact, context) => {
   const payloadExtraction = "extraction" in fact.payload ? fact.payload.extraction : null;
   let expectedAdapterId: (typeof PUBLIC_SOURCE_ADAPTER_IDS)[number];
-  let expectedAuthority: "House Clerk" | "Issuer IR" | "SEC";
+  let expectedAuthority: "House Clerk" | "Issuer IR" | "SEC" | "X";
   let expectedPublicUrl: string;
   let expectedSourceNativeId: string;
   if (fact.payload.schemaVersion === "earnings-call-event/v1") {
@@ -480,6 +544,11 @@ export const canonicalPublicFactRevisionSchema = z.object({
     expectedAuthority = "SEC";
     expectedPublicUrl = fact.payload.filingUrl;
     expectedSourceNativeId = `${fact.payload.accessionNumber}:${fact.payload.formType}`;
+  } else if (fact.payload.schemaVersion === "public-statement/v1") {
+    expectedAdapterId = "x-public-statements";
+    expectedAuthority = "X";
+    expectedPublicUrl = fact.payload.statement.canonicalUrl;
+    expectedSourceNativeId = fact.payload.statement.stablePostId;
   } else {
     expectedAdapterId = "house-financial-disclosures";
     expectedAuthority = "House Clerk";
@@ -495,6 +564,8 @@ export const canonicalPublicFactRevisionSchema = z.object({
     (fact.payload.schemaVersion === "house-ptr-filing/v1" && fact.stableRowIdentity !== "filing") ||
     (fact.payload.schemaVersion === "house-ptr-transaction/v1" &&
       fact.stableRowIdentity !== fact.payload.rowIdentity) ||
+    (fact.payload.schemaVersion === "public-statement/v1" &&
+      fact.stableRowIdentity !== "statement") ||
     (payloadExtraction !== null &&
       (fact.extraction.state !== payloadExtraction.state ||
         fact.extraction.errorCode !== payloadExtraction.errorCode)) ||
@@ -554,7 +625,7 @@ export const publicSourceRetractionSchema = z.object({
   createdObservedAt: timestampSchema,
   fromRevisionId: idSchema,
   logicalKey: idSchema,
-  reason: z.literal("source_amendment"),
+  reason: z.enum(["source_amendment", "source_deleted", "source_protected", "source_withheld"]),
   recordType: z.literal("public_source_fact_retraction"),
   retractionId: idSchema,
   schemaVersion: z.literal(1),
@@ -605,6 +676,7 @@ export const publicSourceSubscriptionSchema = z.object({
   const schemaVersions = JSON.stringify(subscription.factSchemaVersions);
   const validSchemaSet =
     schemaVersions === JSON.stringify(["earnings-call-event/v1"]) ||
+    schemaVersions === JSON.stringify(["public-statement/v1"]) ||
     schemaVersions === JSON.stringify(["sec-filing/v1"]) ||
     schemaVersions === JSON.stringify([
       "house-ptr-filing/v1",

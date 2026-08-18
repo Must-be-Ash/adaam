@@ -46,6 +46,68 @@ export const HOUSE_FINANCIAL_DISCLOSURES_SOURCE_CONTRACT_VERSION = "1.0.0";
 export const HOUSE_FINANCIAL_DISCLOSURES_SOURCE_CONTRACT_DIGEST =
   "ef0772fd62d5781c9dac989eb12f699856d909d10ad3b81efe6b5a68c29046bc";
 
+export const X_PUBLIC_STATEMENTS_SOURCE_ID = "x-jim-cramer-public-statements";
+export const X_PUBLIC_STATEMENTS_SOURCE_URL =
+  "https://api.x.com/2/users/14216123/tweets";
+export const X_PUBLIC_STATEMENTS_SOURCE_ALLOWED_ORIGINS = Object.freeze([
+  "https://api.x.com",
+]);
+export const X_PUBLIC_STATEMENTS_SOURCE_CONTRACT_VERSION = "1.0.0";
+export const X_PUBLIC_STATEMENTS_SOURCE_CONTRACT_DIGEST =
+  "cfc44775cb9aaf01ddd5e583e267137158651414c09e8d2d2fc2af10d3f953a5";
+
+const xPublicStatementAdapterDefinitionCore = {
+  acquisitionMethod: "poll",
+  adapterId: "x-public-statements",
+  adapterVersion: "1.0.0",
+  authorityOrigin: "https://api.x.com",
+  configurationSchemaVersion: 1,
+  factSchemaVersions: ["public-statement/v1"],
+  implementationRevision: 1,
+  limits: {
+    maximumArchiveBytes: 1,
+    maximumFactsPerAcquisition: 200,
+    maximumPdfBytes: 1,
+    maximumPdfPages: 1,
+    maximumResponseBytes: 1 * 1_024 * 1_024,
+  },
+  maximumCadenceMinutes: 60,
+  minimumCadenceMinutes: 10,
+  recordType: "public_source_adapter_definition",
+  schemaVersion: 1,
+} as const;
+
+export const X_PUBLIC_STATEMENTS_PUBLIC_SOURCE_ADAPTER = Object.freeze({
+  ...xPublicStatementAdapterDefinitionCore,
+  definitionDigest: "bf15cf4bfa830b385a3a6e3964a1d19d449591916f8452b772bbb045381b6129",
+});
+
+const xPublicStatementSourceConfiguration = {
+  canonicalUrl: X_PUBLIC_STATEMENTS_SOURCE_URL,
+  displayLabel: "Jim Cramer",
+  excludeReposts: true,
+  kind: "x_public_statements_user",
+  maximumPagesPerPoll: 2,
+  maximumPostsPerPoll: 200,
+  numericUserId: "14216123",
+  username: "jimcramer",
+} as const;
+
+export const X_PUBLIC_STATEMENTS_PUBLIC_SOURCE_INSTANCE = Object.freeze({
+  adapterDefinitionDigest: X_PUBLIC_STATEMENTS_PUBLIC_SOURCE_ADAPTER.definitionDigest,
+  adapterId: X_PUBLIC_STATEMENTS_PUBLIC_SOURCE_ADAPTER.adapterId,
+  adapterVersion: X_PUBLIC_STATEMENTS_PUBLIC_SOURCE_ADAPTER.adapterVersion,
+  authorityOrigin: X_PUBLIC_STATEMENTS_PUBLIC_SOURCE_ADAPTER.authorityOrigin,
+  cadenceMinutes: 10,
+  configuration: xPublicStatementSourceConfiguration,
+  configurationDigest: "72eb27e5a8e0a451b130f3eaa59138fd3aff7d7599999c86cdb6464fa21e62f5",
+  cursor: { contentDigest: null, revision: 0, watermark: null },
+  lifecycleState: "active",
+  recordType: "public_source_instance",
+  schemaVersion: 1,
+  sourceInstanceId: "source.x-public-statements.14216123",
+} as const);
+
 export const HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER = Object.freeze({
   acquisitionMethod: "poll",
   adapterId: "house-financial-disclosures",
@@ -193,6 +255,16 @@ export const STRATEGY_PACK_REFERENCE_CATALOG = Object.freeze({
     }),
   }),
   sourceContracts: Object.freeze({
+    [X_PUBLIC_STATEMENTS_SOURCE_ID]: Object.freeze({
+      allowedOrigins: X_PUBLIC_STATEMENTS_SOURCE_ALLOWED_ORIGINS,
+      canonicalUrl: X_PUBLIC_STATEMENTS_SOURCE_URL,
+      contractDigest: X_PUBLIC_STATEMENTS_SOURCE_CONTRACT_DIGEST,
+      contractVersion: X_PUBLIC_STATEMENTS_SOURCE_CONTRACT_VERSION,
+      publicSource: Object.freeze({
+        adapterDefinition: X_PUBLIC_STATEMENTS_PUBLIC_SOURCE_ADAPTER,
+        sourceInstance: X_PUBLIC_STATEMENTS_PUBLIC_SOURCE_INSTANCE,
+      }),
+    }),
     [HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID]: Object.freeze({
       allowedOrigins: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ALLOWED_ORIGINS,
       canonicalUrl: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL,

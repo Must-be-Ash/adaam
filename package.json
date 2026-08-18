@@ -76,6 +76,7 @@
     "verify:earnings-call-changes:worker-recovery-corrections": "jiti scripts/verify-earnings-call-worker-recovery-corrections.ts",
     "verify:earnings-call-changes:source-lifecycle": "jiti scripts/verify-earnings-call-source-lifecycle.ts",
     "verify:public-commentary-signals:sprint-0": "jiti scripts/verify-public-commentary-signals-sprint-0.ts",
+    "verify:public-commentary-signals:sprint-1": "jiti scripts/verify-public-commentary-signals-sprint-1.ts",
     "verify:strategy-pack-configuration-kinds": "jiti scripts/verify-strategy-pack-configuration-kinds.ts",
     "verify:workspace-runtime:contracts": "node scripts/verify-workspace-runtime-contracts.mjs",
     "verify:workspace-runtime:failures": "node scripts/verify-workspace-runtime-failures.mjs",
