@@ -9,12 +9,12 @@ import {
 
 const transformSchema = z.object({
   map: z.object({
-    bearish: z.literal("bullish"),
-    bullish: z.literal("bearish"),
-    mixed: z.null(),
-    neutral: z.null(),
-    no_view: z.null(),
-    unclear: z.null(),
+    bearish: z.enum(["bearish", "bullish"]).nullable(),
+    bullish: z.enum(["bearish", "bullish"]).nullable(),
+    mixed: z.enum(["bearish", "bullish"]).nullable(),
+    neutral: z.enum(["bearish", "bullish"]).nullable(),
+    no_view: z.enum(["bearish", "bullish"]).nullable(),
+    unclear: z.enum(["bearish", "bullish"]).nullable(),
   }).strict(),
   transformId: z.string().regex(/^[a-z][a-z0-9.-]+$/u),
   version: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u),
@@ -33,13 +33,29 @@ export const COMMENTARY_INVERSION_TRANSFORM = transformSchema.parse({
   version: "1.0.0",
 });
 
+export const COMMENTARY_DIRECTION_PRESERVATION_TRANSFORM = transformSchema.parse({
+  map: {
+    bearish: "bearish",
+    bullish: "bullish",
+    mixed: null,
+    neutral: null,
+    no_view: null,
+    unclear: null,
+  },
+  transformId: "preserve-bullish-bearish",
+  version: "1.0.0",
+});
+
 export type CommentaryTransform = z.infer<typeof transformSchema>;
 export type CommentaryPolicyRegistry = Readonly<{
   resolve(transformId: string, version: string): CommentaryTransform | null;
 }>;
 
 export function createCommentaryPolicyRegistry(
-  transforms: readonly CommentaryTransform[] = [COMMENTARY_INVERSION_TRANSFORM],
+  transforms: readonly CommentaryTransform[] = [
+    COMMENTARY_INVERSION_TRANSFORM,
+    COMMENTARY_DIRECTION_PRESERVATION_TRANSFORM,
+  ],
 ): CommentaryPolicyRegistry {
   const parsed = transforms.map((transform) => transformSchema.parse(transform));
   const keys = parsed.map(({ transformId, version }) => `${transformId}@${version}`);

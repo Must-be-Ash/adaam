@@ -5,7 +5,9 @@ import { z } from "zod";
 import {
   commentaryExtractionSchema,
   digestPublicCommentaryValue,
+  publicStatementRole,
   publicStatementSchema,
+  publicStatementStableId,
   type PublicStatement,
 } from "./public-commentary-schema";
 import type { WorkspaceSemanticValidationContract } from "./hybrid-evidence-definition-registry";
@@ -16,7 +18,9 @@ import {
 import {
   digestHybridEvidenceValue,
   evidenceLocatorSchema,
+  hybridAcceptedResultSchema,
   hybridEvidenceJobDefinitionSchema,
+  type HybridAcceptedResult,
   type EvidenceLocator,
 } from "./hybrid-evidence-schema";
 
@@ -76,21 +80,30 @@ export type CommentarySemanticPayload = z.infer<typeof commentarySemanticPayload
 
 const projectionSchema = z.object({
   members: z.array(z.object({
-    allowedCitations: z.array(textCitationSchema).max(16),
     artifactDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+    factPayloadDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+    factRevisionId: z.string().min(3).max(200),
+    locatorDigests: z.array(z.string().regex(/^[a-f0-9]{64}$/u)).min(1).max(64),
     memberId: z.string().min(3).max(200),
-    metadataOnly: z.boolean(),
+    projectionId: z.string().min(3).max(200),
     role: z.enum(["subject_statement", "context_reference"]),
+    semanticContext: z.object({
+      metadataOnly: z.boolean(),
+    }).passthrough(),
+    sourceId: z.string().min(3).max(200),
+    sourceInstanceId: z.string().min(3).max(200),
+    subscriptionId: z.string().min(3).max(200),
+    subscriptionRevision: z.number().int().nonnegative(),
   }).strict()).min(1).max(6),
-  recordType: z.literal("commentary_role_bound_projection"),
-  schemaVersion: z.literal(1),
+  recordType: z.literal("workspace_semantic_role_bound_projection"),
+  schemaVersion: z.literal(2),
 }).strict().superRefine((projection, context) => {
   const subjects = projection.members.filter(({ role }) => role === "subject_statement");
   const references = projection.members.filter(({ role }) => role === "context_reference");
   if (
-    subjects.length !== 1 || subjects[0]?.metadataOnly !== false ||
-    subjects[0].allowedCitations.length === 0 || references.length > 5 ||
-    references.some(({ metadataOnly, allowedCitations }) => !metadataOnly || allowedCitations.length > 0)
+    subjects.length !== 1 || subjects[0]?.semanticContext.metadataOnly !== false ||
+    references.length > 5 ||
+    references.some(({ semanticContext }) => !semanticContext.metadataOnly)
   ) context.addIssue({ code: "custom", message: "commentary_projection_invalid" });
 });
 
@@ -142,10 +155,12 @@ export const commentarySemanticValidationContract: WorkspaceSemanticValidationCo
     validate(input: Parameters<WorkspaceSemanticValidationContract["validate"]>[0]) {
       const payload = commentarySemanticPayloadSchema.parse(input.fields);
       const projection = projectionSchema.parse(input.inputProjection);
-      const permitted = new Set(projection.members
-        .filter(({ role }) => role === "subject_statement")
-        .flatMap(({ allowedCitations }) => allowedCitations)
-        .map(digestPublicCommentaryValue));
+      const subject = projection.members.find(({ role }) => role === "subject_statement")!;
+      const permitted = new Set((input.evidenceTexts ?? [])
+        .filter(({ locator }) => locator.kind === "text_span" &&
+          locator.artifactDigest === subject.artifactDigest &&
+          subject.locatorDigests.includes(digestHybridEvidenceValue(locator)))
+        .map(({ locator }) => digestPublicCommentaryValue(locator)));
       const asserted = citations(payload);
       const text = authoredText(payload);
       const forbidden = /(?:price\s+target|target\s+price|guaranteed\s+return|causal\s+(?:edge|proof)|\b(?:buy|sell|short)\s+(?:the\s+)?(?:stock|shares|position)|position\s+siz|chain[- ]of[- ]thought)/iu;
@@ -155,7 +170,7 @@ export const commentarySemanticValidationContract: WorkspaceSemanticValidationCo
         (payload.outcome === "no_view" && (!accepted || payload.forecast !== null || payload.recommendation.action !== "no_view")) ||
         (payload.outcome === "abstained" && (accepted || payload.forecast !== null || payload.recommendation.action !== "no_view" || input.unknowns.length === 0));
       if (
-        asserted.length === 0 || invalidState || forbidden.test(text) ||
+        permitted.size === 0 || asserted.length === 0 || invalidState || forbidden.test(text) ||
         asserted.some((locator) => !permitted.has(digestPublicCommentaryValue(locator)))
       ) throw new Error("model_output_invalid");
       return Object.freeze({
@@ -166,19 +181,101 @@ export const commentarySemanticValidationContract: WorkspaceSemanticValidationCo
     },
   });
 
+export function attestValidatedCommentarySemanticResult(input: {
+  readonly allowedAdapterIds: readonly string[];
+  readonly bindingRevision: number;
+  readonly disposition: "abstained" | "accepted";
+  readonly evidenceTexts: Parameters<WorkspaceSemanticValidationContract["validate"]>[0]["evidenceTexts"];
+  readonly fields: Readonly<Record<string, unknown>>;
+  readonly inputProjection: unknown;
+  readonly modelId: string;
+  readonly now: Date;
+  readonly ownerId: string;
+  readonly pack: Readonly<{ contentDigest: string; id: string; version: string }>;
+  readonly unknowns: readonly string[];
+  readonly usage: Readonly<{ inputTokens: number; outputTokens: number; paidCostUsd: string }>;
+  readonly workspaceId: string;
+}): HybridAcceptedResult {
+  const definition = createCommentarySemanticDefinition([input.modelId], {
+    allowedAdapterIds: input.allowedAdapterIds,
+  });
+  const validated = commentarySemanticValidationContract.validate({
+    disposition: input.disposition,
+    evidenceTexts: input.evidenceTexts,
+    fields: input.fields,
+    inputProjection: input.inputProjection,
+    unknowns: input.unknowns,
+  });
+  const payload = commentarySemanticPayloadSchema.parse(validated.payload);
+  const inputDigest = digestHybridEvidenceValue(input.inputProjection);
+  const jobId = `hybrid-job.${digestHybridEvidenceValue([
+    definition.definitionDigest,
+    input.workspaceId,
+    input.pack,
+    inputDigest,
+  ])}`;
+  return hybridAcceptedResultSchema.parse({
+    citations: validated.assertionCitations,
+    definition: {
+      definitionDigest: definition.definitionDigest,
+      definitionId: definition.definitionId,
+      definitionVersion: definition.definitionVersion,
+    },
+    disposition: input.disposition,
+    inputDigest,
+    jobId,
+    model: {
+      modelId: input.modelId,
+      modelOutputDigest: digestHybridEvidenceValue(input.fields),
+      promptTemplateDigest: definition.instructionTemplate.digest,
+    },
+    outputDigest: digestHybridEvidenceValue(payload),
+    payload,
+    purpose: "semantic_interpretation",
+    recordType: "hybrid_evidence_accepted_result",
+    resultId: `hybrid-result.${digestHybridEvidenceValue([jobId, payload])}`,
+    schemaVersion: 1,
+    scope: {
+      bindingRevision: input.bindingRevision,
+      kind: "workspace",
+      ownerId: input.ownerId,
+      packContentDigest: input.pack.contentDigest,
+      packId: input.pack.id,
+      packVersion: input.pack.version,
+      workspaceId: input.workspaceId,
+    },
+    uncertainty: {
+      confidence: null,
+      coverage: "complete",
+      unknowns: input.unknowns,
+    },
+    usage: input.usage,
+    validatedAt: input.now.toISOString(),
+    validationTrace: [{
+      errorCode: null,
+      outcome: "passed",
+      validatorId: definition.requiredValidator.validatorId,
+      validatorVersion: definition.requiredValidator.version,
+    }],
+  });
+}
+
 export function createCommentarySemanticDefinition(
   modelIds: readonly string[],
+  options: Readonly<{ allowedAdapterIds?: readonly string[] }> = {},
 ) {
   const allowedModelIds = [...new Set(modelIds)].sort();
+  const allowedAdapterIds = [...new Set(options.allowedAdapterIds ?? ["x-public-statements"])].sort();
   if (allowedModelIds.length === 0) throw new Error("hybrid_definition_model_policy_empty");
+  if (allowedAdapterIds.length === 0) throw new Error("hybrid_definition_adapter_policy_empty");
   const core = {
     accessClassifications: ["public"],
-    allowedAdapterIds: ["x-public-statements"],
+    allowedAdapterIds,
     allowedMediaTypes: ["text/plain"],
     allowedModelIds,
     definitionId: COMMENTARY_SEMANTIC_DEFINITION_ID,
     definitionVersion: "1.0.0",
-    inputProjection: { schemaId: "commentary-role-bound-projection", schemaVersion: "1.0.0" },
+    inputProjection: { schemaId: "workspace-semantic-role-bound-projection", schemaVersion: "2.0.0" },
     instructionTemplate: {
       content: COMMENTARY_SEMANTIC_INSTRUCTION,
       delimiterPolicy: "untrusted_evidence_xml/v1",
@@ -250,9 +347,10 @@ export async function extractCommentaryMetadata(input: {
   const hasBearish = /\b(?:bearish|cautious|pessimistic|downside|short)\b/iu.test(input.text);
   const stance = hasBullish && hasBearish ? "mixed" : hasBullish ? "bullish" : hasBearish ? "bearish" : "unclear";
   const targets = cashtags.map((symbol) => ({ displayName: symbol, symbol, type: "equity" as const }));
-  const voiceOwnership = statement.attribution === "direct" && statement.role !== "quote"
+  const role = publicStatementRole(statement);
+  const voiceOwnership = statement.attribution === "direct" && role !== "quote"
     ? "speaker" as const
-    : statement.role === "quote" || statement.attribution === "quoted"
+    : role === "quote" || statement.attribution === "quoted"
       ? "quoted_party" as const
       : "unclear" as const;
   const horizon = /\bintraday\b/iu.test(input.text) ? "intraday" as const
@@ -265,7 +363,7 @@ export async function extractCommentaryMetadata(input: {
     attribution: statement.attribution,
     confidence: stance === "unclear" || targets.length === 0 || voiceOwnership === "unclear" ? "low" : "high",
     evidence: [exactSpan(input.text)],
-    extractionId: `commentary-extraction.${digestPublicCommentaryValue([statement.stablePostId, statement.revision, input.text])}`,
+    extractionId: `commentary-extraction.${digestPublicCommentaryValue([publicStatementStableId(statement), statement.revision, input.text])}`,
     horizon,
     recordType: "commentary_extraction",
     schemaVersion: 1,

@@ -1,0 +1,41 @@
+{
+  "recordType": "public_commentary_official_web_capture",
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-18T18:50:00.000Z",
+  "publisher": "The White House",
+  "attestation": {
+    "algorithm": "ed25519",
+    "captureDigest": "a784203d4e2bf9ed2c707b496618fba98db766f0bb322c39cf5f646dc44c98c7",
+    "signatureBase64": "4NuhuXNxgs2i/wC4+LuDp4dxvipBFAuw2H3alPkvRF8wvG8Y7fZkwGnwrIQ/FNnn25qg7ZfLQdsPR24G0cHaDg==",
+    "signer": "spec-04c-owner-authorized-acceptance/v1"
+  },
+  "cases": [
+    {
+      "id": "escalation",
+      "canonicalUrl": "https://www.whitehouse.gov/releases/2026/07/president-trump-on-fox-friends-americas-unrelenting-strength-keeps-maximum-pressure-on-iran/",
+      "publishedAt": "2026-07-28T00:00:00.000Z",
+      "excerpt": "a firm strategy that keeps maximum pressure on the Iranian regime",
+      "sourceContext": "This morning on Fox & Friends, President Donald J. Trump delivered a clear, uncompromising update on U.S. operations against Iran. President Trump detailed total naval control of the Strait of Hormuz, unmatched U.S. intelligence and strike readiness, and a firm strategy that keeps maximum pressure on the Iranian regime while leaving the door open to a deal that serves American interests.",
+      "contentDigest": "83156a0aced910c68112f45da72487debd3df729743b653bd3d48a59359f99c4",
+      "expectedResearchDirection": "bullish"
+    },
+    {
+      "id": "deescalation",
+      "canonicalUrl": "https://www.whitehouse.gov/videos/most-importantly-we-have-a-deal-that-iran-will-never-have-a-nuclear-weapon-president-trump-%F0%9F%87%BA%F0%9F%87%B8/",
+      "publishedAt": "2026-06-11T00:00:00.000Z",
+      "excerpt": "Most importantly, we have a deal that Iran will never have a nuclear weapon.",
+      "sourceContext": "“Most importantly, we have a deal that Iran will never have a nuclear weapon.” – President Trump 🇺🇸",
+      "contentDigest": "3947bc378570ffa93940b9a968491ae3295d762eb41ea1f71fe8ee31fcf0b15b",
+      "expectedResearchDirection": "bearish"
+    },
+    {
+      "id": "uncertainty",
+      "canonicalUrl": "https://www.whitehouse.gov/releases/2026/07/president-trump-on-fox-friends-americas-unrelenting-strength-keeps-maximum-pressure-on-iran/",
+      "publishedAt": "2026-07-28T00:00:00.000Z",
+      "excerpt": "while leaving the door open to a deal that serves American interests",
+      "sourceContext": "This morning on Fox & Friends, President Donald J. Trump delivered a clear, uncompromising update on U.S. operations against Iran. President Trump detailed total naval control of the Strait of Hormuz, unmatched U.S. intelligence and strike readiness, and a firm strategy that keeps maximum pressure on the Iranian regime while leaving the door open to a deal that serves American interests.",
+      "contentDigest": "015b6f278ec05877390c04837cf0f2f7682ba0f11a02c5e34059b82febe7875e",
+      "expectedResearchDirection": null
+    }
+  ]
+}

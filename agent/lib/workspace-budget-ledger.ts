@@ -34,7 +34,7 @@ const reservationSchema = z.object({
   calendarMonth: z.string().regex(/^\d{4}-\d{2}$/u),
   createdAt: z.string().datetime({ offset: true }),
   inputTokens: z.number().int().nonnegative(),
-  kind: z.enum(["hybrid_model_attempt", "scheduled_monitor"]).default("scheduled_monitor"),
+  kind: z.enum(["hybrid_model_attempt", "paid_source_attempt", "scheduled_monitor"]).default("scheduled_monitor"),
   outputTokens: z.number().int().nonnegative(),
   paidMicros: microsSchema,
   policyRevision: z.number().int().positive(),
@@ -327,7 +327,7 @@ export async function reserveWorkspaceRunBudget(
   input: {
     deploymentPaidCaps?: DeploymentPaidBudgetCaps;
     inputTokens: number;
-    kind?: "hybrid_model_attempt" | "scheduled_monitor";
+    kind?: "hybrid_model_attempt" | "paid_source_attempt" | "scheduled_monitor";
     now?: Date;
     outputTokens: number;
     paidCostCeiling?: { amount: string; kind: "known" } | { kind: "unknown" };
@@ -419,7 +419,7 @@ export async function reserveWorkspaceRunBudget(
       .filter((reservation) => reservation.calendarMonth === calendar.month)
       .reduce((total, reservation) => total + usagePaid(reservation), 0n);
     if (
-      dailyRuns + (input.kind === "hybrid_model_attempt" ? 0 : 1) > policy.maximumScheduledRunsPerDay ||
+      dailyRuns + ((input.kind ?? "scheduled_monitor") === "scheduled_monitor" ? 1 : 0) > policy.maximumScheduledRunsPerDay ||
       active.length + 1 > policy.maximumConcurrentWorkers ||
       dailyInput + input.inputTokens > policy.maximumInputTokensPerDay ||
       dailyOutput + input.outputTokens > policy.maximumOutputTokensPerDay ||
@@ -477,6 +477,9 @@ export async function reconcileWorkspaceRunBudget(
     const existing = current.reservations[index]!;
     const paid =
       input.actualPaidCost === undefined ? null : toMicros(input.actualPaidCost);
+    if (paid !== null && paid > BigInt(existing.paidMicros)) {
+      throw new WorkspaceBudgetError("budget_reservation_conflict");
+    }
     const normalized = {
       inputTokens: input.actualInputTokens ?? null,
       outputTokens: input.actualOutputTokens ?? null,

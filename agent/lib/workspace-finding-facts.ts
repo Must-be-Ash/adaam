@@ -149,8 +149,8 @@ export const publicCommentarySignalFactSchema = z.object({
   source: z.object({
     accessClassification: z.literal("public"),
     canonicalUrl: z.string().url().max(2_048),
-    origin: z.literal(X_PUBLIC_STATEMENTS_PUBLIC_SOURCE_ADAPTER.authorityOrigin),
-    sourceId: z.literal(X_PUBLIC_STATEMENTS_SOURCE_ID),
+    origin: z.string().url().max(500),
+    sourceId: z.string().min(2).max(160),
   }).strict(),
 }).strict().superRefine((fact, context) => {
   const corrective = fact.finding.outcome === "corrected" || fact.finding.outcome === "retracted";

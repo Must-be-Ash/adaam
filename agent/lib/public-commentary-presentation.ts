@@ -15,23 +15,26 @@ export class PublicCommentaryPresentationError extends Error {
 }
 
 export function explainPublicCommentaryFinding(record: PublicCommentaryFindingRecord) {
+  const corrected = record.correction !== null;
   return Object.freeze({
     citation: Object.freeze({ ...record.finding.citations[0] }),
     confidence: record.finding.confidence,
     correction: record.correction ? Object.freeze({ ...record.correction }) : null,
     createdAt: record.createdAt,
     direction: record.finding.policyDecision.researchDirection,
-    directionDisclosure: record.directionDisclosure,
+    directionDisclosure: record.directionDisclosure ?? "No active research direction remains after the source correction.",
     findingId: record.finding.findingId,
-    horizon: record.interpretation.horizon,
-    interpretationId: record.finding.interpretationId,
+    horizon: record.interpretation?.horizon ?? "unavailable",
+    interpretationId: corrected ? null : record.finding.interpretationId,
     lifecycle: record.statement.lifecycle,
+    liveRevalidation: "not_performed" as const,
     outcome: record.finding.outcome,
     rationale: record.finding.summary,
     relatedCoverage: record.corroboration.status,
     relatedCoverageLabel: PUBLIC_COMMENTARY_COPY.relatedCoverage[record.corroboration.status],
+    sourceFreshness: corrected ? "correction_observed" as const : "stored_snapshot" as const,
     statementRevisionId: record.finding.statementRevisionId,
-    targetSymbols: Object.freeze(record.extraction.targets.flatMap(({ symbol }) => symbol ? [symbol] : [])),
+    targetSymbols: Object.freeze(record.extraction?.targets.flatMap(({ symbol }) => symbol ? [symbol] : []) ?? []),
   });
 }
 

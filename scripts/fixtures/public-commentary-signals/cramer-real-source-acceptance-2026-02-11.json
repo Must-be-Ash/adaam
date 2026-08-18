@@ -1,0 +1,21 @@
+{
+  "recordType": "public_commentary_frozen_real_source_acceptance",
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-18T22:00:00.000Z",
+  "canonicalUrl": "https://x.com/jimcramer/status/2021616777172848775",
+  "publishedAt": "2026-02-11T19:06:00.000Z",
+  "stablePostId": "2021616777172848775",
+  "speakerId": "14216123",
+  "speakerUsername": "jimcramer",
+  "text": "Those Vertiv orders were incredible..Great for Club Names Corning, Eaton, GEV. Still buyable!!",
+  "reviewedTarget": {
+    "displayName": "GE Vernova",
+    "symbol": "GEV",
+    "type": "equity"
+  },
+  "sourceReview": {
+    "status": "reviewed",
+    "reviewedAt": "2026-08-18",
+    "source": "direct_x_public_page"
+  }
+}

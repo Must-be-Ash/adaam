@@ -380,10 +380,10 @@ ordinary-path failure:
 - [x] Implement Spec 4B Earnings Call Changes as the first real transcript
   consumer of the shared workspace semantic lane, including its reviewed
   connector, strategy, schema, corpus, production smoke, and rollback.
-- [ ] Select Spec 4C's different connector/content shape only after source
-  viability, terms, cost, and acceptance data are known; reuse the shared job,
-  artifact, budget, provenance, and quarantine APIs without widening them by
-  default.
+- [x] Implement Spec 4C's different X/public-commentary connector and content
+  shape after validating source viability, terms, cost, and acceptance data;
+  reuse the shared job, artifact, budget, provenance, and quarantine APIs
+  without widening them by default.
 - [ ] Keep broader OCR layouts, parser fuzzing, long archive replay, and new
   document/content types in their owning connector specs unless an observed
   shared-layer failure justifies a bounded Spec 4A hardening change.
@@ -456,6 +456,9 @@ and replacements remain deferred until the owner selects that product work.
 ### Candidate packs documented but not implemented
 
 - [x] Spec 4B Earnings Call Changes as a versioned transcript-backed pack.
+- [x] Spec 4C Inverse Cramer as a versioned public-commentary pack, with
+  revocable X evidence, provider-neutral reuse, and production execution off by
+  default.
 - [ ] Insider-buying clusters.
 - [x] Congressional trading signals — House v1 is production accepted; Senate
   or broader congressional coverage remains a separate source/policy extension.

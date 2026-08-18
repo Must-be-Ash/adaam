@@ -344,7 +344,7 @@ const finding = commentaryFindingSchema.parse({
     statementRevisionId: "statement.x.1.1",
     workspaceId: "workspace.fixture",
   },
-  citations: [{ canonicalUrl: statement.canonicalUrl, contentRevision: 1, stablePostId: "1" }],
+  citations: [{ canonicalUrl: statement.canonicalUrl, contentRevision: 1, stableStatementId: "1" }],
   confidence: "medium",
   findingId: "finding.fixture.1",
   interpretationId: interpretation.interpretationId,
@@ -364,8 +364,11 @@ const correction = commentaryCorrectionSchema.parse({
   invalidatesRecommendation: true,
   reason: "source_deleted",
   recordType: "public_commentary_correction",
+  rootFindingId: finding.findingId,
+  rootStatementRevisionId: finding.statementRevisionId,
   schemaVersion: 1,
   sourceRevision: 2,
+  supersedesStatementRevisionId: finding.statementRevisionId,
 });
 assert.equal(correction.invalidatesRecommendation, true);
 

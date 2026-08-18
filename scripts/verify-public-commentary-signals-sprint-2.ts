@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 import { COMMENTARY_INVERSION_TRANSFORM, createCommentaryPolicyDefinition, createCommentaryPolicyRegistry, decideCommentaryPolicy } from "../agent/lib/commentary-policy";
 import { workspaceSemanticValidationRegistry } from "../agent/lib/hybrid-evidence-definition-registry";
+import { digestHybridEvidenceValue } from "../agent/lib/hybrid-evidence-schema";
 import { workspaceSemanticEvidenceRoleSchema } from "../agent/lib/hybrid-evidence-semantic-store";
 import { COMMENTARY_SEMANTIC_DEFINITION_ID, COMMENTARY_SEMANTIC_INSTRUCTION, commentarySemanticValidationContract, createCommentarySemanticDefinition, extractCommentaryMetadata } from "../agent/lib/public-commentary-semantics";
 import { digestPublicCommentaryValue, publicStatementSchema, webCorroborationSearchSchema, type PublicStatement } from "../agent/lib/public-commentary-schema";
@@ -104,11 +105,37 @@ await assert.rejects(extractCommentaryMetadata({ environment, statement: bullish
 const citation = { artifactDigest, end: bullishText.length, kind: "text_span" as const, spanDigest: sha(bullishText), start: 0 };
 const projection = {
   members: [
-    { allowedCitations: [citation], artifactDigest, memberId: "statement.100.1", metadataOnly: false, role: "subject_statement" },
-    { allowedCitations: [], artifactDigest: "b".repeat(64), memberId: "context.1", metadataOnly: true, role: "context_reference" },
+    {
+      artifactDigest,
+      factPayloadDigest: "c".repeat(64),
+      factRevisionId: "statement.100.1",
+      locatorDigests: [digestHybridEvidenceValue(citation)],
+      memberId: "statement.100.1",
+      projectionId: "projection.statement.100.1",
+      role: "subject_statement",
+      semanticContext: { metadataOnly: false },
+      sourceId: "x-public-statements",
+      sourceInstanceId: "source.x-public-statements.14216123",
+      subscriptionId: "subscription.statement.100.1",
+      subscriptionRevision: 1,
+    },
+    {
+      artifactDigest: "b".repeat(64),
+      factPayloadDigest: "d".repeat(64),
+      factRevisionId: "context.1",
+      locatorDigests: ["e".repeat(64)],
+      memberId: "context.1",
+      projectionId: "projection.context.1",
+      role: "context_reference",
+      semanticContext: { metadataOnly: true },
+      sourceId: "exa-context-reference",
+      sourceInstanceId: "source.exa.context",
+      subscriptionId: "subscription.context.1",
+      subscriptionRevision: 1,
+    },
   ],
-  recordType: "commentary_role_bound_projection",
-  schemaVersion: 1,
+  recordType: "workspace_semantic_role_bound_projection",
+  schemaVersion: 2,
 } as const;
 const claim = (value: string) => ({ citations: [citation], statement: value });
 const acceptedFields = {
@@ -137,7 +164,7 @@ assert.throws(() => commentarySemanticValidationContract.validate({ disposition:
 const invalidCitation = { ...citation, spanDigest: "c".repeat(64) };
 assert.throws(() => commentarySemanticValidationContract.validate({ disposition: "accepted", fields: { ...acceptedFields, facts: [{ citations: [invalidCitation], statement: "Unsupported." }] }, inputProjection: projection, unknowns: [] }), /model_output_invalid/u);
 const abstainedFields = { ...acceptedFields, confidence: "low", forecast: null, inferences: [], outcome: "abstained", recommendation: { action: "no_view", assumptions: [], citations: [citation], rationale: "The stance is unclear." } } as const;
-assert.equal(commentarySemanticValidationContract.validate({ disposition: "abstained", fields: abstainedFields, inputProjection: projection, unknowns: ["stance_unknown"] }).payload.outcome, "abstained");
+assert.equal(commentarySemanticValidationContract.validate({ disposition: "abstained", evidenceTexts: [{ content: bullishText, locator: citation }], fields: abstainedFields, inputProjection: projection, unknowns: ["stance_unknown"] }).payload.outcome, "abstained");
 
 assert.equal(COMMENTARY_INVERSION_TRANSFORM.version, "1.0.0");
 const registry = createCommentaryPolicyRegistry();

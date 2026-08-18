@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
+import { publicStatementSchema } from "./public-commentary-schema";
+
 export const PUBLIC_SOURCE_ADAPTER_IDS = [
   "earnings-call-transcripts",
   "house-financial-disclosures",
@@ -462,38 +464,7 @@ const housePtrTransactionPayloadSchema = z.object({
 
 const xPublicStatementPayloadSchema = z.object({
   schemaVersion: z.literal("public-statement/v1"),
-  statement: z.object({
-    attribution: z.enum(["direct", "quoted", "alleged", "conflicting"]),
-    canonicalUrl: publicUrlSchema,
-    contentDigest: digestSchema,
-    contentReference: z.object({
-      envelopeId: idSchema,
-      revision: z.number().int().positive().max(1_000),
-    }).strict(),
-    editChainIds: z.array(z.string().regex(/^\d{1,20}$/u)).min(1).max(6),
-    editableUntil: timestampSchema.nullable(),
-    entities: z.object({
-      cashtags: z.array(z.string().regex(/^[A-Z][A-Z0-9.-]{0,9}$/u)).max(32),
-      mentions: z.array(z.string().regex(/^[A-Za-z0-9_]{1,15}$/u)).max(32),
-      urls: z.array(publicUrlSchema).max(32),
-    }).strict(),
-    lifecycle: z.enum(["provisional", "final", "edited", "unavailable"]),
-    observedAt: timestampSchema,
-    provider: z.literal("x"),
-    publishedAt: timestampSchema,
-    references: z.object({
-      conversationId: z.string().regex(/^\d{1,20}$/u),
-      referencedPostIds: z.array(z.string().regex(/^\d{1,20}$/u)).max(16),
-    }).strict(),
-    revision: z.number().int().positive().max(1_000),
-    role: z.enum(["original", "reply", "quote"]),
-    speaker: z.object({
-      displayLabel: z.string().trim().min(1).max(160),
-      stableId: z.string().regex(/^\d{1,20}$/u),
-      username: z.string().regex(/^[A-Za-z0-9_]{1,15}$/u),
-    }).strict(),
-    stablePostId: z.string().regex(/^\d{1,20}$/u),
-  }).strict(),
+  statement: publicStatementSchema,
 }).strict();
 
 export const canonicalPublicFactPayloadSchema = z.discriminatedUnion("schemaVersion", [
@@ -545,6 +516,10 @@ export const canonicalPublicFactRevisionSchema = z.object({
     expectedPublicUrl = fact.payload.filingUrl;
     expectedSourceNativeId = `${fact.payload.accessionNumber}:${fact.payload.formType}`;
   } else if (fact.payload.schemaVersion === "public-statement/v1") {
+    if (fact.payload.statement.provider !== "x") {
+      context.addIssue({ code: "custom", message: "public_statement_adapter_provider_invalid" });
+      return;
+    }
     expectedAdapterId = "x-public-statements";
     expectedAuthority = "X";
     expectedPublicUrl = fact.payload.statement.canonicalUrl;

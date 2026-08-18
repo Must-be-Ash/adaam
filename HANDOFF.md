@@ -6,7 +6,7 @@ tracing the implementation, checking the installed Eve and Next.js semantics,
 and reviewing the regression coverage. Use it to form the initial system model;
 then verify task-specific details against current code before making a change.
 
-> **Specification status:** Specs 1–4 and Specs 4A–4B.1 are implemented and production accepted.
+> **Specification status:** Specs 1–4 and Specs 4A–4C are implemented and production accepted.
 > Specs 1 and 2 are on `main`; Spec 3 was deployed from the exact reviewed
 > source commit `9b6e01f` on `codex/spec-03` without pushing or merging it.
 > Spec 2's versioned strategy-pack framework and
@@ -27,12 +27,16 @@ then verify task-specific details against current code before making a change.
 > extraction qualification, GPT-5.4/high semantic route, and immutable Earnings
 > 1.0.1 binding passed production acceptance on 2026-08-17. Its bounded frontier
 > worker completed with exact citations, validation, usage, and cost; all
-> related production flags remain off.
+> related production flags remain off. Spec 4C's X-backed Public Commentary
+> Signals foundation, `inverse-cramer@1.0.0` pack, revocable evidence,
+> correction handling, real-source/model acceptance, provider-neutral reuse
+> proof, and staged rollback passed final acceptance on 2026-08-18. Its X,
+> Exa, and execution flags remain off.
 > The spec files remain the
 > authoritative split between production evidence and deliberately deferred
 > work.
 
-Snapshot date: 2026-08-17
+Snapshot date: 2026-08-18
 
 Repository baseline: `main`. Inspect the current Git log and merged PR for the
 accepted Spec 4B landing commit; immutable rollout receipts are recorded below.
@@ -64,7 +68,7 @@ architecture. Keep them distinct:
 | Research | Direct sources, public feeds, FMP/SEC-oriented skills, and guarded Masterkey fallback | Durable private ingestion of every paid or temporary result |
 | Trading | Allowlisted Coinbase reads and preview-bound spot-order approval | A generally safe live-trading surface or account-wide reconciliation |
 | Deliverables | Public-data reports and media on stable Eve URLs | Owner-private artifacts for portfolio, account, or personal data |
-| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC, Congressional, and earnings findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, source-global SEC/House/earnings adapters, immutable canonical facts, isolated workspace projections, bounded hybrid recovery/semantic evidence, task-aware no-model/fast/frontier routing, and real Specs 1–4B.1 production acceptance | Push source events, a second Spec 4C consumer, broader reviewed issuer discovery, and crash/operations hardening remain deferred |
+| Monitoring | Workspace-bound schedules, isolated compiled workers, deterministic SEC, Congressional, earnings, and public-commentary findings, durable Photon alert delivery, manager controls, versioned pack-managed monitors, source-global SEC/House/earnings/X adapters, immutable canonical facts, isolated workspace projections, bounded hybrid recovery/semantic evidence, task-aware no-model/fast/frontier routing, revocable provider evidence, and real Specs 1–4C production acceptance | Push source events, later strategy consumers, broader reviewed issuer discovery, and crash/operations hardening remain deferred |
 | Authorization | Fail-closed deployment-owner mapping for Photon workspace paths plus a separate Coinbase allowlist | Owner-global enforcement across Telegram, HTTP, and every remaining private capability |
 
 `NORTH_STAR.md` describes the intended strategy-workspace architecture; it is
@@ -424,6 +428,35 @@ only or coverage-unavailable states. Over-envelope calls abstain without silent
 truncation, and crash-only ephemeral cleanup hardening is parked in
 `BACKLOG.md`.
 
+### Public Commentary Signals
+
+Spec 4C ships `inverse-cramer@1.0.0` through a reusable, provider-neutral
+Public Commentary Signals vertical. The production source is the pinned Jim
+Cramer X user timeline; source-global acquisition and edit/deletion rehydration
+feed workspace-isolated semantic attempts, findings, budgets, alerts, Discuss,
+and Manage state. Revocable evidence retains only the minimum encrypted source
+payload and supports deterministic correction, supersession, deletion purge,
+and replay. The policy inverts only a clearly attributable bullish or bearish
+investment stance; mixed, quoted, joking, neutral, irrelevant, or ambiguous
+statements abstain. The worker has no trading or broker capability.
+
+The independent three-pass audit closed all validated P1/P2 findings and the
+final relevant regression passed. A corrected live X smoke returned HTTP 200,
+preserved the provider continuation token without advancing a workspace cursor,
+validated six bounded reads and current lifecycle, and recorded a conservative
+USD 0.030000 maximum receipt. One GPT-5.4 frozen real-source acceptance staged
+one captured alert, opened Discuss, verified Manage, replayed idempotently, and
+produced a deletion correction. The official White House Trump/Iran acceptance
+proved the shared schema, validator, policy, finding, alert, correction, purge,
+and isolation path without adding a production branch or pack. Exa stayed off;
+no paid Exa call or live Photon message was required.
+
+Production and Preview then staged the X source, execution, and optional Exa
+flags in dependency order without deploying, and removed them in rollback
+order. All three variables returned to their prior absent/default-off state.
+Continuous monitoring and live alerts therefore remain an explicit owner
+rollout decision; landing Spec 4C does not start scheduled or paid execution.
+
 ### Hybrid evidence and reasoning
 
 Spec 4A adds two deterministic-first lanes over one shared foundation. Lane A
@@ -722,7 +755,7 @@ The most important differences between the working app and `NORTH_STAR.md` are:
 1. **Owner and workspace parity is Photon-only.** Durable owner mapping,
    assignment, runtimes, monitors, alerts, and manager controls exist for
    Photon's durable mode. Telegram and HTTP do not use that broker.
-2. **A second hybrid consumer and later strategies remain.**
+2. **Later hybrid consumers and strategies remain.**
    The versioned pack framework, IPO reference pack, canonical SEC/House
    public-source adapters, and Congressional Signals are production accepted.
    [`Spec 4A`](specs/04a-hybrid-evidence-reasoning.md) implements the shared
@@ -730,8 +763,9 @@ The most important differences between the working app and `NORTH_STAR.md` are:
    accepts the first transcript consumer.
    [`Spec 4B.1`](specs/04b1-adaptive-model-routing.md) production-accepts
    centrally qualified deterministic/fast/frontier routing for fresh bounded
-   tasks. Spec 4C next proves a different connector/content shape; Insider
-   Clusters and shared signals resume after that proof in Specs 5–6.
+   tasks. [`Spec 4C`](specs/04c-public-commentary-signals.md) now proves the
+   different X/public-commentary connector and content shape; Insider Clusters
+   and shared signals resume in Specs 5–6.
 3. **Artifacts are public-only.** Private portfolio/account deliverables and
    safe recovery of paid temporary outputs require owner-private storage.
 4. **MCP ingestion is incomplete.** Normalized model context is safe and
@@ -816,6 +850,8 @@ Focused regression scripts map to the important boundaries:
 | `verify:public-source-adapters:house` | bounded official index/PTR parsing, filing and transaction facts, corrections, partial/scanned handling, and resource limits |
 | `verify:public-source-adapters:runtime` | source-global acquisition reuse, workspace-isolated projections, coordinator flags, source health, and manager privacy |
 | `verify:congressional-signals:sprint-0` through `:sprint-5` | live-layout viability, versioned policy/evidence, history/corrections/clusters, owner surfaces, full official roster, replay, and workspace isolation |
+| `verify:public-commentary-signals:sprint-0` through `:sprint-3` | X source/retention contracts, revocable lifecycle and pagination, provider-neutral semantic policy, worker projection, findings, correction, Discuss, Manage, budgets, and isolation |
+| `verify:public-commentary-signals:sprint-4-reuse` | signed official-web reuse through the same public-statement, validator, policy, finding, alert, correction/purge, replay, and isolation path without a production source-specific branch |
 
 The Redis checks require exported environment variables and do not load
 `.env.local`. Model evals do not exercise the Photon webhook, Redis delivery,

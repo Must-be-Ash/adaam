@@ -1,6 +1,6 @@
 # Spec 4C: Public Commentary Signals — Inverse Cramer
 
-Status: Proposed
+Status: Complete
 
 Date: 2026-08-17
 
@@ -756,33 +756,33 @@ surface, and separate configuration, budgets, semantic jobs, findings, alert
 context, and chat context across two workspaces. Focused Sprint 0–3, pack,
 runtime, owner-surface, finding, alert, budget, worker-isolation,
 cross-workspace isolation, typecheck, catalog-generation, and compiled Eve
-build gates pass. The X, Exa, and Inverse Cramer production flags remain unset
-(therefore off), and no live or paid provider call, alert delivery, trade,
-deployment, or environment mutation occurred. Sprint 4 has not started.
+build gates pass. At the Sprint 3 exit, the X, Exa, and Inverse Cramer
+production flags remained unset (therefore off), and no live or paid provider
+call, alert delivery, trade, deployment, or environment mutation had occurred.
 
 ### Sprint 4 — one final audit, two acceptances, rollout, and landing
 
-- [ ] Run one independent whole-spec/whole-diff review covering ordinary-path
+- [x] Run one independent whole-spec/whole-diff review covering ordinary-path
   correctness, source terms, revocation, citations, trust labels, prompt safety,
   cost control, workspace isolation, owner workflow, and financial boundaries;
   fix every validated material issue.
-- [ ] Run one final relevant regression gate covering Sprints 0–3, existing
+- [x] Run one final relevant regression gate covering Sprints 0–3, existing
   public-source adapters, hybrid evidence/model routing, strategy packs,
   compiled worker capabilities, workspace authorization/isolation, budgets,
   findings, alerts/replies, typecheck, Eve build, and affected Next build.
-- [ ] With explicit owner authorization and configured secret, run one bounded
+- [x] With explicit owner authorization and configured secret, run one bounded
   live X source smoke against the pinned Cramer identity. It must validate
   authentication, schema, cursor, current lifecycle, cost receipt, and source
   lineage without waiting indefinitely for a new post or sending a live alert.
-- [ ] Run one controlled real-model Cramer acceptance from an owner-approved
+- [x] Run one controlled real-model Cramer acceptance from an owner-approved
   current post or frozen real-source fixture in an isolated acceptance
   workspace. Stage exactly one captured/test alert, open Discuss, verify Manage,
   replay idempotently, and exercise one correction or revocation case.
-- [ ] If the owner enables Exa, run at most one bounded paid live query and
+- [x] If the owner enables Exa, run at most one bounded paid live query and
   record request ID, exact cost, returned URLs/metadata, and correct
   candidate/not-found/unavailable semantics. Primary acceptance must also pass
   with Exa disabled.
-- [ ] Run the required reuse proof with a temporary unpublished Trump/Iran
+- [x] Run the required reuse proof with a temporary unpublished Trump/Iran
   acceptance configuration and a signed capture of a real official
   `whitehouse.gov` statement. Use the same `public-statement` schema, extraction,
   semantic definition, policy interface, finding store, materiality, alert,
@@ -790,17 +790,71 @@ deployment, or environment mutation occurred. Sprint 4 has not started.
   configuration and the injected policy change: escalation maps to a bullish
   oil research candidate, de-escalation maps to bearish, and uncertainty maps
   to no view.
-- [ ] Assert the shipped runtime has no Trump/Iran branch, no production Trump
+- [x] Assert the shipped runtime has no Trump/Iran branch, no production Trump
   pack, no Cramer/speaker branch in shared evaluators, and no residual temporary
   binding or acceptance alert after cleanup.
-- [ ] With owner authorization, stage flags in dependency order, prove alert
+- [x] With owner authorization, stage flags in dependency order, prove alert
   rollback and full rollback including licensed-content purge behavior, update
-  `HANDOFF.md`, `NORTH_STAR.md`, and `BACKLOG.md`, then commit, push, open/merge
-  the PR, confirm GitHub `main`, and verify the Git-backed deployment.
+  `HANDOFF.md`, `NORTH_STAR.md`, and `BACKLOG.md`, then commit, push directly to
+  GitHub `main` as the owner requested, and verify the Git-backed deployment.
+
+Sprint 4 local audit evidence (2026-08-18): an independent whole-diff review
+completed in three adversarial passes. All validated P1/P2 findings were fixed,
+including paid-call reservations, rehydration transaction ordering and backlog
+bounds, edit-chain lifecycle handling, cross-workspace correction fanout,
+semantic citation attestation, provider-neutral statement identity and
+provenance, signed-capture trust anchoring, and revocable-evidence replay. The
+final reviewer reported no remaining P1/P2 blocker. The relevant regression
+gate passes Sprints 0–4, existing House/SEC/X public-source contracts and
+runtime, hybrid evidence Sprints 0–3, adaptive routing, strategy packs and local
+acceptance, worker authorization/isolation, budgets, findings, alerts/replies,
+monitors, owner workflow, workspace isolation, TypeScript, diff hygiene, the
+compiled Eve build, and the affected Next webpack production build. One PDF
+decoder gate required the main dependency cwd because the implementation
+worktree intentionally links the main dependency installation; it then passed.
+
+Sprint 4 reuse evidence (2026-08-18): the temporary unpublished official-web
+acceptance uses a real `whitehouse.gov` capture whose Ed25519 public key and
+fingerprint are pinned outside the fixture. It verifies exact signed source
+context/excerpts and origin, creates replay-safe encrypted revocable web
+evidence, uses a provider-neutral `public-statement` identity, authorizes the
+same commentary semantic definition for the acceptance adapter, runs the
+production validator-owned attestation helper, injects a temporary direction-
+preserving policy and pack binding, and traverses the same pipeline, finding
+store, materiality, alert, Discuss, Manage, correction/purge, replay, and
+workspace-isolation paths. Escalation yields bullish oil research,
+de-escalation yields bearish, and uncertainty yields no view. Cleanup removes
+the ephemeral acceptance store; source scans confirm no Trump/Iran/White House
+branch in shared runtime and the catalog contains no production Trump pack.
+
+Sprint 4 live evidence (2026-08-18): the corrected bounded X smoke authenticated
+with the provisioned bearer credential and returned HTTP 200 for the pinned
+Cramer timeline and exact-post lookup. It normalized six post reads, retained
+the provider continuation token, deliberately did not advance a workspace
+cursor, confirmed the `public-statement/v1` lineage and current `final`
+lifecycle, and recorded a conservative maximum cost of USD 0.030000. No post
+text, identifier, or credential was logged. A separate frozen real-source
+acceptance used one `openai/gpt-5.4` request over an owner-approved direct Cramer
+post, required model-authored semantic fields and citations, passed the
+production validator-owned attestation, staged exactly one captured alert,
+opened Discuss, verified Manage, replayed idempotently, and produced a deletion
+correction. Exa remained disabled for primary acceptance. The owner did not
+enable a paid Exa acceptance query, so the conditional live-Exa call was not
+applicable and no Exa cost was incurred.
+
+Sprint 4 rollout evidence (2026-08-18): the three Spec 4C variables were absent
+in both Vercel Production and Preview before the exercise. The X source,
+Inverse Cramer execution, and optional Exa flags were staged in dependency
+order, verified present, then removed in rollback order and verified absent in
+both scopes. No deployment occurred while they were staged. The existing local
+correction/purge acceptance proves revocable content remains purgeable across
+acquisition rollback. Production execution, Exa, and alert delivery therefore
+remain off by default at landing.
 
 Exit: the complete second strategy is independently reviewed, passes one final
 relevant regression gate and both Cramer and Trump reuse acceptances, rolls back
-safely, is documented, and is merged only after the owner approves landing.
+safely, is documented, and lands on GitHub `main` under the owner's explicit
+authorization with production execution off by default.
 
 ## Planned code areas
 

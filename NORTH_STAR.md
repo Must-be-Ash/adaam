@@ -416,3 +416,14 @@ staged deployment was `dpl_4AKpjdy1cWMCTY1QPQA9uvauRviE`; every new earnings,
 hybrid, dispatch, and alert flag was verified at `0`. Bounded identifiers,
 deployment receipts, and deferred edges live in
 `specs/04b-earnings-call-changes.md`, `HANDOFF.md`, and `BACKLOG.md`.
+
+Owner-authorized Spec 4C production acceptance completed on 2026-08-18. The
+shared Public Commentary Signals vertical and `inverse-cramer@1.0.0` passed an
+independent three-pass audit, the final relevant regression, a bounded HTTP 200
+X timeline/exact-post smoke, one GPT-5.4 frozen real-source alert/Discuss/
+Manage/correction acceptance, and a signed White House provider-neutral reuse
+proof. Production and Preview flags were staged in dependency order and fully
+restored to absent/default-off without deploying. No paid Exa call, live Photon
+message, or trading capability was used; continuous execution remains off.
+Detailed receipts live in `specs/04c-public-commentary-signals.md` and
+`HANDOFF.md`.

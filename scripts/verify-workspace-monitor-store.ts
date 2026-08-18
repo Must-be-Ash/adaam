@@ -9,6 +9,7 @@ import {
   createWorkspaceMonitor,
   getWorkspaceMonitor,
   inspectWorkspaceMonitorOccurrenceLease,
+  isWorkspaceMonitorCheckpointOnlyBaseline,
   listWorkspaceMonitors,
   pauseWorkspaceMonitorsAfterRestore,
   releaseWorkspaceMonitorLease,
@@ -263,6 +264,40 @@ assert.equal(managedMonitor.lifecycleState, "paused");
 assert.equal(managedMonitor.pauseReason, "strategy_pack_install_only");
 assert.equal(managedMonitor.nextOccurrenceAt, scheduledFor);
 assert.equal(managedClient.due.size, 0);
+const inverseClient = new MemoryStore();
+const inverseMonitor = await createWorkspaceMonitor({
+  deliverySubscriptionId: "delivery.inverse-cramer",
+  instruction: "Establish a checkpoint-only public-commentary baseline before findings.",
+  managedBy: {
+    bindingRevision: 1,
+    kind: "strategy_pack",
+    packContentDigest: packDigest,
+    packId: "inverse-cramer",
+    packVersion: "1.0.0",
+    resourceId: "monitor-inverse-cramer-commentary",
+  },
+  name: "Inverse Cramer",
+  nextOccurrenceAt: scheduledFor,
+  now,
+  schedule: { anchor: scheduledFor, everyMinutes: 10, kind: "interval" },
+  scope,
+  sources: [source(0)],
+}, inverseClient);
+assert.equal(inverseMonitor.activationWatermark, undefined);
+const inverseActivatedAt = new Date("2026-08-14T12:01:00.000Z");
+const activeInverseMonitor = await updateWorkspaceMonitor({
+  expectedRevision: inverseMonitor.configurationRevision,
+  monitorId: inverseMonitor.monitorId,
+  now: inverseActivatedAt,
+  patch: {
+    lifecycleState: "enabled",
+    pauseReason: null,
+    pausedAt: null,
+  },
+  scope,
+}, inverseClient);
+assert.equal(activeInverseMonitor.activationWatermark, inverseActivatedAt.toISOString());
+assert.equal(isWorkspaceMonitorCheckpointOnlyBaseline(activeInverseMonitor), true);
 const binding = {
   bindingRevision: 1,
   configuration: { dailyTimes: ["12:05"], timezone: "UTC" },

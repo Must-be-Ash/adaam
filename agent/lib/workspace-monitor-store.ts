@@ -293,6 +293,12 @@ const monitorSchema = z
       if (monitor.pauseReason !== null || monitor.pausedAt !== null) {
         context.addIssue({ code: "custom", message: "Enabled monitor cannot be paused." });
       }
+      if (
+        monitor.managedBy?.packId === "inverse-cramer" &&
+        monitor.activationWatermark === undefined
+      ) {
+        context.addIssue({ code: "custom", message: "Managed monitor needs an activation watermark." });
+      }
     } else if (monitor.pauseReason === null || monitor.pausedAt === null) {
       context.addIssue({ code: "custom", message: "Paused monitor needs a reason and time." });
     }
@@ -329,6 +335,19 @@ export type WorkspaceMonitor = z.infer<typeof monitorSchema>;
 export type WorkspaceMonitorSchedule = z.infer<typeof workspaceMonitorScheduleSchema>;
 export type WorkspaceMonitorManagedBy = z.infer<typeof workspaceMonitorManagedBySchema>;
 export type WorkspaceMonitorOccurrence = z.infer<typeof occurrenceSchema>;
+
+export function requiresManagedMonitorActivationWatermark(packId: string | null | undefined): boolean {
+  return packId === "earnings-call-changes" || packId === "inverse-cramer";
+}
+
+export function isWorkspaceMonitorCheckpointOnlyBaseline(
+  monitor: Pick<WorkspaceMonitor, "activationWatermark" | "managedBy" | "sourceCheckpoint">,
+): boolean {
+  return requiresManagedMonitorActivationWatermark(monitor.managedBy?.packId) &&
+    monitor.activationWatermark !== undefined &&
+    monitor.sourceCheckpoint.contentDigest === null &&
+    monitor.sourceCheckpoint.watermark === null;
+}
 
 export interface ClaimedWorkspaceMonitor {
   readonly leaseExpiresAt: string;
@@ -921,7 +940,7 @@ export function prepareWorkspaceMonitorCreate(
       workspaceId: input.scope.workspaceId,
     }));
   const candidate = monitorSchema.safeParse({
-    ...(enabled && input.managedBy?.packId === "earnings-call-changes"
+    ...(enabled && requiresManagedMonitorActivationWatermark(input.managedBy?.packId)
       ? { activationWatermark: now }
       : {}),
     configurationRevision: 1,
@@ -1213,7 +1232,7 @@ export async function updateWorkspaceMonitor(
     ...current,
     ...input.patch,
     ...(targetLifecycle === "enabled" && current.lifecycleState !== "enabled" &&
-        current.managedBy?.packId === "earnings-call-changes" && !current.activationWatermark
+        requiresManagedMonitorActivationWatermark(current.managedBy?.packId) && !current.activationWatermark
       ? { activationWatermark: updatedAt }
       : {}),
     configurationRevision: current.configurationRevision + 1,

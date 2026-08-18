@@ -28,6 +28,7 @@ export const PUBLIC_COMMENTARY_LIMITS = Object.freeze({
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const identifierSchema = z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._:/@-]*$/u);
 const numericProviderIdSchema = z.string().regex(/^\d{1,20}$/u);
+const publicStatementObjectIdSchema = z.union([numericProviderIdSchema, digestSchema]);
 const semverSchema = z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u);
 const timestampSchema = z.string().datetime({ offset: true });
 const shortTextSchema = z.string().trim().min(1).max(PUBLIC_COMMENTARY_LIMITS.maximumTextItemCharacters);
@@ -93,31 +94,13 @@ const revocableEvidenceLifecycleEventSchema = z.object({
   reasonCode: identifierSchema,
 }).strict();
 
-export const revocableEvidenceEnvelopeSchema = z.object({
-  currentLifecycle: revocableEvidenceLifecycleSchema,
-  envelopeId: identifierSchema,
-  lifecycleEvents: z.array(revocableEvidenceLifecycleEventSchema).min(1).max(PUBLIC_COMMENTARY_LIMITS.maximumLifecycleEvents),
-  payloadReference: revocableEvidencePayloadReferenceSchema.nullable(),
-  provider: z.enum(["x"]),
-  providerObjectId: numericProviderIdSchema,
-  recordType: z.literal("revocable_evidence_envelope"),
-  revision: z.number().int().positive().max(1_000),
-  schemaVersion: z.literal(1),
-  sourceDigest: digestSchema,
-}).strict().superRefine((envelope, context) => {
-  const last = envelope.lifecycleEvents.at(-1);
-  const requiresNoPayload = ["deleted", "protected", "withheld", "purged", "tombstoned"].includes(envelope.currentLifecycle);
-  if (last?.lifecycle !== envelope.currentLifecycle || requiresNoPayload === (envelope.payloadReference !== null)) {
-    context.addIssue({ code: "custom", message: "revocable_evidence_state_invalid" });
-  }
-});
-
 export const revocableEvidencePurgeReceiptSchema = z.object({
   envelopeId: identifierSchema,
   payloadDigest: digestSchema,
   purgedAt: timestampSchema,
   reason: z.enum([
     "account_protected",
+    "capacity_exceeded",
     "credential_removed",
     "provider_deleted",
     "provider_termination",
@@ -129,7 +112,40 @@ export const revocableEvidencePurgeReceiptSchema = z.object({
   schemaVersion: z.literal(1),
 }).strict();
 
-export const publicStatementSchema = z.object({
+export const revocableEvidencePayloadDeletionSchema = z.object({
+  state: z.enum(["pending", "confirmed"]),
+  storageKey: z.string().min(10).max(500).regex(/^revocable-evidence\/[A-Za-z0-9/._-]+$/u),
+  receipt: revocableEvidencePurgeReceiptSchema,
+}).strict();
+
+export const revocableEvidenceEnvelopeSchema = z.object({
+  currentLifecycle: revocableEvidenceLifecycleSchema,
+  envelopeId: identifierSchema,
+  lifecycleEvents: z.array(revocableEvidenceLifecycleEventSchema).min(1).max(PUBLIC_COMMENTARY_LIMITS.maximumLifecycleEvents),
+  payloadDeletion: revocableEvidencePayloadDeletionSchema.nullable().default(null),
+  payloadReference: revocableEvidencePayloadReferenceSchema.nullable(),
+  provider: z.enum(["web", "x"]),
+  providerObjectId: publicStatementObjectIdSchema,
+  recordType: z.literal("revocable_evidence_envelope"),
+  revision: z.number().int().positive().max(1_000),
+  schemaVersion: z.literal(1),
+  sourceDigest: digestSchema,
+}).strict().superRefine((envelope, context) => {
+  const last = envelope.lifecycleEvents.at(-1);
+  const requiresNoPayload = ["deleted", "protected", "withheld", "purged", "tombstoned"].includes(envelope.currentLifecycle);
+  if (last?.lifecycle !== envelope.currentLifecycle || requiresNoPayload === (envelope.payloadReference !== null)) {
+    context.addIssue({ code: "custom", message: "revocable_evidence_state_invalid" });
+  }
+  if (envelope.payloadDeletion !== null && envelope.payloadReference !== null) {
+    context.addIssue({ code: "custom", message: "revocable_evidence_deletion_state_invalid" });
+  }
+  if (
+    envelope.provider === "x" && !numericProviderIdSchema.safeParse(envelope.providerObjectId).success ||
+    envelope.provider === "web" && !digestSchema.safeParse(envelope.providerObjectId).success
+  ) context.addIssue({ code: "custom", message: "revocable_evidence_provider_identity_invalid" });
+});
+
+const publicStatementCoreSchema = z.object({
   attribution: z.enum(["direct", "quoted", "alleged", "conflicting"]),
   canonicalUrl: publicUrlSchema,
   contentDigest: digestSchema,
@@ -137,41 +153,83 @@ export const publicStatementSchema = z.object({
     envelopeId: identifierSchema,
     revision: z.number().int().positive().max(1_000),
   }).strict().nullable(),
-  editChainIds: z.array(numericProviderIdSchema).min(1).max(PUBLIC_COMMENTARY_LIMITS.maximumEditChainIds),
-  editableUntil: timestampSchema.nullable(),
   entities: z.object({
     cashtags: z.array(z.string().regex(/^[A-Z][A-Z0-9.-]{0,9}$/u)).max(PUBLIC_COMMENTARY_LIMITS.maximumEntityItemsPerKind),
-    mentions: z.array(z.string().regex(/^[A-Za-z0-9_]{1,15}$/u)).max(PUBLIC_COMMENTARY_LIMITS.maximumEntityItemsPerKind),
+    mentions: z.array(z.string().regex(/^[A-Za-z0-9_.@-]{1,100}$/u)).max(PUBLIC_COMMENTARY_LIMITS.maximumEntityItemsPerKind),
     urls: z.array(publicUrlSchema).max(PUBLIC_COMMENTARY_LIMITS.maximumEntityItemsPerKind),
   }).strict(),
   lifecycle: revocableEvidenceLifecycleSchema,
   observedAt: timestampSchema,
-  provider: z.literal("x"),
   publishedAt: timestampSchema,
   recordType: z.literal("public_statement"),
+  revision: z.number().int().positive().max(1_000),
+  schemaVersion: z.literal(1),
+  textLocators: z.array(textSpanSchema).max(PUBLIC_COMMENTARY_LIMITS.maximumEvidenceSpans),
+});
+
+const xPublicStatementSchema = publicStatementCoreSchema.extend({
+  editChainIds: z.array(numericProviderIdSchema).min(1).max(PUBLIC_COMMENTARY_LIMITS.maximumEditChainIds),
+  editableUntil: timestampSchema.nullable(),
+  provider: z.literal("x"),
   references: z.object({
     conversationId: numericProviderIdSchema,
     referencedPostIds: z.array(numericProviderIdSchema).max(PUBLIC_COMMENTARY_LIMITS.maximumRelatedPostIds),
   }).strict(),
-  revision: z.number().int().positive().max(1_000),
   role: z.enum(["original", "reply", "quote", "repost"]),
-  schemaVersion: z.literal(1),
   speaker: z.object({
     displayLabel: z.string().trim().min(1).max(160),
     stableId: numericProviderIdSchema,
     username: z.string().regex(/^[A-Za-z0-9_]{1,15}$/u),
   }).strict(),
   stablePostId: numericProviderIdSchema,
-  textLocators: z.array(textSpanSchema).max(PUBLIC_COMMENTARY_LIMITS.maximumEvidenceSpans),
-}).strict().superRefine((statement, context) => {
+}).strict();
+
+const webPublicStatementSchema = publicStatementCoreSchema.extend({
+  document: z.object({
+    publisher: z.object({
+      displayLabel: z.string().trim().min(1).max(160),
+      stableId: digestSchema,
+    }).strict(),
+    revisionIds: z.array(digestSchema).min(1).max(PUBLIC_COMMENTARY_LIMITS.maximumEditChainIds),
+    stableId: digestSchema,
+  }).strict(),
+  kind: z.literal("official_statement"),
+  provider: z.literal("web"),
+  references: z.object({
+    relatedStatementIds: z.array(digestSchema).max(PUBLIC_COMMENTARY_LIMITS.maximumRelatedPostIds),
+  }).strict(),
+  speaker: z.object({
+    displayLabel: z.string().trim().min(1).max(160),
+    handle: z.string().trim().min(1).max(100).nullable(),
+    stableId: digestSchema,
+  }).strict(),
+}).strict();
+
+export const publicStatementSchema = z.discriminatedUnion("provider", [
+  xPublicStatementSchema,
+  webPublicStatementSchema,
+]).superRefine((statement, context) => {
   const contentUnavailable = ["deleted", "protected", "withheld", "purged", "tombstoned"].includes(statement.lifecycle);
+  const editedContentRevoked = statement.lifecycle === "edited" && statement.contentReference === null;
   if (
-    contentUnavailable === (statement.contentReference !== null) ||
-    contentUnavailable === (statement.textLocators.length > 0) ||
+    (contentUnavailable || editedContentRevoked) === (statement.contentReference !== null) ||
+    (contentUnavailable || editedContentRevoked) === (statement.textLocators.length > 0) ||
     statement.publishedAt > statement.observedAt ||
-    (statement.lifecycle === "provisional" && statement.editableUntil === null)
+    (statement.lifecycle === "provisional" && (statement.provider !== "x" || statement.editableUntil === null))
   ) context.addIssue({ code: "custom", message: "public_statement_invalid" });
+  if (
+    statement.provider === "x" && statement.editChainIds[0] !== statement.stablePostId ||
+    statement.provider === "web" && statement.document.revisionIds.at(-1) !== statement.contentDigest
+  ) context.addIssue({ code: "custom", message: "public_statement_provider_identity_invalid" });
 });
+
+export function publicStatementStableId(statement: PublicStatement): string {
+  return statement.provider === "x" ? statement.stablePostId : statement.document.stableId;
+}
+
+export function publicStatementRole(statement: PublicStatement): "original" | "reply" | "quote" | "repost" {
+  return statement.provider === "x" ? statement.role : "original";
+}
 
 export const commentaryExtractionSchema = z.object({
   attribution: z.enum(["direct", "quoted", "alleged", "conflicting"]),
@@ -315,7 +373,7 @@ export const commentaryFindingSchema = z.object({
   citations: z.array(z.object({
     canonicalUrl: publicUrlSchema,
     contentRevision: z.number().int().positive().max(1_000),
-    stablePostId: numericProviderIdSchema,
+    stableStatementId: publicStatementObjectIdSchema,
   }).strict()).min(1).max(PUBLIC_COMMENTARY_LIMITS.maximumCitations),
   confidence: z.enum(["low", "medium", "high"]),
   findingId: identifierSchema,
@@ -344,8 +402,11 @@ export const commentaryCorrectionSchema = z.object({
   invalidatesRecommendation: z.literal(true),
   reason: z.enum(["source_deleted", "source_edited", "source_protected", "source_withheld"]),
   recordType: z.literal("public_commentary_correction"),
+  rootFindingId: identifierSchema,
+  rootStatementRevisionId: identifierSchema,
   schemaVersion: z.literal(1),
   sourceRevision: z.number().int().positive().max(1_000),
+  supersedesStatementRevisionId: identifierSchema,
 }).strict();
 
 export const commentaryFlagConfigurationSchema = z.object({

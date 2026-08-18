@@ -22,6 +22,7 @@ import {
   resolveEarningsCallPublicSourceRuntimePath,
   resolveHousePublicSourceRuntimePath,
   resolveSecPublicSourceRuntimePath,
+  resolveXPublicStatementRuntimePath,
 } from "./public-source-flags";
 import {
   emitPublicSourceAcquisitionObservations,
@@ -54,6 +55,13 @@ import {
   type EarningsCallPublicSourceResponse,
   type EarningsCallTransientArtifact,
 } from "./earnings-call-public-source-adapter";
+import {
+  runSharedXPublicStatementAcquisition,
+  type XAcquisitionReceipt,
+  type XPublicStatementRequest,
+  type XPublicStatementResponse,
+  type XRevocableEvidenceOptions,
+} from "./x-public-statement-adapter";
 import type { AuthorizedWorkspaceStoreScope } from "./workspace-store-authorization";
 import type { WorkspaceMonitor } from "./workspace-monitor-store";
 
@@ -85,6 +93,13 @@ type CoordinatorFetch =
       readonly adapterId: "house-financial-disclosures";
       readonly fetchDocument: (url: string) => Promise<HousePublicSourceBinaryResponse>;
       readonly fetchIndex: (url: string) => Promise<HousePublicSourceBinaryResponse>;
+    }
+  | {
+      readonly adapterId: "x-public-statements";
+      readonly evidence: XRevocableEvidenceOptions;
+      readonly fetchResponse: (
+        request: XPublicStatementRequest,
+      ) => Promise<XPublicStatementResponse>;
     };
 
 export interface PublicSourceHybridRecoveryExtension {
@@ -116,6 +131,11 @@ export interface PublicSourceCoordinatorResult {
   readonly projection: PublicSourceProjectionCommit | null;
   readonly reused: boolean;
   readonly subscription: PublicSourceSubscription;
+  readonly xReceipt: XAcquisitionReceipt | null;
+  readonly workspaceCheckpoint: {
+    readonly contentDigest: string;
+    readonly watermark: string;
+  } | null;
 }
 
 export class PublicSourceCoordinatorError extends Error {
@@ -139,7 +159,9 @@ function requireEnabled(
     ? resolveSecPublicSourceRuntimePath(environment)
     : adapterId === "earnings-call-transcripts"
       ? resolveEarningsCallPublicSourceRuntimePath(environment)
-      : resolveHousePublicSourceRuntimePath(environment);
+      : adapterId === "x-public-statements"
+        ? resolveXPublicStatementRuntimePath(environment)
+        : resolveHousePublicSourceRuntimePath(environment);
   if (path === "public_source_adapter") return;
   throw new PublicSourceCoordinatorError(
     path === "public_source_misconfigured"
@@ -270,6 +292,9 @@ export async function coordinatePublicSourceOccurrence(input: {
   const houseFetch = input.fetch.adapterId === "house-financial-disclosures"
     ? input.fetch
     : null;
+  const xFetch = input.fetch.adapterId === "x-public-statements"
+    ? input.fetch
+    : null;
   const subscription = await ensurePublicSourceSubscription(
     input.scope,
     createPublicSourceSubscription({
@@ -306,29 +331,40 @@ export async function coordinatePublicSourceOccurrence(input: {
           earningsFetch.onTransientArtifacts?.(result.transientArtifacts);
           return result;
         })
-      : await runSharedHousePublicSourceAcquisition({
-        client: input.clients?.acquisition,
-        fetchDocument: houseFetch!.fetchDocument,
-        fetchIndex: houseFetch!.fetchIndex,
-        hybridLineageClient: input.clients?.hybridLineage,
-        recovery: hybridFlags.extractionRecovery
-          ? recoveryExtension!.create({
-              clients: {
-                artifacts: input.clients?.hybridArtifacts,
-                globalBudget: input.clients?.hybridGlobalBudget,
-                jobs: input.clients?.hybridJobs,
-                lineage: input.clients?.hybridLineage,
-                workspaceBudget: input.clients?.hybridWorkspaceBudget,
-              },
-              environment,
-              initiatingWorkspaceId: input.scope.workspaceId,
-              modelIds: [recoveryRoute!.modelId, independentOcrModelId!],
-              reasoning: recoveryRoute!.reasoning,
-            })
-          : undefined,
-        sourceId: input.sourceId,
-        window,
-      });
+      : xFetch
+        ? await runSharedXPublicStatementAcquisition({
+            client: input.clients?.acquisition,
+            evidence: xFetch.evidence,
+            fetchResponse: xFetch.fetchResponse,
+            sourceId: input.sourceId,
+            window,
+          })
+        : await runSharedHousePublicSourceAcquisition({
+            client: input.clients?.acquisition,
+            fetchDocument: houseFetch!.fetchDocument,
+            fetchIndex: houseFetch!.fetchIndex,
+            hybridLineageClient: input.clients?.hybridLineage,
+            recovery: hybridFlags.extractionRecovery
+              ? recoveryExtension!.create({
+                  clients: {
+                    artifacts: input.clients?.hybridArtifacts,
+                    globalBudget: input.clients?.hybridGlobalBudget,
+                    jobs: input.clients?.hybridJobs,
+                    lineage: input.clients?.hybridLineage,
+                    workspaceBudget: input.clients?.hybridWorkspaceBudget,
+                  },
+                  environment,
+                  initiatingWorkspaceId: input.scope.workspaceId,
+                  modelIds: [recoveryRoute!.modelId, independentOcrModelId!],
+                  reasoning: recoveryRoute!.reasoning,
+                })
+              : undefined,
+            sourceId: input.sourceId,
+            window,
+          });
+  const xReceipt = xFetch && "receipt" in shared
+    ? shared.receipt as XAcquisitionReceipt
+    : null;
   emitPublicSourceAcquisitionObservations(shared.acquisition, input.sink);
   if (shared.reused) {
     emitPublicSourceRuntimeObservation({
@@ -351,6 +387,8 @@ export async function coordinatePublicSourceOccurrence(input: {
       projection: null,
       reused: shared.reused,
       subscription,
+      workspaceCheckpoint: null,
+      xReceipt,
     });
   }
   const projection = await projectPublicSourceAcquisition({
@@ -378,5 +416,10 @@ export async function coordinatePublicSourceOccurrence(input: {
     projection,
     reused: shared.reused,
     subscription: projection.subscription,
+    workspaceCheckpoint: Object.freeze({
+      contentDigest: shared.acquisition.proposedNextCursor!.contentDigest,
+      watermark: shared.acquisition.observedAt,
+    }),
+    xReceipt,
   });
 }

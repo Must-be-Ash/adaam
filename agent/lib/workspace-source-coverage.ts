@@ -320,6 +320,36 @@ export async function authorizeWorkspaceSourceFetch(
   return assertSourceAllowed(record, input);
 }
 
+export async function authorizeWorkspaceXExactPostFetch(
+  input: {
+    providerPostId: string;
+    runId: string;
+    scope: AuthorizedWorkspaceStoreScope;
+    sourceId: string;
+    url: string;
+  },
+  client: WorkspaceSourceCoverageClient = store(),
+): Promise<WorkspaceSourceDefinition> {
+  const record = await readWorkspaceSourceCoverage(input.scope, input.runId, client);
+  const source = record?.sources.find(({ sourceId }) => sourceId === input.sourceId);
+  let requested: URL;
+  try {
+    requested = new URL(input.url);
+  } catch {
+    throw new WorkspaceSourceCoverageError("source_outside_fence");
+  }
+  const allowedParameters = new Set(["expansions", "tweet.fields"]);
+  if (
+    !record || record.state !== "evaluating" || !source ||
+    !/^\d{1,20}$/u.test(input.providerPostId) ||
+    requested.protocol !== "https:" || requested.origin !== source.origin ||
+    requested.username !== "" || requested.password !== "" || requested.hash !== "" ||
+    requested.pathname !== `/2/tweets/${input.providerPostId}` ||
+    [...requested.searchParams.keys()].some((name) => !allowedParameters.has(name))
+  ) throw new WorkspaceSourceCoverageError("source_outside_fence");
+  return source;
+}
+
 export function buildWorkspaceSourcePrompt(
   record: WorkspaceSourceCoverage,
 ): string {
