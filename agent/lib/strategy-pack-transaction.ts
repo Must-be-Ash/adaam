@@ -16,7 +16,13 @@ export const strategyPackMutationReceiptSchema = z
     payloadDigest: digestSchema,
     recordType: z.literal("strategy_pack_mutation_receipt"),
     registryRevision: z.number().int().positive().nullable(),
-    rejectionCode: z.enum(["capacity_exhausted", "duplicate_name"]).nullable(),
+    rejectionCode: z
+      .enum([
+        "capacity_exhausted",
+        "duplicate_name",
+        "retained_capacity_exhausted",
+      ])
+      .nullable(),
     requestIdentityDigest: digestSchema,
     schemaVersion: z.literal(1),
     targetWorkspaceId: z.string().uuid().nullable(),

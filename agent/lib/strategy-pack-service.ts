@@ -932,7 +932,10 @@ function transactionError(status: string): never {
 }
 
 function rejectionReceipt(input: {
-  code: "capacity_exhausted" | "duplicate_name";
+  code:
+    | "capacity_exhausted"
+    | "duplicate_name"
+    | "retained_capacity_exhausted";
   createdAt: string;
   mutationId: string;
   payloadDigest: string;
@@ -1142,12 +1145,19 @@ async function executeCreateStrategyPackWorkspace(
   const now = input.now ?? new Date();
   const nowIso = now.toISOString();
   const targetWorkspaceId = (dependencies.idFactory ?? randomUUID)();
-  let rejectionCode: "capacity_exhausted" | "duplicate_name" | null = null;
+  let rejectionCode:
+    | "capacity_exhausted"
+    | "duplicate_name"
+    | "retained_capacity_exhausted"
+    | null = null;
   if (
-    activePhotonWorkspaceCount(registryRecord.registry) >= PHOTON_WORKSPACE_LIMIT ||
-    registryRecord.registry.workspaces.length >= PHOTON_WORKSPACE_RETAINED_LIMIT
+    activePhotonWorkspaceCount(registryRecord.registry) >= PHOTON_WORKSPACE_LIMIT
   ) {
     rejectionCode = "capacity_exhausted";
+  } else if (
+    registryRecord.registry.workspaces.length >= PHOTON_WORKSPACE_RETAINED_LIMIT
+  ) {
+    rejectionCode = "retained_capacity_exhausted";
   } else {
     const normalizedName = normalizePhotonWorkspaceNameKey(
       normalizePhotonWorkspaceName(request.name),
