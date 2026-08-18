@@ -21,8 +21,13 @@ export function createHybridEvidenceWorkerAgentConfig(
 export function createHybridEvidenceWorkerRuntimeConfig(
   envelope: HybridEvidenceWorkerEnvelope,
 ) {
-  const config = createHybridEvidenceWorkerAgentConfig(envelope);
-  if (config.reasoning !== "provider-default") return config;
-  const { reasoning: _reasoning, ...providerDefaultConfig } = config;
+  const { model, reasoning, ...config } = createHybridEvidenceWorkerAgentConfig(envelope);
+  const runtimeConfig = Object.freeze({
+    ...config,
+    model: Object.freeze({ id: model }),
+    ...(reasoning === "provider-default" ? {} : { reasoning }),
+  });
+  if (reasoning !== "provider-default") return runtimeConfig;
+  const { reasoning: _reasoning, ...providerDefaultConfig } = runtimeConfig;
   return Object.freeze(providerDefaultConfig);
 }

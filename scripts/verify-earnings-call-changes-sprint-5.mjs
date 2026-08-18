@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
 
 const gates = [
+  "verify:adaptive-model-routing:sprint-1",
+  "verify:adaptive-model-routing:sprint-2",
   "verify:earnings-call-changes:sprint-0",
   "verify:earnings-call-changes:sprint-1",
   "verify:earnings-call-changes:sprint-2",

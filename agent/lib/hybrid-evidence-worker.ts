@@ -146,6 +146,8 @@ function typedPrompt(input: {
     "Use only read_hybrid_evidence_slice and complete_hybrid_evidence_job.",
     "Do not fetch URLs, use financial tools, inspect sessions, run shell commands, or write files.",
     "Read only the signed locators, then submit one structured candidate through the completion tool.",
+    "For multi-member comparison jobs, request all required text_span locators together in one parallel tool step; read source_fact locators only when their metadata is necessary.",
+    "After the evidence reads return, call complete_hybrid_evidence_job immediately using its authoritative schema; do not spend output restating evidence or exploring the schema.",
     "A prose response does not complete the job.",
     "Follow this reviewed definition-specific instruction:",
     input.definition.instructionTemplate.content ??
@@ -404,7 +406,9 @@ export async function startHybridEvidenceWorkerTask(
   if (typeof token !== "string") throw new HybridEvidenceWorkerError("capability_denied");
   const envelope = verifyHybridEvidenceWorkerToken(token);
   const runtime = await createNodeTargetedWorkflowRuntime({
-    dynamicSubagentAgentConfig: createHybridEvidenceWorkerRuntimeConfig(envelope),
+    // The bridge's published declaration predates Eve's durable `{ id }` model
+    // reference; the compiled runtime receives that canonical form directly.
+    dynamicSubagentAgentConfig: createHybridEvidenceWorkerRuntimeConfig(envelope) as never,
     nodeId: request.nodeId,
   });
   return runtime.createSession({

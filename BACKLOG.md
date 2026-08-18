@@ -505,6 +505,13 @@ Active deterministic/fast/frontier routing work moved to
 `specs/04b1-adaptive-model-routing.md`. Implement and track it there rather than
 from this backlog.
 
+- [ ] Add an Eve runtime primitive that either batches signed evidence reads or
+  enforces a true per-model-call token/time ceiling before retrying the
+  GPT-5.4/high production routing smoke. The current task-mode session checks
+  provider-reported aggregate usage only after each call, so model-selected
+  sequential reads can exceed the 24,000-token job budget and an active call can
+  settle after the 60-second signed job window. Keep semantic rollout flags off
+  until the exact signed worker journey durably completes and validates.
 - [ ] Add a middle/balanced model tier only if repository-owned workload evals
   demonstrate a useful quality/cost boundary beyond the initial fast/frontier
   policy.
@@ -522,10 +529,11 @@ from this backlog.
 - [ ] Do not reintroduce blunt cumulative session token caps as the primary cost
   control.
 
-Current state: Eve's root and workspace workers use a stable configured model;
-fresh hybrid workers accept exact caller-selected model IDs. There is no shared
-task-profile router, immutable model-qualification policy, or linked
-fast-to-frontier route chain yet.
+Current state: Spec 4B.1 implements a shared registered-purpose router for
+no-model, fast, and frontier work. Haiku 4.5/provider-default is qualified for
+bounded extraction and GPT-5.4/high is bound to the new immutable Earnings pack;
+production semantic rollout remains off pending the exact live completion
+journey above. There is intentionally no linked fast-to-frontier route chain.
 
 ## 7. Testing, CI, and observability
 

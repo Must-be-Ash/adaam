@@ -534,6 +534,7 @@ export function createWorkspaceSemanticDefinition(input: {
 
 export function createEarningsCallComparisonDefinitions(
   modelIds: readonly string[],
+  options: { readonly maximumSessionInputTokens?: number } = {},
 ): readonly HybridEvidenceJobDefinition[] {
   const envelope = EARNINGS_CALL_POLICY.semanticEnvelope;
   const common = {
@@ -552,7 +553,7 @@ export function createEarningsCallComparisonDefinitions(
       ...common,
       definitionId: EARNINGS_CALL_COMPARISON_DEFINITION_ID,
       limits: {
-        maximumInputTokens: envelope.maximumSingleJobInputTokens,
+        maximumInputTokens: options.maximumSessionInputTokens ?? envelope.maximumSingleJobInputTokens,
         maximumOutputTokens: envelope.maximumSingleJobOutputTokens,
       },
       promptId: "compare-earnings-call-evidence",
@@ -562,7 +563,7 @@ export function createEarningsCallComparisonDefinitions(
       ...common,
       definitionId: EARNINGS_CALL_COMPARISON_SECTION_DEFINITION_ID,
       limits: {
-        maximumInputTokens: envelope.maximumSectionInputTokens,
+        maximumInputTokens: options.maximumSessionInputTokens ?? envelope.maximumSectionInputTokens,
         maximumOutputTokens: envelope.maximumSectionOutputTokens,
       },
       promptId: "analyze-earnings-call-section",
@@ -572,7 +573,7 @@ export function createEarningsCallComparisonDefinitions(
       ...common,
       definitionId: EARNINGS_CALL_COMPARISON_SYNTHESIS_DEFINITION_ID,
       limits: {
-        maximumInputTokens: envelope.maximumSynthesisInputTokens,
+        maximumInputTokens: options.maximumSessionInputTokens ?? envelope.maximumSynthesisInputTokens,
         maximumOutputTokens: envelope.maximumSynthesisOutputTokens,
       },
       promptId: "synthesize-earnings-call-sections",

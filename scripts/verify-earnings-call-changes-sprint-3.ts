@@ -355,6 +355,8 @@ function clients(workspaceId: string, mode: CandidateMode = "accepted"): Paramet
     async execute(prepared) {
       dispatches += 1;
       assert.equal(prepared.request.input.message.includes("Use only read_hybrid_evidence_slice and complete_hybrid_evidence_job"), true);
+      assert.equal(prepared.request.input.message.includes("request all required text_span locators together in one parallel tool step"), true);
+      assert.equal(prepared.request.input.message.includes("call complete_hybrid_evidence_job immediately using its authoritative schema"), true);
       const body = JSON.parse(prepared.request.input.message.match(/<hybrid-evidence-job-v1>\n([\s\S]+)\n<\/hybrid-evidence-job-v1>/u)![1]!);
       const projection = body.inputProjection;
       const bindings = projection.members.flatMap((member: any) =>

@@ -1,6 +1,6 @@
 # Spec 4B.1: Task-Aware Model Selection
 
-Status: Planned
+Status: Implementation complete; production acceptance blocked
 
 Date: 2026-08-17
 
@@ -188,16 +188,16 @@ the configured frontier model at high reasoning.
 
 ### Sprint 2 — Qualify, prove, and land
 
-- [ ] Qualify the selected fast model against the existing extraction corpus
+- [x] Qualify the selected fast model against the existing extraction corpus
   and compare its accepted-work cost with the frontier model.
-- [ ] Reuse matching Spec 4B frontier evidence or run only the missing/stale
+- [x] Reuse matching Spec 4B frontier evidence or run only the missing/stale
   frontier qualification.
-- [ ] If required by immutable evidence-contract digests, publish the smallest
+- [x] If required by immutable evidence-contract digests, publish the smallest
   new Earnings pack version and prove old/new coexistence without migration.
-- [ ] Run the affected hybrid, Earnings, strategy-pack, worker, budget,
+- [x] Run the affected hybrid, Earnings, strategy-pack, worker, budget,
   isolation, typecheck, Eve-build, and application-build regression once after
   the final code change.
-- [ ] Perform one final diff-scoped review. Fix confirmed findings and rerun only
+- [x] Perform one final diff-scoped review. Fix confirmed findings and rerun only
   affected checks, not the entire suite unless shared production code changed.
 - [ ] With owner authorization, run one controlled production task confirming
   the expected class, exact model, reasoning, citations, validation, usage, and
@@ -210,19 +210,42 @@ Exit gate: the existing hybrid system demonstrably uses a qualified cheap model
 for objective extraction and a qualified frontier model for judgment, without
 changing evidence quality, authority, or the human decision boundary.
 
+Implementation evidence:
+
+- `anthropic/claude-haiku-4.5` at provider-default reasoning passed two repeated
+  extraction-corpus runs with 100% supported recovery and safety, zero unsafe
+  accepts, invalid citations, accepted unknowns, or forbidden tool calls, and
+  cost about 62% below the equivalent `openai/gpt-5.4` accepted work.
+- `earnings-call-changes@1.0.1` binds the GPT-5.4/high semantic contracts at
+  content digest `1887742f21a0e70aab98a274c9169cd2da2066972bf90f9b014fa3e4fc37d978`;
+  deterministic production wiring proves `1.0.0` and `1.0.1` coexist without
+  migration.
+- Complete-diff review run `20260817-172121-f44f75b3` produced six validated
+  findings; all were repaired and their affected checks pass.
+- The 48-gate regression was executed once. Its one missing-route fixture
+  failed closed, was repaired, and that gate plus every not-yet-run downstream
+  gate, typecheck, Eve build, and application build passed.
+- The owner-authorized live frontier smoke reached the exact GPT-5.4/high signed
+  worker, Gateway receipts, authorized citation reads, and fail-closed token
+  accounting, but did not durably complete. GPT-5.4 sometimes serialized four
+  evidence reads and exceeded the 24,000 aggregate input cap; in another run an
+  active high-reasoning call settled after the 60-second signed job window.
+  No production flag was enabled, and the production acceptance and landing
+  items remain unchecked.
+
 ## Definition of done
 
-- [ ] No-model, fast, and frontier tasks select the correct execution class.
-- [ ] Models and reasoning effort are centrally configured rather than
+- [x] No-model, fast, and frontier tasks select the correct execution class.
+- [x] Models and reasoning effort are centrally configured rather than
   strategy-hard-coded.
-- [ ] Existing extraction and semantic tasks use the intended models through
+- [x] Existing extraction and semantic tasks use the intended models through
   the existing fresh hybrid worker.
-- [ ] Fast-model evals meet the existing safety/quality threshold and show a
+- [x] Fast-model evals meet the existing safety/quality threshold and show a
   meaningful cost advantage.
-- [ ] Semantic outputs retain citations, facts/inferences/forecasts/
+- [x] Semantic outputs retain citations, facts/inferences/forecasts/
   recommendations, counterevidence, invalidation conditions, and concise
   rationale.
-- [ ] Existing durable records and Earnings `1.0.0` remain valid; any required
+- [x] Existing durable records and Earnings `1.0.0` remain valid; any required
   new pack version coexists without migration.
 - [ ] Focused and affected regression checks, one diff review, one controlled
   production routing smoke, rollback, documentation, merge, and cleanup pass.

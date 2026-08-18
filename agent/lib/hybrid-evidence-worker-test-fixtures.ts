@@ -9,9 +9,12 @@ type FixtureGlobal = typeof globalThis & {
 };
 
 function fixtureRuntimeAllowed(): boolean {
-  return process.env.NODE_ENV === "test" &&
-    process.env.VERCEL === undefined &&
-    process.env.VERCEL_ENV === undefined;
+  return process.env.VERCEL === undefined &&
+    process.env.VERCEL_ENV === undefined &&
+    (
+      process.env.NODE_ENV === "test" ||
+      process.env.EVE_HYBRID_EVIDENCE_WORKER_LOCAL_TRANSPORT === "1"
+    );
 }
 
 export function installHybridEvidenceWorkerFixtureClients(
@@ -35,7 +38,7 @@ export function resolveHybridEvidenceWorkerFixtureClients():
   const url = process.env[FIXTURE_RPC_URL];
   const token = process.env[FIXTURE_RPC_TOKEN];
   if (!url || !token) return undefined;
-  const invoke = async (namespace: "artifacts" | "jobs", method: string, args: readonly unknown[]) => {
+  const invoke = async (namespace: "artifacts" | "jobs" | "source_fact", method: string, args: readonly unknown[]) => {
     const response = await fetch(url, {
       body: JSON.stringify({ args, method, namespace }),
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -52,5 +55,9 @@ export function resolveHybridEvidenceWorkerFixtureClients():
   return {
     artifacts: client("artifacts") as HybridEvidenceWorkerControlClients["artifacts"],
     jobs: client("jobs") as HybridEvidenceWorkerControlClients["jobs"],
+    readSourceFact: (factRevisionId) =>
+      invoke("source_fact", "read", [factRevisionId]) as ReturnType<
+        NonNullable<HybridEvidenceWorkerControlClients["readSourceFact"]>
+      >,
   };
 }

@@ -20,7 +20,7 @@ import {
 import { EARNINGS_CALL_ISSUER_CATALOG } from "./earnings-call-issuer-catalog";
 import { createEarningsCallFinding } from "./earnings-call-materiality";
 import { createEarningsCallComparisonDefinitions } from "./hybrid-evidence-definition-registry";
-import { resolveEarningsCallFlags } from "./earnings-call-policy";
+import { EARNINGS_CALL_POLICY, resolveEarningsCallFlags } from "./earnings-call-policy";
 import {
   EARNINGS_CALL_SCHEMA_VERSION,
   digestEarningsCallValue,
@@ -170,7 +170,6 @@ function assertMonitor(
     !monitor || monitor.lifecycleState !== "enabled" ||
     monitor.configurationRevision !== envelope.configurationRevision ||
     monitor.managedBy?.packId !== "earnings-call-changes" ||
-    monitor.managedBy.packVersion !== "1.0.0" ||
     !pack ||
     pack.packId !== monitor.managedBy.packId ||
     pack.packVersion !== monitor.managedBy.packVersion ||
@@ -181,6 +180,45 @@ function assertMonitor(
     monitor.sources.length < 1 || monitor.sources.length > 8 ||
     monitor.sources.some(({ sourceId }) => !/^earnings-call-transcripts\.\d{10}$/u.test(sourceId))
   ) throw new EarningsCallWorkspaceWorkerError("earnings_call_monitor_invalid");
+}
+
+function hasMatchingSemanticDefinitions(
+  pack: Pick<StrategyPackCatalogEntry, "evidenceContracts" | "version">,
+  modelId: string,
+): boolean {
+  return createEarningsCallComparisonDefinitions(
+    [modelId],
+    pack.version === "1.0.1"
+      ? { maximumSessionInputTokens: EARNINGS_CALL_POLICY.semanticEnvelope.maximumAggregateInputTokens }
+      : {},
+  ).every((definition) =>
+    pack.evidenceContracts?.some((contract) =>
+      contract.id === definition.definitionId &&
+      contract.version === definition.definitionVersion &&
+      contract.digest === definition.definitionDigest)
+  );
+}
+
+export function resolveEarningsCallSemanticRoute(input: {
+  readonly allowedModelIds: readonly string[];
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly pack: Pick<StrategyPackCatalogEntry, "evidenceContracts" | "version">;
+}) {
+  const configured = resolveHybridTaskModelRoute(
+    "semantic_interpretation",
+    input.environment,
+  );
+  const matches = [...new Set(input.allowedModelIds)]
+    .filter((modelId) => hasMatchingSemanticDefinitions(input.pack, modelId));
+  if (matches.length !== 1) {
+    throw new EarningsCallWorkspaceWorkerError("earnings_call_strategy_invalid");
+  }
+  const route = Object.freeze({
+    ...configured,
+    modelId: matches[0]!,
+  });
+  assertHybridModelRouteAllowed(route, input.allowedModelIds);
+  return route;
 }
 
 const defaultFetchResponse = createEarningsCallPublicSourceFetch();
@@ -552,20 +590,16 @@ async function processIssuer(input: {
   const yearAgo = comparison.secondaryYearAgo
     ? normalized.find(({ record }) => record.event.revisionId === comparison.secondaryYearAgo!.eventRevisionId)
     : undefined;
-  const semanticRoute = resolveHybridTaskModelRoute(
-    "semantic_interpretation",
-    input.environment,
-  );
-  assertHybridModelRouteAllowed(semanticRoute, input.allowedSemanticModelIds);
-  const semanticDefinitions = createEarningsCallComparisonDefinitions([
-    semanticRoute.modelId,
-  ]);
-  if (!semanticDefinitions.every((definition) =>
-    input.pack.evidenceContracts?.some((contract) =>
-      contract.id === definition.definitionId &&
-      contract.version === definition.definitionVersion &&
-      contract.digest === definition.definitionDigest)
-  )) throw new EarningsCallWorkspaceWorkerError("earnings_call_strategy_invalid");
+  const semanticRoute = resolveEarningsCallSemanticRoute({
+    allowedModelIds: input.allowedSemanticModelIds,
+    environment: input.environment,
+    pack: input.pack,
+  });
+  const packBinding = Object.freeze({
+    contentDigest: input.pack.contentDigest,
+    id: input.pack.id,
+    version: input.pack.version,
+  });
   const semantic = await runEarningsCallSemanticComparison({
     comparison,
     environment: input.environment,
@@ -576,7 +610,7 @@ async function processIssuer(input: {
     ],
     modelId: semanticRoute.modelId,
     now: input.now,
-    pack: input.pack,
+    pack: packBinding,
     reasoning: semanticRoute.reasoning,
     scope: input.scope,
     workspaceGeneration: input.envelope.strategyPack!.workspaceGeneration,
@@ -620,7 +654,11 @@ async function processIssuer(input: {
     currentPublishedAt: current.record.event.publishedAt,
     monitorId: input.monitor.monitorId,
     ownerId: input.scope.ownerId,
-    pack: input.pack,
+    pack: {
+      contentDigest: input.pack.contentDigest,
+      id: input.pack.id,
+      version: input.pack.version,
+    },
     semantic: semantic.final,
     threshold: input.threshold,
     workspaceId: input.scope.workspaceId,
@@ -797,13 +835,13 @@ export async function evaluateEarningsCallChangesForWorker(input: {
   assertMonitor(monitor, envelope);
   if (
     strategy?.schemaVersion !== 2 || strategy.value.pack?.id !== "earnings-call-changes" ||
-    strategy.value.pack.version !== "1.0.0" ||
+    strategy.value.pack.version !== monitor.managedBy!.packVersion ||
     strategy.value.pack.contentDigest !== monitor.managedBy!.packContentDigest
   ) throw new EarningsCallWorkspaceWorkerError("earnings_call_strategy_invalid");
   const pack = strategyPackCatalog.resolve({
     contentDigest: monitor.managedBy!.packContentDigest,
     id: "earnings-call-changes",
-    version: "1.0.0",
+    version: monitor.managedBy!.packVersion,
   });
   const selected = strategy.value.configuration.selectedIssuerCiks;
   if (!pack || !Array.isArray(selected) || selected.length < 1 || selected.length > 8) {

@@ -382,9 +382,11 @@ directories so a fork contains its own north-star sources.
    House/earnings public facts, Congressional Signals, the deterministic-first
    hybrid foundation, and its first transcript consumer. Earnings, hybrid,
    dispatch, and alert flags remain rolled back off.
-2. Implement Spec 4B.1's adaptive model routing for fresh bounded tasks, then
-   prove the shared foundation and router with a second real consumer in Spec
-   4C using a different connector and content shape.
+2. Finish Spec 4B.1 production acceptance after Eve can bound or batch the
+   GPT-5.4/high signed-worker tool loop; its central no-model/fast/frontier
+   router, fast-model qualification, and immutable Earnings 1.0.1 binding are
+   implemented locally. Then prove the shared foundation with a second real
+   consumer in Spec 4C using a different connector and content shape.
 3. Revisit Spec 5 Insider Clusters after those proofs, then implement Spec 6's
    typed shared-signal plane without weakening workspace isolation.
 4. Extend the deployment-owner boundary and workspace broker to Telegram and

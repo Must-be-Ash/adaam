@@ -314,7 +314,12 @@ export async function runEarningsCallSemanticComparison(input: {
   }
   const allSpans = plan.jobs.flatMap(({ spans }) => spans);
   const citationSpansByKey = prepareCitationSpans(validated.evidence, allSpans);
-  const definitions = createEarningsCallComparisonDefinitions([input.modelId]);
+  const definitions = createEarningsCallComparisonDefinitions(
+    [input.modelId],
+    input.pack.version === "1.0.1"
+      ? { maximumSessionInputTokens: EARNINGS_CALL_POLICY.semanticEnvelope.maximumAggregateInputTokens }
+      : {},
+  );
   const shared = {
     environment: input.environment,
     modelId: input.modelId,

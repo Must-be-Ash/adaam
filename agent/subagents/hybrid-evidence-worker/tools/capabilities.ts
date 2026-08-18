@@ -22,7 +22,7 @@ const readHybridEvidenceSlice = defineTool({
     const fixture = resolveHybridEvidenceWorkerFixtureClients();
     const artifacts = fixture?.artifacts ?? createHybridEvidenceWorkerArtifactStore();
     return readHybridEvidenceSliceForWorker({
-      clients: { artifacts, jobs: fixture?.jobs },
+      clients: { artifacts, jobs: fixture?.jobs, readSourceFact: fixture?.readSourceFact },
       ctx,
       locator,
     });
