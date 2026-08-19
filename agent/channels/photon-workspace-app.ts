@@ -666,6 +666,23 @@ export function workspaceHtml(nonce: string, origin: string): string {
       outline-offset: 2px;
     }
     button:disabled { cursor: default; opacity: .45; }
+    .session-list { display: grid; gap: 10px; }
+    .archive-toggle {
+      width: fit-content;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .archive-toggle input {
+      width: 18px;
+      min-height: 18px;
+      height: 18px;
+      margin: 0;
+    }
     #workspaces { display: grid; gap: 14px; }
     .workspace {
       border: 1px solid var(--line);
@@ -802,7 +819,11 @@ export function workspaceHtml(nonce: string, origin: string): string {
         <button class="primary" type="submit">Create pack session</button>
       </form>
     </section>
-    <section>
+    <section class="session-list">
+      <label class="archive-toggle" for="show-archived">
+        <input id="show-archived" type="checkbox" aria-controls="workspaces">
+        <span>Show archived</span>
+      </label>
       <div id="workspaces"></div>
     </section>
     <p class="note">Start fresh clears that session’s conversation history. Archived sessions can be restored later. If a monitor control is unavailable, ask Eve in chat to list, pause, resume, reschedule, retire, or update the budget for a monitor.</p>
@@ -813,6 +834,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
       const main = document.querySelector("main");
       const status = document.querySelector("#status");
       const list = document.querySelector("#workspaces");
+      const showArchivedInput = document.querySelector("#show-archived");
       const form = document.querySelector("#create-form");
       const nameInput = document.querySelector("#new-name");
       const packSection = document.querySelector("#pack-create-section");
@@ -824,6 +846,8 @@ export function workspaceHtml(nonce: string, origin: string): string {
       const packActivate = document.querySelector("#pack-activate");
       let state = null;
       let busy = false;
+
+      showArchivedInput.addEventListener("change", () => render());
 
       const request = async (path, body) => {
         const response = await fetch(path, {
@@ -1451,6 +1475,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
         }
         if (!state) return;
         for (const workspace of state.workspaces) {
+          if (workspace.status === "archived" && !showArchivedInput.checked) continue;
           const card = document.createElement("article");
           const isActive = workspace.id === state.activeWorkspaceId;
           card.className =
