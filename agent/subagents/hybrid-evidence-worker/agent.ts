@@ -1,13 +1,16 @@
 import { defineAgent, defineDynamic } from "eve";
 
-import { decodeHybridEvidenceWorkerToken } from "../../lib/hybrid-evidence-auth";
+import {
+  decodeHybridEvidenceWorkerToken,
+  hybridEvidenceWorkerTokenFromSessionAuth,
+} from "../../lib/hybrid-evidence-auth";
 import { createHybridEvidenceWorkerAgentConfig } from "../../lib/hybrid-evidence-worker-config";
 
 export default defineDynamic({
   events: {
     "session.started": (_event, ctx) => {
-      const token = ctx.session.auth.current?.attributes.hybrid_evidence_runtime_token;
-      if (typeof token !== "string") return null;
+      const token = hybridEvidenceWorkerTokenFromSessionAuth(ctx.session.auth);
+      if (!token) return null;
       try {
         const envelope = decodeHybridEvidenceWorkerToken(token);
         return defineAgent(createHybridEvidenceWorkerAgentConfig(envelope));

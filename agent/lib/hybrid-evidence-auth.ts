@@ -219,14 +219,26 @@ function stringAttribute(auth: SessionAuthContext, name: string): string | undef
   return typeof value === "string" ? value : undefined;
 }
 
+export function hybridEvidenceWorkerTokenFromSessionAuth(
+  auth: SessionContext["session"]["auth"],
+): string | undefined {
+  return auth.current
+    ? stringAttribute(auth.current, "hybrid_evidence_runtime_token") ??
+      (auth.initiator
+        ? stringAttribute(auth.initiator, "hybrid_evidence_runtime_token")
+        : undefined)
+    : auth.initiator
+      ? stringAttribute(auth.initiator, "hybrid_evidence_runtime_token")
+      : undefined;
+}
+
 export function requireHybridEvidenceWorkerAuth(
   ctx: { readonly session: { readonly auth: SessionContext["session"]["auth"] } },
   expected: Partial<Pick<HybridEvidenceWorkerEnvelope, "jobId" | "inputDigest">> = {},
   environment: NodeJS.ProcessEnv = process.env,
 ): { envelope: HybridEvidenceWorkerEnvelope; token: string } {
-  const auth = ctx.session.auth.current;
-  if (!auth) return invalid();
-  const token = stringAttribute(auth, "hybrid_evidence_runtime_token");
+  const auth = ctx.session.auth;
+  const token = hybridEvidenceWorkerTokenFromSessionAuth(auth);
   if (!token) return invalid();
   // Eve may resume the worker in a different durable invocation from the
   // issuer. Decode here; each privileged worker operation compares the opaque
@@ -237,8 +249,12 @@ export function requireHybridEvidenceWorkerAuth(
   // a task crosses durable workflow steps. The token is a bearer capability;
   // privileged operations separately require its SHA-256 claim to match the
   // server-side running job and verify every immutable envelope field.
-  const assertedJobId = stringAttribute(auth, "hybrid_evidence_job_id");
-  if (assertedJobId !== undefined && assertedJobId !== envelope.jobId) return invalid();
+  const assertedJobIds = [auth.current, auth.initiator]
+    .flatMap((principal) => principal
+      ? [stringAttribute(principal, "hybrid_evidence_job_id")]
+      : [])
+    .filter((value): value is string => value !== undefined);
+  if (assertedJobIds.some((value) => value !== envelope.jobId)) return invalid();
   for (const [key, value] of Object.entries(expected)) {
     if (envelope[key as keyof typeof expected] !== value) return invalid();
   }
