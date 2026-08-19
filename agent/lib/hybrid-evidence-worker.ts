@@ -12,6 +12,7 @@ import type {
 import { createNodeTargetedWorkflowRuntime } from "@adaam/eve-workspace-runtime-bridge";
 
 import {
+  bindHybridEvidenceWorkerSessionCapability,
   createHybridEvidenceWorkerEnvelope,
   decodeHybridEvidenceWorkerToken,
   HYBRID_EVIDENCE_WORKER_MAX_RUNTIME_MS,
@@ -93,7 +94,10 @@ export interface PreparedHybridEvidenceWorkerRun {
 }
 
 type WorkerContext = {
-  readonly session: { readonly auth: SessionContext["session"]["auth"] };
+  readonly session: {
+    readonly auth: SessionContext["session"]["auth"];
+    readonly id: string;
+  };
 };
 
 export interface HybridEvidenceWorkerControlClients {
@@ -135,7 +139,7 @@ export function resolveHybridEvidenceWorkerAuthEnvironment(
 }
 
 function assertEnvelopeMatchesRecord(
-  envelope: ReturnType<typeof requireHybridEvidenceWorkerAuth>["envelope"],
+  envelope: Awaited<ReturnType<typeof requireHybridEvidenceWorkerAuth>>["envelope"],
   record: HybridEvidenceJobRecord | null,
   token: string,
   allowedStates: readonly HybridEvidenceJobRecord["job"]["state"][] = ["running"],
@@ -294,7 +298,7 @@ export async function readHybridEvidenceSliceForWorker(input: {
   environment?: NodeJS.ProcessEnv;
   locator: EvidenceLocator;
 }) {
-  const { envelope, token } = requireHybridEvidenceWorkerAuth(input.ctx, {}, input.environment);
+  const { envelope, token } = await requireHybridEvidenceWorkerAuth(input.ctx, {}, input.environment);
   const locator = evidenceLocatorSchema.parse(input.locator);
   const locatorDigest = digestHybridEvidenceValue(locator);
   if (!envelope.allowedLocators.some((allowed) => digestHybridEvidenceValue(allowed) === locatorDigest)) {
@@ -383,7 +387,7 @@ export async function readHybridEvidenceBundleForWorker(input: {
   ctx: WorkerContext;
   environment?: NodeJS.ProcessEnv;
 }) {
-  const { envelope } = requireHybridEvidenceWorkerAuth(input.ctx, {}, input.environment);
+  const { envelope } = await requireHybridEvidenceWorkerAuth(input.ctx, {}, input.environment);
   if (envelope.scope.kind !== "workspace") {
     throw new HybridEvidenceWorkerError("capability_denied");
   }
@@ -436,7 +440,7 @@ export async function completeHybridEvidenceJobForWorker(input: {
   jobClient?: HybridEvidenceJobStoreClient;
   now?: Date;
 }) {
-  const { envelope, token } = requireHybridEvidenceWorkerAuth(input.ctx, {}, input.environment);
+  const { envelope, token } = await requireHybridEvidenceWorkerAuth(input.ctx, {}, input.environment);
   const record = await readHybridEvidenceJob(envelope.jobId, input.jobClient);
   assertEnvelopeMatchesRecord(envelope, record, token, ["running", "completed"]);
   const completed = await completeHybridEvidenceJob({
@@ -533,6 +537,7 @@ export async function startHybridEvidenceWorkerTask(
     limits: request.limits,
     mode: request.mode,
   }) as RunHandle;
+  await bindHybridEvidenceWorkerSessionCapability({ sessionId: handle.sessionId, token });
   if (envelope.scope.kind !== "workspace") return handle;
   return stopHybridEvidenceWorkerAfterWorkspaceCompletion(handle, async (turnId) => {
     await workflowRuntime.dispatchSession({

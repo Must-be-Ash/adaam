@@ -77,7 +77,7 @@ const fixtureReadHybridEvidenceSlice = defineTool({
   async execute(_input, ctx) {
     const fixture = resolveHybridEvidenceWorkerFixtureClients();
     if (!fixture) throw new Error("hybrid_worker_fixture_clients_missing");
-    const { envelope } = requireHybridEvidenceWorkerAuth(ctx);
+    const { envelope } = await requireHybridEvidenceWorkerAuth(ctx);
     const locator = envelope.allowedLocators[0];
     if (!locator) throw new Error("hybrid_worker_fixture_locator_missing");
     const output = await readHybridEvidenceSliceForWorker({ clients: fixture, ctx, locator });
@@ -91,7 +91,7 @@ const fixtureCompleteHybridEvidenceJob = defineTool({
   async execute(_input, ctx) {
     const fixture = resolveHybridEvidenceWorkerFixtureClients();
     if (!fixture) throw new Error("hybrid_worker_fixture_clients_missing");
-    const { envelope } = requireHybridEvidenceWorkerAuth(ctx);
+    const { envelope } = await requireHybridEvidenceWorkerAuth(ctx);
     return completeHybridEvidenceJobForWorker({
       candidate: {
         citations: envelope.allowedLocators,

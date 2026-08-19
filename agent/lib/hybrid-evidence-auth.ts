@@ -1,5 +1,6 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
+import { Redis } from "@upstash/redis";
 import type { SessionAuthContext, SessionContext } from "eve/context";
 import { z } from "zod";
 
@@ -17,6 +18,8 @@ import {
 
 export const HYBRID_EVIDENCE_WORKER_MAX_RUNTIME_MS = 15 * 60_000;
 const CLOCK_SKEW_MS = 60_000;
+const SESSION_CAPABILITY_PREFIX = "eve:hybrid-evidence:v1:session-capability:";
+const SESSION_CAPABILITY_TTL_SECONDS = 20 * 60;
 const SECRET_PATTERN = /^[A-Za-z0-9_-]{43,}$/u;
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const timestampSchema = z.string().datetime({ offset: true });
@@ -77,6 +80,41 @@ export class HybridEvidenceWorkerAuthError extends Error {
     super("hybrid_evidence_auth_invalid");
     this.name = "HybridEvidenceWorkerAuthError";
   }
+}
+
+let sessionCapabilityRedis: Redis | undefined;
+
+function sessionCapabilityStore(environment: NodeJS.ProcessEnv = process.env): Redis {
+  if (sessionCapabilityRedis) return sessionCapabilityRedis;
+  const url = environment.KV_REST_API_URL ?? environment.UPSTASH_REDIS_REST_URL;
+  const token = environment.KV_REST_API_TOKEN ?? environment.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return invalid();
+  sessionCapabilityRedis = new Redis({ automaticDeserialization: false, token, url });
+  return sessionCapabilityRedis;
+}
+
+function sessionCapabilityKey(sessionId: string): string {
+  return `${SESSION_CAPABILITY_PREFIX}${createHash("sha256").update(sessionId).digest("hex")}`;
+}
+
+export async function bindHybridEvidenceWorkerSessionCapability(input: {
+  sessionId: string;
+  token: string;
+}, environment: NodeJS.ProcessEnv = process.env): Promise<void> {
+  decodeHybridEvidenceWorkerToken(input.token);
+  await sessionCapabilityStore(environment).set(
+    sessionCapabilityKey(input.sessionId),
+    input.token,
+    { ex: SESSION_CAPABILITY_TTL_SECONDS },
+  );
+}
+
+async function readHybridEvidenceWorkerSessionCapability(
+  sessionId: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<string | undefined> {
+  const value = await sessionCapabilityStore(environment).get(sessionCapabilityKey(sessionId));
+  return typeof value === "string" ? value : undefined;
 }
 
 function invalid(): never {
@@ -232,18 +270,18 @@ export function hybridEvidenceWorkerTokenFromSessionAuth(
       : undefined;
 }
 
-export function requireHybridEvidenceWorkerAuth(
-  ctx: { readonly session: { readonly auth: SessionContext["session"]["auth"] } },
+export async function requireHybridEvidenceWorkerAuth(
+  ctx: { readonly session: { readonly auth: SessionContext["session"]["auth"]; readonly id: string } },
   expected: Partial<Pick<HybridEvidenceWorkerEnvelope, "jobId" | "inputDigest">> = {},
   environment: NodeJS.ProcessEnv = process.env,
-): { envelope: HybridEvidenceWorkerEnvelope; token: string } {
+): Promise<{ envelope: HybridEvidenceWorkerEnvelope; token: string }> {
   const auth = ctx.session.auth;
-  const token = hybridEvidenceWorkerTokenFromSessionAuth(auth);
+  const token = hybridEvidenceWorkerTokenFromSessionAuth(auth) ??
+    await readHybridEvidenceWorkerSessionCapability(ctx.session.id, environment);
   if (!token) return invalid();
   // Eve may resume the worker in a different durable invocation from the
   // issuer. Decode here; each privileged worker operation compares the opaque
   // token's digest with the claim stored when the signed job was issued.
-  void environment;
   const envelope = decodeHybridEvidenceWorkerToken(token);
   // Eve can rewrite principal wrapper metadata while preserving attributes as
   // a task crosses durable workflow steps. The token is a bearer capability;
