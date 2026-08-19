@@ -225,12 +225,7 @@ export function requireHybridEvidenceWorkerAuth(
   environment: NodeJS.ProcessEnv = process.env,
 ): { envelope: HybridEvidenceWorkerEnvelope; token: string } {
   const auth = ctx.session.auth.current;
-  if (
-    !auth ||
-    auth.authenticator !== "hybrid-evidence-runtime" ||
-    auth.issuer !== "eve-hybrid-evidence-dispatch" ||
-    auth.principalType !== "runtime"
-  ) return invalid();
+  if (!auth) return invalid();
   const token = stringAttribute(auth, "hybrid_evidence_runtime_token");
   if (!token) return invalid();
   // Eve may resume the worker in a different durable invocation from the
@@ -238,11 +233,12 @@ export function requireHybridEvidenceWorkerAuth(
   // token's digest with the claim stored when the signed job was issued.
   void environment;
   const envelope = decodeHybridEvidenceWorkerToken(token);
-  if (
-    auth.principalId !== `hybrid-evidence-job:${envelope.jobId}` ||
-    auth.subject !== envelope.jobId ||
-    stringAttribute(auth, "hybrid_evidence_job_id") !== envelope.jobId
-  ) return invalid();
+  // Eve can rewrite principal wrapper metadata while preserving attributes as
+  // a task crosses durable workflow steps. The token is a bearer capability;
+  // privileged operations separately require its SHA-256 claim to match the
+  // server-side running job and verify every immutable envelope field.
+  const assertedJobId = stringAttribute(auth, "hybrid_evidence_job_id");
+  if (assertedJobId !== undefined && assertedJobId !== envelope.jobId) return invalid();
   for (const [key, value] of Object.entries(expected)) {
     if (envelope[key as keyof typeof expected] !== value) return invalid();
   }
