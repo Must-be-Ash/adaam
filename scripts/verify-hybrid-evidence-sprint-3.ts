@@ -98,6 +98,7 @@ const workspaceJ = "123e4567-e89b-42d3-a456-426614174309";
 const workspaceK = "123e4567-e89b-42d3-a456-426614174310";
 const workspaceL = "123e4567-e89b-42d3-a456-426614174311";
 const workspaceM = "123e4567-e89b-42d3-a456-426614174312";
+const workspaceN = "123e4567-e89b-42d3-a456-426614174313";
 const modelId = "fixture/semantic-model";
 const environment = {
   EVE_DEPLOYMENT_OWNER_ID: ownerId,
@@ -154,6 +155,7 @@ function seedWorkspace(input: {
   contentDigest?: string;
   maximumInputTokensPerRun?: number;
   packVersion?: string;
+  pendingGeneration?: number;
   state: MemoryCas;
   workspaceId: string;
 }) {
@@ -171,7 +173,7 @@ function seedWorkspace(input: {
       effectiveCapabilityManifestRevision: capabilityRevision,
       health: { checkedAt: now.toISOString(), code: null, status: "healthy" },
       lastActiveSnapshot: {
-        bindingRevision,
+        bindingRevision: input.pendingGeneration ? bindingRevision - 1 : bindingRevision,
         capabilityManifestRevision: capabilityRevision,
         packContentDigest: contentDigest,
         packId: "fixture-semantic-pack",
@@ -182,7 +184,14 @@ function seedWorkspace(input: {
       managedResources: {},
       ownerOverrides: {},
       pack: { contentDigest, id: "fixture-semantic-pack", version: packVersion },
-      pendingSnapshot: null,
+      pendingSnapshot: input.pendingGeneration ? {
+        bindingRevision,
+        capabilityManifestRevision: capabilityRevision,
+        packContentDigest: contentDigest,
+        packId: "fixture-semantic-pack",
+        packVersion,
+        workspaceGeneration: input.pendingGeneration,
+      } : null,
       timestamps: {
         activatedAt: now.toISOString(),
         configuredAt: now.toISOString(),
@@ -246,6 +255,7 @@ function authorizationProjection(
     packContentDigest: packDigestA,
     packVersion: "1.0.0",
   },
+  publicDocumentUrl = `https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/2000001${sourceRevision}.pdf`,
 ):
   WorkspaceSemanticAuthorizationProjection {
   const payload = {
@@ -255,7 +265,7 @@ function authorizationProjection(
     filer: { firstName: "Jordan", lastName: "Sample", prefix: null, stateDistrict: "OR03", suffix: null },
     filingDate: "2026-08-15",
     isAmendment: false,
-    publicDocumentUrl: `https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/2000001${sourceRevision}.pdf`,
+    publicDocumentUrl,
     schemaVersion: "house-ptr-filing/v1",
     year: 2026,
   } as const;
@@ -342,11 +352,19 @@ seedWorkspace({ state: memory, workspaceId: workspaceI });
 seedWorkspace({ state: memory, workspaceId: workspaceJ });
 seedWorkspace({ state: memory, workspaceId: workspaceK });
 seedWorkspace({ state: memory, workspaceId: workspaceL });
+seedWorkspace({
+  bindingRevision: 2,
+  capabilityBindingRevision: 1,
+  pendingGeneration: 2,
+  state: memory,
+  workspaceId: workspaceN,
+});
 const notifications: string[] = [];
 let dispatches = 0;
 
 async function runFixture(fixture: any, workspaceId = workspaceA, options: {
   afterComplete?: () => Promise<void> | void;
+  artifactCanonicalPublicUrl?: string;
   artifacts?: HybridEvidenceArtifactStore;
   catalog?: typeof fixtureCatalog;
   definition?: typeof definition;
@@ -356,13 +374,15 @@ async function runFixture(fixture: any, workspaceId = workspaceA, options: {
   pack?: ReturnType<typeof fixturePack>;
   projection?: WorkspaceSemanticAuthorizationProjection;
   validationRegistry?: ReturnType<typeof createWorkspaceSemanticValidationRegistry>;
+  workspaceGeneration?: number;
 } = {}) {
   const text = fixture.evidence.text as string;
   const manifest = await artifacts.persist({
     acquisitionId: `acquisition.${fixture.fixtureId}`,
     authority: "House Clerk",
     bytes: Buffer.from(text, "utf8"),
-    canonicalPublicUrl: `https://disclosures-clerk.house.gov/public_disc/semantic/${sha256(fixture.fixtureId)}.txt`,
+    canonicalPublicUrl: options.artifactCanonicalPublicUrl ??
+      `https://disclosures-clerk.house.gov/public_disc/semantic/${sha256(fixture.fixtureId)}.txt`,
     mediaType: "text/plain",
     now,
     observedAt: now.toISOString(),
@@ -398,7 +418,7 @@ async function runFixture(fixture: any, workspaceId = workspaceA, options: {
       subscriptionId: projection.subscription.subscriptionId,
     },
     scope: scope(workspaceId),
-    workspaceGeneration: 1,
+    workspaceGeneration: options.workspaceGeneration ?? 1,
   }, {
     artifacts: options.artifacts ?? artifacts,
     budget: memory,
@@ -477,6 +497,22 @@ const positiveB = await runFixture(
 );
 assert.equal(positiveB.evidence?.result.scope.kind, "workspace");
 assert.notEqual(positiveB.record.job.jobId, accepted.record.job.jobId);
+const pendingProjection = authorizationProjection(workspaceN, "1", {
+  bindingRevision: 2,
+  packContentDigest: packDigestA,
+  packVersion: "1.0.0",
+}, "https://clerk.house.gov/public-commentary/fixture-statement");
+const pendingGeneration = await runFixture(
+  semanticCases.find(({ fixtureId }) => fixtureId.endsWith("indirect-positive.accepted"))!,
+  workspaceN,
+  {
+    artifactCanonicalPublicUrl: pendingProjection.fact.provenance.publicUrl,
+    projection: pendingProjection,
+    workspaceGeneration: 2,
+  },
+);
+assert.equal(pendingGeneration.record.job.scope.kind, "workspace");
+assert.equal(pendingGeneration.record.job.scope.bindingRevision, 2);
 assert.equal(await readCurrentWorkspaceSemanticEvidence({
   lineageKey: accepted.lineageKey,
   scope: scopeB,

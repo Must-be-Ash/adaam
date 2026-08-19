@@ -255,6 +255,9 @@ export async function prepareWorkspaceSemanticEvidenceJob(input: {
     readWorkspaceDocument("strategy", input.scope, clients.state),
     readWorkspaceDocument("capabilities", input.scope, clients.state),
   ]);
+  const activeSnapshot = strategy?.schemaVersion === 2
+    ? strategy.value.pendingSnapshot ?? strategy.value.lastActiveSnapshot
+    : null;
   if (
     !strategy || strategy.schemaVersion !== 2 || !capabilities ||
     strategy.value.lifecycleState !== "active" ||
@@ -263,13 +266,13 @@ export async function prepareWorkspaceSemanticEvidenceJob(input: {
     strategy.value.pack.id !== pack.id ||
     strategy.value.pack.version !== pack.version ||
     strategy.value.pack.contentDigest !== pack.contentDigest ||
-    strategy.value.bindingRevision !== strategy.value.lastActiveSnapshot?.bindingRevision ||
-    strategy.value.lastActiveSnapshot?.packContentDigest !== pack.contentDigest ||
-    strategy.value.lastActiveSnapshot?.packId !== pack.id ||
-    strategy.value.lastActiveSnapshot?.packVersion !== pack.version ||
-    strategy.value.lastActiveSnapshot?.workspaceGeneration !== input.workspaceGeneration ||
+    strategy.value.bindingRevision !== activeSnapshot?.bindingRevision ||
+    activeSnapshot?.packContentDigest !== pack.contentDigest ||
+    activeSnapshot?.packId !== pack.id ||
+    activeSnapshot?.packVersion !== pack.version ||
+    activeSnapshot?.workspaceGeneration !== input.workspaceGeneration ||
     strategy.value.effectiveCapabilityManifestRevision !== capabilities.revision ||
-    strategy.value.lastActiveSnapshot?.capabilityManifestRevision !== capabilities.revision ||
+    activeSnapshot?.capabilityManifestRevision !== capabilities.revision ||
     !capabilities.value.workerModelPolicy.allowedModelIds.includes(input.modelId) ||
     definition.limits.maximumOutputTokens > capabilities.value.workerModelPolicy.maximumOutputTokens ||
     pack.availability !== "available" ||
@@ -310,6 +313,7 @@ export async function prepareWorkspaceSemanticEvidenceJob(input: {
   } catch {
     return authorizationError();
   }
+  const exactFactPublicUrl = projection.fact.provenance.publicUrl === artifact.canonicalPublicUrl;
   if (
     projection.sourceId !== input.projectionReference.sourceId ||
     !source || !capabilitySource || !("contractDigest" in capabilitySource) ||
@@ -318,7 +322,7 @@ export async function prepareWorkspaceSemanticEvidenceJob(input: {
     JSON.stringify(capabilitySource.allowedOrigins) !== JSON.stringify(source.allowedOrigins) ||
     (source.sourceInstanceId !== undefined &&
       source.sourceInstanceId !== projection.fact.sourceInstanceId) ||
-    !source.allowedOrigins.includes(artifactOrigin) ||
+    (!source.allowedOrigins.includes(artifactOrigin) && !exactFactPublicUrl) ||
     artifact.accessClassification !== "public" ||
     artifact.sourceInstanceId !== projection.fact.sourceInstanceId ||
     artifact.sourceInstanceId !== projection.projection.sourceInstanceId ||
