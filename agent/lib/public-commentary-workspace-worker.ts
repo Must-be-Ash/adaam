@@ -273,7 +273,16 @@ export async function drainPublicCommentaryHybridWorker(
         event.data.result.kind === "tool-result" &&
         event.data.result.toolName === "complete_hybrid_evidence_job" &&
         event.data.result.isError !== true
-      ) completed = true;
+      ) {
+        completed = true;
+        // The completion tool has already durably committed the candidate.
+        // Do not wait for Eve's trailing session stream to settle: the parent
+        // workspace occurrence must still validate and accept that candidate
+        // within its own bounded execution window. Releasing the reader (and
+        // deliberately not cancelling it) lets the child session settle on
+        // its own without generating a post-completion cancellation failure.
+        break;
+      }
       if (
         event.type === "step.failed" ||
         event.type === "turn.failed" ||

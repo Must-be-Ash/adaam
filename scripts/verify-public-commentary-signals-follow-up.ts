@@ -140,7 +140,8 @@ await drainPublicCommentaryHybridWorker(workerRequest, async () => ({
       },
       type: "action.result",
     });
-    controller.close();
+    // Production Eve streams can remain open while the child session settles.
+    // The durable completion result must release the parent immediately.
   } }),
   sessionId: "session.completed",
 }) as never);
