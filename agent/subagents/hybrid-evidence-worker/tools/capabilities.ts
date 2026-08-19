@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import {
   requireHybridEvidenceWorkerAuth,
-  verifyHybridEvidenceWorkerToken,
+  decodeHybridEvidenceWorkerToken,
 } from "../../../lib/hybrid-evidence-auth";
 import { createHybridEvidenceWorkerArtifactStore } from "../../../lib/hybrid-evidence-artifact-store";
 import { evidenceLocatorSchema } from "../../../lib/hybrid-evidence-schema";
@@ -110,7 +110,7 @@ function resolve(ctx: {
   const token = ctx.session.auth.current?.attributes.hybrid_evidence_runtime_token;
   if (typeof token !== "string") return null;
   try {
-    const envelope = verifyHybridEvidenceWorkerToken(token);
+    const envelope = decodeHybridEvidenceWorkerToken(token);
     if (envelope.scope.kind === "workspace") {
       return {
         read_hybrid_evidence_bundle: readHybridEvidenceBundle,

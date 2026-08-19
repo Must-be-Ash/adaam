@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { SessionAuthContext, SessionContext } from "eve/context";
 import { defineTool, toolOutput, toolOutputPart } from "eve/tools";
 import { z } from "zod";
@@ -11,11 +13,11 @@ import { createNodeTargetedWorkflowRuntime } from "@adaam/eve-workspace-runtime-
 
 import {
   createHybridEvidenceWorkerEnvelope,
+  decodeHybridEvidenceWorkerToken,
   HYBRID_EVIDENCE_WORKER_MAX_RUNTIME_MS,
   hybridEvidenceWorkerExecutionAuth,
   requireHybridEvidenceWorkerAuth,
   signHybridEvidenceWorkerEnvelope,
-  verifyHybridEvidenceWorkerToken,
 } from "./hybrid-evidence-auth";
 import type { HybridEvidenceWorkerArtifactReader } from "./hybrid-evidence-artifact-store";
 import { createHybridEvidenceWorkerArtifactStore } from "./hybrid-evidence-artifact-store";
@@ -135,9 +137,16 @@ export function resolveHybridEvidenceWorkerAuthEnvironment(
 function assertEnvelopeMatchesRecord(
   envelope: ReturnType<typeof requireHybridEvidenceWorkerAuth>["envelope"],
   record: HybridEvidenceJobRecord | null,
+  token: string,
   allowedStates: readonly HybridEvidenceJobRecord["job"]["state"][] = ["running"],
 ): asserts record is HybridEvidenceJobRecord {
-  if (!record || record.job.jobId !== envelope.jobId || !allowedStates.includes(record.job.state)) {
+  const claimTokenDigest = createHash("sha256").update(token).digest("hex");
+  if (
+    !record ||
+    record.claimTokenDigest !== claimTokenDigest ||
+    record.job.jobId !== envelope.jobId ||
+    !allowedStates.includes(record.job.state)
+  ) {
     throw new HybridEvidenceWorkerError("job_conflict");
   }
   assertHybridEvidenceJobCurrent({
@@ -285,14 +294,14 @@ export async function readHybridEvidenceSliceForWorker(input: {
   environment?: NodeJS.ProcessEnv;
   locator: EvidenceLocator;
 }) {
-  const { envelope } = requireHybridEvidenceWorkerAuth(input.ctx, {}, input.environment);
+  const { envelope, token } = requireHybridEvidenceWorkerAuth(input.ctx, {}, input.environment);
   const locator = evidenceLocatorSchema.parse(input.locator);
   const locatorDigest = digestHybridEvidenceValue(locator);
   if (!envelope.allowedLocators.some((allowed) => digestHybridEvidenceValue(allowed) === locatorDigest)) {
     throw new HybridEvidenceWorkerError("capability_denied");
   }
   const record = await readHybridEvidenceJob(envelope.jobId, input.clients.jobs);
-  assertEnvelopeMatchesRecord(envelope, record);
+  assertEnvelopeMatchesRecord(envelope, record, token);
   if (locator.kind === "source_fact") {
     const fact = await (input.clients.readSourceFact ?? readPublicSourceFactRevision)(
       locator.factRevisionId,
@@ -429,7 +438,7 @@ export async function completeHybridEvidenceJobForWorker(input: {
 }) {
   const { envelope, token } = requireHybridEvidenceWorkerAuth(input.ctx, {}, input.environment);
   const record = await readHybridEvidenceJob(envelope.jobId, input.jobClient);
-  assertEnvelopeMatchesRecord(envelope, record, ["running", "completed"]);
+  assertEnvelopeMatchesRecord(envelope, record, token, ["running", "completed"]);
   const completed = await completeHybridEvidenceJob({
     candidate: workerCandidateSchema.parse(input.candidate),
     claimToken: token,
@@ -506,7 +515,9 @@ export async function startHybridEvidenceWorkerTask(
 ): Promise<RunHandle> {
   const token = request.auth.attributes.hybrid_evidence_runtime_token;
   if (typeof token !== "string") throw new HybridEvidenceWorkerError("capability_denied");
-  const envelope = verifyHybridEvidenceWorkerToken(token);
+  const envelope = decodeHybridEvidenceWorkerToken(token);
+  const record = await readHybridEvidenceJob(envelope.jobId);
+  assertEnvelopeMatchesRecord(envelope, record, token);
   const runtime = await createNodeTargetedWorkflowRuntime({
     // The bridge's published declaration predates Eve's durable `{ id }` model
     // reference; the compiled runtime receives that canonical form directly.

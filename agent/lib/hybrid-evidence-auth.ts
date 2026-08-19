@@ -166,6 +166,21 @@ export function verifyHybridEvidenceWorkerToken(
   if (supplied.byteLength !== expected.byteLength || !timingSafeEqual(supplied, expected)) {
     return invalid();
   }
+  return decodeHybridEvidenceWorkerToken(token, options);
+}
+
+/**
+ * Decode a worker capability after its opaque token has crossed Eve's durable
+ * workflow boundary. Authorization at that boundary is the token's durable
+ * SHA-256 claim plus the immutable job fields, not access to the issuer's
+ * process-local signing secret.
+ */
+export function decodeHybridEvidenceWorkerToken(
+  token: string,
+  options: { now?: Date } = {},
+): HybridEvidenceWorkerEnvelope {
+  const match = /^([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/u.exec(token);
+  if (!match) return invalid();
   let value: unknown;
   try {
     value = JSON.parse(Buffer.from(match[1]!, "base64url").toString("utf8"));
@@ -218,7 +233,11 @@ export function requireHybridEvidenceWorkerAuth(
   ) return invalid();
   const token = stringAttribute(auth, "hybrid_evidence_runtime_token");
   if (!token) return invalid();
-  const envelope = verifyHybridEvidenceWorkerToken(token, {}, environment);
+  // Eve may resume the worker in a different durable invocation from the
+  // issuer. Decode here; each privileged worker operation compares the opaque
+  // token's digest with the claim stored when the signed job was issued.
+  void environment;
+  const envelope = decodeHybridEvidenceWorkerToken(token);
   if (
     auth.principalId !== `hybrid-evidence-job:${envelope.jobId}` ||
     auth.subject !== envelope.jobId ||
