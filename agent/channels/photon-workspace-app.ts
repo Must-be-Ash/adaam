@@ -750,6 +750,21 @@ export function workspaceHtml(nonce: string, origin: string): string {
     }
     .actions button.primary { grid-column: 1 / -1; }
     .workspace.active .actions button { grid-column: span 3; }
+    .inline-confirmation {
+      padding: 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 11px;
+      background: var(--surface-raised);
+    }
+    .inline-confirmation p,
+    .action-feedback {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .inline-confirmation .actions { margin-top: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .inline-confirmation .actions button { grid-column: auto; }
+    .action-feedback { color: var(--muted); }
     .note {
       margin: -2px 0 0;
       padding-top: 19px;
@@ -846,6 +861,8 @@ export function workspaceHtml(nonce: string, origin: string): string {
       const packActivate = document.querySelector("#pack-activate");
       let state = null;
       let busy = false;
+      let pendingConfirmation = null;
+      let actionFeedback = null;
 
       showArchivedInput.addEventListener("change", () => render());
 
@@ -884,6 +901,34 @@ export function workspaceHtml(nonce: string, origin: string): string {
         element.disabled = busy;
         element.addEventListener("click", () => void handleRuntime(action, workspace, monitor));
         return element;
+      };
+
+      const inlineConfirmation = (action, workspace) => {
+        const container = document.createElement("div");
+        container.className = "inline-confirmation";
+        container.setAttribute("role", "group");
+        const message = document.createElement("p");
+        message.textContent = action === "start-fresh"
+          ? "Start fresh in “" + workspace.name + "”? This clears its model history and keeps the session name."
+          : "Archive “" + workspace.name + "”? You can restore it later.";
+        const controls = document.createElement("div");
+        controls.className = "actions";
+        const confirmButton = document.createElement("button");
+        confirmButton.type = "button";
+        confirmButton.className = action === "archive" ? "danger" : "primary";
+        confirmButton.textContent = action === "start-fresh" ? "Confirm start fresh" : "Confirm archive";
+        confirmButton.addEventListener("click", () => void confirmAction(action, workspace));
+        requestAnimationFrame(() => confirmButton.focus());
+        const cancelButton = document.createElement("button");
+        cancelButton.type = "button";
+        cancelButton.textContent = "Cancel";
+        cancelButton.addEventListener("click", () => {
+          pendingConfirmation = null;
+          render();
+        });
+        controls.append(confirmButton, cancelButton);
+        container.append(message, controls);
+        return container;
       };
 
       const formatSchedule = (schedule) => {
@@ -1630,6 +1675,16 @@ export function workspaceHtml(nonce: string, origin: string): string {
             }
           }
           card.append(titleRow, runtime, actions);
+          if (pendingConfirmation?.workspaceId === workspace.id) {
+            card.append(inlineConfirmation(pendingConfirmation.action, workspace));
+          }
+          if (actionFeedback?.workspaceId === workspace.id) {
+            const feedback = document.createElement("p");
+            feedback.className = "action-feedback";
+            feedback.setAttribute("role", "status");
+            feedback.textContent = actionFeedback.message;
+            card.append(feedback);
+          }
           list.append(card);
         }
       };
@@ -1663,7 +1718,12 @@ export function workspaceHtml(nonce: string, origin: string): string {
 
       const mutate = async (action) => {
         if (!state || busy) return false;
+        const targetName = "workspaceId" in action
+          ? state.workspaces.find((workspace) => workspace.id === action.workspaceId)?.name
+          : null;
         busy = true;
+        pendingConfirmation = null;
+        actionFeedback = null;
         render();
         status.classList.remove("error");
         status.textContent = "Updating sessions…";
@@ -1674,10 +1734,24 @@ export function workspaceHtml(nonce: string, origin: string): string {
             managerToken: token,
             requestId: crypto.randomUUID(),
           });
-          status.textContent = state.cleanupPending
-            ? "Fresh routing is active, but cleanup of the prior session could not be confirmed."
-            : "Active session: " +
+          if (action.action === "start-fresh") {
+            status.textContent = state.cleanupPending
+              ? "Started fresh in “" + targetName + "”; cleanup of the prior session could not be confirmed."
+              : "Started fresh in “" + targetName + "”.";
+            actionFeedback = {
+              message: state.cleanupPending
+                ? "Fresh start active. Prior cleanup could not be confirmed."
+                : "Fresh start complete.",
+              workspaceId: action.workspaceId,
+            };
+          } else if (action.action === "archive") {
+            status.textContent = "Archived “" + targetName + "”.";
+          } else if (action.action === "restore") {
+            status.textContent = "Restored “" + targetName + "”.";
+          } else {
+            status.textContent = "Active session: " +
               state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId).name;
+          }
           return true;
         } catch (error) {
           const message =
@@ -1827,12 +1901,17 @@ export function workspaceHtml(nonce: string, origin: string): string {
           await mutate({ action, name, workspaceId: workspace.id });
           return;
         }
-        if (action === "start-fresh") {
-          if (!confirm("Clear model history for “" + workspace.name + "”? The session name is retained.")) return;
+        if (action === "start-fresh" || action === "archive") {
+          pendingConfirmation = { action, workspaceId: workspace.id };
+          actionFeedback = null;
+          render();
+          return;
         }
-        if (action === "archive") {
-          if (!confirm("Archive “" + workspace.name + "”?")) return;
-        }
+        await mutate({ action, workspaceId: workspace.id });
+      };
+
+      const confirmAction = async (action, workspace) => {
+        pendingConfirmation = null;
         await mutate({ action, workspaceId: workspace.id });
       };
 
