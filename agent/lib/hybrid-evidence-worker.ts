@@ -116,6 +116,13 @@ export class HybridEvidenceWorkerError extends Error {
   }
 }
 
+export function resolveHybridEvidenceWorkerIssuedAt(input: {
+  readonly issuedAt?: Date;
+  readonly now?: Date;
+}): Date {
+  return input.issuedAt ?? input.now ?? new Date();
+}
+
 function assertEnvelopeMatchesRecord(
   envelope: ReturnType<typeof requireHybridEvidenceWorkerAuth>["envelope"],
   record: HybridEvidenceJobRecord | null,
@@ -181,6 +188,7 @@ export async function prepareHybridEvidenceWorkerRun(input: {
   budget: HybridEvidenceBudgetReservation;
   definition: HybridEvidenceJobDefinition;
   environment?: NodeJS.ProcessEnv;
+  issuedAt?: Date;
   inputProjection?: unknown;
   jobClient?: HybridEvidenceJobStoreClient;
   locators: readonly EvidenceLocator[];
@@ -188,7 +196,11 @@ export async function prepareHybridEvidenceWorkerRun(input: {
   prepared: HybridEvidenceJobRecord;
   reasoning?: HybridModelReasoning;
 }): Promise<PreparedHybridEvidenceWorkerRun> {
-  const now = input.now ?? new Date();
+  // Occurrence timestamps can legitimately predate dispatch after scheduler
+  // recovery. Capability validity must start when the worker is dispatched,
+  // while the job and evidence records retain their deterministic timestamps.
+  const recordNow = input.now ?? input.issuedAt ?? new Date();
+  const issuedAt = resolveHybridEvidenceWorkerIssuedAt(input);
   const definition = hybridEvidenceJobDefinitionSchema.parse(input.definition);
   const locators = input.locators.map((locator) => evidenceLocatorSchema.parse(locator));
   if (
@@ -203,7 +215,7 @@ export async function prepareHybridEvidenceWorkerRun(input: {
       digestHybridEvidenceValue(input.inputProjection) !== input.prepared.job.inputProjectionDigest)
   ) throw new HybridEvidenceWorkerError("input_projection_invalid");
   const expiresAt = new Date(
-    now.getTime() + Math.min(
+    issuedAt.getTime() + Math.min(
       definition.limits.maximumRuntimeMs,
       HYBRID_EVIDENCE_WORKER_MAX_RUNTIME_MS,
     ),
@@ -212,7 +224,7 @@ export async function prepareHybridEvidenceWorkerRun(input: {
     budget: input.budget,
     capabilityRevision: HYBRID_EVIDENCE_CAPABILITY_REVISION,
     expiresAt,
-    issuedAt: now,
+    issuedAt,
     job: input.prepared.job,
     locators,
     reasoning: input.reasoning,
@@ -226,7 +238,7 @@ export async function prepareHybridEvidenceWorkerRun(input: {
   const record = await claimHybridEvidenceJob({
     claimToken: token,
     jobId: input.prepared.job.jobId,
-    now,
+    now: recordNow,
   }, input.jobClient);
   const prompt = typedPrompt({
     definition,

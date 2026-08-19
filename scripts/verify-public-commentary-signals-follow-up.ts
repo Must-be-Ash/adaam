@@ -8,6 +8,7 @@ import {
 } from "../agent/lib/strategy-pack-service";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import { createXTimelineRequest } from "../agent/lib/x-public-statement-adapter";
+import { resolveHybridEvidenceWorkerIssuedAt } from "../agent/lib/hybrid-evidence-worker";
 import { resolveReviewedPublicSource } from "../agent/lib/public-source-registry";
 import {
   createCommentarySemanticDefinition,
@@ -41,6 +42,12 @@ assert.equal(
 const latestPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.3.0" });
 assert.ok(latestPack);
 const semanticDefinition = createCommentarySemanticDefinition(["openai/gpt-5.4"]);
+const scheduledAt = new Date("2026-08-19T18:23:12.551Z");
+const dispatchedAt = new Date("2026-08-19T18:24:31.000Z");
+assert.equal(resolveHybridEvidenceWorkerIssuedAt({
+  issuedAt: dispatchedAt,
+  now: scheduledAt,
+}).toISOString(), dispatchedAt.toISOString());
 assert.equal(semanticDefinition.definitionVersion, "1.1.0");
 assert.equal(semanticDefinition.limits.maximumInputTokens, 12_000);
 assert.deepEqual(latestPack.evidenceContracts.find(({ id }) =>
