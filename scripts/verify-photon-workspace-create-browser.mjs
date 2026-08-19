@@ -17,6 +17,13 @@ try {
 
 const { chromium } = playwright;
 const managerToken = "A".repeat(43);
+const managerHtml = workspaceHtml("browser-nonce", "http://manager.test");
+const managerScript = managerHtml.match(/<script[^>]*>([\s\S]*?)<\/script>/u)?.[1];
+assert.ok(managerScript, "manager HTML includes its inline application script");
+assert.doesNotThrow(
+  () => new Function(managerScript),
+  "generated manager JavaScript must remain syntactically valid",
+);
 const mainId = "123e4567-e89b-42d3-a456-426614174000";
 const demoId = "223e4567-e89b-42d3-a456-426614174000";
 const workspace = (id, name, status = "active") => ({
@@ -58,7 +65,7 @@ try {
     const url = new URL(request.url());
     if (request.resourceType() === "document") {
       await route.fulfill({
-        body: workspaceHtml("browser-nonce", "http://manager.test"),
+        body: managerHtml,
         contentType: "text/html",
       });
       return;

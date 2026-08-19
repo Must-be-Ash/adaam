@@ -879,14 +879,14 @@ export function workspaceHtml(nonce: string, origin: string): string {
       );
 
       const configurationChoiceLabel = (value) => {
-        const cadence = /^(minutes|hours)_(\d+)$/.exec(value);
+        const cadence = /^(minutes|hours)_(\\d+)$/.exec(value);
         if (cadence) return cadence[2] + " " + cadence[1];
         return value === "off" ? "Off" : value.replaceAll("_", " ");
       };
 
       const configurationValue = (field, control) => {
         if (field.kind === "bounded_text_list" || field.kind === "impact_hypothesis_list") {
-          return [...new Set(control.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))].sort();
+          return [...new Set(control.value.split(/\\r?\\n/).map((item) => item.trim()).filter(Boolean))].sort();
         }
         if (field.kind === "daily_local_times" || field.kind === "bounded_token_list") {
           return [...new Set(control.value.split(",").map((item) =>
@@ -979,7 +979,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
               : field.kind === "daily_local_times" ? 512 : 80;
             control.autocomplete = "off";
             control.value = Array.isArray(field.default)
-              ? field.default.join(["bounded_text_list", "impact_hypothesis_list"].includes(field.kind) ? "\n" : ", ")
+              ? field.default.join(["bounded_text_list", "impact_hypothesis_list"].includes(field.kind) ? "\\n" : ", ")
               : field.default;
             if (field.kind === "bounded_token_list") {
               control.placeholder = "Add tickers or tokens, separated by commas (for example INTC, BTC)";
@@ -1153,10 +1153,10 @@ export function workspaceHtml(nonce: string, origin: string): string {
           const existing = current[field.key] === undefined ? field.default : current[field.key];
           const choices = "allowedValues" in field ? " (" + field.allowedValues.join(", ") + ")" : "";
           const answer = prompt(field.label + choices,
-            Array.isArray(existing) ? existing.join(["bounded_text_list", "impact_hypothesis_list"].includes(field.kind) ? "\n" : ", ") : existing);
+            Array.isArray(existing) ? existing.join(["bounded_text_list", "impact_hypothesis_list"].includes(field.kind) ? "\\n" : ", ") : existing);
           if (answer === null) return null;
           if (["bounded_token_list", "bounded_text_list", "impact_hypothesis_list", "daily_local_times", "canonical_id_list", "catalog_id_list"].includes(field.kind)) {
-            const separator = ["bounded_text_list", "impact_hypothesis_list"].includes(field.kind) ? /\r?\n/ : ",";
+            const separator = ["bounded_text_list", "impact_hypothesis_list"].includes(field.kind) ? /\\r?\\n/ : ",";
             configuration[field.key] = [...new Set(answer.split(separator)
               .map((value) => field.kind === "bounded_token_list" ? value.trim().toUpperCase() : value.trim())
               .filter(Boolean))].sort();
