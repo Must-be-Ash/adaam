@@ -36,6 +36,7 @@ const envelopeSchema = z.object({
   }).strict(),
   capabilityRevision: z.number().int().positive(),
   definitionDigest: digestSchema,
+  definitionId: z.string().min(3).max(200),
   definitionVersion: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u),
   evidenceLimits: z.object({
     maximumBytes: z.number().int().positive().max(10 * 1_024 * 1_024),
@@ -163,6 +164,7 @@ export function createHybridEvidenceWorkerEnvelope(input: {
     },
     capabilityRevision: input.capabilityRevision,
     definitionDigest: input.job.definitionDigest,
+    definitionId: input.job.definitionId,
     definitionVersion: input.job.definitionVersion,
     evidenceLimits: input.evidenceLimits,
     expiresAt: input.expiresAt.toISOString(),

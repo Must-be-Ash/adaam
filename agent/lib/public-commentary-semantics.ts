@@ -76,6 +76,20 @@ export const commentarySemanticPayloadSchema = z.object({
   }).strict(),
 }).strict();
 
+/**
+ * Give the model completion tool the same concrete contract enforced by the
+ * production validator. The generic hybrid worker schema intentionally cannot
+ * describe definition-specific fields, and exposing only that generic schema
+ * allowed structurally plausible but unusable candidates to consume an
+ * attempt before being quarantined.
+ */
+export const commentarySemanticWorkerCandidateSchema = z.object({
+  citations: z.array(textCitationSchema).min(1).max(64),
+  disposition: z.enum(["accepted", "abstained"]),
+  fields: commentarySemanticPayloadSchema,
+  unknowns: z.array(z.string().trim().min(1).max(200)).max(32),
+}).strict();
+
 export type CommentarySemanticPayload = z.infer<typeof commentarySemanticPayloadSchema>;
 
 const projectionSchema = z.object({

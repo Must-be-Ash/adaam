@@ -16,6 +16,10 @@ import {
   readHybridEvidenceSliceForWorker,
   workerCandidateSchema,
 } from "../../../lib/hybrid-evidence-worker";
+import {
+  COMMENTARY_SEMANTIC_DEFINITION_ID,
+  commentarySemanticWorkerCandidateSchema,
+} from "../../../lib/public-commentary-semantics";
 import { resolveHybridEvidenceWorkerFixtureClients } from "../../../lib/hybrid-evidence-worker-test-fixtures";
 
 const readHybridEvidenceSlice = defineTool({
@@ -43,6 +47,18 @@ const readHybridEvidenceSlice = defineTool({
 const completeHybridEvidenceJob = defineTool({
   description: "Commit the one bounded structured candidate for this signed hybrid-evidence job.",
   inputSchema: workerCandidateSchema,
+  async execute(candidate, ctx) {
+    return completeHybridEvidenceJobForWorker({
+      candidate,
+      ctx,
+      jobClient: resolveHybridEvidenceWorkerFixtureClients()?.jobs,
+    });
+  },
+});
+
+const completePublicCommentaryEvidenceJob = defineTool({
+  description: "Commit one public-commentary candidate using the exact registered semantic contract.",
+  inputSchema: commentarySemanticWorkerCandidateSchema,
   async execute(candidate, ctx) {
     return completeHybridEvidenceJobForWorker({
       candidate,
@@ -115,7 +131,9 @@ function resolve(ctx: {
     if (envelope.scope.kind === "workspace") {
       return {
         read_hybrid_evidence_bundle: readHybridEvidenceBundle,
-        complete_hybrid_evidence_job: completeHybridEvidenceJob,
+        complete_hybrid_evidence_job: envelope.definitionId === COMMENTARY_SEMANTIC_DEFINITION_ID
+          ? completePublicCommentaryEvidenceJob
+          : completeHybridEvidenceJob,
       };
     }
     if (

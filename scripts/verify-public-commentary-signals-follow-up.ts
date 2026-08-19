@@ -14,6 +14,7 @@ import {
 } from "../agent/lib/hybrid-evidence-worker";
 import { resolveReviewedPublicSource } from "../agent/lib/public-source-registry";
 import {
+  commentarySemanticWorkerCandidateSchema,
   createCommentarySemanticDefinition,
   extractCommentaryMetadata,
   recoverNamedAssetCommentaryMetadata,
@@ -63,6 +64,41 @@ assert.equal(
 );
 assert.equal(semanticDefinition.definitionVersion, "1.1.0");
 assert.equal(semanticDefinition.limits.maximumInputTokens, 12_000);
+const semanticCitation = {
+  artifactDigest: "a".repeat(64),
+  end: 4,
+  kind: "text_span" as const,
+  spanDigest: "b".repeat(64),
+  start: 0,
+};
+assert.equal(commentarySemanticWorkerCandidateSchema.safeParse({
+  citations: [semanticCitation],
+  disposition: "accepted",
+  fields: { facts: ["not the registered assertion shape"] },
+  unknowns: [],
+}).success, false);
+assert.equal(commentarySemanticWorkerCandidateSchema.safeParse({
+  citations: [semanticCitation],
+  disposition: "accepted",
+  fields: {
+    assumptions: [],
+    confidence: "low",
+    counterevidence: [],
+    facts: [{ citations: [semanticCitation], statement: "Exact cited statement." }],
+    forecast: null,
+    horizon: "unspecified",
+    inferences: [],
+    outcome: "no_view",
+    rationale: "The evidence is insufficient for a directional view.",
+    recommendation: {
+      action: "no_view",
+      assumptions: [],
+      citations: [semanticCitation],
+      rationale: "Keep the statement visible without a research candidate.",
+    },
+  },
+  unknowns: [],
+}).success, true);
 assert.deepEqual(latestPack.evidenceContracts.find(({ id }) =>
   id === "public-commentary-semantic-interpretation"), {
   digest: semanticDefinition.definitionDigest,
