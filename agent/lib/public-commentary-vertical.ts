@@ -3,9 +3,14 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import {
+  COMMENTARY_DIRECTION_PRESERVATION_TRANSFORM,
   createCommentaryPolicyDefinition,
   decideCommentaryPolicy,
 } from "./commentary-policy";
+import {
+  classifyPublicCommentaryImpact,
+  parsePublicCommentaryImpactHypotheses,
+} from "./public-commentary-tracker";
 import {
   commentaryCorrectionSchema,
   commentaryExtractionSchema,
@@ -104,9 +109,17 @@ const publicCommentaryConfigurationSchema = z.object({
   relatedSourceSearch: z.enum(["disabled", "enabled"]),
   selectedSymbols: z.array(marketSymbolSchema).max(32),
   timezone: z.string().min(1).max(100),
-}).strict();
+}).passthrough();
 
 type PublicCommentaryConfiguration = z.infer<typeof publicCommentaryConfigurationSchema>;
+
+export const PUBLIC_COMMENTARY_TRACKER_POLICY = createCommentaryPolicyDefinition({
+  displayName: "Configured public-commentary impact hypothesis",
+  policyId: "commentary-configured-impact",
+  policyVersion: "1.0.0",
+  transformId: COMMENTARY_DIRECTION_PRESERVATION_TRANSFORM.transformId,
+  transformVersion: COMMENTARY_DIRECTION_PRESERVATION_TRANSFORM.version,
+});
 
 export function partitionPublicCommentaryStatements<T>(values: readonly T[]): readonly (readonly T[])[] {
   const batches: T[][] = [];
@@ -200,6 +213,7 @@ export async function materializePublicCommentarySignal(input: {
   readonly fastModelId: string;
   readonly frontierModelId: string;
   readonly interpretationDefinitionDigest: string;
+  readonly impactClassification?: "de_escalation" | "escalation" | "mixed" | "unclear" | null;
   readonly monitorId: string;
   readonly now?: Date;
   readonly ownerId: string;
@@ -317,6 +331,7 @@ export async function materializePublicCommentarySignal(input: {
     directionDisclosure: policy.directionDisclosure,
     extraction,
     finding,
+    impactClassification: input.impactClassification ?? null,
     interpretation: interpreted,
     ownerId: input.scope.ownerId,
     policyDisplayName: registeredPolicy.displayName,
@@ -329,12 +344,18 @@ export async function materializePublicCommentarySignal(input: {
   }, client);
   if (!eligible) return Object.freeze({ alertPresentation: null, genericFinding: null, record });
   const direction = policy.decision.researchDirection!;
+  const exactCitation = finding.citations[0]!;
+  const exactLocator = statement.textLocators[0]!;
   const whyMatched = [
+    `Exact cited statement: ${exactCitation.canonicalUrl} revision ${exactCitation.contentRevision}, span ${exactLocator.start}-${exactLocator.end}, digest ${exactLocator.spanDigest}.`,
+    `Why it matched: ${semantic.rationale}`,
+    `Classification: ${input.impactClassification ?? extraction.stance}. Possible ${extraction.targets[0]?.symbol ?? "asset"} implication: ${direction} pressure.`,
     `Direction: ${direction}.`,
-    `Rationale: ${semantic.rationale}`,
     `Confidence: ${semantic.confidence}. Horizon: ${semantic.horizon}.`,
-    `Related coverage: ${corroboration.status}.`,
-    `Primary citation: ${statement.canonicalUrl} revision ${statement.revision}.`,
+    `Uncertainty: ${semantic.assumptions.length ? semantic.assumptions.join("; ") : semantic.forecast?.risks.map(({ statement }) => statement).join("; ") || "No additional uncertainty stated."}`,
+    `Counterevidence: ${semantic.counterevidence.map(({ statement }) => statement).join("; ") || "None cited."}`,
+    `Related coverage: ${corroboration.status}. Corroboration status: ${corroboration.status}.${corroboration.status === "candidates_found" ? "" : " Warning: corroboration is weak or unavailable; the source remains visible."}`,
+    `Primary citation: ${statement.canonicalUrl} revision ${statement.revision}. The revocable source text is not copied into permanent findings or alerts.`,
     policy.directionDisclosure,
   ].join(" ");
   const source = {
@@ -466,6 +487,7 @@ export async function materializePublicCommentaryCorrection(input: {
     directionDisclosure: null,
     extraction: null,
     finding,
+    impactClassification: null,
     interpretation: null,
     statement,
   }, client);
@@ -707,7 +729,9 @@ async function runBudgetedCorroboration(input: {
 
 export function createPublicCommentaryPipeline(input: {
   readonly acquireAndProject: (request: Readonly<{
+    cadenceMinutes: PublicCommentaryConfiguration["cadenceMinutes"];
     firstRunLookback: PublicCommentaryConfiguration["firstRunLookback"];
+    pack: Readonly<{ contentDigest: string; id: string; version: string }>;
     scope: AuthorizedWorkspaceStoreScope;
     window: Readonly<{ endAt: string; startAt: string }>;
   }>) => Promise<Readonly<{
@@ -734,6 +758,7 @@ export function createPublicCommentaryPipeline(input: {
       configuration: Readonly<Record<string, unknown>>;
       configurationGeneration: number;
       environment: NodeJS.ProcessEnv;
+      initialBackfill?: boolean;
       monitorId: string;
       ownerId: string;
       pack: Readonly<{ contentDigest: string; id: string; version: string }>;
@@ -742,7 +767,9 @@ export function createPublicCommentaryPipeline(input: {
     }>) {
       const configuration = publicCommentaryConfigurationSchema.parse(request.configuration);
       const acquired = await input.acquireAndProject({
+        cadenceMinutes: configuration.cadenceMinutes,
         firstRunLookback: configuration.firstRunLookback,
+        pack: request.pack,
         scope: request.scope,
         window: request.window,
       });
@@ -769,6 +796,12 @@ export function createPublicCommentaryPipeline(input: {
         await quarantineOverflow("statements_overflow");
         throw new Error("public_commentary_occurrence_statements_overflow");
       }
+      const trackerHypotheses = request.pack.id === "public-commentary-tracker"
+        ? parsePublicCommentaryImpactHypotheses(configuration.impactHypotheses)
+        : null;
+      const trackerTopics = request.pack.id === "public-commentary-tracker" && Array.isArray(configuration.topics)
+        ? configuration.topics.filter((value): value is string => typeof value === "string")
+        : [];
       const accepted: Awaited<ReturnType<typeof materializePublicCommentarySignal>>[] = [];
       for (const batch of partitionPublicCommentaryStatements(acquired.statements)) {
         const prepared = await Promise.allSettled(batch.map(async (projected) => {
@@ -778,12 +811,35 @@ export function createPublicCommentaryPipeline(input: {
             (publicStatementRole(statement) === "reply" && configuration.includeReplies === "exclude") ||
             (publicStatementRole(statement) === "quote" && configuration.includeQuotePosts === "exclude")
           ) return null;
-          const extraction = (await extractCommentaryMetadata({
+          const extracted = (await extractCommentaryMetadata({
             environment: request.environment,
             recover: input.recoverExtraction,
             statement,
             text: projected.plaintext,
           })).extraction;
+          const impact = trackerHypotheses
+            ? classifyPublicCommentaryImpact(projected.plaintext, trackerHypotheses, trackerTopics)
+            : null;
+          const extraction = impact
+            ? (() => {
+                if (!impact.asset || !impact.pressure || impact.classification === "mixed" || impact.classification === "unclear") {
+                  return commentaryExtractionSchema.parse({
+                    ...extracted,
+                    confidence: "low",
+                    stance: "unclear",
+                    targets: [],
+                    topic: "other",
+                  });
+                }
+                return commentaryExtractionSchema.parse({
+                  ...extracted,
+                  confidence: "medium",
+                  stance: impact.pressure === "up" ? "bullish" : "bearish",
+                  targets: [{ displayName: impact.asset, symbol: impact.asset, type: "commodity" }],
+                  topic: "investment_view",
+                });
+              })()
+            : extracted;
           const targetTerms = extraction.targets.flatMap(({ displayName, symbol }) =>
             symbol ? [symbol] : [displayName]).slice(0, 8);
           const query = compileWebCorroborationQuery({
@@ -821,6 +877,7 @@ export function createPublicCommentaryPipeline(input: {
           return Object.freeze({
             corroboration,
             extraction,
+            impactClassification: impact?.classification ?? null,
             projected,
             semanticResult: semanticRun.evidence.result,
             statement,
@@ -830,7 +887,7 @@ export function createPublicCommentaryPipeline(input: {
         if (rejected) throw rejected.reason;
         for (const result of prepared) {
           if (result.status !== "fulfilled" || result.value === null) continue;
-          const { corroboration, extraction, projected, semanticResult, statement } = result.value;
+          const { corroboration, extraction, impactClassification, projected, semanticResult, statement } = result.value;
           accepted.push(await materializePublicCommentarySignal({
             configuration: {
               alerts: configuration.alerts,
@@ -845,11 +902,14 @@ export function createPublicCommentaryPipeline(input: {
             fastModelId: request.environment.EVE_HYBRID_FAST_MODEL_ID ?? "anthropic/claude-haiku-4.5",
             frontierModelId: semanticResult.model.modelId,
             interpretationDefinitionDigest: semanticResult.definition.definitionDigest,
+            impactClassification,
             monitorId: request.monitorId,
             now: new Date(request.window.endAt),
             ownerId: request.ownerId,
             pack: request.pack,
-            policy: input.policy,
+            policy: request.pack.id === "public-commentary-tracker"
+              ? PUBLIC_COMMENTARY_TRACKER_POLICY
+              : input.policy,
             extraction,
             plaintext: projected.plaintext,
             scope: request.scope,
@@ -884,8 +944,19 @@ export function createPublicCommentaryPipeline(input: {
           values.findIndex((candidate) => candidate.sourceId === source.sourceId && candidate.canonicalUrl === source.canonicalUrl) === index),
         summary: aggregateSummary,
       });
+      const firstAlert = allMaterial.find(({ alertPresentation }) => alertPresentation !== null)?.alertPresentation ?? null;
+      const alertPresentations = request.initialBackfill
+        ? firstAlert ? [{
+            key: "initial-summary",
+            title: `${request.pack.id === "inverse-cramer" ? "Inverse Cramer" : "Public Commentary Tracker"} · initial ${configuration.cadenceMinutes.replaceAll("_", " ")} summary`,
+            whyMatched: `${allMaterial.length} eligible statement${allMaterial.length === 1 ? "" : "s"} in the initial cadence interval; one summary alert was emitted to avoid spam. ${firstAlert.whyMatched}`,
+          }] : []
+        : allMaterial.flatMap(({ alertPresentation, record }) => alertPresentation
+          ? [{ key: record.finding.statementRevisionId, ...alertPresentation }]
+          : []);
       return Object.freeze({
-        alertPresentation: allMaterial.find(({ alertPresentation }) => alertPresentation !== null)?.alertPresentation ?? null,
+        alertPresentation: alertPresentations[0] ?? null,
+        alertPresentations: Object.freeze(alertPresentations.map((presentation) => Object.freeze(presentation))),
         analyzedStatements: acquired.statements.length,
         checkpoint: acquired.checkpoint,
         finding,

@@ -679,3 +679,12 @@ When an item is completed:
 3. Remove stale claims from `README.md` or `NORTH_STAR.md`.
 4. Record the exact verification that passed.
 5. Do not add speculative work unless the owner explicitly parks or requests it.
+# Proposed: Public Commentary Strategy Builder
+
+The shipped `public-commentary-tracker@1.0.0` is deliberately structured and
+bounded. A future owner-authored builder could support additional reviewed
+people, first-party sources, and registered policy transforms only after adding
+source-contract review, sensitive-event classification, policy registration,
+eval generation, and provenance-safe upgrade semantics. Do not turn the
+current template into a free-form arbitrary-person/arbitrary-policy execution
+surface.

@@ -4,6 +4,7 @@ import {
   listLatestStrategyPacks,
   resolveStrategyPackIntervalMinutes,
   resolveStrategyPackConfiguration,
+  resolveStrategyPackInitialMonitorDueAt,
 } from "../agent/lib/strategy-pack-service";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import { createXTimelineRequest } from "../agent/lib/x-public-statement-adapter";
@@ -19,30 +20,56 @@ import {
 import { decideCommentaryPolicy } from "../agent/lib/commentary-policy";
 import {
   resolvePublicCommentaryCommitInitialBaseline,
-  resolvePublicCommentaryFirstRunLookbackStart,
+  resolvePublicCommentaryFirstRunStart,
 } from "../agent/lib/public-commentary-workspace-worker";
 import {
   digestPublicCommentaryValue,
   publicStatementSchema,
 } from "../agent/lib/public-commentary-schema";
+import { resolveWorkspaceWorkerEvaluationWindow } from "../agent/lib/workspace-worker-runner";
 
 const versions = strategyPackCatalog.entries
   .filter(({ id }) => id === "inverse-cramer")
   .map(({ version }) => version);
-assert.deepEqual(versions, ["1.0.0", "1.1.0"]);
+assert.deepEqual(versions, ["1.0.0", "1.1.0", "1.2.0"]);
 assert.equal(
   strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.0.0" })?.contentDigest,
   "c84defe79be9b72da6deaa7e7c3bc9254fa27f1286a79073b260ee4b90bcb434",
 );
-const latestPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.1.0" });
+const latestPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.2.0" });
 assert.ok(latestPack);
 assert.deepEqual(
   listLatestStrategyPacks({ environment: {
     EVE_STRATEGY_PACK_CATALOG_ENABLED: "1",
     EVE_WORKSPACE_STATE_ENABLED: "1",
   } }).packs.filter(({ id }) => id === "inverse-cramer").map(({ version }) => version),
-  ["1.1.0"],
+  ["1.2.0"],
 );
+assert.equal(latestPack.configuration.some(({ key }) => key === "firstRunLookback"), false);
+assert.equal(resolveStrategyPackInitialMonitorDueAt({
+  activate: true,
+  now: new Date("2026-08-18T02:00:00.000Z"),
+  packId: "inverse-cramer",
+  scheduledAt: "2026-08-18T14:00:00.000Z",
+}), "2026-08-18T02:00:00.000Z");
+assert.deepEqual(resolveWorkspaceWorkerEvaluationWindow({
+  monitor: {
+    createdAt: "2026-08-18T02:00:00.000Z",
+    managedBy: { packId: "inverse-cramer", packVersion: "1.2.0" },
+    schedule: { anchor: "2026-08-18T02:00:00.000Z", everyMinutes: 720, kind: "interval" },
+    sourceCheckpoint: { contentDigest: null, watermark: null },
+  },
+  occurrence: { scheduledFor: "2026-08-18T02:00:00.000Z" },
+} as never), {
+  endAt: "2026-08-18T02:00:00.000Z",
+  startAt: "2026-08-17T14:00:00.000Z",
+});
+assert.equal(resolveStrategyPackInitialMonitorDueAt({
+  activate: true,
+  now: new Date("2026-08-18T02:00:00.000Z"),
+  packId: "public-commentary-tracker",
+  scheduledAt: "2026-08-18T14:00:00.000Z",
+}), "2026-08-18T02:00:00.000Z");
 
 for (const [value, minutes] of [
   ["minutes_10", 10], ["minutes_15", 15], ["minutes_30", 30], ["minutes_60", 60],
@@ -163,31 +190,39 @@ assert.equal(decideCommentaryPolicy({
   policy: INVERSE_CRAMER_POLICY,
 }).decision.decision, "no_view");
 
-assert.equal(resolvePublicCommentaryFirstRunLookbackStart({
+assert.equal(resolvePublicCommentaryFirstRunStart({
   activationWatermark: "2026-08-18T00:30:00.000Z",
-  firstRunLookback: "hours_6",
+  cadence: "hours_6",
   initialBaseline: true,
+  firstRunLookback: undefined,
+  pack: { id: "inverse-cramer", version: "1.2.0" },
   windowEndAt: "2026-08-18T02:00:00.000Z",
-}), "2026-08-18T00:30:00.000Z");
-assert.equal(resolvePublicCommentaryFirstRunLookbackStart({
+}), "2026-08-17T20:00:00.000Z");
+assert.equal(resolvePublicCommentaryFirstRunStart({
   activationWatermark: "2026-08-17T00:00:00.000Z",
-  firstRunLookback: "hours_1",
+  cadence: "hours_12",
   initialBaseline: true,
+  firstRunLookback: undefined,
+  pack: { id: "inverse-cramer", version: "1.2.0" },
   windowEndAt: "2026-08-18T02:00:00.000Z",
-}), "2026-08-18T01:00:00.000Z");
-assert.equal(resolvePublicCommentaryFirstRunLookbackStart({
+}), "2026-08-17T14:00:00.000Z");
+assert.equal(resolvePublicCommentaryFirstRunStart({
   activationWatermark: "2026-08-17T00:00:00.000Z",
+  cadence: "hours_1",
+  initialBaseline: true,
   firstRunLookback: "off",
-  initialBaseline: true,
+  pack: { id: "inverse-cramer", version: "1.1.0" },
   windowEndAt: "2026-08-18T02:00:00.000Z",
 }), null);
 assert.equal(resolvePublicCommentaryCommitInitialBaseline({
   checkpointOnlyBaseline: true,
+  cadenceDerivedBackfill: false,
   firstRunLookback: "off",
 }), true);
 assert.equal(resolvePublicCommentaryCommitInitialBaseline({
   checkpointOnlyBaseline: true,
-  firstRunLookback: "hours_1",
+  cadenceDerivedBackfill: true,
+  firstRunLookback: undefined,
 }), false);
 
 const watchlist = latestPack.configuration.find(({ key }) => key === "selectedSymbols");

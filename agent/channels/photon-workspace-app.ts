@@ -23,6 +23,7 @@ import {
   listLatestStrategyPacks,
   mintSpectrumStrategyPackMutationIdentity,
   removeStrategyPackWorkspaceFromSelection,
+  resolveStrategyPackInitialMonitorDueAt,
   strategyPackMutationConfigurationSchema,
   StrategyPackServiceError,
   verifySpectrumStrategyPackMutationIdentity,
@@ -32,6 +33,8 @@ import { workspaceMonitorManagerSourcesSchema } from "../lib/workspace-monitor-i
 import {
   formatWorkspacePaidMicros,
   readWorkspaceBudgetLedger,
+  reconcileWorkspaceRunBudget,
+  reserveWorkspaceRunBudget,
   summarizeWorkspaceBudgetUsage,
 } from "../lib/workspace-budget-ledger";
 import { nextWorkspaceMonitorOccurrence } from "../lib/workspace-monitor-schedule";
@@ -56,6 +59,11 @@ import {
 } from "../lib/workspace-state-store";
 import { authorizePhotonWorkspaceControlPlaneStore } from "../lib/workspace-store-authorization";
 import { requireWorkspaceMonitorWrites } from "../lib/workspace-runtime-flags";
+import {
+  mintXPublicIdentityResolutionReceipt,
+  normalizeXPublicProfile,
+  resolveXPublicIdentity,
+} from "../lib/x-public-identity";
 import {
   PhotonIngressRolloutError,
   resolvePhotonIngressRolloutMode,
@@ -87,6 +95,15 @@ const PHOTON_SESSION_MANIFEST_PATH = `${PHOTON_WORKSPACE_APP_PATH}/${PHOTON_APP_
 const stateRequestSchema = z.object({
   managerToken: tokenSchema,
 });
+const xIdentityRequestSchema = z.object({
+  managerToken: tokenSchema,
+  profile: z.string().trim().min(1).max(200),
+  requestId: requestIdSchema,
+}).strict();
+const xIdentityCache = new Map<string, Readonly<{
+  expiresAt: number;
+  identity: Awaited<ReturnType<typeof resolveXPublicIdentity>>;
+}>>();
 const packMutationIdentitySchema = z.object({
   actionId: z.string().min(1).max(200),
   expectedRegistryRevision: z.number().int().nonnegative(),
@@ -119,6 +136,13 @@ export const photonStrategyPackActionRequestSchema = z.discriminatedUnion("actio
     packVersion: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u),
     sourceWorkspaceGeneration: z.number().int().positive(),
     sourceWorkspaceId: workspaceIdSchema,
+    xIdentityResolutionReceipt: z.object({
+      identityDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+      issuedAt: z.string().datetime({ offset: true }),
+      principalId: z.string().min(1).max(200),
+      signature: z.string().regex(/^[a-f0-9]{64}$/u),
+      threadId: z.string().min(1).max(200),
+    }).strict().optional(),
   }).strict(),
   z.object({
     ...packLifecycleRequestBase,
@@ -399,16 +423,21 @@ async function publicManagerState(
           }))
         : null;
       const publicCommentary = inspectedStrategyPack?.state === "active" &&
-          inspectedStrategyPack.pack?.id === "inverse-cramer"
+          (inspectedStrategyPack.pack?.id === "inverse-cramer" ||
+            inspectedStrategyPack.pack?.id === "public-commentary-tracker")
         ? await (() => {
             const monitorRecord = monitors.find((candidate) =>
-              candidate.managedBy?.packId === "inverse-cramer");
+              candidate.managedBy?.packId === inspectedStrategyPack.pack?.id);
             const monitor = publicMonitors.find((candidate) =>
               candidate.monitorId === monitorRecord?.monitorId);
             const health = monitor?.publicSourceHealth[0];
+            const usesX = monitorRecord?.sources.some(({ canonicalUrl }) => canonicalUrl.startsWith("https://api.x.com/")) ?? false;
             return readPublicCommentaryWorkspacePresentation({
-              credentialStatus: process.env.X_BEARER_TOKEN ? "configured" : "missing",
-              estimatedCostUsd: "0.005000",
+              costMode: usesX ? "pay_per_use" : "first_party",
+              credentialStatus: usesX
+                ? process.env.X_BEARER_TOKEN ? "configured" : "missing"
+                : "not_required",
+              estimatedCostUsd: usesX ? "0.005000" : "0.000000",
               monitor: monitorRecord ? {
                 lifecycleState: monitorRecord.lifecycleState,
                 sourceCheckpoint: monitorRecord.sourceCheckpoint,
@@ -564,12 +593,12 @@ export function workspaceHtml(nonce: string, origin: string): string {
       border-radius: 16px;
       background: var(--surface);
     }
-    input, select, button {
+    input, select, textarea, button {
       min-height: 44px;
       border-radius: 12px;
       font: inherit;
     }
-    input, select {
+    input, select, textarea {
       width: 100%;
       min-width: 0;
       border: 1px solid transparent;
@@ -580,8 +609,9 @@ export function workspaceHtml(nonce: string, origin: string): string {
       outline: none;
     }
     select { appearance: none; }
-    input::placeholder { color: var(--muted); opacity: .78; }
-    input:focus-visible, select:focus-visible {
+    textarea { min-height: 88px; padding-block: 10px; resize: vertical; }
+    input::placeholder, textarea::placeholder { color: var(--muted); opacity: .78; }
+    input:focus-visible, select:focus-visible, textarea:focus-visible {
       border-color: #5a5a5a;
       background: #252525;
     }
@@ -596,7 +626,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
       font-size: 12px;
       font-weight: 650;
     }
-    .pack-field input, .pack-field select {
+    .pack-field input, .pack-field select, .pack-field textarea {
       border-color: var(--line);
       background: #252525;
     }
@@ -855,10 +885,16 @@ export function workspaceHtml(nonce: string, origin: string): string {
       };
 
       const configurationValue = (field, control) => {
+        if (field.kind === "bounded_text_list" || field.kind === "impact_hypothesis_list") {
+          return [...new Set(control.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))].sort();
+        }
         if (field.kind === "daily_local_times" || field.kind === "bounded_token_list") {
           return [...new Set(control.value.split(",").map((item) =>
             field.kind === "bounded_token_list" ? item.trim().toUpperCase() : item.trim()
           ).filter(Boolean))].sort();
+        }
+        if (field.kind === "x_public_identity") {
+          try { return JSON.parse(control.value); } catch { return []; }
         }
         if (field.kind === "canonical_id_list" || field.kind === "catalog_id_list") {
           return Array.from(control.selectedOptions).map((option) => option.value).sort();
@@ -899,7 +935,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
         for (const field of pack.configuration) {
           const wrapper = document.createElement("div");
           wrapper.className = "pack-field" +
-            (["bounded_token_list", "canonical_id_list", "catalog_id_list"].includes(field.kind) ? " full" : "");
+            (["bounded_token_list", "bounded_text", "bounded_text_list", "impact_hypothesis_list", "x_public_identity", "canonical_id_list", "catalog_id_list"].includes(field.kind) ? " full" : "");
           const label = document.createElement("label");
           const id = "pack-configuration-" + field.key;
           label.htmlFor = id;
@@ -927,13 +963,24 @@ export function workspaceHtml(nonce: string, origin: string): string {
                 : field.default === choice.id;
               control.append(option);
             }
-          } else {
+          } else if (field.kind === "x_public_identity") {
             control = document.createElement("input");
-            control.maxLength = field.kind === "bounded_token_list"
+            control.type = "hidden";
+            control.value = JSON.stringify(field.default);
+          } else {
+            control = ["bounded_text_list", "impact_hypothesis_list"].includes(field.kind)
+              ? document.createElement("textarea")
+              : document.createElement("input");
+            control.maxLength = field.kind === "bounded_text"
+              ? field.maximumCharacters
+              : field.kind === "bounded_token_list"
               ? field.maximumItems * 18
+              : ["bounded_text_list", "impact_hypothesis_list"].includes(field.kind) ? 2_000
               : field.kind === "daily_local_times" ? 512 : 80;
             control.autocomplete = "off";
-            control.value = Array.isArray(field.default) ? field.default.join(", ") : field.default;
+            control.value = Array.isArray(field.default)
+              ? field.default.join(["bounded_text_list", "impact_hypothesis_list"].includes(field.kind) ? "\n" : ", ")
+              : field.default;
             if (field.kind === "bounded_token_list") {
               control.placeholder = "Add tickers or tokens, separated by commas (for example INTC, BTC)";
               control.setAttribute("aria-description", "Enter up to " + field.maximumItems + " market symbols. Leave empty for all resolved assets.");
@@ -943,7 +990,75 @@ export function workspaceHtml(nonce: string, origin: string): string {
           control.dataset.configurationKey = field.key;
           control.title = field.description;
           control.required = field.required && (!("minimumItems" in field) || field.minimumItems > 0);
-          if (field.kind === "catalog_id_list") {
+          if (field.kind === "x_public_identity") {
+            const profile = document.createElement("input");
+            const resolveButton = document.createElement("button");
+            const confirmation = document.createElement("label");
+            const checkbox = document.createElement("input");
+            const identityStatus = document.createElement("p");
+            const initial = field.default;
+            profile.type = "url";
+            profile.value = initial[0];
+            profile.placeholder = "https://x.com/handle or @handle";
+            profile.autocomplete = "off";
+            resolveButton.type = "button";
+            resolveButton.textContent = "Resolve public X identity";
+            checkbox.type = "checkbox";
+            checkbox.checked = false;
+            checkbox.disabled = true;
+            confirmation.append(checkbox, document.createTextNode(" Confirm this display name and pinned numeric X user ID"));
+            identityStatus.className = "runtime-detail";
+            identityStatus.setAttribute("role", "status");
+            identityStatus.textContent = "Preset suggestion: " + initial[2] + " · @" + initial[1] + " · resolve before confirmation.";
+            let resolutionEpoch = 0;
+            const invalidate = () => {
+              resolutionEpoch += 1;
+              checkbox.checked = false;
+              checkbox.disabled = true;
+              delete control.dataset.resolved;
+              delete control.dataset.resolutionReceipt;
+              control.value = "[]";
+              control.setCustomValidity("Resolve and confirm the pinned X identity before saving.");
+            };
+            profile.addEventListener("input", invalidate);
+            checkbox.addEventListener("change", () => {
+              const resolved = control.dataset.resolved ? JSON.parse(control.dataset.resolved) : null;
+              control.value = checkbox.checked && resolved
+                ? JSON.stringify([...resolved.slice(0, 4), "confirmed"])
+                : "[]";
+              control.setCustomValidity(checkbox.checked ? "" : "Confirm the pinned X identity before saving.");
+            });
+            control.value = "[]";
+            resolveButton.addEventListener("click", async () => {
+              const requestedProfile = profile.value;
+              const requestEpoch = ++resolutionEpoch;
+              resolveButton.disabled = true;
+              identityStatus.textContent = "Resolving public X identity…";
+              try {
+                const resolved = await request("${PHOTON_WORKSPACE_APP_PATH}/resolve-x-identity", {
+                  managerToken: token,
+                  profile: requestedProfile,
+                  requestId: crypto.randomUUID(),
+                });
+                if (requestEpoch !== resolutionEpoch || profile.value !== requestedProfile) return;
+                const value = [resolved.profileUrl, resolved.username, resolved.displayName, resolved.numericUserId, "confirmed"];
+                profile.value = resolved.profileUrl;
+                control.dataset.resolved = JSON.stringify(value);
+                control.dataset.resolutionReceipt = JSON.stringify(resolved.resolutionReceipt);
+                checkbox.checked = false;
+                checkbox.disabled = false;
+                control.value = "[]";
+                control.setCustomValidity("Confirm the pinned X identity before saving.");
+                identityStatus.textContent = resolved.displayName + " · @" + resolved.username + " · X user ID " + resolved.numericUserId;
+              } catch (error) {
+                invalidate();
+                identityStatus.textContent = error instanceof Error ? error.message : "Identity resolution failed.";
+              } finally {
+                resolveButton.disabled = false;
+              }
+            });
+            wrapper.append(label, profile, resolveButton, identityStatus, confirmation, control);
+          } else if (field.kind === "catalog_id_list") {
             const search = document.createElement("input");
             const selectorStatus = document.createElement("p");
             const statusId = id + "-status";
@@ -1038,12 +1153,15 @@ export function workspaceHtml(nonce: string, origin: string): string {
           const existing = current[field.key] === undefined ? field.default : current[field.key];
           const choices = "allowedValues" in field ? " (" + field.allowedValues.join(", ") + ")" : "";
           const answer = prompt(field.label + choices,
-            Array.isArray(existing) ? existing.join(", ") : existing);
+            Array.isArray(existing) ? existing.join(["bounded_text_list", "impact_hypothesis_list"].includes(field.kind) ? "\n" : ", ") : existing);
           if (answer === null) return null;
-          if (["bounded_token_list", "daily_local_times", "canonical_id_list", "catalog_id_list"].includes(field.kind)) {
-            configuration[field.key] = [...new Set(answer.split(",")
+          if (["bounded_token_list", "bounded_text_list", "impact_hypothesis_list", "daily_local_times", "canonical_id_list", "catalog_id_list"].includes(field.kind)) {
+            const separator = ["bounded_text_list", "impact_hypothesis_list"].includes(field.kind) ? /\r?\n/ : ",";
+            configuration[field.key] = [...new Set(answer.split(separator)
               .map((value) => field.kind === "bounded_token_list" ? value.trim().toUpperCase() : value.trim())
               .filter(Boolean))].sort();
+          } else if (field.kind === "x_public_identity") {
+            configuration[field.key] = existing;
           } else {
             configuration[field.key] = answer.trim();
           }
@@ -1076,6 +1194,12 @@ export function workspaceHtml(nonce: string, origin: string): string {
           ? "Health · " + strategyPack.health.status + " · maturity " + (pack?.maturity || "unknown")
           : "Unavailable · " + (strategyPack.reasonCode || "unknown reason");
         row.append(name, identity, health);
+        if (pack?.id === "inverse-cramer" && pack.version === "1.1.0") {
+          const upgrade = document.createElement("p");
+          upgrade.className = "runtime-detail";
+          upgrade.textContent = "Upgrade available · create a new Inverse Cramer session to use cadence-derived immediate backfill in 1.2.0. This historical 1.1.0 binding will not be rewritten.";
+          row.append(upgrade);
+        }
         for (const monitor of strategyPack.managedMonitors || []) {
           const managed = document.createElement("p");
           managed.className = "runtime-detail";
@@ -1322,7 +1446,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
       const render = () => {
         main.setAttribute("aria-busy", String(busy));
         list.replaceChildren();
-        for (const control of document.querySelectorAll("form input, form select, form button")) {
+        for (const control of document.querySelectorAll("form input, form select, form textarea, form button")) {
           control.disabled = busy;
         }
         if (!state) return;
@@ -1746,6 +1870,15 @@ export function workspaceHtml(nonce: string, origin: string): string {
           invalidTokenControl.control.focus();
           return;
         }
+        const unconfirmedIdentity = selected.configuration
+          .filter((field) => field.kind === "x_public_identity")
+          .map((field) => packConfigurationFields.querySelector('[data-configuration-key="' + field.key + '"]'))
+          .find((control) => configurationValue({ kind: "x_public_identity" }, control)[4] !== "confirmed");
+        if (unconfirmedIdentity) {
+          status.classList.add("error");
+          status.textContent = "Resolve and confirm the pinned numeric X identity before saving.";
+          return;
+        }
         await packMutate({
           action: "strategy-pack-create",
           activateMonitorResourceIds: packActivate.checked
@@ -1757,6 +1890,12 @@ export function workspaceHtml(nonce: string, origin: string): string {
           packVersion: selected.version,
           sourceWorkspaceGeneration: sourceWorkspace.generation,
           sourceWorkspaceId: sourceWorkspace.id,
+          xIdentityResolutionReceipt: (() => {
+            const control = packConfigurationFields.querySelector('[data-configuration-key="xIdentity"]');
+            return control && control.dataset.resolutionReceipt
+              ? JSON.parse(control.dataset.resolutionReceipt)
+              : undefined;
+          })(),
         });
       });
 
@@ -1940,6 +2079,76 @@ export default defineChannel({
         }
       },
     ),
+    POST(`${PHOTON_WORKSPACE_APP_PATH}/resolve-x-identity`, async (request) => {
+      const body = await readJson(request, xIdentityRequestSchema, 2 * 1_024);
+      if (body instanceof Response) return body;
+      const managerScope = await getPhotonWorkspaceManagerScope(body.managerToken);
+      if (!managerScope) return json({ error: "This session manager link expired." }, 410);
+      try {
+        requirePhotonOwnerAccess({ principalId: managerScope.principalId, resource: "manager" });
+        const requestClaim = await claimPhotonWorkspaceManagerRequest(body.managerToken, body.requestId);
+        if (requestClaim === "unavailable") return json({ error: "This session manager link expired." }, 410);
+        if (requestClaim === "replayed") return json({ error: "That identity request was already consumed." }, 409);
+        const normalized = normalizeXPublicProfile(body.profile);
+        const cacheKey = `${managerScope.principalId}\0${normalized.username.toLocaleLowerCase("en-US")}`;
+        const now = new Date();
+        let identity = xIdentityCache.get(cacheKey)?.expiresAt && xIdentityCache.get(cacheKey)!.expiresAt > now.getTime()
+          ? xIdentityCache.get(cacheKey)!.identity
+          : null;
+        if (!identity) {
+          const state = await getPhotonWorkspaceManagerState(body.managerToken);
+          if (!state) return json({ error: "This session manager link expired." }, 410);
+          const active = state.activeWorkspace;
+          const scope = authorizePhotonWorkspaceControlPlaneStore({
+            principalId: managerScope.principalId,
+            resource: "manager",
+            workspaceId: active.id,
+          });
+          const budget = await readWorkspaceDocument("budget", scope);
+          if (!budget) throw new Error("public_commentary_budget_policy_unresolved");
+          const runId = `x-identity.${body.requestId}`;
+          await reserveWorkspaceRunBudget({
+            inputTokens: 0,
+            kind: "paid_source_attempt",
+            now,
+            outputTokens: 0,
+            paidCostCeiling: { amount: "0.005000", kind: "known" },
+            policy: budget.value,
+            policyRevision: budget.revision,
+            runId,
+            scope,
+          });
+          try {
+            identity = await resolveXPublicIdentity({ profile: body.profile });
+            await reconcileWorkspaceRunBudget({
+              actualInputTokens: 0,
+              actualOutputTokens: 0,
+              actualPaidCost: "0.005000",
+              now,
+              outcome: "reconciled",
+              runId,
+              scope,
+            });
+          } catch (error) {
+            await reconcileWorkspaceRunBudget({ now, outcome: "uncertain", runId, scope });
+            throw error;
+          }
+          xIdentityCache.set(cacheKey, Object.freeze({ expiresAt: now.getTime() + 15 * 60_000, identity }));
+          while (xIdentityCache.size > 64) xIdentityCache.delete(xIdentityCache.keys().next().value!);
+        }
+        return json({
+          ...identity,
+          resolutionReceipt: mintXPublicIdentityResolutionReceipt(identity, {
+            issuedAt: now,
+            principalId: managerScope.principalId,
+            threadId: managerScope.threadId,
+          }, strategyPackActionSecret()),
+        });
+      } catch (error) {
+        if (error instanceof OwnerIdentityDeniedError) return json({ error: "This identity is not authorized." }, 403);
+        return json({ error: error instanceof Error ? error.message : "x_identity_unavailable" }, 422);
+      }
+    }),
     POST(`${PHOTON_WORKSPACE_APP_PATH}/pack-action`, async (request) => {
       const body = await readJson(request, photonStrategyPackActionRequestSchema, 16 * 1_024);
       if (body instanceof Response) return body;
@@ -2148,7 +2357,12 @@ export default defineChannel({
               patch: {
                 lastErrorCode: null,
                 lifecycleState: "enabled",
-                nextOccurrenceAt: next.scheduledAt,
+                nextOccurrenceAt: resolveStrategyPackInitialMonitorDueAt({
+                  activate: monitor.sourceCheckpoint.contentDigest === null,
+                  now,
+                  packId: monitor.managedBy?.packId ?? "",
+                  scheduledAt: next.scheduledAt,
+                }),
                 pauseReason: null,
                 pausedAt: null,
               },

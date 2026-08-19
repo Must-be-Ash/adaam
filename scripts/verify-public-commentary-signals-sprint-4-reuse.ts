@@ -122,10 +122,12 @@ const workspaceId = "44444444-4444-4444-8444-444444444444";
 const environment = { EVE_DEPLOYMENT_OWNER_ID: ownerId };
 const scope = authorizeDeploymentWorkspaceStore({ ownerId, workspaceId }, environment);
 const store = new MemoryStore();
+const trackerPack = strategyPackCatalog.resolve({ id: "public-commentary-tracker", version: "1.0.0" });
+assert.ok(trackerPack);
 const pack = Object.freeze({
-  contentDigest: digestPublicCommentaryValue(["temporary-official-web-acceptance", attestation.captureDigest]),
-  id: "temporary-official-web-acceptance",
-  version: "0.0.0",
+  contentDigest: trackerPack.contentDigest,
+  id: trackerPack.id,
+  version: trackerPack.version,
 });
 const now = new Date(capture.capturedAt);
 const publisherId = createHash("sha256").update("https://www.whitehouse.gov/").digest("hex");
@@ -328,7 +330,11 @@ const pipeline = createPublicCommentaryPipeline({
 });
 const configuration = {
   alerts: "enabled" as const,
-  cadenceMinutes: "minutes_10" as const,
+  cadenceMinutes: "hours_12" as const,
+  impactHypotheses: [
+    "de-escalation, ceasefire, or peace|OIL|down",
+    "escalation or worsening conflict|OIL|up",
+  ],
   includeQuotePosts: "exclude" as const,
   includeReplies: "exclude" as const,
   minimumConfidence: "medium" as const,
@@ -346,6 +352,7 @@ const request = {
     EVE_HYBRID_FRONTIER_MODEL_ID: "openai/gpt-5.4",
     EVE_HYBRID_FRONTIER_MODEL_REASONING: "high",
   },
+  initialBackfill: true,
   monitorId: "monitor.acceptance.official-web",
   ownerId,
   pack,
@@ -357,8 +364,15 @@ assert.equal(result.analyzedStatements, 3);
 assert.ok(result.finding);
 assert.equal(result.finding.factIdentities.length, 2);
 assert.ok(result.alertPresentation);
+assert.equal(result.alertPresentations?.length, 1);
+assert.match(result.alertPresentation.title, /initial hours 12 summary/iu);
+assert.match(result.alertPresentation.whyMatched, /one summary alert was emitted/iu);
+assert.match(result.alertPresentation.whyMatched, /Exact cited statement:/u);
+assert.doesNotMatch(result.alertPresentation.whyMatched, /maximum pressure against Iran/u);
 const replay = await pipeline.run(request);
 assert.equal(replay.finding?.summary, result.finding.summary);
+const laterOccurrence = await pipeline.run({ ...request, initialBackfill: false });
+assert.equal(laterOccurrence.alertPresentations?.length, 2, "post-backfill qualifying statements receive normal per-statement alerts");
 
 for (const projected of statements) {
   const finding = await readPublicCommentaryFindingByStatementRevision(scope, projected.statementRevisionId, store);
@@ -367,7 +381,7 @@ for (const projected of statements) {
   assert.equal(finding.finding.materiality.alertEligible, projected.fixture.expectedResearchDirection !== null);
   assert.equal(finding.source.adapterId, "official-web-signed-capture");
   assert.equal(finding.source.canonicalUrl, projected.fixture.canonicalUrl);
-  assert.equal(finding.policyDisplayName, "Escalation-to-oil research");
+  assert.equal(finding.policyDisplayName, "Configured public-commentary impact hypothesis");
 }
 
 const escalation = statements.find(({ fixture }) => fixture.id === "escalation")!;
@@ -380,8 +394,10 @@ assert.ok(escalationFinding);
 const discussed = await readPublicCommentaryFindingExplanation({
   findingId: escalationFinding.finding.findingId,
   scope,
-}, store);
+}, store, { client: store, encryptionKey });
 assert.equal(discussed.findingId, escalationFinding.finding.findingId);
+assert.equal(discussed.exactStatement, escalation.plaintext);
+assert.equal(discussed.impactClassification, "escalation");
 const isolatedScope = authorizeDeploymentWorkspaceStore({
   ownerId,
   workspaceId: "44444444-4444-4444-8444-555555555555",
@@ -412,7 +428,7 @@ const correction = await materializePublicCommentaryCorrection({
   sourceRevision: 2,
 }, store);
 assert.equal(correction.record.finding.outcome, "retracted");
-assert.equal(correction.alertPresentation.title, "Escalation-to-oil research · source correction");
+assert.equal(correction.alertPresentation.title, "Configured public-commentary impact hypothesis · source correction");
 assert.equal(correction.record.source.origin, "https://www.whitehouse.gov");
 const manage = await readPublicCommentaryWorkspacePresentation({
   credentialStatus: "configured",

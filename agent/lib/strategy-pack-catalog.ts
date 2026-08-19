@@ -22,11 +22,15 @@ export interface ModelSafeStrategyPackSummary {
     readonly key: string;
     readonly kind:
       | "bounded_enum"
+      | "bounded_text"
+      | "bounded_text_list"
       | "bounded_token_list"
       | "canonical_id_list"
       | "catalog_id_list"
       | "daily_local_times"
-      | "iana_timezone";
+      | "iana_timezone"
+      | "impact_hypothesis_list"
+      | "x_public_identity";
     readonly label: string;
     readonly required: boolean;
   }[];

@@ -851,6 +851,47 @@ correction/purge acceptance proves revocable content remains purgeable across
 acquisition rollback. Production execution, Exa, and alert delivery therefore
 remain off by default at landing.
 
+### Focused scheduling and reusable-tracker follow-up — completed 2026-08-18
+
+- [x] Published immutable `inverse-cramer@1.2.0`; 1.0.0 and 1.1.0 remain
+  byte-preserved and exact-version resolvable. The creation catalog shows only
+  1.2.0, while existing 1.1.0 bindings display a recreate-to-upgrade path and
+  are never silently rewritten.
+- [x] Removed first-run lookback from the 1.2 creation contract. First enable
+  is immediately due and derives `start_time` from cadence; later X reads use
+  durable `since_id`. Incomplete bounded pagination does not commit the
+  checkpoint, and backlog processing retains deterministic batches of eight.
+- [x] Limited the initial cadence interval to one cited summary alert at most,
+  while later qualifying statement revisions retain normal deduplicated alerts
+  and edit/deletion correction behavior.
+- [x] Published `public-commentary-tracker@1.0.0` over the same Spec 4C worker,
+  evidence, model, budgets, findings, alerts, scheduling, Discuss, and Manage
+  paths. Its owner contract includes confirmed numeric X identity, objective,
+  topics, structured outcome/asset/pressure hypotheses, cadence, optional
+  asset filter, thresholds, reply/quote controls, Exa, and alerts.
+- [x] Added a fail-closed current-contract gate. Ordinary approved public-
+  statement research resolves to X `GET /2/users/{id}/tweets`. The Trump–Iran
+  Oil preset does not query X because current X restricted-use terms prohibit
+  sensitive-event monitoring without written approval; it uses the official
+  White House Briefings & Statements feed instead. Reviewed 2026-08-18 against
+  the current [X Developer Agreement](https://docs.x.com/developer-terms/agreement),
+  [restricted-use rules](https://docs.x.com/developer-terms/restricted-use-cases),
+  and official [user-post timeline contract](https://docs.x.com/x-api/users/get-posts).
+- [x] Added bounded first-party web acquisition with immutable public-statement
+  facts, encrypted revocable evidence, correction revisions, workspace
+  projection, durable checkpointing, replay, and explicit weak-corroboration
+  warnings. Mixed, unclear, irrelevant, or ambiguous claims abstain; no order
+  or position-size path exists.
+- [x] Focused fixtures cover Cramer and Trump configurations, immediate
+  interval-derived backfill, continuation, pagination/backlog bounds,
+  deduplication, edit/deletion correction, identity/policy isolation, one
+  initial summary alert, Discuss/Manage presentation, and official-source
+  replay.
+
+The broader arbitrary-person/arbitrary-policy Public Commentary Strategy
+Builder remains a separate proposal; this follow-up ships only the bounded
+structured tracker template.
+
 Exit: the complete second strategy is independently reviewed, passes one final
 relevant regression gate and both Cramer and Trump reuse acceptances, rolls back
 safely, is documented, and lands on GitHub `main` under the owner's explicit

@@ -29,6 +29,7 @@ import {
 } from "./public-source-acquisition-store";
 import { coordinatePublicSourceOccurrence } from "./public-source-coordinator";
 import { resolveReviewedPublicSource } from "./public-source-registry";
+import { createOfficialWebStatementFetch } from "./official-web-statement-adapter";
 import {
   projectPublicSourceAcquisition,
   type AuthorizedPublicSourceProjection,
@@ -55,7 +56,6 @@ import {
   readRevocableEvidencePayload,
 } from "./revocable-evidence-store";
 import { INVERSE_CRAMER_EVALUATION_TOOL_ID } from "./strategy-pack-reference-catalog";
-import { X_PUBLIC_STATEMENTS_SOURCE_ID } from "./strategy-pack-reference-catalog";
 import { strategyPackCatalog } from "./strategy-pack-catalog";
 import { strategyPackIntervalMinutes } from "./strategy-pack-schema";
 import {
@@ -113,6 +113,7 @@ type WorkerContext = Parameters<typeof requireWorkspaceWorkerAuth>[0];
 export interface PublicCommentaryPipelineResult {
   readonly acknowledgeDurableCommit?: () => Promise<void>;
   readonly alertPresentation: { readonly title: string; readonly whyMatched: string } | null;
+  readonly alertPresentations?: readonly Readonly<{ key: string; title: string; whyMatched: string }>[];
   readonly analyzedStatements: number;
   readonly checkpoint: Readonly<{ readonly contentDigest: string; readonly watermark: string }>;
   readonly finding: WorkspaceFindingCandidate | null;
@@ -149,9 +150,10 @@ export interface PublicCommentaryWorkspaceWorkerClients extends WorkspaceWorkerC
       configuration: Readonly<Record<string, unknown>>;
       configurationGeneration: number;
       environment: NodeJS.ProcessEnv;
+      initialBackfill?: boolean;
       monitorId: string;
       ownerId: string;
-      pack: Readonly<{ contentDigest: string; id: "inverse-cramer"; version: string }>;
+      pack: Readonly<{ contentDigest: string; id: "inverse-cramer" | "public-commentary-tracker"; version: string }>;
       scope: ReturnType<typeof authorizeWorkspaceWorkerStore>;
       window: Readonly<{ endAt: string; startAt: string }>;
     }>): Promise<PublicCommentaryPipelineResult>;
@@ -194,30 +196,61 @@ function resolveXEvidence(
   });
 }
 
+function usesCadenceDerivedBackfill(pack: Readonly<{ id: string; version: string }>): boolean {
+  return pack.id === "public-commentary-tracker" ||
+    (pack.id === "inverse-cramer" && pack.version !== "1.0.0" && pack.version !== "1.1.0");
+}
+
+export function resolvePublicCommentaryFirstRunStart(input: {
+  readonly activationWatermark?: string | null;
+  readonly cadence: string;
+  readonly initialBaseline: boolean;
+  readonly legacyFirstRunLookback?: "off" | "hours_1" | "hours_6" | "hours_12" | "hours_24";
+  readonly pack: Readonly<{ id: string; version: string }>;
+  readonly windowEndAt: string;
+}): string | null {
+  if (!input.initialBaseline) return null;
+  const cadenceDerived = usesCadenceDerivedBackfill(input.pack);
+  const interval = cadenceDerived ? input.cadence : input.legacyFirstRunLookback;
+  if (!interval || interval === "off") return null;
+  if (!input.activationWatermark) {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_monitor_invalid");
+  }
+  const lookbackMinutes = strategyPackIntervalMinutes(interval);
+  const end = Date.parse(input.windowEndAt);
+  const activation = Date.parse(input.activationWatermark);
+  if (lookbackMinutes === null || !Number.isFinite(end) || !Number.isFinite(activation) || activation > end) {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_monitor_invalid");
+  }
+  return new Date(cadenceDerived
+    ? end - lookbackMinutes * 60_000
+    : Math.max(activation, end - lookbackMinutes * 60_000)).toISOString();
+}
+
+/** @deprecated Historical 1.1.0 compatibility wrapper. */
 export function resolvePublicCommentaryFirstRunLookbackStart(input: {
   readonly activationWatermark?: string | null;
   readonly firstRunLookback: "off" | "hours_1" | "hours_6" | "hours_12" | "hours_24";
   readonly initialBaseline: boolean;
   readonly windowEndAt: string;
 }): string | null {
-  if (!input.initialBaseline || input.firstRunLookback === "off") return null;
-  if (!input.activationWatermark) {
-    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_monitor_invalid");
-  }
-  const lookbackMinutes = strategyPackIntervalMinutes(input.firstRunLookback);
-  const end = Date.parse(input.windowEndAt);
-  const activation = Date.parse(input.activationWatermark);
-  if (lookbackMinutes === null || !Number.isFinite(end) || !Number.isFinite(activation) || activation > end) {
-    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_monitor_invalid");
-  }
-  return new Date(Math.max(activation, end - lookbackMinutes * 60_000)).toISOString();
+  return resolvePublicCommentaryFirstRunStart({
+    activationWatermark: input.activationWatermark,
+    cadence: "minutes_10",
+    initialBaseline: input.initialBaseline,
+    legacyFirstRunLookback: input.firstRunLookback,
+    pack: { id: "inverse-cramer", version: "1.1.0" },
+    windowEndAt: input.windowEndAt,
+  });
 }
 
 export function resolvePublicCommentaryCommitInitialBaseline(input: Readonly<{
+  cadenceDerivedBackfill?: boolean;
   checkpointOnlyBaseline: boolean;
-  firstRunLookback: unknown;
+  firstRunLookback?: unknown;
 }>): boolean {
   return input.checkpointOnlyBaseline &&
+    input.cadenceDerivedBackfill !== true &&
     (input.firstRunLookback === undefined || input.firstRunLookback === "off");
 }
 
@@ -246,16 +279,21 @@ export function createProductionPublicCommentaryPipeline(input: {
   readonly workspaceGeneration: number;
 }) {
   const clients = input.clients;
-  const source = input.monitor.sources.find(({ sourceId }) =>
-    sourceId === X_PUBLIC_STATEMENTS_SOURCE_ID);
-  if (!source || input.monitor.sources.length !== 1) {
+  const source = input.monitor.sources.length === 1 ? input.monitor.sources[0] : null;
+  if (!source) {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_monitor_invalid");
+  }
+  const reviewedSource = resolveReviewedPublicSource(source.sourceId);
+  const xSource = reviewedSource.adapterDefinition.adapterId === "x-public-statements";
+  if (!xSource && reviewedSource.adapterDefinition.adapterId !== "official-web-statements") {
     throw new PublicCommentaryWorkspaceWorkerError("public_commentary_monitor_invalid");
   }
   const evidence = resolveXEvidence(input.environment, clients?.xEvidence);
   const artifacts = clients?.artifacts ?? createHybridEvidenceEphemeralArtifactStore();
-  const fetchResponse = clients?.fetchResponse ?? createXPublicStatementFetch({
-    environment: input.environment,
-  });
+  const fetchResponse = xSource
+    ? clients?.fetchResponse ?? createXPublicStatementFetch({ environment: input.environment })
+    : null;
+  const officialWebFetch = xSource ? null : createOfficialWebStatementFetch();
   const semanticSubjects = new Map<string, Readonly<{
     acquisitionId: string;
     factPayloadDigest: string;
@@ -264,7 +302,9 @@ export function createProductionPublicCommentaryPipeline(input: {
   }>>();
   const semanticRoute = resolveHybridTaskModelRoute("semantic_interpretation", input.environment);
   assertHybridModelRouteAllowed(semanticRoute, input.allowedModelIds);
-  const definition = createCommentarySemanticDefinition([semanticRoute.modelId]);
+  const definition = createCommentarySemanticDefinition([semanticRoute.modelId], {
+    allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
+  });
   let occurrenceCorrections: Awaited<ReturnType<typeof materializePublicCommentaryCorrection>>[] = [];
   let pendingRehydrationAcknowledgements: Readonly<{
     outcomeId: string;
@@ -272,7 +312,7 @@ export function createProductionPublicCommentaryPipeline(input: {
   }>[] = [];
 
   const pipeline = createPublicCommentaryPipeline({
-    acquireAndProject: async ({ firstRunLookback, scope, window }) => {
+    acquireAndProject: async ({ cadenceMinutes, firstRunLookback, pack, scope, window }) => {
       occurrenceCorrections = [];
       pendingRehydrationAcknowledgements = [];
       const authorized = await authorizeWorkspaceSourceFetch({
@@ -284,7 +324,7 @@ export function createProductionPublicCommentaryPipeline(input: {
       const budget = await readWorkspaceDocument("budget", scope, clients?.state);
       if (!budget) throw new Error("public_commentary_budget_policy_unresolved");
       const timelineReservationId = `x-timeline.${createHash("sha256").update(input.runId).digest("hex")}`;
-      const timelineReservation = await reserveWorkspaceRunBudget({
+      const timelineReservation = xSource ? await reserveWorkspaceRunBudget({
         inputTokens: 0,
         kind: "paid_source_attempt",
         now: input.now,
@@ -294,7 +334,7 @@ export function createProductionPublicCommentaryPipeline(input: {
         policyRevision: budget.revision,
         runId: timelineReservationId,
         scope,
-      }, clients?.semantic?.budget);
+      }, clients?.semantic?.budget) : null;
       await reserveWorkspaceSourceAttempt({
         now: input.now,
         runId: input.runId,
@@ -302,11 +342,14 @@ export function createProductionPublicCommentaryPipeline(input: {
         sourceId: authorized.sourceId,
       }, clients?.sourceCoverage);
       let coordinated: Awaited<ReturnType<typeof coordinatePublicSourceOccurrence>>;
+      let firstRunStartAt: string | null = null;
       try {
-        const firstRunStartAt = resolvePublicCommentaryFirstRunLookbackStart({
+        firstRunStartAt = resolvePublicCommentaryFirstRunStart({
           activationWatermark: input.monitor.activationWatermark,
-          firstRunLookback,
+          cadence: cadenceMinutes,
           initialBaseline: isWorkspaceMonitorCheckpointOnlyBaseline(input.monitor),
+          legacyFirstRunLookback: firstRunLookback,
+          pack,
           windowEndAt: window.endAt,
         });
         coordinated = await coordinatePublicSourceOccurrence({
@@ -315,22 +358,26 @@ export function createProductionPublicCommentaryPipeline(input: {
           subscription: clients?.subscription,
         },
         environment: input.environment,
-          fetch: {
-            adapterId: "x-public-statements",
+          fetch: xSource ? {
+            adapterId: "x-public-statements" as const,
             evidence,
             firstRunStartAt,
-          fetchResponse: timelineReservation.state === "reserved"
-            ? fetchResponse
-            : async () => { throw new Error("x_paid_timeline_replay_without_receipt"); },
-        },
+            fetchResponse: timelineReservation?.state === "reserved"
+              ? fetchResponse!
+              : async () => { throw new Error("x_paid_timeline_replay_without_receipt"); },
+          } : {
+            adapterId: "official-web-statements" as const,
+            evidence,
+            fetchResponse: officialWebFetch!,
+          },
         monitor: input.monitor,
         observedAt: input.now,
         scope,
         sourceId: source.sourceId,
-        window,
+        window: !xSource && firstRunStartAt ? { endAt: window.endAt, startAt: firstRunStartAt } : window,
         });
       } catch (error) {
-        if (timelineReservation.state === "reserved") {
+        if (timelineReservation?.state === "reserved") {
           await reconcileWorkspaceRunBudget({
             now: input.now,
             outcome: "uncertain",
@@ -340,7 +387,7 @@ export function createProductionPublicCommentaryPipeline(input: {
         }
         throw error;
       }
-      if (timelineReservation.state === "reserved") {
+      if (timelineReservation?.state === "reserved") {
         if (!coordinated.xReceipt) {
           await reconcileWorkspaceRunBudget({
             now: input.now,
@@ -371,22 +418,28 @@ export function createProductionPublicCommentaryPipeline(input: {
       for (const { fact } of projections) {
         if (fact.payload.schemaVersion !== "public-statement/v1") continue;
         const statement = publicStatementSchema.parse(fact.payload.statement);
+        if (!xSource) {
+          if (statement.provider !== "web") throw new Error("official_web_statement_provider_invalid");
+          continue;
+        }
         if (statement.provider !== "x") throw new Error("x_statement_provider_invalid");
         await registerWorkspaceXPublicStatementForRehydration({
           scope,
           stablePostId: statement.stablePostId,
         }, evidence.client);
       }
-      const reviewed = resolveReviewedPublicSource(source.sourceId);
-      if (reviewed.sourceInstance.configuration.kind !== "x_public_statements_user") {
+      const reviewed = reviewedSource;
+      if (xSource && reviewed.sourceInstance.configuration.kind !== "x_public_statements_user") {
         throw new Error("x_source_configuration_invalid");
       }
-      const expectedXAuthorId = reviewed.sourceInstance.configuration.numericUserId;
-      const due = await claimDueXPublicStatementsForRehydration({
+      const expectedXAuthorId = reviewed.sourceInstance.configuration.kind === "x_public_statements_user"
+        ? reviewed.sourceInstance.configuration.numericUserId
+        : null;
+      const due = xSource ? await claimDueXPublicStatementsForRehydration({
         limit: 8,
         now: input.now,
         scope,
-      }, evidence.client);
+      }, evidence.client) : [];
       const lifecycleDigests: string[] = [];
       for (const [candidateIndex, candidate] of due.entries()) {
         let outcome: XPublicStatementRehydrationOutcome;
@@ -440,10 +493,10 @@ export function createProductionPublicCommentaryPipeline(input: {
           let response: XPublicStatementResponse;
           let billablePostReads = 0;
           try {
-            response = await fetchResponse(request);
+            response = await fetchResponse!(request);
             billablePostReads += response.status === 200 ? 1 : 0;
             const latestPostId = resolveXLatestEditPostId({
-              expectedAuthorId: expectedXAuthorId,
+              expectedAuthorId: expectedXAuthorId!,
               providerPostId,
               response,
               stablePostId: candidate.stablePostId,
@@ -458,7 +511,7 @@ export function createProductionPublicCommentaryPipeline(input: {
                 sourceId: source.sourceId,
                 url: latestRequest.url,
               }, clients?.sourceCoverage);
-              response = await fetchResponse(latestRequest);
+              response = await fetchResponse!(latestRequest);
               billablePostReads += response.status === 200 ? 1 : 0;
             }
           } catch (error) {
@@ -578,7 +631,7 @@ export function createProductionPublicCommentaryPipeline(input: {
           throw new Error("x_source_correction_projection_missing");
         }
         const replacementStatement = publicStatementSchema.parse(replacement.fact.payload.statement);
-        if (replacementStatement.lifecycle !== "edited") continue;
+        if (replacementStatement.provider === "x" && replacementStatement.lifecycle !== "edited") continue;
         const current = await readPublicCommentaryFindingByStatementRevision(
           scope,
           correction.fromRevisionId,
@@ -587,7 +640,7 @@ export function createProductionPublicCommentaryPipeline(input: {
         if (current && current.statement.lifecycle !== "edited") {
           occurrenceCorrections.push(await materializePublicCommentaryCorrection({
             current,
-            lifecycle: "edited",
+              lifecycle: "edited",
             now: input.now,
             scope,
             sourceRevision: replacementStatement.revision,
@@ -610,8 +663,8 @@ export function createProductionPublicCommentaryPipeline(input: {
         scope,
         sourceId: authorized.sourceId,
       }, clients?.sourceCoverage);
-      const lookbackActive = firstRunLookback !== "off" &&
-        isWorkspaceMonitorCheckpointOnlyBaseline(input.monitor);
+      const cadenceDerivedBackfill = firstRunStartAt !== null && usesCadenceDerivedBackfill(pack);
+      const lookbackActive = firstRunStartAt !== null && isWorkspaceMonitorCheckpointOnlyBaseline(input.monitor);
       const baseline = !lookbackActive && (coordinated.baselineEstablished ||
         isWorkspaceMonitorCheckpointOnlyBaseline(input.monitor));
       const statements = baseline ? [] : await Promise.all(projections
@@ -622,10 +675,21 @@ export function createProductionPublicCommentaryPipeline(input: {
           if (fact.payload.schemaVersion !== "public-statement/v1") return null;
           const statement = publicStatementSchema.parse(fact.payload.statement);
           if (
-            statement.publishedAt <= input.monitor.activationWatermark! ||
+            (!cadenceDerivedBackfill && statement.publishedAt <= input.monitor.activationWatermark!) ||
             (statement.lifecycle !== "final" && statement.lifecycle !== "edited") ||
             statement.contentReference === null
           ) return null;
+          if (!xSource) {
+            const lowerBound = firstRunStartAt ?? input.monitor.sourceCheckpoint.watermark ?? window.startAt;
+            if (statement.publishedAt < lowerBound) {
+              const alreadySeen = await readPublicCommentaryFindingByStatementRevision(
+                scope,
+                fact.revisionId,
+                clients?.commentaryFindings,
+              );
+              if (alreadySeen) return null;
+            }
+          }
           const plaintext = await readRevocableEvidencePayload({
             client: evidence.client,
             encryptionKey: evidence.encryptionKey,
@@ -674,7 +738,7 @@ export function createProductionPublicCommentaryPipeline(input: {
       const bytes = Buffer.from(plaintext, "utf8");
       const artifact = await artifacts.persist({
         acquisitionId: subject.acquisitionId,
-        authority: "X",
+        authority: xSource ? "X" : "The White House",
         bytes,
         canonicalPublicUrl: statement.canonicalUrl,
         mediaType: "text/plain",
@@ -721,7 +785,7 @@ export function createProductionPublicCommentaryPipeline(input: {
           now: input.now,
           pack: {
             contentDigest: input.monitor.managedBy!.packContentDigest,
-            id: "inverse-cramer",
+            id: input.monitor.managedBy!.packId,
             version: input.monitor.managedBy!.packVersion,
           },
           reasoning: semanticRoute.reasoning,
@@ -811,20 +875,6 @@ export async function evaluatePublicCommentarySignalsForWorker(input: {
   const envelope = requireWorkspaceWorkerAuth(input.ctx, {}, environment);
   const scope = authorizeWorkspaceWorkerStore(input.ctx, environment);
   const existing = await readWorkspaceRunOutcome(scope, envelope.occurrenceKey, input.clients?.finding);
-  if (existing) {
-    const outcome = await finalizeExistingWorkspaceRunOutcomeForWorker({
-      clients: input.clients,
-      ctx: input.ctx,
-      environment,
-      now,
-      outcome: existing,
-      toolId: INVERSE_CRAMER_EVALUATION_TOOL_ID,
-    });
-    return Object.freeze({ analyzedStatements: 0, outcome, replayed: true });
-  }
-  if (!resolvePublicCommentaryRuntimeFlags(environment).strategyExecutionEnabled) {
-    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_execution_disabled");
-  }
   const [capabilities, monitor, strategy] = await Promise.all([
     resolveWorkspaceWorkerCapabilitySnapshot({
       envelope,
@@ -841,15 +891,29 @@ export async function evaluatePublicCommentarySignalsForWorker(input: {
   if (
     !monitor || monitor.lifecycleState !== "enabled" ||
     monitor.configurationRevision !== envelope.configurationRevision ||
-    monitor.managedBy?.packId !== "inverse-cramer" ||
-    envelope.strategyPack?.packId !== "inverse-cramer" ||
+    !monitor.managedBy || !["inverse-cramer", "public-commentary-tracker"].includes(monitor.managedBy.packId) ||
+    envelope.strategyPack?.packId !== monitor.managedBy.packId ||
     envelope.strategyPack.packContentDigest !== monitor.managedBy.packContentDigest
   ) throw new PublicCommentaryWorkspaceWorkerError("public_commentary_monitor_invalid");
+  const sourceAdapterId = resolveReviewedPublicSource(monitor.sources[0]!.sourceId)
+    .adapterDefinition.adapterId;
+  if (!resolvePublicCommentaryRuntimeFlags(environment, {
+    adapterId: sourceAdapterId === "official-web-statements"
+      ? "official-web-statements"
+      : "x-public-statements",
+  }).strategyExecutionEnabled) {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_execution_disabled");
+  }
   if (
-    strategy?.schemaVersion !== 2 || strategy.value.pack?.id !== "inverse-cramer" ||
+    strategy?.schemaVersion !== 2 || strategy.value.pack?.id !== monitor.managedBy.packId ||
     strategy.value.pack.contentDigest !== monitor.managedBy.packContentDigest ||
     strategy.value.pack.version !== monitor.managedBy.packVersion
   ) throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+  const managedBy = monitor.managedBy;
+  const cadenceDerivedBackfill = usesCadenceDerivedBackfill({
+    id: managedBy.packId,
+    version: managedBy.packVersion,
+  });
   const pipeline = input.clients?.pipeline ?? createProductionPublicCommentaryPipeline({
     allowedModelIds: capabilities.resolved.workerModelIds,
     clients: input.clients,
@@ -864,34 +928,48 @@ export async function evaluatePublicCommentarySignalsForWorker(input: {
     configuration: strategy.value.configuration,
     configurationGeneration: envelope.strategyPack.workspaceGeneration,
     environment,
+    initialBackfill: isWorkspaceMonitorCheckpointOnlyBaseline(monitor) && cadenceDerivedBackfill,
     monitorId: monitor.monitorId,
     ownerId: scope.ownerId,
     pack: {
-      contentDigest: monitor.managedBy.packContentDigest,
-      id: "inverse-cramer",
-      version: monitor.managedBy.packVersion,
+      contentDigest: managedBy.packContentDigest,
+      id: managedBy.packId as "inverse-cramer" | "public-commentary-tracker",
+      version: managedBy.packVersion,
     },
     scope,
     window: envelope.window,
   });
   const outcome = await commitThenAcknowledgePublicCommentaryResult({
     acknowledge: result.acknowledgeDurableCommit,
-    commit: () => commitDeterministicWorkspaceEvaluationForWorker({
-      alertPresentation: result.alertPresentation ?? undefined,
-      checkpoint: result.checkpoint,
-      clients: input.clients,
-      ctx: input.ctx,
-      environment,
-      finding: result.finding,
-      initialBaseline: resolvePublicCommentaryCommitInitialBaseline({
-        checkpointOnlyBaseline: isWorkspaceMonitorCheckpointOnlyBaseline(monitor),
-        firstRunLookback: strategy.value.configuration.firstRunLookback ?? "off",
-      }),
-      now,
-      toolId: INVERSE_CRAMER_EVALUATION_TOOL_ID,
-    }),
+    commit: () => existing
+      ? finalizeExistingWorkspaceRunOutcomeForWorker({
+          alertPresentation: result.alertPresentation ?? undefined,
+          alertPresentations: result.alertPresentations,
+          clients: input.clients,
+          ctx: input.ctx,
+          environment,
+          now,
+          outcome: existing,
+          toolId: INVERSE_CRAMER_EVALUATION_TOOL_ID,
+        })
+      : commitDeterministicWorkspaceEvaluationForWorker({
+          alertPresentation: result.alertPresentation ?? undefined,
+          alertPresentations: result.alertPresentations,
+          checkpoint: result.checkpoint,
+          clients: input.clients,
+          ctx: input.ctx,
+          environment,
+          finding: result.finding,
+          initialBaseline: resolvePublicCommentaryCommitInitialBaseline({
+            cadenceDerivedBackfill,
+            checkpointOnlyBaseline: isWorkspaceMonitorCheckpointOnlyBaseline(monitor),
+            firstRunLookback: strategy.value.configuration.firstRunLookback,
+          }),
+          now,
+          toolId: INVERSE_CRAMER_EVALUATION_TOOL_ID,
+        }),
   });
-  return Object.freeze({ analyzedStatements: result.analyzedStatements, outcome, replayed: false });
+  return Object.freeze({ analyzedStatements: result.analyzedStatements, outcome, replayed: existing !== null });
 }
 
 export const evaluatePublicCommentarySignalsTool = defineTool({

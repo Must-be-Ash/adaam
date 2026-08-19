@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 
 import {
   inspectStrategyPack,
+  listLatestStrategyPacks,
   listStrategyPacks,
   strategyPackConfigureSelectionRequest,
   strategyPackCreateSelectionRequest,
@@ -15,7 +16,7 @@ const environment = {
 };
 
 const listed = listStrategyPacks({ environment });
-assert.equal(listed.count, 9);
+assert.equal(listed.count, 11);
 assert.deepEqual(
   listed.packs.map(({ id, version }) => `${id}@${version}`),
   [
@@ -27,8 +28,15 @@ assert.deepEqual(
     "earnings-call-changes@1.0.1",
     "inverse-cramer@1.0.0",
     "inverse-cramer@1.1.0",
+    "inverse-cramer@1.2.0",
     "ipo-filings@1.0.0",
+    "public-commentary-tracker@1.0.0",
   ],
+);
+assert.deepEqual(
+  listLatestStrategyPacks({ environment }).packs.filter(({ id }) =>
+    id === "inverse-cramer" || id === "public-commentary-tracker").map(({ id, version }) => `${id}@${version}`),
+  ["inverse-cramer@1.2.0", "public-commentary-tracker@1.0.0"],
 );
 assert.equal(JSON.stringify(listed).includes("Detect only newly"), false);
 
@@ -111,5 +119,8 @@ assert.match(
   /const earningsCallChangesActive[\s\S]*earningsCallChangesActive && earningsMonitor/u,
   "status reads must gate earnings source health on the active earnings strategy pack",
 );
+assert.match(managerSource, /resolutionEpoch \+= 1/u, "editing a profile invalidates any in-flight identity resolution");
+assert.match(managerSource, /requestEpoch !== resolutionEpoch \|\| profile\.value !== requestedProfile/u);
+assert.match(managerSource, /resolutionReceipt/u, "the confirmed identity carries a signed, scoped receipt into creation");
 
 console.info("Strategy-pack owner surface verification passed.");

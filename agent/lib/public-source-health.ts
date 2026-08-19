@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { PUBLIC_SOURCE_ERROR_CODES } from "./public-source-adapter-schema";
+import { PUBLIC_SOURCE_ADAPTER_IDS, PUBLIC_SOURCE_ERROR_CODES } from "./public-source-adapter-schema";
 import {
   readPublicSourceHealthRecord,
   readPublicSourceInstance,
@@ -9,6 +9,7 @@ import {
 import {
   resolveEarningsCallPublicSourceRuntimePath,
   resolveHousePublicSourceRuntimePath,
+  resolveOfficialWebStatementRuntimePath,
   resolveSecPublicSourceRuntimePath,
   resolveXPublicStatementRuntimePath,
 } from "./public-source-flags";
@@ -24,7 +25,7 @@ import {
 } from "./workspace-store-authorization";
 
 const publicSourceWorkspaceHealthSchema = z.object({
-  adapterId: z.enum(["earnings-call-transcripts", "house-financial-disclosures", "sec-latest-filings", "x-public-statements"]),
+  adapterId: z.enum(PUBLIC_SOURCE_ADAPTER_IDS),
   adapterVersion: z.string().max(40),
   cursor: z.object({
     revision: z.number().int().nonnegative(),
@@ -72,6 +73,8 @@ function runtimeState(
       ? resolveEarningsCallPublicSourceRuntimePath(environment)
       : adapterId === "x-public-statements"
         ? resolveXPublicStatementRuntimePath(environment)
+        : adapterId === "official-web-statements"
+          ? resolveOfficialWebStatementRuntimePath(environment)
         : resolveHousePublicSourceRuntimePath(environment);
   if (path === "public_source_adapter") return "enabled";
   if (path === "public_source_misconfigured") return "misconfigured";

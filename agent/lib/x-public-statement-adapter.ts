@@ -804,7 +804,20 @@ export async function runSharedXPublicStatementAcquisition(input: {
 }): Promise<SharedXPublicStatementAcquisitionResult> {
   const reviewed = resolveReviewedPublicSource(input.sourceId);
   const requestedFirstRunStartAt = input.firstRunStartAt ?? null;
-  const requestVariantDigest = xTimelineRequestVariantDigest(requestedFirstRunStartAt);
+  const sourceInstance = await ensurePublicSourceInstance(reviewed.sourceInstance, input.client);
+  let continuation = await readXPublicStatementPaginationContinuation(
+    sourceInstance.sourceInstanceId,
+    input.evidence.client,
+  );
+  if (continuation && continuation.expectedCursorRevision !== sourceInstance.cursor.revision) {
+    await clearXPublicStatementPaginationContinuation(continuation, input.evidence.client);
+    continuation = null;
+  }
+  // A bounded first-run page chain may finish in a later scheduled occurrence.
+  // Resume the durable chain with its original lower bound instead of treating
+  // the new occurrence's cursor-mode request as incompatible.
+  const firstRunStartAt = continuation?.firstRunStartAt ?? requestedFirstRunStartAt;
+  const requestVariantDigest = xTimelineRequestVariantDigest(firstRunStartAt);
   const committedForWindow = await readCommittedPublicSourceAcquisitionForWindow({
     accessClassification: "public",
     adapterDefinitionDigest: reviewed.sourceInstance.adapterDefinitionDigest,
@@ -823,35 +836,6 @@ export async function runSharedXPublicStatementAcquisition(input: {
       statements: await statementsForRevisionIds(committedForWindow.result.candidateFactRevisionIds, input.client),
     });
   }
-  const sourceInstance = await ensurePublicSourceInstance(reviewed.sourceInstance, input.client);
-  let continuation = await readXPublicStatementPaginationContinuation(
-    sourceInstance.sourceInstanceId,
-    input.evidence.client,
-  );
-  if (continuation && continuation.expectedCursorRevision !== sourceInstance.cursor.revision) {
-    await clearXPublicStatementPaginationContinuation(continuation, input.evidence.client);
-    continuation = null;
-  }
-  if (continuation && (continuation.firstRunStartAt ?? null) !== requestedFirstRunStartAt) {
-    const failure = errorAcquisition({
-      code: "pagination_bounds_exceeded",
-      observedAt: input.window.endAt,
-      receipt: replayReceipt,
-      sourceInstance,
-      window: input.window,
-    });
-    await recordPublicSourceAcquisitionOutcome(failure.result, input.client);
-    return Object.freeze({
-      acquisition: failure.result,
-      baselineEstablished: false,
-      commit: null,
-      journal: null,
-      receipt: failure.receipt,
-      reused: false,
-      statements: Object.freeze([]),
-    });
-  }
-  const firstRunStartAt = requestedFirstRunStartAt;
   const eligibility = {
     accessClassification: "public" as const,
     adapterDefinitionDigest: sourceInstance.adapterDefinitionDigest,

@@ -212,12 +212,22 @@ export async function requireWorkspaceWorkerOutcome(
   return outcome;
 }
 
-function evaluationWindow(job: ClaimedWorkspaceMonitor): {
+export function resolveWorkspaceWorkerEvaluationWindow(job: ClaimedWorkspaceMonitor): {
   endAt: string;
   startAt: string;
 } {
   const endAt = job.occurrence.scheduledFor;
-  const startAt = job.monitor.sourceCheckpoint.watermark ?? job.monitor.createdAt;
+  const intervalMinutes = job.monitor.schedule.kind === "interval"
+    ? job.monitor.schedule.everyMinutes
+    : null;
+  const cadenceBackfill = job.monitor.sourceCheckpoint.watermark === null &&
+    intervalMinutes !== null &&
+    (job.monitor.managedBy?.packId === "public-commentary-tracker" ||
+      (job.monitor.managedBy?.packId === "inverse-cramer" &&
+        !["1.0.0", "1.1.0"].includes(job.monitor.managedBy.packVersion)));
+  const startAt = job.monitor.sourceCheckpoint.watermark ?? (cadenceBackfill
+    ? new Date(Date.parse(endAt) - intervalMinutes! * 60_000).toISOString()
+    : job.monitor.createdAt);
   if (Date.parse(startAt) >= Date.parse(endAt)) {
     throw new WorkspaceWorkerRunnerError("workspace_worker_state_stale");
   }
@@ -299,7 +309,7 @@ export async function prepareWorkspaceWorkerRun(input: {
     scope: input.claimed.scope,
     stateClient: input.clients?.state,
   });
-  const window = evaluationWindow(input.claimed);
+  const window = resolveWorkspaceWorkerEvaluationWindow(input.claimed);
   const coverage = await createWorkspaceSourceCoverage(
     {
       configurationRevision: input.claimed.monitor.configurationRevision,

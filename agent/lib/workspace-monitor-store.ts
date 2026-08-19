@@ -294,7 +294,7 @@ const monitorSchema = z
         context.addIssue({ code: "custom", message: "Enabled monitor cannot be paused." });
       }
       if (
-        monitor.managedBy?.packId === "inverse-cramer" &&
+        (monitor.managedBy?.packId === "inverse-cramer" || monitor.managedBy?.packId === "public-commentary-tracker") &&
         monitor.activationWatermark === undefined
       ) {
         context.addIssue({ code: "custom", message: "Managed monitor needs an activation watermark." });
@@ -337,7 +337,8 @@ export type WorkspaceMonitorManagedBy = z.infer<typeof workspaceMonitorManagedBy
 export type WorkspaceMonitorOccurrence = z.infer<typeof occurrenceSchema>;
 
 export function requiresManagedMonitorActivationWatermark(packId: string | null | undefined): boolean {
-  return packId === "earnings-call-changes" || packId === "inverse-cramer";
+  return packId === "earnings-call-changes" || packId === "inverse-cramer" ||
+    packId === "public-commentary-tracker";
 }
 
 export function isWorkspaceMonitorCheckpointOnlyBaseline(

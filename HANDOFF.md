@@ -28,7 +28,8 @@ then verify task-specific details against current code before making a change.
 > 1.0.1 binding passed production acceptance on 2026-08-17. Its bounded frontier
 > worker completed with exact citations, validation, usage, and cost; all
 > related production flags remain off. Spec 4C's X-backed Public Commentary
-> Signals foundation, immutable `inverse-cramer@1.0.0` and `1.1.0` packs,
+> Signals foundation, immutable `inverse-cramer@1.0.0`, `1.1.0`, and `1.2.0`
+> packs plus `public-commentary-tracker@1.0.0`,
 > revocable evidence,
 > correction handling, real-source/model acceptance, provider-neutral reuse
 > proof, and staged rollback passed final acceptance on 2026-08-18. Its X,
@@ -431,7 +432,8 @@ truncation, and crash-only ephemeral cleanup hardening is parked in
 
 ### Public Commentary Signals
 
-Spec 4C ships immutable `inverse-cramer@1.0.0` and `1.1.0` through a reusable, provider-neutral
+Spec 4C ships immutable `inverse-cramer@1.0.0`, `1.1.0`, and `1.2.0` plus
+`public-commentary-tracker@1.0.0` through a reusable, provider-neutral
 Public Commentary Signals vertical. The production source is the pinned Jim
 Cramer X user timeline; source-global acquisition and edit/deletion rehydration
 feed workspace-isolated semantic attempts, findings, budgets, alerts, Discuss,
@@ -456,11 +458,36 @@ bounded ticker/token list filters alerts without suppressing findings. The
 deterministic named-asset path resolves unambiguous Intel commentary to INTC;
 multiple named assets abstain rather than guessing. Creation surfaces,
 including Eve's pack-list tool, expose only the latest version; exact historical
-versions remain registered for replay and provenance. These runtime additions
-do not re-accept Spec 4C and do not enable production execution.
+versions remain registered for replay and provenance. These historical runtime
+additions did not re-accept Spec 4C or enable production execution.
 
-A free-form arbitrary-person/arbitrary-policy Public Commentary Strategy
-Builder remains a proposed follow-up. It is intentionally outside this patch.
+Inverse Cramer 1.2 removes the separate first-run lookback. Cadence owns
+acquisition: first enable is due immediately, its first bounded request starts
+one cadence interval before the occurrence end, and subsequent runs use the
+durable X `since_id` checkpoint. Incomplete pagination never advances the
+checkpoint. Initial qualifying history produces one cited summary alert at
+most; later qualifying statements use normal material alerts. The Cramer
+numeric identity and inverse policy remain locked. Existing 1.1 sessions are
+never rewritten and show an explicit recreate-on-1.2 upgrade notice.
+
+The configurable Public Commentary Tracker reuses the same worker, scheduler,
+source acquisition/projection, revocable evidence, semantic model route,
+budget, finding, alert, Discuss, and Manage plumbing. Creation requires a
+tracker name, resolved and confirmed X display name and numeric user ID,
+objective, topics/entities, structured outcome-to-asset pressure hypotheses,
+cadence, optional asset alert filter, thresholds, replies/quotes, optional Exa,
+and alerts. Ordinary approved objectives resolve to `GET /2/users/{id}/tweets`.
+The default Trump–Iran Oil preset instead resolves to the first-party White
+House Briefings & Statements RSS adapter. Current X terms prohibit sensitive-
+event monitoring without written approval, so this preset fails closed and
+does not query Trump's X timeline. Outputs expose the bounded exact statement,
+match rationale, classification, possible asset pressure/horizon, confidence,
+uncertainty, counterevidence, corroboration warning, and citation; irrelevant
+or mixed cases abstain, and no trade or sizing capability exists.
+
+A broader free-form Public Commentary Strategy Builder that invents arbitrary
+policies or sources remains a separate proposal. The shipped tracker is a
+bounded structured template, not a strategy-programming surface.
 
 The independent three-pass audit closed all validated P1/P2 findings and the
 final relevant regression passed. A corrected live X smoke returned HTTP 200,
@@ -873,8 +900,9 @@ Focused regression scripts map to the important boundaries:
 | `verify:public-source-adapters:runtime` | source-global acquisition reuse, workspace-isolated projections, coordinator flags, source health, and manager privacy |
 | `verify:congressional-signals:sprint-0` through `:sprint-5` | live-layout viability, versioned policy/evidence, history/corrections/clusters, owner surfaces, full official roster, replay, and workspace isolation |
 | `verify:public-commentary-signals:sprint-0` through `:sprint-3` | X source/retention contracts, revocable lifecycle and pagination, provider-neutral semantic policy, worker projection, findings, correction, Discuss, Manage, budgets, and isolation |
-| `verify:public-commentary-signals:sprint-4-reuse` | signed official-web reuse through the same public-statement, validator, policy, finding, alert, correction/purge, replay, and isolation path without a production source-specific branch |
-| `verify:public-commentary-signals:follow-up` | immutable Inverse Cramer 1.0/1.1 registration, latest-only creation catalog, long cadence mapping, activation-clamped lookback, 8-item batching, bounded ticker/token configuration, Intel/INTC resolution, inverse direction, and ambiguity abstention |
+| `verify:public-commentary-signals:sprint-4-reuse` | signed official-web Trump/Iran fixture through the production tracker pack, shared public-statement validator, configured impact policy, initial-summary alert, correction/purge, Discuss/Manage, replay, and isolation |
+| `verify:public-commentary-signals:follow-up` | immutable Inverse Cramer 1.0/1.1/1.2 registration, latest-only creation catalog, immediate cadence-derived first window, durable continuation, 8-item batching, bounded watchlist, Intel/INTC resolution, inverse direction, and ambiguity abstention |
+| `verify:public-commentary-tracker` and `verify:official-web-statement-source` | confirmed identity contract, sensitive-event source gate, configurable impact classification/isolation, dynamic X timeline resolution, bounded White House RSS facts, durable checkpoint, and replay |
 
 The Redis checks require exported environment variables and do not load
 `.env.local`. Model evals do not exercise the Photon webhook, Redis delivery,

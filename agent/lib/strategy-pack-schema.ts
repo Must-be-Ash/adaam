@@ -232,6 +232,63 @@ const boundedTokenListConfigurationSchema = z.object({
   ) context.addIssue({ code: "custom", message: "strategy_pack_bounded_token_list_invalid" });
 });
 
+const boundedTextConfigurationSchema = z.object({
+  ...configurationFieldBase,
+  default: z.string().trim(),
+  kind: z.literal("bounded_text"),
+  maximumCharacters: z.number().int().positive().max(2_000),
+  minimumCharacters: z.number().int().nonnegative().max(2_000),
+}).strict().superRefine((field, context) => {
+  const length = field.default.length;
+  if (
+    field.minimumCharacters > field.maximumCharacters ||
+    length < field.minimumCharacters ||
+    length > field.maximumCharacters
+  ) context.addIssue({ code: "custom", message: "strategy_pack_bounded_text_invalid" });
+});
+
+const boundedTextListConfigurationSchema = z.object({
+  ...configurationFieldBase,
+  default: z.array(z.string().trim().min(1).max(400)).max(16),
+  kind: z.literal("bounded_text_list"),
+  maximumItems: z.number().int().positive().max(16),
+  minimumItems: z.number().int().nonnegative().max(16),
+}).strict().superRefine((field, context) => {
+  if (
+    field.minimumItems > field.maximumItems ||
+    field.default.length < field.minimumItems ||
+    field.default.length > field.maximumItems ||
+    !sortedUnique(field.default)
+  ) context.addIssue({ code: "custom", message: "strategy_pack_bounded_text_list_invalid" });
+});
+
+const xPublicIdentityConfigurationSchema = z.object({
+  ...configurationFieldBase,
+  default: z.tuple([
+    z.string().url(),
+    z.string().regex(/^[A-Za-z0-9_]{1,15}$/u),
+    z.string().trim().min(1).max(160),
+    z.string().regex(/^\d{1,20}$/u),
+    z.literal("confirmed"),
+  ]),
+  kind: z.literal("x_public_identity"),
+}).strict();
+
+const impactHypothesisListConfigurationSchema = z.object({
+  ...configurationFieldBase,
+  default: z.array(z.string().trim().regex(/^.{1,200}\|[A-Z][A-Z0-9.-]{0,15}\|(?:up|down)$/u)).min(1).max(8),
+  kind: z.literal("impact_hypothesis_list"),
+  maximumItems: z.number().int().positive().max(8),
+  minimumItems: z.number().int().positive().max(8),
+}).strict().superRefine((field, context) => {
+  if (
+    field.minimumItems > field.maximumItems ||
+    field.default.length < field.minimumItems ||
+    field.default.length > field.maximumItems ||
+    !sortedUnique(field.default)
+  ) context.addIssue({ code: "custom", message: "strategy_pack_impact_hypotheses_invalid" });
+});
+
 const catalogIdListConfigurationSchema = z.object({
   ...configurationFieldBase,
   catalogDigest: digestSchema,
@@ -256,9 +313,13 @@ export const strategyPackConfigurationFieldSchema = z.discriminatedUnion(
     timezoneConfigurationSchema,
     dailyTimesConfigurationSchema,
     boundedEnumConfigurationSchema,
+    boundedTextConfigurationSchema,
+    boundedTextListConfigurationSchema,
     boundedTokenListConfigurationSchema,
     canonicalIdListConfigurationSchema,
     catalogIdListConfigurationSchema,
+    impactHypothesisListConfigurationSchema,
+    xPublicIdentityConfigurationSchema,
   ],
 );
 

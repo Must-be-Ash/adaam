@@ -81,6 +81,11 @@ import type { WorkspaceSemanticEvidenceStoreClient } from "./hybrid-evidence-sem
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
 import type { PublicSourceSubscriptionStoreClient } from "./public-source-subscription-store";
 import { marketSymbolSchema, strategyPackIntervalMinutes } from "./strategy-pack-schema";
+import {
+  parseConfirmedXPublicIdentity,
+  verifyXPublicIdentityResolutionReceipt,
+  xPublicIdentityResolutionReceiptSchema,
+} from "./x-public-identity";
 
 const REQUEST_BYTE_LIMIT = 16_384;
 const SHARED_HARD_DENIALS = Object.freeze([
@@ -101,8 +106,8 @@ const DEFAULT_BUDGET_CEILINGS = Object.freeze({
 export const strategyPackMutationConfigurationSchema = z.record(
   z.string().min(1).max(80),
   z.union([
-    z.string().max(200),
-    z.array(z.string().max(160)).max(32),
+    z.string().max(2_000),
+    z.array(z.string().max(400)).max(32),
   ]),
 ).refine((value) => Object.keys(value).length <= 16);
 
@@ -112,6 +117,7 @@ const mutationRequestSchema = z
     configuration: strategyPackMutationConfigurationSchema.optional(),
     expectedRegistryRevision: z.number().int().nonnegative(),
     name: z.string().trim().min(1).max(80),
+    xIdentityResolutionReceipt: xPublicIdentityResolutionReceiptSchema.optional(),
     pack: z
       .object({
         contentDigest: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -266,6 +272,10 @@ function packInspection(pack: StrategyPackCatalogEntry) {
           maximumItems: field.maximumItems,
           minimumItems: field.minimumItems,
         } : {}),
+        ...("maximumCharacters" in field ? {
+          maximumCharacters: field.maximumCharacters,
+          minimumCharacters: field.minimumCharacters,
+        } : {}),
         ...(field.kind === "bounded_token_list" ? { tokenFormat: field.tokenFormat } : {}),
         default: Array.isArray(field.default)
           ? Object.freeze([...field.default])
@@ -323,6 +333,7 @@ export function strategyPackCreateSelectionRequest(
     readonly name: string;
     readonly packId: string;
     readonly packVersion: string;
+    readonly xIdentityResolutionReceipt?: unknown;
   },
   dependencies: StrategyPackServiceReadDependencies = {},
 ) {
@@ -345,6 +356,9 @@ export function strategyPackCreateSelectionRequest(
       id: pack.id,
       version: pack.version,
     }),
+    ...(input.xIdentityResolutionReceipt
+      ? { xIdentityResolutionReceipt: input.xIdentityResolutionReceipt }
+      : {}),
   });
 }
 
@@ -398,6 +412,7 @@ export async function createStrategyPackWorkspaceFromSelection(
     readonly requestIdentity: unknown;
     readonly sourceAssignment: { readonly generation: number; readonly workspaceId: string };
     readonly threadId: string;
+    readonly xIdentityResolutionReceipt?: unknown;
   },
   dependencies: StrategyPackServiceDependencies,
 ): Promise<{ receipt: StrategyPackMutationReceipt; replayed: boolean }> {
@@ -772,6 +787,35 @@ export function resolveStrategyPackConfiguration(
       if (supplied) ownerOverrides[field.key] = value;
       continue;
     }
+    if (field.kind === "bounded_text") {
+      if (
+        typeof value !== "string" ||
+        value.trim() !== value ||
+        value.length < field.minimumCharacters ||
+        value.length > field.maximumCharacters
+      ) throw new StrategyPackServiceError("strategy_pack_invalid_request");
+      configuration[field.key] = value;
+      if (supplied) ownerOverrides[field.key] = value;
+      continue;
+    }
+    if (field.kind === "x_public_identity") {
+      let identity;
+      try {
+        identity = parseConfirmedXPublicIdentity(value);
+      } catch {
+        throw new StrategyPackServiceError("strategy_pack_invalid_request");
+      }
+      const storedIdentity = [
+        identity.profileUrl,
+        identity.username,
+        identity.displayName,
+        identity.numericUserId,
+        "confirmed",
+      ];
+      configuration[field.key] = storedIdentity;
+      if (supplied) ownerOverrides[field.key] = storedIdentity;
+      continue;
+    }
     const normalizedValue = field.kind === "bounded_token_list" && Array.isArray(value)
       ? value.map((entry) => typeof entry === "string" ? entry.trim().toUpperCase() : entry)
         .sort((left, right) => typeof left === "string" && typeof right === "string"
@@ -802,6 +846,10 @@ export function resolveStrategyPackConfiguration(
             })()
           : field.kind === "bounded_token_list"
             ? normalizedValue.some((entry) => !marketSymbolSchema.safeParse(entry).success)
+            : field.kind === "impact_hypothesis_list"
+              ? normalizedValue.some((entry) => !/^.{1,200}\|[A-Z][A-Z0-9.-]{0,15}\|(?:up|down)$/u.test(entry))
+              : field.kind === "bounded_text_list"
+                ? normalizedValue.some((entry) => entry.trim() !== entry || entry.length < 1 || entry.length > 400)
             : normalizedValue.some((entry) => !field.allowedValues.includes(entry))
     ) {
       throw new StrategyPackServiceError("strategy_pack_invalid_request");
@@ -1009,6 +1057,17 @@ function strategyPackMonitorSchedule(
   return { kind: "daily_local" as const, times: [...times], timezone };
 }
 
+export function resolveStrategyPackInitialMonitorDueAt(input: Readonly<{
+  activate: boolean;
+  now: Date;
+  packId: string;
+  scheduledAt: string | null;
+}>): string | null {
+  return input.activate && (input.packId === "inverse-cramer" || input.packId === "public-commentary-tracker")
+    ? input.now.toISOString()
+    : input.scheduledAt;
+}
+
 function monitorPreparations(input: {
   activate: Set<string>;
   budget: WorkspaceBudgetPolicyValue;
@@ -1051,7 +1110,12 @@ function monitorPreparations(input: {
         resourceId: monitor.resourceId,
       },
       name: monitor.displayName,
-      nextOccurrenceAt: next?.scheduledAt ?? null,
+      nextOccurrenceAt: resolveStrategyPackInitialMonitorDueAt({
+        activate: input.activate.has(monitor.resourceId),
+        now: input.now,
+        packId: input.pack.id,
+        scheduledAt: next?.scheduledAt ?? null,
+      }),
       now: input.now,
       publicSourceIds: sources.map(({ sourceId }) => sourceId).filter(isReviewedPublicSource),
       requiredCapabilityIds: [...monitor.requiredCapabilityIds],
@@ -1159,6 +1223,25 @@ async function executeCreateStrategyPackWorkspace(
     throw new StrategyPackServiceError("strategy_pack_unavailable");
   }
   const configuration = resolveStrategyPackConfiguration(pack, request.configuration);
+  if (
+    pack.id === "public-commentary-tracker" &&
+    (!request.configuration || !Object.prototype.hasOwnProperty.call(request.configuration, "xIdentity"))
+  ) throw new StrategyPackServiceError("strategy_pack_invalid_request");
+  if (pack.id === "public-commentary-tracker") {
+    const identity = parseConfirmedXPublicIdentity(configuration.configuration.xIdentity);
+    const secret = environment.EVE_OWNER_ALIAS_HMAC_SECRET;
+    if (!secret || secret.length < 32) throw new StrategyPackServiceError("strategy_pack_mutations_disabled");
+    try {
+      verifyXPublicIdentityResolutionReceipt(
+        request.xIdentityResolutionReceipt,
+        identity,
+        { now: input.now, principalId: input.principalId, threadId: input.threadId },
+        secret,
+      );
+    } catch {
+      throw new StrategyPackServiceError("strategy_pack_invalid_request");
+    }
+  }
   const requestedActivation = request.activateMonitorResourceIds ?? [];
   if (
     new Set(requestedActivation).size !== requestedActivation.length ||

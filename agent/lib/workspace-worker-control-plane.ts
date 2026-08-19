@@ -226,6 +226,7 @@ async function completeMonitorCheckpoint(
 
 export async function commitDeterministicWorkspaceEvaluationForWorker(input: {
   alertPresentation?: { title: string; whyMatched: string };
+  alertPresentations?: readonly { key: string; title: string; whyMatched: string }[];
   checkpoint: { contentDigest: string; watermark: string };
   clients?: WorkspaceWorkerControlPlaneClients;
   ctx: WorkerContext;
@@ -274,13 +275,17 @@ export async function commitDeterministicWorkspaceEvaluationForWorker(input: {
     if (!outcome.finding) {
       throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
     }
-    await stageWorkspaceAlert({
-      finding: outcome.finding,
-      monitor: prepared.monitor,
-      now: input.now,
-      presentation: input.alertPresentation,
-      scope: prepared.scope,
-    }, input.clients?.alert);
+    const presentations = input.alertPresentations ?? [null];
+    for (const presentation of presentations) {
+      await stageWorkspaceAlert({
+        finding: outcome.finding,
+        monitor: prepared.monitor,
+        now: input.now,
+        presentation: presentation ?? input.alertPresentation,
+        ...(presentation ? { presentationKey: presentation.key } : {}),
+        scope: prepared.scope,
+      }, input.clients?.alert);
+    }
   }
   await completeMonitorCheckpoint(prepared, {
     client: input.clients?.monitor,
@@ -291,6 +296,7 @@ export async function commitDeterministicWorkspaceEvaluationForWorker(input: {
 
 export async function finalizeExistingWorkspaceRunOutcomeForWorker(input: {
   alertPresentation?: { title: string; whyMatched: string };
+  alertPresentations?: readonly { key: string; title: string; whyMatched: string }[];
   clients?: WorkspaceWorkerControlPlaneClients;
   ctx: WorkerContext;
   environment?: NodeJS.ProcessEnv;
@@ -319,13 +325,17 @@ export async function finalizeExistingWorkspaceRunOutcomeForWorker(input: {
     throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
   }
   if (input.outcome.finding) {
-    await stageWorkspaceAlert({
-      finding: input.outcome.finding,
-      monitor: prepared.monitor,
-      now: input.now,
-      presentation: input.alertPresentation,
-      scope: prepared.scope,
-    }, input.clients?.alert);
+    const presentations = input.alertPresentations ?? [null];
+    for (const presentation of presentations) {
+      await stageWorkspaceAlert({
+        finding: input.outcome.finding,
+        monitor: prepared.monitor,
+        now: input.now,
+        presentation: presentation ?? input.alertPresentation,
+        ...(presentation ? { presentationKey: presentation.key } : {}),
+        scope: prepared.scope,
+      }, input.clients?.alert);
+    }
   }
   await completeMonitorCheckpoint(prepared, {
     client: input.clients?.monitor,

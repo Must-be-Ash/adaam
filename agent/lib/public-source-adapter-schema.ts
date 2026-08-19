@@ -7,6 +7,7 @@ import { publicStatementSchema } from "./public-commentary-schema";
 export const PUBLIC_SOURCE_ADAPTER_IDS = [
   "earnings-call-transcripts",
   "house-financial-disclosures",
+  "official-web-statements",
   "sec-latest-filings",
   "x-public-statements",
 ] as const;
@@ -168,7 +169,7 @@ export const publicSourceAdapterDefinitionSchema = z.object({
     ? ["sec-filing/v1"]
     : definition.adapterId === "earnings-call-transcripts"
       ? ["earnings-call-event/v1"]
-      : definition.adapterId === "x-public-statements"
+      : definition.adapterId === "x-public-statements" || definition.adapterId === "official-web-statements"
         ? ["public-statement/v1"]
         : ["house-ptr-filing/v1", "house-ptr-transaction/v1"];
   if (
@@ -230,6 +231,13 @@ const xPublicStatementSourceConfigurationSchema = z.object({
   }
 });
 
+const officialWebStatementSourceConfigurationSchema = z.object({
+  canonicalUrl: z.literal("https://www.whitehouse.gov/briefings-statements/feed/"),
+  displayLabel: z.literal("The White House"),
+  kind: z.literal("official_web_statements_feed"),
+  maximumStatementsPerPoll: z.literal(32),
+}).strict();
+
 const sourceCursorSchema = z.object({
   contentDigest: digestSchema.nullable(),
   revision: z.number().int().nonnegative(),
@@ -246,6 +254,7 @@ export const publicSourceInstanceSchema = z.object({
     earningsCallSourceConfigurationSchema,
     secSourceConfigurationSchema,
     houseSourceConfigurationSchema,
+    officialWebStatementSourceConfigurationSchema,
     xPublicStatementSourceConfigurationSchema,
   ]),
   configurationDigest: digestSchema,
@@ -261,6 +270,8 @@ export const publicSourceInstanceSchema = z.object({
       ? "earnings-call-transcripts"
       : instance.configuration.kind === "x_public_statements_user"
         ? "x-public-statements"
+        : instance.configuration.kind === "official_web_statements_feed"
+          ? "official-web-statements"
         : "house-financial-disclosures";
   if (
     instance.adapterId !== expectedAdapter ||
@@ -485,7 +496,7 @@ export const canonicalPublicFactRevisionSchema = z.object({
   payload: canonicalPublicFactPayloadSchema,
   payloadDigest: digestSchema,
   provenance: z.object({
-    authority: z.enum(["House Clerk", "Issuer IR", "SEC", "X"]),
+    authority: z.enum(["House Clerk", "Issuer IR", "SEC", "The White House", "X"]),
     documentDigest: digestSchema.nullable(),
     publicUrl: publicUrlSchema,
     rowEvidenceDigest: digestSchema.nullable(),
@@ -503,7 +514,7 @@ export const canonicalPublicFactRevisionSchema = z.object({
 }).strict().superRefine((fact, context) => {
   const payloadExtraction = "extraction" in fact.payload ? fact.payload.extraction : null;
   let expectedAdapterId: (typeof PUBLIC_SOURCE_ADAPTER_IDS)[number];
-  let expectedAuthority: "House Clerk" | "Issuer IR" | "SEC" | "X";
+  let expectedAuthority: "House Clerk" | "Issuer IR" | "SEC" | "The White House" | "X";
   let expectedPublicUrl: string;
   let expectedSourceNativeId: string;
   if (fact.payload.schemaVersion === "earnings-call-event/v1") {
@@ -517,14 +528,16 @@ export const canonicalPublicFactRevisionSchema = z.object({
     expectedPublicUrl = fact.payload.filingUrl;
     expectedSourceNativeId = `${fact.payload.accessionNumber}:${fact.payload.formType}`;
   } else if (fact.payload.schemaVersion === "public-statement/v1") {
-    if (fact.payload.statement.provider !== "x") {
-      context.addIssue({ code: "custom", message: "public_statement_adapter_provider_invalid" });
-      return;
+    if (fact.payload.statement.provider === "x") {
+      expectedAdapterId = "x-public-statements";
+      expectedAuthority = "X";
+      expectedSourceNativeId = fact.payload.statement.stablePostId;
+    } else {
+      expectedAdapterId = "official-web-statements";
+      expectedAuthority = "The White House";
+      expectedSourceNativeId = fact.payload.statement.document.stableId;
     }
-    expectedAdapterId = "x-public-statements";
-    expectedAuthority = "X";
     expectedPublicUrl = fact.payload.statement.canonicalUrl;
-    expectedSourceNativeId = fact.payload.statement.stablePostId;
   } else {
     expectedAdapterId = "house-financial-disclosures";
     expectedAuthority = "House Clerk";

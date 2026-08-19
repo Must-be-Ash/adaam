@@ -4,6 +4,11 @@ import {
   resolveReviewedPublicSource,
   ReviewedPublicSourceRegistryError,
 } from "./public-source-registry";
+import { resolvePublicCommentaryTrackerSourcePolicy } from "./public-commentary-tracker";
+import {
+  PUBLIC_COMMENTARY_TRACKER_SOURCE_ID,
+} from "./strategy-pack-reference-catalog";
+import { parseConfirmedXPublicIdentity } from "./x-public-identity";
 
 export class StrategyPackSourceResolutionError extends Error {
   constructor(readonly code: "configuration_invalid" | "source_unavailable") {
@@ -31,6 +36,31 @@ export function resolveParameterizedStrategyPackSources(
   for (const logicalSourceId of logicalSourceIds) {
     const source = pack.sources.find((candidate) => candidate.sourceId === logicalSourceId);
     if (!source) throw new StrategyPackSourceResolutionError("source_unavailable");
+    if (source.sourceId === PUBLIC_COMMENTARY_TRACKER_SOURCE_ID) {
+      const policy = resolvePublicCommentaryTrackerSourcePolicy(configuration);
+      if (policy.sourceKind === "official_white_house") {
+        resolved.push(Object.freeze({ ...source }));
+        continue;
+      }
+      let identity;
+      try {
+        identity = parseConfirmedXPublicIdentity(configuration.xIdentity);
+      } catch {
+        throw new StrategyPackSourceResolutionError("configuration_invalid");
+      }
+      const sourceId = `x-public-commentary-user.${identity.numericUserId}.${identity.username}`;
+      const reviewed = resolveReviewedPublicSource(sourceId);
+      resolved.push(Object.freeze({
+        accessClassification: "public",
+        allowedOrigins: Object.freeze([...reviewed.sourceContract.allowedOrigins]),
+        canonicalUrl: reviewed.sourceContract.canonicalUrl,
+        contractDigest: reviewed.sourceContract.contractDigest,
+        contractVersion: reviewed.sourceContract.contractVersion,
+        sourceId,
+        sourceInstanceId: reviewed.sourceInstance.sourceInstanceId,
+      }));
+      continue;
+    }
     if (!source.parameterization) {
       resolved.push(Object.freeze({ ...source }));
       continue;

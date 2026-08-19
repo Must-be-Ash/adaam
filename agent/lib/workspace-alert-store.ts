@@ -145,6 +145,7 @@ export async function stageWorkspaceAlert(input: {
   monitor: WorkspaceMonitor;
   now?: Date;
   presentation?: { title: string; whyMatched: string };
+  presentationKey?: string;
   scope: AuthorizedWorkspaceStoreScope;
 }, client: WorkspaceAlertStoreClient = store()): Promise<WorkspaceAlert> {
   assertAuthorizedWorkspaceStoreScope(input.scope);
@@ -153,7 +154,9 @@ export async function stageWorkspaceAlert(input: {
     input.finding.workspaceId !== input.scope.workspaceId ||
     input.finding.monitorId !== input.monitor.monitorId
   ) throw new WorkspaceAlertStoreError("alert_conflict");
-  const alertId = `alert_${digest(input.finding.findingId)}`;
+  const alertId = `alert_${digest(input.presentationKey
+    ? `${input.finding.findingId}\0${input.presentationKey}`
+    : input.finding.findingId)}`;
   const candidate = alertSchema.parse({
     alertId,
     artifactRefs: input.finding.artifactRefs,

@@ -77,6 +77,7 @@ export const publicCommentaryFindingRecordSchema = z.object({
   directionDisclosure: z.string().trim().min(1).max(500).nullable(),
   extraction: commentaryExtractionSchema.nullable(),
   finding: commentaryFindingSchema,
+  impactClassification: z.enum(["de_escalation", "escalation", "mixed", "unclear"]).nullable().default(null),
   interpretation: commentaryInterpretationSchema.nullable(),
   ownerId: z.string().regex(/^[a-z][a-z0-9_-]{2,63}$/u),
   policyDisplayName: z.string().trim().min(1).max(160),

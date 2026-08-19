@@ -21,6 +21,7 @@ import type { WorkspaceGlobalBudgetClient } from "./workspace-dispatch-budget";
 import {
   resolveEarningsCallPublicSourceRuntimePath,
   resolveHousePublicSourceRuntimePath,
+  resolveOfficialWebStatementRuntimePath,
   resolveSecPublicSourceRuntimePath,
   resolveXPublicStatementRuntimePath,
 } from "./public-source-flags";
@@ -62,6 +63,11 @@ import {
   type XPublicStatementResponse,
   type XRevocableEvidenceOptions,
 } from "./x-public-statement-adapter";
+import {
+  runSharedOfficialWebStatementAcquisition,
+  type OfficialWebStatementResponse,
+} from "./official-web-statement-adapter";
+import type { RevocableEvidenceStoreClient } from "./revocable-evidence-store";
 import type { AuthorizedWorkspaceStoreScope } from "./workspace-store-authorization";
 import type { WorkspaceMonitor } from "./workspace-monitor-store";
 
@@ -75,6 +81,15 @@ type PublicSourceMonitor = Pick<
 >;
 
 type CoordinatorFetch =
+  | {
+      readonly adapterId: "official-web-statements";
+      readonly evidence: {
+        readonly client: RevocableEvidenceStoreClient;
+        readonly encryptionKey: Uint8Array;
+        readonly keyReference: string;
+      };
+      readonly fetchResponse: () => Promise<OfficialWebStatementResponse>;
+    }
   | {
       readonly adapterId: "earnings-call-transcripts";
       readonly fetchResponse: (
@@ -162,6 +177,8 @@ function requireEnabled(
       ? resolveEarningsCallPublicSourceRuntimePath(environment)
       : adapterId === "x-public-statements"
         ? resolveXPublicStatementRuntimePath(environment)
+        : adapterId === "official-web-statements"
+          ? resolveOfficialWebStatementRuntimePath(environment)
         : resolveHousePublicSourceRuntimePath(environment);
   if (path === "public_source_adapter") return;
   throw new PublicSourceCoordinatorError(
@@ -296,6 +313,9 @@ export async function coordinatePublicSourceOccurrence(input: {
   const xFetch = input.fetch.adapterId === "x-public-statements"
     ? input.fetch
     : null;
+  const officialWebFetch = input.fetch.adapterId === "official-web-statements"
+    ? input.fetch
+    : null;
   const subscription = await ensurePublicSourceSubscription(
     input.scope,
     createPublicSourceSubscription({
@@ -341,6 +361,14 @@ export async function coordinatePublicSourceOccurrence(input: {
             sourceId: input.sourceId,
             window,
           })
+        : officialWebFetch
+          ? await runSharedOfficialWebStatementAcquisition({
+              client: input.clients?.acquisition,
+              evidence: officialWebFetch.evidence,
+              fetchResponse: officialWebFetch.fetchResponse,
+              sourceId: input.sourceId,
+              window,
+            })
         : await runSharedHousePublicSourceAcquisition({
             client: input.clients?.acquisition,
             fetchDocument: houseFetch!.fetchDocument,

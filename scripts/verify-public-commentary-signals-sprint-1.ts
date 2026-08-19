@@ -4,7 +4,7 @@ import { PUBLIC_SOURCE_ADAPTER_IDS, PUBLIC_SOURCE_FACT_SCHEMA_VERSIONS } from ".
 import { readPublicSourceAcquisitionResult, readPublicSourceInstance, type PublicSourceAcquisitionStoreClient } from "../agent/lib/public-source-acquisition-store";
 import { coordinatePublicSourceOccurrence } from "../agent/lib/public-source-coordinator";
 import { resolveReviewedPublicSource } from "../agent/lib/public-source-registry";
-import { resolveXPublicStatementRuntimePath } from "../agent/lib/public-source-flags";
+import { resolveOfficialWebStatementRuntimePath, resolveXPublicStatementRuntimePath } from "../agent/lib/public-source-flags";
 import { createPublicSourceSubscription, resolvePublicSourceWorkspaceReference } from "../agent/lib/public-source-workspace-reference";
 import { ensurePublicSourceSubscription, projectPublicSourceAcquisition, type PublicSourceSubscriptionStoreClient } from "../agent/lib/public-source-subscription-store";
 import { resolvePublicCommentaryRuntimeFlags } from "../agent/lib/public-commentary-flags";
@@ -40,7 +40,7 @@ class MemoryStore implements PublicSourceAcquisitionStoreClient, PublicSourceSub
 }
 
 const source = resolveReviewedPublicSource(X_PUBLIC_STATEMENTS_SOURCE_ID);
-assert.deepEqual(PUBLIC_SOURCE_ADAPTER_IDS, ["earnings-call-transcripts", "house-financial-disclosures", "sec-latest-filings", "x-public-statements"]);
+assert.deepEqual(PUBLIC_SOURCE_ADAPTER_IDS, ["earnings-call-transcripts", "house-financial-disclosures", "official-web-statements", "sec-latest-filings", "x-public-statements"]);
 assert.ok(PUBLIC_SOURCE_FACT_SCHEMA_VERSIONS.includes("public-statement/v1"));
 assert.equal(source.adapterDefinition.definitionDigest, X_PUBLIC_STATEMENTS_PUBLIC_SOURCE_ADAPTER.definitionDigest);
 assert.equal(source.sourceInstance.configuration.kind, "x_public_statements_user");
@@ -49,8 +49,20 @@ assert.equal(source.sourceInstance.configuration.numericUserId, "14216123");
 assert.equal(resolveXPublicStatementRuntimePath({}), "disabled");
 assert.equal(resolveXPublicStatementRuntimePath({ EVE_X_PUBLIC_STATEMENT_SOURCE_ENABLED: "1" }), "public_source_misconfigured");
 assert.equal(resolveXPublicStatementRuntimePath({ EVE_PUBLIC_SOURCE_ACQUISITION_ENABLED: "1", EVE_PUBLIC_SOURCE_PROJECTIONS_ENABLED: "1", EVE_X_PUBLIC_STATEMENT_SOURCE_ENABLED: "1" }), "public_source_adapter");
+assert.equal(resolveOfficialWebStatementRuntimePath({}), "disabled");
+assert.equal(resolveOfficialWebStatementRuntimePath({ EVE_OFFICIAL_WEB_STATEMENT_SOURCE_ENABLED: "1" }), "public_source_misconfigured");
+assert.equal(resolveOfficialWebStatementRuntimePath({ EVE_OFFICIAL_WEB_STATEMENT_SOURCE_ENABLED: "1", EVE_PUBLIC_SOURCE_ACQUISITION_ENABLED: "1", EVE_PUBLIC_SOURCE_PROJECTIONS_ENABLED: "1" }), "public_source_adapter");
 assert.deepEqual(resolvePublicCommentaryRuntimeFlags({}), { corroborationEnabled: false, sourceEnabled: false, strategyExecutionEnabled: false });
 assert.deepEqual(resolvePublicCommentaryRuntimeFlags({ EVE_EXA_CORROBORATION_ENABLED: "1", EVE_INVERSE_CRAMER_EXECUTION_ENABLED: "1", EVE_X_PUBLIC_STATEMENT_SOURCE_ENABLED: "1" }), { corroborationEnabled: false, sourceEnabled: false, strategyExecutionEnabled: false });
+assert.deepEqual(resolvePublicCommentaryRuntimeFlags({
+  EVE_HYBRID_EVIDENCE_ENABLED: "1",
+  EVE_HYBRID_SEMANTIC_REASONING_ENABLED: "1",
+  EVE_INVERSE_CRAMER_EXECUTION_ENABLED: "1",
+  EVE_OFFICIAL_WEB_STATEMENT_SOURCE_ENABLED: "1",
+  EVE_PUBLIC_SOURCE_ACQUISITION_ENABLED: "1",
+  EVE_PUBLIC_SOURCE_PROJECTIONS_ENABLED: "1",
+  EVE_STRATEGY_PACK_RUNTIME_ENABLED: "1",
+}, { adapterId: "official-web-statements" }), { corroborationEnabled: false, sourceEnabled: true, strategyExecutionEnabled: true });
 
 assert.throws(() => createXPublicStatementFetch({ environment: {} }), /x_bearer_token_missing/u);
 let observedAuthorization: string | null = null;
@@ -332,26 +344,17 @@ const lookbackPartial = await runSharedXPublicStatementAcquisition({
 assert.equal(lookbackPartial.acquisition.errorCode, "pagination_bounds_exceeded");
 assert.equal(lookbackPartial.baselineEstablished, false);
 const lookbackRequestCount = lookbackRequests.length;
-const mismatchedLookbackResume = await runSharedXPublicStatementAcquisition({
+const scheduledLookbackResume = await runSharedXPublicStatementAcquisition({
   client: lookbackStore,
   evidence: lookbackEvidence,
   fetchResponse: lookbackFetch,
   sourceId: X_PUBLIC_STATEMENTS_SOURCE_ID,
   window: { endAt: "2026-08-18T06:30:30.000Z", startAt: "2026-08-18T06:30:00.000Z" },
 });
-assert.equal(mismatchedLookbackResume.acquisition.errorCode, "pagination_bounds_exceeded");
-assert.equal(lookbackRequests.length, lookbackRequestCount, "a different query must not consume another lookback continuation");
-const lookbackComplete = await runSharedXPublicStatementAcquisition({
-  client: lookbackStore,
-  evidence: lookbackEvidence,
-  fetchResponse: lookbackFetch,
-  firstRunStartAt: lookbackStartAt,
-  sourceId: X_PUBLIC_STATEMENTS_SOURCE_ID,
-  window: { endAt: "2026-08-18T06:31:00.000Z", startAt: "2026-08-18T06:30:00.000Z" },
-});
-assert.equal(lookbackComplete.acquisition.status, "complete");
-assert.equal(lookbackComplete.baselineEstablished, false);
-assert.equal(lookbackComplete.statements.length, 3);
+assert.equal(scheduledLookbackResume.acquisition.status, "complete");
+assert.equal(scheduledLookbackResume.baselineEstablished, false);
+assert.equal(scheduledLookbackResume.statements.length, 3);
+assert.equal(lookbackRequests.length, lookbackRequestCount + 1, "a later scheduled occurrence must finish the durable first-run continuation");
 assert.ok(lookbackRequests.every((request) =>
   new URL(request.url).searchParams.get("start_time") === lookbackStartAt &&
   !new URL(request.url).searchParams.has("since_id")));
