@@ -497,7 +497,7 @@ const overflowResult = await overflowPipeline.run({
 });
 assert.equal(overflowResult.analyzedStatements, 508);
 assert.equal(overflowSemanticCalls, 508);
-assert.equal(overflowSemanticMaximumActive, 8, "semantic preparation must use deterministic eight-item batches");
+assert.equal(overflowSemanticMaximumActive, 2, "semantic preparation must respect the bounded model concurrency budget");
 assert.equal(overflowResult.finding?.factIdentities.length, 8);
 assert.equal(
   [...overflowAttempts.values.values()].some((value) => value.includes('"reason":"statements_overflow"')),

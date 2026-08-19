@@ -92,6 +92,7 @@ const PUBLIC_COMMENTARY_OCCURRENCE_LIMITS = Object.freeze({
   // completed continuation is processed in batches instead of quarantined.
   maximumStatements: 508,
   maximumSummaryCharacters: 2_000,
+  semanticConcurrency: 2,
 });
 const EXA_SEARCH_RESERVATION_USD = "0.007000";
 
@@ -802,9 +803,7 @@ export function createPublicCommentaryPipeline(input: {
       const trackerTopics = request.pack.id === "public-commentary-tracker" && Array.isArray(configuration.topics)
         ? configuration.topics.filter((value): value is string => typeof value === "string")
         : [];
-      const accepted: Awaited<ReturnType<typeof materializePublicCommentarySignal>>[] = [];
-      for (const batch of partitionPublicCommentaryStatements(acquired.statements)) {
-        const prepared = await Promise.allSettled(batch.map(async (projected) => {
+      const prepareProjected = async (projected: PublicCommentaryProjectedStatement) => {
           const statement = publicStatementSchema.parse(projected.statement);
           if (
             publicStatementRole(statement) === "repost" ||
@@ -882,7 +881,15 @@ export function createPublicCommentaryPipeline(input: {
             semanticResult: semanticRun.evidence.result,
             statement,
           });
-        }));
+      };
+      const accepted: Awaited<ReturnType<typeof materializePublicCommentarySignal>>[] = [];
+      for (const batch of partitionPublicCommentaryStatements(acquired.statements)) {
+        const prepared: PromiseSettledResult<Awaited<ReturnType<typeof prepareProjected>>>[] = [];
+        for (let offset = 0; offset < batch.length; offset += PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.semanticConcurrency) {
+          prepared.push(...await Promise.allSettled(
+            batch.slice(offset, offset + PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.semanticConcurrency).map(prepareProjected),
+          ));
+        }
         const rejected = prepared.find((result): result is PromiseRejectedResult => result.status === "rejected");
         if (rejected) throw rejected.reason;
         for (const result of prepared) {
