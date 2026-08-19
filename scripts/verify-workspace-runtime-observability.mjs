@@ -126,9 +126,11 @@ const runtimeFlags = {
 
 async function runProductionSchedule(overrides) {
   const observations = [];
+  const deferred = [];
   const schedule = createEventTriggerSchedule({
     claimEventTriggers: async () => [],
     claimWorkspaceMonitors: async () => [claimedJob],
+    deferWorkspaceBudget: async (input) => deferred.push(input),
     emitRuntimeObservation: (observation) => observations.push(observation),
     now: () => now,
     releaseWorkspaceLease: async () => true,
@@ -153,7 +155,7 @@ async function runProductionSchedule(overrides) {
   });
   assert.equal(waiters.length, 1);
   const settled = await Promise.allSettled(waiters);
-  return { observations, settled };
+  return { deferred, observations, settled };
 }
 
 function assertPrivateValuesAbsent(value) {
@@ -210,6 +212,9 @@ assert.deepEqual(budgetDeferred.observations, [
     value: 1,
   },
 ]);
+assert.equal(budgetDeferred.deferred.length, 1);
+assert.equal(budgetDeferred.deferred[0].job, claimedJob);
+assert.equal(budgetDeferred.deferred[0].now, now);
 
 const completedNoMatch = await runProductionSchedule({
   finishWorkspaceBudget: async () => undefined,

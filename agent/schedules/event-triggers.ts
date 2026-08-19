@@ -20,8 +20,11 @@ import {
   inspectWorkspaceMonitorOccurrenceLease,
   recordWorkspaceMonitorFailure,
   releaseWorkspaceMonitorLease,
+  updateWorkspaceMonitor,
   type ClaimedWorkspaceMonitor,
+  type WorkspaceMonitor,
 } from "../lib/workspace-monitor-store";
+import { nextWorkspaceMonitorOccurrence } from "../lib/workspace-monitor-schedule";
 import { resolveWorkspaceRuntimeFlags } from "../lib/workspace-runtime-flags";
 import {
   emitWorkspaceRuntimeObservation,
@@ -45,6 +48,7 @@ export interface EventTriggerScheduleDependencies {
   readonly claimEventTriggers: typeof eventTriggerStore.claimDue;
   readonly claimWorkspaceMonitors: typeof claimDueWorkspaceMonitors;
   readonly deliverWorkspaceOutcome: typeof deliverWorkspaceOutcomeToPhoton;
+  readonly deferWorkspaceBudget: typeof deferWorkspaceMonitorForBudget;
   readonly emitRuntimeObservation: WorkspaceRuntimeObservationSink;
   readonly executeEventTrigger: typeof executeEventTriggerJob;
   readonly finishWorkspaceBudget: typeof finishWorkspaceMonitorDispatchBudget;
@@ -69,6 +73,7 @@ const productionDependencies: EventTriggerScheduleDependencies = Object.freeze({
     eventTriggerStore.claimDue(...args),
   claimWorkspaceMonitors: claimDueWorkspaceMonitors,
   deliverWorkspaceOutcome: deliverWorkspaceOutcomeToPhoton,
+  deferWorkspaceBudget: deferWorkspaceMonitorForBudget,
   emitRuntimeObservation: emitWorkspaceRuntimeObservation,
   executeEventTrigger: executeEventTriggerJob,
   finishWorkspaceBudget: finishWorkspaceMonitorDispatchBudget,
@@ -87,6 +92,32 @@ const productionDependencies: EventTriggerScheduleDependencies = Object.freeze({
   resolveRuntimeFlags: resolveWorkspaceRuntimeFlags,
   startWorkspaceWorker: startWorkspaceWorkerTask,
 });
+
+export async function deferWorkspaceMonitorForBudget(input: {
+  readonly job: ClaimedWorkspaceMonitor;
+  readonly now: Date;
+}): Promise<WorkspaceMonitor> {
+  const afterOccurrence = new Date(Date.parse(input.job.occurrence.scheduledFor) + 1);
+  const next = nextWorkspaceMonitorOccurrence(input.job.monitor.schedule, afterOccurrence);
+  return updateWorkspaceMonitor({
+    expectedRevision: input.job.monitor.configurationRevision,
+    monitorId: input.job.monitor.monitorId,
+    now: input.now,
+    patch: next
+      ? {
+          lastErrorCode: "run_budget_exhausted",
+          nextOccurrenceAt: next.scheduledAt,
+        }
+      : {
+          lastErrorCode: "run_budget_exhausted",
+          lifecycleState: "paused",
+          nextOccurrenceAt: null,
+          pauseReason: "run_budget_exhausted",
+          pausedAt: input.now.toISOString(),
+        },
+    scope: input.job.scope,
+  });
+}
 
 function recoveryFailureCode(error: unknown): string {
   if (error instanceof Error && error.message === "finding_invalid") {
@@ -520,7 +551,14 @@ export function createEventTriggerSchedule(
             });
             admittedWorkspaceJobs.push({ budget, job });
           } catch (error) {
+            const errorCode = safeWorkspaceRuntimeErrorCode(
+              error,
+              "storage_unavailable",
+            );
             try {
+              if (errorCode === "run_budget_exhausted") {
+                await dependencies.deferWorkspaceBudget({ job, now });
+              }
               await dependencies.releaseWorkspaceLease({
                 leaseToken: job.leaseToken,
                 monitorId: job.monitor.monitorId,
@@ -538,10 +576,6 @@ export function createEventTriggerSchedule(
                 value: 1,
               });
             }
-            const errorCode = safeWorkspaceRuntimeErrorCode(
-              error,
-              "storage_unavailable",
-            );
             dependencies.emitRuntimeObservation({
               counter: errorCode === "run_budget_exhausted"
                 ? "workspace_monitor_budget_deferred_total"
