@@ -86,7 +86,7 @@ assert.deepEqual(resolveStrategyPackWorkerModelPolicy({
   environment,
   pack: commentaryPack,
 }), {
-  allowedModelIds: [frontierRoute.modelId],
+  allowedModelIds: ["google/gemini-3.6-flash", frontierRoute.modelId],
   maximumOutputTokens: 12_000,
 });
 const legacyModelId = "google/gemini-3.6-flash";

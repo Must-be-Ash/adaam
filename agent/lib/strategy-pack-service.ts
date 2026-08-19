@@ -928,10 +928,14 @@ export function resolveStrategyPackWorkerModelPolicy(input: {
   pack: StrategyPackCatalogEntry;
 }): WorkspaceCapabilityManifestValue["workerModelPolicy"] {
   if (input.pack.capabilities.required.includes("evaluate_public_commentary_signals")) {
+    const workerModelId =
+      input.environment.EVE_STRATEGY_PACK_WORKER_MODEL_ID ?? "google/gemini-3.6-flash";
+    const semanticModelId = resolveHybridTaskModelRoute(
+      "semantic_interpretation",
+      input.environment,
+    ).modelId;
     return {
-      allowedModelIds: [
-        resolveHybridTaskModelRoute("semantic_interpretation", input.environment).modelId,
-      ],
+      allowedModelIds: [...new Set([workerModelId, semanticModelId])],
       maximumOutputTokens: input.fallback?.maximumOutputTokens ?? 12_000,
     };
   }
