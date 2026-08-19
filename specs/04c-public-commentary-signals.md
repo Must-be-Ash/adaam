@@ -892,10 +892,23 @@ The broader arbitrary-person/arbitrary-policy Public Commentary Strategy
 Builder remains a separate proposal; this follow-up ships only the bounded
 structured tracker template.
 
+Focused follow-up rollout evidence (2026-08-18): GitHub `main` commit
+`4bec912` deployed as Vercel production artifact
+`dpl_26PExfRLqF6HaNcDuooVqu9hPbk8` and owns the canonical
+<https://adaam.vercel.app> alias. `/` and `/skill` returned HTTP 200 and the
+bounded error-log scan was empty. Production enables the shared parent gates,
+X timeline child gate, official White House child gate, and commentary
+execution gate; Exa remains off. The one pre-existing selected
+`inverse-cramer@1.1.0` monitor and its Photon delivery subscription remain
+enabled without rewriting its immutable binding. No configurable tracker
+session existed, so rollout did not invent one; the owner creates one through
+the confirmed-identity pack flow when ready.
+
 Exit: the complete second strategy is independently reviewed, passes one final
 relevant regression gate and both Cramer and Trump reuse acceptances, rolls back
 safely, is documented, and lands on GitHub `main` under the owner's explicit
-authorization with production execution off by default.
+authorization with production execution limited to explicitly selected
+monitors.
 
 ## Planned code areas
 

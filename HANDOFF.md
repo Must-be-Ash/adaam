@@ -32,8 +32,10 @@ then verify task-specific details against current code before making a change.
 > packs plus `public-commentary-tracker@1.0.0`,
 > revocable evidence,
 > correction handling, real-source/model acceptance, provider-neutral reuse
-> proof, and staged rollback passed final acceptance on 2026-08-18. Its X,
-> Exa, and execution flags remain off.
+> proof, and staged rollback passed final acceptance on 2026-08-18. The focused
+> follow-up is live from `main` commit `4bec912`: Production X and official-web
+> acquisition plus commentary execution are enabled for owner-selected
+> monitors; Exa remains off.
 > The spec files remain the
 > authoritative split between production evidence and deliberately deferred
 > work.
@@ -505,6 +507,18 @@ flags in dependency order without deploying, and removed them in rollback
 order. All three variables returned to their prior absent/default-off state.
 Continuous monitoring and live alerts therefore remain an explicit owner
 rollout decision; landing Spec 4C does not start scheduled or paid execution.
+
+The later focused tracker follow-up was deployed on 2026-08-18 from exact
+GitHub `main` commit `4bec912` as Vercel production artifact
+`dpl_26PExfRLqF6HaNcDuooVqu9hPbk8`, aliased at
+<https://adaam.vercel.app>. Both `/` and `/skill` returned HTTP 200 and the
+bounded post-deploy error scan was empty. Production source acquisition,
+projection, hybrid evidence/reasoning, strategy runtime, X timeline, official
+White House statements, and commentary execution gates are enabled. Exa stays
+off. The existing owner-selected `inverse-cramer@1.1.0` monitor remains enabled
+with its Photon delivery subscription and next durable occurrence; it was not
+silently rewritten to 1.2. No Public Commentary Tracker session existed at
+rollout, so none was created or enabled on the owner's behalf.
 
 ### Hybrid evidence and reasoning
 
