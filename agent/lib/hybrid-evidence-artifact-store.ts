@@ -206,10 +206,14 @@ const blobStore: HybridEvidenceBlobClient = {
 
 const privateBlobStore: HybridEvidenceBlobClient = {
   async delete(storageKey) {
-    await del(storageKey);
+    await del(storageKey, { token: privateBlobToken() });
   },
   async get(storageKey) {
-    const result = await get(storageKey, { access: "private", useCache: false });
+    const result = await get(storageKey, {
+      access: "private",
+      token: privateBlobToken(),
+      useCache: false,
+    });
     if (!result || result.statusCode !== 200) return null;
     return new Uint8Array(await new Response(result.stream).arrayBuffer());
   },
@@ -220,9 +224,17 @@ const privateBlobStore: HybridEvidenceBlobClient = {
       allowOverwrite: true,
       contentType: mediaType,
       maximumSizeInBytes: HYBRID_EVIDENCE_LIMITS.maximumArtifactBytes,
+      token: privateBlobToken(),
     });
   },
 };
+
+function privateBlobToken(): string {
+  const token = process.env.EVE_HYBRID_EVIDENCE_READ_WRITE_TOKEN
+    ?? process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) throw new HybridEvidenceArtifactStoreError("storage_unavailable");
+  return token;
+}
 
 function rawValue(value: unknown): string | null {
   if (value === null || value === undefined) return null;
