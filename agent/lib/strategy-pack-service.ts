@@ -77,6 +77,7 @@ import {
 import { isReviewedPublicSource } from "./public-source-registry";
 import { resolveParameterizedStrategyPackSources } from "./strategy-pack-source-resolution";
 import { inspectWorkspaceHybridEvidence } from "./hybrid-evidence-semantic";
+import { resolveHybridTaskModelRoute } from "./hybrid-evidence-model-routing";
 import type { WorkspaceSemanticEvidenceStoreClient } from "./hybrid-evidence-semantic-store";
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
 import type { PublicSourceSubscriptionStoreClient } from "./public-source-subscription-store";
@@ -921,6 +922,27 @@ function effectiveCapabilities(
   };
 }
 
+export function resolveStrategyPackWorkerModelPolicy(input: {
+  environment: NodeJS.ProcessEnv;
+  fallback?: WorkspaceCapabilityManifestValue["workerModelPolicy"];
+  pack: StrategyPackCatalogEntry;
+}): WorkspaceCapabilityManifestValue["workerModelPolicy"] {
+  if (input.pack.capabilities.required.includes("evaluate_public_commentary_signals")) {
+    return {
+      allowedModelIds: [
+        resolveHybridTaskModelRoute("semantic_interpretation", input.environment).modelId,
+      ],
+      maximumOutputTokens: input.fallback?.maximumOutputTokens ?? 12_000,
+    };
+  }
+  return input.fallback ?? {
+    allowedModelIds: [
+      input.environment.EVE_STRATEGY_PACK_WORKER_MODEL_ID ?? "google/gemini-3.6-flash",
+    ],
+    maximumOutputTokens: 12_000,
+  };
+}
+
 function budgetForPack(
   pack: StrategyPackCatalogEntry,
   configuration: Record<string, string | string[]>,
@@ -1265,10 +1287,10 @@ async function executeCreateStrategyPackWorkspace(
     pack,
     configuration.configuration,
     dependencies.capabilityInventory,
-    dependencies.workerModelPolicy ?? {
-      allowedModelIds: [environment.EVE_STRATEGY_PACK_WORKER_MODEL_ID ?? "google/gemini-3.6-flash"],
-      maximumOutputTokens: 12_000,
-    },
+    dependencies.workerModelPolicy ?? resolveStrategyPackWorkerModelPolicy({
+      environment,
+      pack,
+    }),
   );
   const now = input.now ?? new Date();
   const nowIso = now.toISOString();
@@ -1783,7 +1805,11 @@ async function mutateStrategyPackWorkspace(
       pack,
       configured.configuration,
       dependencies.capabilityInventory,
-      dependencies.workerModelPolicy ?? capabilities.value.workerModelPolicy,
+      dependencies.workerModelPolicy ?? resolveStrategyPackWorkerModelPolicy({
+        environment,
+        fallback: capabilities.value.workerModelPolicy,
+        pack,
+      }),
     );
     nextBrief = {
       ...brief.value,

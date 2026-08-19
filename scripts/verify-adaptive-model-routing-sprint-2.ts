@@ -7,7 +7,10 @@ import {
 } from "../agent/lib/hybrid-evidence-definition-registry";
 import { resolveHybridTaskModelRoute } from "../agent/lib/hybrid-evidence-model-routing";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
-import { resolveStrategyPackConfiguration } from "../agent/lib/strategy-pack-service";
+import {
+  resolveStrategyPackConfiguration,
+  resolveStrategyPackWorkerModelPolicy,
+} from "../agent/lib/strategy-pack-service";
 import { resolveEarningsCallSemanticRoute } from "../agent/lib/earnings-call-workspace-worker";
 
 const environment: NodeJS.ProcessEnv = {
@@ -73,6 +76,18 @@ assert.deepEqual(frontierRoute, {
   modelId: "openai/gpt-5.4",
   purpose: "semantic_interpretation",
   reasoning: "high",
+});
+const commentaryPack = strategyPackCatalog.resolve({
+  id: "inverse-cramer",
+  version: "1.2.0",
+});
+assert.ok(commentaryPack);
+assert.deepEqual(resolveStrategyPackWorkerModelPolicy({
+  environment,
+  pack: commentaryPack,
+}), {
+  allowedModelIds: [frontierRoute.modelId],
+  maximumOutputTokens: 12_000,
 });
 const legacyModelId = "google/gemini-3.6-flash";
 assert.deepEqual(
