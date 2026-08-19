@@ -117,6 +117,7 @@ const completionSource = new ReadableStream({
   },
   start(controller) {
     controller.enqueue(completionEvent);
+    controller.close();
   },
 });
 const completionHandle = stopHybridEvidenceWorkerAfterWorkspaceCompletion({
@@ -129,8 +130,8 @@ const completionEvents = [];
 for await (const event of completionHandle.events) completionEvents.push(event);
 await new Promise<void>((resolve) => setImmediate(resolve));
 assert.deepEqual(completionEvents, [completionEvent]);
-assert.equal(cancelTurnId, "turn_fixture");
-assert.equal(sourceCancelled, true);
+assert.equal(cancelTurnId, null);
+assert.equal(sourceCancelled, false);
 
 const definitions = createEarningsCallComparisonDefinitions([modelId]);
 assert.deepEqual(definitions.map(({ definitionId }) => definitionId), [

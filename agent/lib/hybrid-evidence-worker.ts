@@ -538,52 +538,20 @@ export async function startHybridEvidenceWorkerTask(
     mode: request.mode,
   }) as RunHandle;
   await bindHybridEvidenceWorkerSessionCapability({ sessionId: handle.sessionId, token });
-  if (envelope.scope.kind !== "workspace") return handle;
-  return stopHybridEvidenceWorkerAfterWorkspaceCompletion(handle, async (turnId) => {
-    await workflowRuntime.dispatchSession({
-      command: { kind: "cancel", turnId },
-      sessionId: handle.sessionId,
-    });
-  });
+  return handle;
 }
 
+/**
+ * @deprecated A durable Eve turn must settle naturally after its completion
+ * tool commits. Cancelling or closing its event stream at that boundary races
+ * the workflow's own terminal stream writes and can convert a successful
+ * durable commit into a FatalError. Retained as a pass-through for callers
+ * compiled against the earlier helper.
+ */
 export function stopHybridEvidenceWorkerAfterWorkspaceCompletion(
   handle: RunHandle,
   cancelTurn: (turnId: string) => Promise<unknown>,
 ): RunHandle {
-  const reader = handle.events.getReader();
-  let cancellationRequested = false;
-  return Object.freeze({
-    ...handle,
-    events: new ReadableStream({
-      async cancel(reason) {
-        await reader.cancel(reason);
-      },
-      async pull(controller) {
-        const next = await reader.read();
-        if (next.done) {
-          controller.close();
-          return;
-        }
-        controller.enqueue(next.value);
-        if (
-          !cancellationRequested &&
-          next.value.type === "action.result" &&
-          next.value.data.status === "completed" &&
-          next.value.data.result.kind === "tool-result" &&
-          next.value.data.result.toolName === "complete_hybrid_evidence_job" &&
-          next.value.data.result.isError !== true
-        ) {
-          cancellationRequested = true;
-          void cancelTurn(next.value.data.turnId).catch(() => {
-            // A concurrently settled turn needs no further cancellation.
-          });
-          void reader.cancel().catch(() => {
-            // The completion event is already durable and forwarded.
-          });
-          controller.close();
-        }
-      },
-    }),
-  });
+  void cancelTurn;
+  return handle;
 }
