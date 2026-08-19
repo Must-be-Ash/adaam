@@ -892,10 +892,12 @@ The broader arbitrary-person/arbitrary-policy Public Commentary Strategy
 Builder remains a separate proposal; this follow-up ships only the bounded
 structured tracker template.
 
-Focused follow-up rollout evidence (2026-08-18): GitHub `main` commit
-`4bec912` deployed as Vercel production artifact
-`dpl_26PExfRLqF6HaNcDuooVqu9hPbk8` and owns the canonical
-<https://adaam.vercel.app> alias. `/` and `/skill` returned HTTP 200 and the
+Focused follow-up rollout evidence (2026-08-18): GitHub `main` implementation
+commit `4bec912` deployed as Vercel production artifact
+`dpl_26PExfRLqF6HaNcDuooVqu9hPbk8`; the canonical
+<https://adaam.vercel.app> alias was verified on that artifact. Later
+Git-backed documentation deployments may replace the alias without changing
+this implementation receipt. `/` and `/skill` returned HTTP 200 and the
 bounded error-log scan was empty. Production enables the shared parent gates,
 X timeline child gate, official White House child gate, and commentary
 execution gate; Exa remains off. The one pre-existing selected

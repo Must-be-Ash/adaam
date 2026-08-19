@@ -509,9 +509,11 @@ Continuous monitoring and live alerts therefore remain an explicit owner
 rollout decision; landing Spec 4C does not start scheduled or paid execution.
 
 The later focused tracker follow-up was deployed on 2026-08-18 from exact
-GitHub `main` commit `4bec912` as Vercel production artifact
-`dpl_26PExfRLqF6HaNcDuooVqu9hPbk8`, aliased at
-<https://adaam.vercel.app>. Both `/` and `/skill` returned HTTP 200 and the
+GitHub `main` implementation commit `4bec912` as Vercel production artifact
+`dpl_26PExfRLqF6HaNcDuooVqu9hPbk8`; the canonical
+<https://adaam.vercel.app> alias was verified on that artifact. Later
+Git-backed documentation deployments may replace the alias without changing
+this implementation receipt. Both `/` and `/skill` returned HTTP 200 and the
 bounded post-deploy error scan was empty. Production source acquisition,
 projection, hybrid evidence/reasoning, strategy runtime, X timeline, official
 White House statements, and commentary execution gates are enabled. Exa stays
