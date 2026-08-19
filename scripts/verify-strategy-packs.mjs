@@ -386,8 +386,10 @@ assert.deepEqual(
     "inverse-cramer@1.0.0",
     "inverse-cramer@1.1.0",
     "inverse-cramer@1.2.0",
+    "inverse-cramer@1.3.0",
     "ipo-filings@1.0.0",
     "public-commentary-tracker@1.0.0",
+    "public-commentary-tracker@1.1.0",
   ],
 );
 const productionPack = productionCheck.entries.find(({ id }) => id === "ipo-filings");

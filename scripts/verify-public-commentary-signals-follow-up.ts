@@ -10,6 +10,7 @@ import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import { createXTimelineRequest } from "../agent/lib/x-public-statement-adapter";
 import { resolveReviewedPublicSource } from "../agent/lib/public-source-registry";
 import {
+  createCommentarySemanticDefinition,
   extractCommentaryMetadata,
   recoverNamedAssetCommentaryMetadata,
 } from "../agent/lib/public-commentary-semantics";
@@ -19,6 +20,7 @@ import {
 } from "../agent/lib/public-commentary-vertical";
 import { decideCommentaryPolicy } from "../agent/lib/commentary-policy";
 import {
+  drainPublicCommentaryHybridWorker,
   resolvePublicCommentaryCommitInitialBaseline,
   resolvePublicCommentaryFirstRunStart,
 } from "../agent/lib/public-commentary-workspace-worker";
@@ -31,19 +33,67 @@ import { resolveWorkspaceWorkerEvaluationWindow } from "../agent/lib/workspace-w
 const versions = strategyPackCatalog.entries
   .filter(({ id }) => id === "inverse-cramer")
   .map(({ version }) => version);
-assert.deepEqual(versions, ["1.0.0", "1.1.0", "1.2.0"]);
+assert.deepEqual(versions, ["1.0.0", "1.1.0", "1.2.0", "1.3.0"]);
 assert.equal(
   strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.0.0" })?.contentDigest,
   "c84defe79be9b72da6deaa7e7c3bc9254fa27f1286a79073b260ee4b90bcb434",
 );
-const latestPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.2.0" });
+const latestPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.3.0" });
 assert.ok(latestPack);
+const semanticDefinition = createCommentarySemanticDefinition(["openai/gpt-5.4"]);
+assert.equal(semanticDefinition.definitionVersion, "1.1.0");
+assert.equal(semanticDefinition.limits.maximumInputTokens, 12_000);
+assert.deepEqual(latestPack.evidenceContracts.find(({ id }) =>
+  id === "public-commentary-semantic-interpretation"), {
+  digest: semanticDefinition.definitionDigest,
+  id: "public-commentary-semantic-interpretation",
+  version: "1.1.0",
+});
+assert.equal(latestPack.monitors[0]?.suggestedBudget.maximumInputTokensPerRun, 12_000);
+const workerRequest = {} as Parameters<typeof drainPublicCommentaryHybridWorker>[0];
+await assert.rejects(
+  drainPublicCommentaryHybridWorker(workerRequest, async () => ({
+    events: new ReadableStream({ start(controller) {
+      controller.enqueue({
+        data: {
+          code: "SESSION_TOKEN_LIMIT_REACHED",
+          message: "The session reached its configured input token limit.",
+          sequence: 1,
+          stepIndex: 1,
+          turnId: "turn.token-limit",
+        },
+        type: "step.failed",
+      });
+      controller.close();
+    } }),
+    sessionId: "session.token-limit",
+  }) as never),
+  /hybrid_evidence_worker_failed:SESSION_TOKEN_LIMIT_REACHED/u,
+);
+await drainPublicCommentaryHybridWorker(workerRequest, async () => ({
+  events: new ReadableStream({ start(controller) {
+    controller.enqueue({
+      data: {
+        result: {
+          isError: false,
+          kind: "tool-result",
+          toolName: "complete_hybrid_evidence_job",
+        },
+        status: "completed",
+        turnId: "turn.completed",
+      },
+      type: "action.result",
+    });
+    controller.close();
+  } }),
+  sessionId: "session.completed",
+}) as never);
 assert.deepEqual(
   listLatestStrategyPacks({ environment: {
     EVE_STRATEGY_PACK_CATALOG_ENABLED: "1",
     EVE_WORKSPACE_STATE_ENABLED: "1",
   } }).packs.filter(({ id }) => id === "inverse-cramer").map(({ version }) => version),
-  ["1.2.0"],
+  ["1.3.0"],
 );
 assert.equal(latestPack.configuration.some(({ key }) => key === "firstRunLookback"), false);
 assert.equal(resolveStrategyPackInitialMonitorDueAt({
@@ -55,7 +105,7 @@ assert.equal(resolveStrategyPackInitialMonitorDueAt({
 assert.deepEqual(resolveWorkspaceWorkerEvaluationWindow({
   monitor: {
     createdAt: "2026-08-18T02:00:00.000Z",
-    managedBy: { packId: "inverse-cramer", packVersion: "1.2.0" },
+    managedBy: { packId: "inverse-cramer", packVersion: "1.3.0" },
     schedule: { anchor: "2026-08-18T02:00:00.000Z", everyMinutes: 720, kind: "interval" },
     sourceCheckpoint: { contentDigest: null, watermark: null },
   },
@@ -195,7 +245,7 @@ assert.equal(resolvePublicCommentaryFirstRunStart({
   cadence: "hours_6",
   initialBaseline: true,
   firstRunLookback: undefined,
-  pack: { id: "inverse-cramer", version: "1.2.0" },
+  pack: { id: "inverse-cramer", version: "1.3.0" },
   windowEndAt: "2026-08-18T02:00:00.000Z",
 }), "2026-08-17T20:00:00.000Z");
 assert.equal(resolvePublicCommentaryFirstRunStart({
@@ -203,7 +253,7 @@ assert.equal(resolvePublicCommentaryFirstRunStart({
   cadence: "hours_12",
   initialBaseline: true,
   firstRunLookback: undefined,
-  pack: { id: "inverse-cramer", version: "1.2.0" },
+  pack: { id: "inverse-cramer", version: "1.3.0" },
   windowEndAt: "2026-08-18T02:00:00.000Z",
 }), "2026-08-17T14:00:00.000Z");
 assert.equal(resolvePublicCommentaryFirstRunStart({

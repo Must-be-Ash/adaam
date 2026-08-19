@@ -274,23 +274,26 @@ export function createCommentarySemanticDefinition(
     allowedMediaTypes: ["text/plain"],
     allowedModelIds,
     definitionId: COMMENTARY_SEMANTIC_DEFINITION_ID,
-    definitionVersion: "1.0.0",
+    definitionVersion: "1.1.0",
     inputProjection: { schemaId: "workspace-semantic-role-bound-projection", schemaVersion: "2.0.0" },
     instructionTemplate: {
       content: COMMENTARY_SEMANTIC_INSTRUCTION,
       delimiterPolicy: "untrusted_evidence_xml/v1",
       digest: digestHybridEvidenceValue([
         "interpret-public-commentary-statement",
-        "1.0.0",
+        "1.1.0",
         COMMENTARY_SEMANTIC_INSTRUCTION,
       ]),
       templateId: "interpret-public-commentary-statement",
-      version: "1.0.0",
+      version: "1.1.0",
     },
     limits: {
       maximumAttempts: 1,
       maximumEvidenceBytes: 25_000,
-      maximumInputTokens: 6_000,
+      // The signed worker has two model turns: read the bounded bundle, then
+      // commit the candidate. Eve accounts provider input cumulatively across
+      // both turns, so 6k could stop task-mode execution before the commit.
+      maximumInputTokens: 12_000,
       maximumOutputTokens: 2_000,
       maximumPages: 0,
       maximumPaidCostUsd: "0.2500",

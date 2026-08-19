@@ -254,17 +254,40 @@ export function resolvePublicCommentaryCommitInitialBaseline(input: Readonly<{
     (input.firstRunLookback === undefined || input.firstRunLookback === "off");
 }
 
-async function drainHybridWorker(
+export async function drainPublicCommentaryHybridWorker(
   request: Parameters<typeof startHybridEvidenceWorkerTask>[0],
+  startWorker: typeof startHybridEvidenceWorkerTask = startHybridEvidenceWorkerTask,
 ): Promise<void> {
-  const handle = await startHybridEvidenceWorkerTask(request);
+  const handle = await startWorker(request);
   const reader = handle.events.getReader();
+  let completed = false;
+  let terminalFailure: Readonly<{ code: string; message: string }> | null = null;
   try {
-    while (!(await reader.read()).done) {
-      // Completion is durably recorded by the compiled hybrid worker tool.
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      const event = next.value;
+      if (
+        event.type === "action.result" &&
+        event.data.status === "completed" &&
+        event.data.result.kind === "tool-result" &&
+        event.data.result.toolName === "complete_hybrid_evidence_job" &&
+        event.data.result.isError !== true
+      ) completed = true;
+      if (
+        event.type === "step.failed" ||
+        event.type === "turn.failed" ||
+        event.type === "session.failed"
+      ) terminalFailure = Object.freeze({ code: event.data.code, message: event.data.message });
     }
   } finally {
     reader.releaseLock();
+  }
+  if (!completed) {
+    const suffix = terminalFailure
+      ? `${terminalFailure.code}:${terminalFailure.message}`
+      : "completion_missing";
+    throw new Error(`hybrid_evidence_worker_failed:${suffix}`);
   }
 }
 
@@ -798,7 +821,7 @@ export function createProductionPublicCommentaryPipeline(input: {
           catalog: clients?.semantic?.catalog,
           execute: async (prepared) => clients?.semantic?.execute
             ? clients.semantic.execute(prepared)
-            : drainHybridWorker(prepared.request),
+            : drainPublicCommentaryHybridWorker(prepared.request),
           jobs: clients?.semantic?.jobs,
           lineage: clients?.semantic?.lineage,
           monitor: clients?.monitor,
