@@ -273,7 +273,7 @@ const inverseMonitor = await createWorkspaceMonitor({
     kind: "strategy_pack",
     packContentDigest: packDigest,
     packId: "inverse-cramer",
-    packVersion: "1.0.0",
+    packVersion: "1.3.0",
     resourceId: "monitor-inverse-cramer-commentary",
   },
   name: "Inverse Cramer",
@@ -291,6 +291,7 @@ const activeInverseMonitor = await updateWorkspaceMonitor({
   now: inverseActivatedAt,
   patch: {
     lifecycleState: "enabled",
+    nextOccurrenceAt: inverseActivatedAt.toISOString(),
     pauseReason: null,
     pausedAt: null,
   },
@@ -298,6 +299,89 @@ const activeInverseMonitor = await updateWorkspaceMonitor({
 }, inverseClient);
 assert.equal(activeInverseMonitor.activationWatermark, inverseActivatedAt.toISOString());
 assert.equal(isWorkspaceMonitorCheckpointOnlyBaseline(activeInverseMonitor), true);
+const inverseImmediateClaims = await claimDueWorkspaceMonitors(
+  {
+    environment,
+    leaseForMs: 60_000,
+    limit: 10,
+    now: new Date("2026-08-14T12:04:00.000Z"),
+    recoveryWindowMs: 6 * 60 * 60_000,
+  },
+  inverseClient,
+);
+assert.equal(inverseImmediateClaims.length, 1);
+assert.equal(
+  inverseImmediateClaims[0]?.occurrence.occurrenceIdentity,
+  `interval:${inverseActivatedAt.toISOString()}`,
+);
+assert.equal(
+  (
+    await claimDueWorkspaceMonitors(
+      {
+        environment,
+        leaseForMs: 60_000,
+        limit: 10,
+        now: new Date("2026-08-14T12:04:00.000Z"),
+        recoveryWindowMs: 6 * 60 * 60_000,
+      },
+      inverseClient,
+    )
+  ).length,
+  0,
+);
+
+const staleInverseClient = new MemoryStore();
+const staleInverseMonitor = await createWorkspaceMonitor({
+  deliverySubscriptionId: "delivery.inverse-cramer.stale",
+  instruction: "Skip a stale immediate occurrence outside the recovery window.",
+  managedBy: {
+    bindingRevision: 1,
+    kind: "strategy_pack",
+    packContentDigest: packDigest,
+    packId: "inverse-cramer",
+    packVersion: "1.3.0",
+    resourceId: "monitor-inverse-cramer-commentary",
+  },
+  name: "Stale inverse Cramer",
+  nextOccurrenceAt: scheduledFor,
+  now,
+  schedule: { anchor: scheduledFor, everyMinutes: 720, kind: "interval" },
+  scope,
+  sources: [source(0)],
+}, staleInverseClient);
+const staleInverseActivatedAt = new Date("2026-08-14T12:01:00.000Z");
+await updateWorkspaceMonitor({
+  expectedRevision: staleInverseMonitor.configurationRevision,
+  monitorId: staleInverseMonitor.monitorId,
+  now: staleInverseActivatedAt,
+  patch: {
+    lifecycleState: "enabled",
+    nextOccurrenceAt: staleInverseActivatedAt.toISOString(),
+    pauseReason: null,
+    pausedAt: null,
+  },
+  scope,
+}, staleInverseClient);
+assert.equal(
+  (
+    await claimDueWorkspaceMonitors(
+      {
+        environment,
+        leaseForMs: 60_000,
+        limit: 10,
+        now: new Date("2026-08-14T19:01:01.000Z"),
+        recoveryWindowMs: 6 * 60 * 60_000,
+      },
+      staleInverseClient,
+    )
+  ).length,
+  0,
+);
+assert.equal(
+  (await getWorkspaceMonitor(scope, staleInverseMonitor.monitorId, staleInverseClient))
+    ?.lastErrorCode,
+  "missed_occurrences_skipped",
+);
 const binding = {
   bindingRevision: 1,
   configuration: { dailyTimes: ["12:05"], timezone: "UTC" },

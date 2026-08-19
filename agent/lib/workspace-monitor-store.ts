@@ -719,6 +719,12 @@ export async function claimDueWorkspaceMonitors(
       continue;
     }
     const selection = selectWorkspaceMonitorDueOccurrence({
+      ...(isWorkspaceMonitorCheckpointOnlyBaseline(monitor) &&
+          (monitor.managedBy?.packId === "inverse-cramer" ||
+            monitor.managedBy?.packId === "public-commentary-tracker") &&
+          monitor.activationWatermark === monitor.nextOccurrenceAt
+        ? { immediateOccurrenceAt: monitor.activationWatermark }
+        : {}),
       nextOccurrenceAt: monitor.nextOccurrenceAt,
       now: input.now,
       recoveryWindowMs: input.recoveryWindowMs,

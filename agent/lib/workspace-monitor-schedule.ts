@@ -283,6 +283,7 @@ function occurrencesBetween(
 
 export function selectWorkspaceMonitorDueOccurrence(input: {
   completedOccurrenceIdentities?: readonly string[];
+  immediateOccurrenceAt?: string;
   nextOccurrenceAt: string;
   now: Date;
   recoveryWindowMs: number;
@@ -303,8 +304,28 @@ export function selectWorkspaceMonitorDueOccurrence(input: {
     return Object.freeze({ due: null, skipped: Object.freeze([]), skippedBefore: null });
   }
   const recoveryStart = nowMs - input.recoveryWindowMs;
-  const scanStart = Math.max(nextMs, recoveryStart - SCAN_PADDING_MS);
   const completed = new Set(input.completedOccurrenceIdentities ?? []);
+  const immediateMs = input.immediateOccurrenceAt === undefined
+    ? null
+    : new Date(input.immediateOccurrenceAt).getTime();
+  if (
+    input.schedule.kind === "interval" &&
+    immediateMs === nextMs &&
+    immediateMs >= recoveryStart
+  ) {
+    const occurrenceIdentity = `interval:${input.nextOccurrenceAt}`;
+    if (!completed.has(occurrenceIdentity)) {
+      return Object.freeze({
+        due: Object.freeze({
+          occurrenceIdentity,
+          scheduledAt: input.nextOccurrenceAt,
+        }),
+        skipped: Object.freeze([]),
+        skippedBefore: null,
+      });
+    }
+  }
+  const scanStart = Math.max(nextMs, recoveryStart - SCAN_PADDING_MS);
   const scanned = occurrencesBetween(input.schedule, scanStart, nowMs);
   const occurrences = scanned.occurrences.filter(
     (occurrence) =>
