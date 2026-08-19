@@ -906,6 +906,41 @@ enabled without rewriting its immutable binding. No configurable tracker
 session existed, so rollout did not invent one; the owner creates one through
 the confirmed-identity pack flow when ready.
 
+### Production monitor-delivery repair — completed 2026-08-19
+
+- [x] Restored the Production evidence-encryption key/reference, valid durable
+  evidence authorization and private Blob wiring, and Photon workspace alert
+  delivery without changing the already-provisioned X or Exa credentials.
+- [x] Fixed the generated Manage application script and added a browser-side
+  syntax assertion, eliminating the permanent “Loading your sessions…” state.
+- [x] Published immutable `inverse-cramer@1.3.0` and
+  `public-commentary-tracker@1.1.0` without modifying or removing earlier
+  versions. The latest-only creation catalog and explicit recreate-to-upgrade
+  behavior remain intact.
+- [x] Made durable commentary completion, semantic outcome invariants,
+  deterministic no-model abstention, and budget deferral fail closed. A
+  budget-rejected run advances only its schedule slot and preserves the X
+  checkpoint instead of entering crashed-worker recovery.
+- [x] Reclassified unavailable House acquisition as
+  `congressional_source_unavailable`; the owner-selected House monitor is
+  enabled with zero consecutive failures rather than auto-paused on the former
+  misleading projection error.
+- [x] Recreated the selected Cramer monitor on 1.3.0 with its real persisted
+  Photon subscription and retained a null source checkpoint. It is paused for
+  owner cost review at revision 65 with no next occurrence, so no scheduled
+  Cramer run can dispatch. Historical 1.1/1.2 bindings remain paused and exact.
+- [x] Sent one already-staged real IPO finding through the Production Photon
+  adapter. Alert
+  `alert_bf24969ca3142c821eccee8257d1e09ee66b9518797ca230c5764726b05f80c2`
+  has durable delivered receipt
+  `delivery_aa66009b29f51a66af430b235ed9426f600dae32a25b4d61a27aa3bf3d05cfdd`
+  at `2026-08-19T19:55:10.770Z`. The one-time acceptance route and secret were
+  then removed; no arbitrary delivery surface remains.
+
+The repair used focused affected verifiers plus one relevant regression gate;
+it did not reimplement or re-accept Specs 1–4C. No configurable tracker session
+was created automatically.
+
 Exit: the complete second strategy is independently reviewed, passes one final
 relevant regression gate and both Cramer and Trump reuse acceptances, rolls back
 safely, is documented, and lands on GitHub `main` under the owner's explicit

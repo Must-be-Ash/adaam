@@ -28,8 +28,8 @@ then verify task-specific details against current code before making a change.
 > 1.0.1 binding passed production acceptance on 2026-08-17. Its bounded frontier
 > worker completed with exact citations, validation, usage, and cost; all
 > related production flags remain off. Spec 4C's X-backed Public Commentary
-> Signals foundation, immutable `inverse-cramer@1.0.0`, `1.1.0`, and `1.2.0`
-> packs plus `public-commentary-tracker@1.0.0`,
+> Signals foundation, immutable `inverse-cramer@1.0.0` through `1.3.0`
+> packs plus `public-commentary-tracker@1.0.0` and `1.1.0`,
 > revocable evidence,
 > correction handling, real-source/model acceptance, provider-neutral reuse
 > proof, and staged rollback passed final acceptance on 2026-08-18. The focused
@@ -40,7 +40,7 @@ then verify task-specific details against current code before making a change.
 > authoritative split between production evidence and deliberately deferred
 > work.
 
-Snapshot date: 2026-08-18
+Snapshot date: 2026-08-19
 
 Repository baseline: `main`. Inspect the current Git log and merged PR for the
 accepted Spec 4B landing commit; immutable rollout receipts are recorded below.
@@ -434,8 +434,8 @@ truncation, and crash-only ephemeral cleanup hardening is parked in
 
 ### Public Commentary Signals
 
-Spec 4C ships immutable `inverse-cramer@1.0.0`, `1.1.0`, and `1.2.0` plus
-`public-commentary-tracker@1.0.0` through a reusable, provider-neutral
+Spec 4C ships immutable `inverse-cramer@1.0.0` through `1.3.0` plus
+`public-commentary-tracker@1.0.0` and `1.1.0` through a reusable, provider-neutral
 Public Commentary Signals vertical. The production source is the pinned Jim
 Cramer X user timeline; source-global acquisition and edit/deletion rehydration
 feed workspace-isolated semantic attempts, findings, budgets, alerts, Discuss,
@@ -471,6 +471,16 @@ checkpoint. Initial qualifying history produces one cited summary alert at
 most; later qualifying statements use normal material alerts. The Cramer
 numeric identity and inverse policy remain locked. Existing 1.1 sessions are
 never rewritten and show an explicit recreate-on-1.2 upgrade notice.
+
+Inverse Cramer 1.3 and Public Commentary Tracker 1.1 preserve all earlier
+versions and tighten the production semantic worker contract. Durable semantic
+completion is consumed without cancelling the trailing Eve event stream;
+accepted, no-view, and abstained payloads encode their cross-field invariants
+as structural unions; deterministic irrelevant/unresolved statements avoid an
+unnecessary frontier call; and run-budget admission defers only the schedule
+slot without treating a never-started occurrence as crashed recovery. Creation
+still shows only the latest version, while historical bindings remain exact-
+version resolvable and require explicit recreation to upgrade.
 
 The configurable Public Commentary Tracker reuses the same worker, scheduler,
 source acquisition/projection, revocable evidence, semantic model route,
@@ -521,6 +531,39 @@ off. The existing owner-selected `inverse-cramer@1.1.0` monitor remains enabled
 with its Photon delivery subscription and next durable occurrence; it was not
 silently rewritten to 1.2. No Public Commentary Tracker session existed at
 rollout, so none was created or enabled on the owner's behalf.
+
+Production operations were repaired and accepted on 2026-08-19. The prior
+`public_commentary_pipeline_unavailable` failures were not an X credential or
+console-access problem: Production lacked the evidence-encryption key/reference
+and the durable evidence authorization/private-Blob path also needed valid
+runtime wiring. Those settings are now present as Sensitive variables, the
+shared commentary/X gates remain enabled, Exa remains off, and Photon workspace
+alerts are enabled. The House worker now reports an upstream acquisition outage
+as `congressional_source_unavailable` instead of the misleading
+`congressional_projection_invalid`; its selected monitor is enabled with zero
+consecutive failures. The Manage page's infinite “Loading your sessions…” state
+was invalid generated JavaScript caused by unescaped regex/newline literals in
+the HTML template; the emitted manager script is now syntax-checked by the
+browser verifier.
+
+The active Cramer workspace was explicitly recreated on immutable
+`inverse-cramer@1.3.0`; the older 1.1/1.2 workspaces remain paused history. Its
+monitor is paused for owner cost review at configuration revision 65 with
+`nextOccurrenceAt: null`, so no scheduled Cramer run can dispatch. It is bound
+to the same persisted owner Photon subscription used by the healthy IPO and
+House monitors and retains a null X checkpoint, so no unseen-post cursor was
+falsely advanced. The conservative commentary budget reached USD 15.75 of its
+USD 16 daily ceiling during diagnosis; do not resume it until the owner reviews
+that spend. The IPO monitor is
+enabled and healthy, and a real stored SEC finding was delivered through the
+Production Photon adapter as alert
+`alert_bf24969ca3142c821eccee8257d1e09ee66b9518797ca230c5764726b05f80c2`
+with durable delivery receipt
+`delivery_aa66009b29f51a66af430b235ed9426f600dae32a25b4d61a27aa3bf3d05cfdd`
+at `2026-08-19T19:55:10.770Z`. The secret-gated acceptance route and its
+ephemeral environment variable were removed immediately afterward; cleanup
+artifact `dpl_2HxLxJyrP1HiBKF1bUAVXxcemK6V` is Ready and exposes no acceptance
+endpoint.
 
 ### Hybrid evidence and reasoning
 
