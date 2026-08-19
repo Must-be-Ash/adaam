@@ -679,15 +679,18 @@ export function createProductionPublicCommentaryPipeline(input: {
           }, clients?.commentaryFindings));
         }
       }
-      const checkpoint = lifecycleDigests.length === 0
-        ? coordinated.workspaceCheckpoint
-        : Object.freeze({
-            contentDigest: createHash("sha256").update(JSON.stringify([
+      const checkpoint = Object.freeze({
+        contentDigest: lifecycleDigests.length === 0
+          ? coordinated.workspaceCheckpoint.contentDigest
+          : createHash("sha256").update(JSON.stringify([
               coordinated.workspaceCheckpoint.contentDigest,
               ...lifecycleDigests.sort(),
             ])).digest("hex"),
-            watermark: coordinated.workspaceCheckpoint.watermark,
-          });
+        // Acquisition keeps its physical observation time as provenance. The
+        // workspace checkpoint advances the logical occurrence window so a
+        // normal dispatch delay cannot move the result outside its source fence.
+        watermark: window.endAt,
+      });
       await markWorkspaceSourceSuccess({
         contentDigest: checkpoint.contentDigest,
         now: input.now,

@@ -19,7 +19,7 @@ import { writeWorkspaceDocument, type WorkspaceStateStoreClient } from "../agent
 import { isWorkspaceMonitorCheckpointOnlyBaseline, prepareWorkspaceMonitorCreate, requiresManagedMonitorActivationWatermark } from "../agent/lib/workspace-monitor-store";
 import { STRATEGY_PACK_REFERENCE_CATALOG } from "../agent/lib/strategy-pack-reference-catalog";
 import { commitThenAcknowledgePublicCommentaryResult, createProductionPublicCommentaryPipeline } from "../agent/lib/public-commentary-workspace-worker";
-import { authorizeWorkspaceXExactPostFetch, createWorkspaceSourceCoverage, readWorkspaceSourceCoverage } from "../agent/lib/workspace-source-coverage";
+import { authorizeWorkspaceXExactPostFetch, completeWorkspaceSourceCoverage, createWorkspaceSourceCoverage, readWorkspaceSourceCoverage, WorkspaceSourceCoverageError } from "../agent/lib/workspace-source-coverage";
 import {
   createHybridEvidenceEphemeralArtifactStore,
   type HybridEvidenceArtifactIndexClient,
@@ -766,7 +766,7 @@ const productionClients = {
         meta: { newest_id: "900", result_count: 1 },
       } : { data: [], meta: { result_count: 0 } }),
       finalUrl: request.url,
-      observedAt: productionPhase === "baseline" ? now : "2026-08-19T18:01:00.000Z",
+      observedAt: productionPhase === "baseline" ? "2026-08-18T18:00:16.000Z" : "2026-08-19T18:01:00.000Z",
       rateLimit: 100,
       rateRemaining: 99,
       rateReset: 1_777_000_000,
@@ -838,8 +838,32 @@ await productionBaseline.acknowledgeDurableCommit?.();
 assert.equal(productionXCalls, 1);
 assert.equal(productionBaseline.analyzedStatements, 0);
 assert.equal(productionBaseline.finding, null);
-assert.match(productionBaseline.checkpoint.watermark, /^2026-08-18T/u);
+assert.equal(productionBaseline.checkpoint.watermark, now);
 assert.equal((await readWorkspaceSourceCoverage(scopeA, productionRunId, productionRuntime))?.successes.length, 1);
+const committedProductionCoverage = await completeWorkspaceSourceCoverage({
+  checkpoint: productionBaseline.checkpoint,
+  now: new Date("2026-08-18T18:00:17.000Z"),
+  runId: productionRunId,
+  scope: scopeA,
+}, productionRuntime);
+assert.equal(committedProductionCoverage.state, "complete", "the first delayed-observation result commit must succeed");
+assert.deepEqual(await completeWorkspaceSourceCoverage({
+  checkpoint: productionBaseline.checkpoint,
+  now: new Date("2026-08-18T18:00:18.000Z"),
+  runId: productionRunId,
+  scope: scopeA,
+}, productionRuntime), committedProductionCoverage, "an identical completed result commit must be idempotent");
+await assert.rejects(completeWorkspaceSourceCoverage({
+  checkpoint: {
+    contentDigest: "f".repeat(64),
+    watermark: productionBaseline.checkpoint.watermark,
+  },
+  now: new Date("2026-08-18T18:00:19.000Z"),
+  runId: productionRunId,
+  scope: scopeA,
+}, productionRuntime), (error) =>
+  error instanceof WorkspaceSourceCoverageError && error.code === "source_coverage_conflict",
+  "a different completed result must remain a genuine conflict");
 
 const productionMonitorB = prepareWorkspaceMonitorCreate({
   activateManagedMonitor: true,
