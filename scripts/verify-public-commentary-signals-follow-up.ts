@@ -8,7 +8,10 @@ import {
 } from "../agent/lib/strategy-pack-service";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import { createXTimelineRequest } from "../agent/lib/x-public-statement-adapter";
-import { resolveHybridEvidenceWorkerIssuedAt } from "../agent/lib/hybrid-evidence-worker";
+import {
+  resolveHybridEvidenceWorkerAuthEnvironment,
+  resolveHybridEvidenceWorkerIssuedAt,
+} from "../agent/lib/hybrid-evidence-worker";
 import { resolveReviewedPublicSource } from "../agent/lib/public-source-registry";
 import {
   createCommentarySemanticDefinition,
@@ -48,6 +51,16 @@ assert.equal(resolveHybridEvidenceWorkerIssuedAt({
   issuedAt: dispatchedAt,
   now: scheduledAt,
 }).toISOString(), dispatchedAt.toISOString());
+const injectedAuthEnvironment = { EVE_HYBRID_EVIDENCE_AUTH_SECRET: "injected" };
+const liveProductionEnvironment = { EVE_HYBRID_EVIDENCE_AUTH_SECRET: "live", VERCEL: "1" };
+assert.equal(
+  resolveHybridEvidenceWorkerAuthEnvironment(injectedAuthEnvironment, liveProductionEnvironment),
+  liveProductionEnvironment,
+);
+assert.equal(
+  resolveHybridEvidenceWorkerAuthEnvironment(injectedAuthEnvironment, {}),
+  injectedAuthEnvironment,
+);
 assert.equal(semanticDefinition.definitionVersion, "1.1.0");
 assert.equal(semanticDefinition.limits.maximumInputTokens, 12_000);
 assert.deepEqual(latestPack.evidenceContracts.find(({ id }) =>

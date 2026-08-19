@@ -123,6 +123,15 @@ export function resolveHybridEvidenceWorkerIssuedAt(input: {
   return input.issuedAt ?? input.now ?? new Date();
 }
 
+export function resolveHybridEvidenceWorkerAuthEnvironment(
+  injected: NodeJS.ProcessEnv | undefined,
+  runtime: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  // Vercel Sensitive values belong to the live invocation environment. Do not
+  // sign with a serialized/copied ProcessEnv passed through durable work.
+  return runtime.VERCEL ? runtime : injected ?? runtime;
+}
+
 function assertEnvelopeMatchesRecord(
   envelope: ReturnType<typeof requireHybridEvidenceWorkerAuth>["envelope"],
   record: HybridEvidenceJobRecord | null,
@@ -234,7 +243,10 @@ export async function prepareHybridEvidenceWorkerRun(input: {
       maximumRows: definition.limits.maximumRows,
     },
   });
-  const token = signHybridEvidenceWorkerEnvelope(envelope, input.environment);
+  const token = signHybridEvidenceWorkerEnvelope(
+    envelope,
+    resolveHybridEvidenceWorkerAuthEnvironment(input.environment),
+  );
   const record = await claimHybridEvidenceJob({
     claimToken: token,
     jobId: input.prepared.job.jobId,
