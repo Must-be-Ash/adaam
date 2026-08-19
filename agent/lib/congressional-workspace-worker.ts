@@ -154,6 +154,7 @@ export class CongressionalWorkspaceWorkerError extends Error {
     | "congressional_monitor_invalid"
     | "congressional_monitor_not_found"
     | "congressional_projection_invalid"
+    | "congressional_source_unavailable"
     | "congressional_strategy_invalid"
   ) {
     super(code);
@@ -402,6 +403,12 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     window: envelope.window,
   });
   const cursor = coordinated.acquisition.proposedNextCursor;
+  if (
+    coordinated.acquisition.status !== "complete" &&
+    coordinated.acquisition.status !== "no_change"
+  ) {
+    throw new CongressionalWorkspaceWorkerError("congressional_source_unavailable");
+  }
   if (!cursor || !coordinated.projection) {
     throw new CongressionalWorkspaceWorkerError("congressional_projection_invalid");
   }

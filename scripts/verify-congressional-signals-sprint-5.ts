@@ -12,6 +12,7 @@ import {
   CONGRESSIONAL_HOUSE_MEMBER_ROSTER_SNAPSHOT_2026_07_06,
 } from "../agent/lib/congressional-reference-catalog";
 import {
+  CongressionalWorkspaceWorkerError,
   evaluateCongressionalSignalsForWorker,
   type CongressionalWorkspaceWorkerClients,
 } from "../agent/lib/congressional-workspace-worker";
@@ -469,6 +470,11 @@ const workspaceD = installWorkspace({
   version: "1.3.0",
   workspaceId: "123e4567-e89b-42d3-a456-426614175504",
 });
+const workspaceE = installWorkspace({
+  configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: [] },
+  version: "1.3.0",
+  workspaceId: "123e4567-e89b-42d3-a456-426614175505",
+});
 const packV1_3 = strategyPackCatalog.resolve({ id: "congressional-signals", version: "1.3.0" });
 assert.ok(packV1_3);
 assert.deepEqual(packV1_3.evidenceContracts, CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_3);
@@ -482,6 +488,22 @@ assert.deepEqual(
   ],
 );
 const baselineDocument = fixture("ptr-10.pdf");
+const unavailable = await prepare(workspaceE.monitor, baseNow, workspaceE.scope);
+await assert.rejects(
+  evaluateCongressionalSignalsForWorker({
+    clients: {
+      ...clients,
+      fetchIndex: async () => {
+        throw new Error("fixture_house_transport_timeout");
+      },
+    },
+    ctx: { session: { auth: { current: unavailable.request.auth } } },
+    environment,
+    now: baseNow,
+  }),
+  (error) => error instanceof CongressionalWorkspaceWorkerError &&
+    error.code === "congressional_source_unavailable",
+);
 const baselineA = await prepare(workspaceA.monitor, baseNow, workspaceA.scope);
 assert.equal((await execute({ document: baselineDocument, now: baseNow, prepared: baselineA, shouldFetch: true })).result.baselineEstablished, true);
 const sourceRecordsAfterFirstBaseline = source.values.size;
