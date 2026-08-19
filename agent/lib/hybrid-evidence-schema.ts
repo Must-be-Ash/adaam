@@ -206,7 +206,7 @@ export const evidenceArtifactManifestSchema = z.object({
   accessClassification: z.literal("public"),
   acquisitionId: identifierSchema,
   artifactId: identifierSchema,
-  authority: z.string().trim().min(2).max(160),
+  authority: z.string().trim().min(1).max(160),
   byteCount: z.number().int().positive().max(
     HYBRID_EVIDENCE_LIMITS.maximumArtifactBytes,
   ),

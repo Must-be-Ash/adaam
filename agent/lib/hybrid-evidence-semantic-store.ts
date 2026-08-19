@@ -42,7 +42,7 @@ const digestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const idSchema = z.string().min(3).max(200);
 const sourceSchema = z.object({
   artifactDigest: digestSchema,
-  authority: z.string().min(2).max(160),
+  authority: z.string().min(1).max(160),
   factLogicalKey: idSchema,
   factPayloadDigest: digestSchema,
   factRevisionId: idSchema,

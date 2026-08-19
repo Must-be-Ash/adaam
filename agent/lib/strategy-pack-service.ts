@@ -947,12 +947,15 @@ export function resolveStrategyPackWorkerModelPolicy(input: {
   };
 }
 
-function budgetForPack(
+export function resolveStrategyPackInitialBudgetPolicy(
   pack: StrategyPackCatalogEntry,
   configuration: Record<string, string | string[]>,
   now: string,
-  ceilings: typeof DEFAULT_BUDGET_CEILINGS,
+  ceilings: typeof DEFAULT_BUDGET_CEILINGS = DEFAULT_BUDGET_CEILINGS,
 ): WorkspaceBudgetPolicyValue {
+  const usesPaidXTimeline = pack.sources.some((source) =>
+    source.allowedOrigins.includes("https://api.x.com")
+  );
   const requestedRunsPerDay = Math.min(
     ceilings.maximumScheduledRunsPerDay,
     pack.monitors.reduce((sum, monitor) => sum + monitor.suggestedBudget.maximumRunsPerDay, 0),
@@ -969,7 +972,7 @@ function budgetForPack(
   const ownerTimezone = timezoneField ? configuration[timezoneField.key] : "UTC";
   return {
     effectiveAt: now,
-    maximumConcurrentWorkers: 1,
+    maximumConcurrentWorkers: usesPaidXTimeline ? 2 : 1,
     maximumInputTokensPerDay: Math.min(
       ceilings.maximumInputTokensPerDay,
       inputPerRun * requestedRunsPerDay,
@@ -980,9 +983,9 @@ function budgetForPack(
       outputPerRun * requestedRunsPerDay,
     ),
     maximumOutputTokensPerRun: outputPerRun,
-    maximumPaidPerCall: null,
-    maximumPaidPerDay: null,
-    maximumPaidPerMonth: null,
+    maximumPaidPerCall: usesPaidXTimeline ? "1.000000" : null,
+    maximumPaidPerDay: usesPaidXTimeline ? "2.000000" : null,
+    maximumPaidPerMonth: usesPaidXTimeline ? "10.000000" : null,
     maximumScheduledRunsPerDay: requestedRunsPerDay,
     ownerTimezone: typeof ownerTimezone === "string" ? ownerTimezone : "UTC",
     unknownPriceFallbackCeiling: "0",
@@ -1368,7 +1371,7 @@ async function executeCreateStrategyPackWorkspace(
     select: true,
     workspaceId: targetWorkspaceId,
   });
-  const budget = budgetForPack(
+  const budget = resolveStrategyPackInitialBudgetPolicy(
     pack,
     configuration.configuration,
     nowIso,

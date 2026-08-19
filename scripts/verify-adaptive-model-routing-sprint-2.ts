@@ -9,6 +9,7 @@ import { resolveHybridTaskModelRoute } from "../agent/lib/hybrid-evidence-model-
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import {
   resolveStrategyPackConfiguration,
+  resolveStrategyPackInitialBudgetPolicy,
   resolveStrategyPackWorkerModelPolicy,
 } from "../agent/lib/strategy-pack-service";
 import { resolveEarningsCallSemanticRoute } from "../agent/lib/earnings-call-workspace-worker";
@@ -89,6 +90,33 @@ assert.deepEqual(resolveStrategyPackWorkerModelPolicy({
   allowedModelIds: ["google/gemini-3.6-flash", frontierRoute.modelId],
   maximumOutputTokens: 12_000,
 });
+const commentaryBudget = resolveStrategyPackInitialBudgetPolicy(
+  commentaryPack,
+  resolveStrategyPackConfiguration(commentaryPack, {}).configuration,
+  "2026-08-19T00:00:00.000Z",
+);
+assert.deepEqual(
+  {
+    call: commentaryBudget.maximumPaidPerCall,
+    concurrent: commentaryBudget.maximumConcurrentWorkers,
+    day: commentaryBudget.maximumPaidPerDay,
+    month: commentaryBudget.maximumPaidPerMonth,
+  },
+  { call: "1.000000", concurrent: 2, day: "2.000000", month: "10.000000" },
+);
+const ipoPack = strategyPackCatalog.resolve({ id: "ipo-filings", version: "1.0.0" });
+assert.ok(ipoPack);
+const ipoBudget = resolveStrategyPackInitialBudgetPolicy(
+  ipoPack,
+  resolveStrategyPackConfiguration(ipoPack, {}).configuration,
+  "2026-08-19T00:00:00.000Z",
+);
+assert.deepEqual({
+  call: ipoBudget.maximumPaidPerCall,
+  concurrent: ipoBudget.maximumConcurrentWorkers,
+  day: ipoBudget.maximumPaidPerDay,
+  month: ipoBudget.maximumPaidPerMonth,
+}, { call: null, concurrent: 1, day: null, month: null });
 const legacyModelId = "google/gemini-3.6-flash";
 assert.deepEqual(
   resolveEarningsCallSemanticRoute({

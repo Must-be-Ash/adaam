@@ -25,6 +25,7 @@ import {
   type HybridEvidenceArtifactIndexClient,
   type HybridEvidenceBlobClient,
 } from "../agent/lib/hybrid-evidence-artifact-store";
+import { createWorkspaceSemanticSource } from "../agent/lib/hybrid-evidence-semantic-store";
 import type { PublicSourceAcquisitionStoreClient } from "../agent/lib/public-source-acquisition-store";
 import type { PublicSourceSubscriptionStoreClient } from "../agent/lib/public-source-subscription-store";
 import { readRevocableEvidenceEnvelope, type RevocableEvidenceStoreClient } from "../agent/lib/revocable-evidence-store";
@@ -681,6 +682,39 @@ await assert.rejects(authorizeWorkspaceXExactPostFetch({
 let productionXCalls = 0;
 let productionPhase: "baseline" | "rehydration" = "baseline";
 const productionExactUrls: string[] = [];
+const authorityArtifactStore = createHybridEvidenceEphemeralArtifactStore({
+  blob: new MemoryBlob(),
+  index: new MemoryRuntimeCas(),
+});
+const xAuthorityArtifact = await authorityArtifactStore.persist({
+  acquisitionId: "acquisition.x-authority",
+  authority: "X",
+  bytes: Buffer.from("x", "utf8"),
+  canonicalPublicUrl: "https://x.com/jimcramer/status/900",
+  mediaType: "text/plain",
+  now: new Date(now),
+  observedAt: now,
+  parserEligibility: null,
+  sourceInstanceId: "source.x-public-statements.14216123",
+  structure: {
+    characterCount: 1,
+    columnCount: null,
+    pageCount: null,
+    rowCount: null,
+    sheetCount: null,
+  },
+});
+assert.equal(createWorkspaceSemanticSource({
+  artifact: xAuthorityArtifact,
+  authority: "X",
+  factLogicalKey: "fact.x-authority",
+  factPayloadDigest: "a".repeat(64),
+  factRevisionId: "fact-revision.x-authority",
+  projectionId: "projection.x-authority",
+  sourceId: "x-jim-cramer-public-statements",
+  sourceInstanceId: "source.x-public-statements.14216123",
+  subscriptionId: "subscription.x-authority",
+}).authority, "X");
 const productionClients = {
   acquisition: productionRuntime,
   artifacts: createHybridEvidenceEphemeralArtifactStore({
