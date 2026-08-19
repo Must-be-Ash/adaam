@@ -99,6 +99,35 @@ assert.equal(commentarySemanticWorkerCandidateSchema.safeParse({
   },
   unknowns: [],
 }).success, true);
+assert.equal(commentarySemanticWorkerCandidateSchema.safeParse({
+  citations: [semanticCitation],
+  disposition: "accepted",
+  fields: {
+    assumptions: [],
+    confidence: "low",
+    counterevidence: [],
+    facts: [{ citations: [semanticCitation], statement: "Exact cited statement." }],
+    forecast: {
+      catalysts: [],
+      invalidationConditions: [],
+      likelyImplication: { citations: [semanticCitation], statement: "Possible implication." },
+      risks: [],
+      scenarios: [{
+        citations: [semanticCitation],
+        condition: "If the statement remains relevant.",
+        direction: "uncertain",
+        label: "base",
+        rationale: "The evidence is bounded.",
+      }],
+    },
+    horizon: "unspecified",
+    inferences: [{ citations: [semanticCitation], statement: "Bounded inference." }],
+    outcome: "no_view",
+    rationale: "The evidence is insufficient.",
+    recommendation: { action: "no_view", assumptions: [], citations: [], rationale: "No view." },
+  },
+  unknowns: ["Material context is absent."],
+}).success, false);
 assert.deepEqual(latestPack.evidenceContracts.find(({ id }) =>
   id === "public-commentary-semantic-interpretation"), {
   digest: semanticDefinition.definitionDigest,

@@ -52,29 +52,50 @@ const scenarioSchema = z.object({
   rationale: z.string().trim().min(1).max(1_000),
 }).strict();
 
-export const commentarySemanticPayloadSchema = z.object({
+const commentarySemanticPayloadBaseSchema = z.object({
   assumptions: z.array(z.string().trim().min(1).max(1_000)).max(12),
   confidence: z.enum(["low", "medium", "high"]),
   counterevidence: z.array(assertionSchema).max(12),
   facts: z.array(assertionSchema).min(1).max(16),
-  forecast: z.object({
+  horizon: z.enum(["intraday", "days", "weeks", "months", "long_term", "unspecified"]),
+  rationale: z.string().trim().min(1).max(1_000),
+}).strict();
+const commentaryForecastSchema = z.object({
     catalysts: z.array(assertionSchema).max(12),
     invalidationConditions: z.array(assertionSchema).max(12),
     likelyImplication: assertionSchema,
     risks: z.array(assertionSchema).max(12),
     scenarios: z.array(scenarioSchema).min(1).max(6),
-  }).strict().nullable(),
-  horizon: z.enum(["intraday", "days", "weeks", "months", "long_term", "unspecified"]),
-  inferences: z.array(assertionSchema).max(16),
-  outcome: z.enum(["accepted", "no_view", "abstained"]),
-  rationale: z.string().trim().min(1).max(1_000),
-  recommendation: z.object({
-    action: z.enum(["research_candidate", "no_view"]),
+  }).strict();
+const commentaryRecommendationBaseSchema = z.object({
     assumptions: z.array(z.string().trim().min(1).max(1_000)).max(12),
     citations: z.array(textCitationSchema).max(8),
     rationale: z.string().trim().min(1).max(1_000),
-  }).strict(),
+  }).strict();
+const acceptedCommentaryPayloadSchema = commentarySemanticPayloadBaseSchema.extend({
+  forecast: commentaryForecastSchema,
+  inferences: z.array(assertionSchema).min(1).max(16),
+  outcome: z.literal("accepted"),
+  recommendation: commentaryRecommendationBaseSchema.extend({ action: z.literal("research_candidate") }),
 }).strict();
+const noViewCommentaryPayloadSchema = commentarySemanticPayloadBaseSchema.extend({
+  forecast: z.null(),
+  inferences: z.array(assertionSchema).max(16),
+  outcome: z.literal("no_view"),
+  recommendation: commentaryRecommendationBaseSchema.extend({ action: z.literal("no_view") }),
+}).strict();
+const abstainedCommentaryPayloadSchema = commentarySemanticPayloadBaseSchema.extend({
+  forecast: z.null(),
+  inferences: z.array(assertionSchema).max(16),
+  outcome: z.literal("abstained"),
+  recommendation: commentaryRecommendationBaseSchema.extend({ action: z.literal("no_view") }),
+}).strict();
+
+export const commentarySemanticPayloadSchema = z.discriminatedUnion("outcome", [
+  acceptedCommentaryPayloadSchema,
+  noViewCommentaryPayloadSchema,
+  abstainedCommentaryPayloadSchema,
+]);
 
 /**
  * Give the model completion tool the same concrete contract enforced by the
@@ -83,12 +104,30 @@ export const commentarySemanticPayloadSchema = z.object({
  * allowed structurally plausible but unusable candidates to consume an
  * attempt before being quarantined.
  */
-export const commentarySemanticWorkerCandidateSchema = z.object({
+const commentaryWorkerCandidateBase = {
   citations: z.array(textCitationSchema).min(1).max(64),
-  disposition: z.enum(["accepted", "abstained"]),
-  fields: commentarySemanticPayloadSchema,
-  unknowns: z.array(z.string().trim().min(1).max(200)).max(32),
-}).strict();
+} as const;
+const commentaryUnknownsSchema = z.array(z.string().trim().min(1).max(200)).max(32);
+export const commentarySemanticWorkerCandidateSchema = z.union([
+  z.object({
+    ...commentaryWorkerCandidateBase,
+    disposition: z.literal("accepted"),
+    fields: acceptedCommentaryPayloadSchema,
+    unknowns: z.array(z.never()).max(0),
+  }).strict(),
+  z.object({
+    ...commentaryWorkerCandidateBase,
+    disposition: z.literal("accepted"),
+    fields: noViewCommentaryPayloadSchema,
+    unknowns: commentaryUnknownsSchema,
+  }).strict(),
+  z.object({
+    ...commentaryWorkerCandidateBase,
+    disposition: z.literal("abstained"),
+    fields: abstainedCommentaryPayloadSchema,
+    unknowns: commentaryUnknownsSchema.min(1),
+  }).strict(),
+]);
 
 export type CommentarySemanticPayload = z.infer<typeof commentarySemanticPayloadSchema>;
 

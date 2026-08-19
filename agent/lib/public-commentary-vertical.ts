@@ -839,6 +839,17 @@ export function createPublicCommentaryPipeline(input: {
                 });
               })()
             : extracted;
+          const semanticallyActionable = request.pack.id === "public-commentary-tracker"
+            ? impact !== null && impact.classification !== "unclear"
+            : extraction.topic === "investment_view" &&
+              extraction.targets.length > 0 &&
+              extraction.stance !== "unclear" &&
+              extraction.stance !== "no_view";
+          // Fetching and deterministic extraction still analyze every unseen
+          // statement. Frontier interpretation is reserved for statements
+          // that can actually reach the registered policy; generic chatter,
+          // unresolved identity, and explicit no-view cases abstain here.
+          if (!semanticallyActionable) return null;
           const targetTerms = extraction.targets.flatMap(({ displayName, symbol }) =>
             symbol ? [symbol] : [displayName]).slice(0, 8);
           const query = compileWebCorroborationQuery({
