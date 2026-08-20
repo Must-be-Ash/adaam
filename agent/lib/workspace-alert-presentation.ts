@@ -1,6 +1,8 @@
 import { z } from "zod";
 
+import { artifactIdFromReference } from "./artifact-reference";
 import type { WorkspaceAlert } from "./workspace-alert-store";
+import { artifactPageUrl } from "./public-app-url";
 
 const actionSchema = z.object({
   action: z.enum(["discuss", "manage"]),
@@ -27,10 +29,28 @@ function sourceEvidence(alert: WorkspaceAlert): string {
     .join(", ");
 }
 
-function artifactEvidenceLine(alert: WorkspaceAlert): string | null {
-  return alert.artifactRefs?.length
-    ? `Exact finding/evidence references: ${alert.artifactRefs.map((value) => singleLine(value, 160)).join(", ")}`
-    : null;
+function artifactEvidenceLines(alert: WorkspaceAlert): string[] {
+  const readableReports: string[] = [];
+  const exactReferences: string[] = [];
+  for (const reference of alert.artifactRefs ?? []) {
+    const artifactId = artifactIdFromReference(reference);
+    if (artifactId) {
+      try {
+        readableReports.push(`Readable report: ${artifactPageUrl(artifactId)}`);
+        continue;
+      } catch {
+        // Preserve the exact durable reference when a public application URL
+        // is not configured in a non-production presentation environment.
+      }
+    }
+    exactReferences.push(singleLine(reference, 160));
+  }
+  return [
+    ...readableReports,
+    ...(exactReferences.length
+      ? [`Exact finding/evidence references: ${exactReferences.join(", ")}`]
+      : []),
+  ];
 }
 
 export function renderWorkspaceAlertPresentation(
@@ -41,7 +61,7 @@ export function renderWorkspaceAlertPresentation(
   const title = singleLine(alert.title, 240);
   const whyMatched = singleLine(alert.whyMatched, 1_000);
   const sources = sourceEvidence(alert);
-  const artifactRefs = artifactEvidenceLine(alert);
+  const artifactRefs = artifactEvidenceLines(alert);
   const eventTime = alert.eventTime
     ? `Observed: ${singleLine(alert.eventTime, 100)}`
     : null;
@@ -55,8 +75,8 @@ export function renderWorkspaceAlertPresentation(
       title,
       whyMatched,
       ...(eventTime ? [eventTime] : []),
+      ...artifactRefs,
       `Sources: ${sources}`,
-      ...(artifactRefs ? [artifactRefs] : []),
       "Open the alert card to Discuss in workspace or Manage sessions.",
     ].join("\n\n"),
     heading,
@@ -68,7 +88,7 @@ export function workspaceAlertTurnContext(alert: WorkspaceAlert): string {
   const title = singleLine(alert.title, 240);
   const whyMatched = singleLine(alert.whyMatched, 1_000);
   const sources = sourceEvidence(alert);
-  const artifactRefs = artifactEvidenceLine(alert);
+  const artifactRefs = artifactEvidenceLines(alert);
   return [
     "The owner explicitly chose to discuss this durable alert in the current workspace.",
     `Alert reference: ${alert.alertId}`,
@@ -76,7 +96,7 @@ export function workspaceAlertTurnContext(alert: WorkspaceAlert): string {
     `Why it matched: ${whyMatched}`,
     ...(alert.eventTime ? [`Observed: ${singleLine(alert.eventTime, 100)}`] : []),
     `Source references: ${sources}`,
-    ...(artifactRefs ? [artifactRefs] : []),
+    ...artifactRefs,
     "Treat this as bounded context for the current turn only. Do not infer or load another workspace's history.",
   ].join("\n");
 }

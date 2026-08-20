@@ -1,6 +1,8 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 
+import { publishReportArtifact } from "./artifact-store";
+import { artifactReferenceForId } from "./artifact-reference";
 import {
   evaluateSecIpoPage,
   deriveSecIpoSignalId,
@@ -56,10 +58,17 @@ import {
   type OfficialPublicSourceResponse,
 } from "../tools/fetch_public_source";
 import type { PreparedWorkspaceWorkerRecovery } from "./workspace-worker-runner";
+import {
+  buildSecIpoSignalReport,
+  secIpoAlertPresentationForFacts,
+  secIpoReportArtifactId,
+} from "./sec-ipo-signal-report";
 
 export { EVALUATE_SEC_IPO_SOURCE_TOOL_ID } from "./sec-ipo-reference";
 
-type WorkerContext = Parameters<typeof requireWorkspaceWorkerAuth>[0];
+type WorkerContext = Parameters<typeof requireWorkspaceWorkerAuth>[0] & {
+  readonly abortSignal?: AbortSignal;
+};
 
 export interface SecIpoWorkspaceWorkerClients
   extends WorkspaceWorkerControlPlaneClients {
@@ -67,6 +76,7 @@ export interface SecIpoWorkspaceWorkerClients
   readonly fetchSource?: (
     requestedUrl: string,
   ) => Promise<OfficialPublicSourceResponse>;
+  readonly publishReport?: typeof publishReportArtifact;
   readonly subscription?: PublicSourceSubscriptionStoreClient;
 }
 
@@ -121,6 +131,7 @@ function currentCheckpoint(monitor: WorkspaceMonitor): SecIpoCheckpoint | null {
 
 function findingCandidate(
   evaluation: SecIpoEvaluation,
+  artifactRefs: readonly string[] = [],
 ): WorkspaceFindingCandidate | null {
   if (evaluation.findings.length === 0) return null;
   const facts = evaluation.findings.map(({ fact }) => fact);
@@ -133,7 +144,7 @@ function findingCandidate(
     : `${evaluation.findings.length} new or amended SEC S-1 filings were observed in the configured window.`;
   return {
     accessClassification: "public",
-    artifactRefs: [],
+    artifactRefs: [...artifactRefs],
     asOf: latest,
     factIdentities: facts.map((fact) => fact.filingIdentity),
     facts,
@@ -177,32 +188,33 @@ async function selectUnseenEvaluationFindings(input: {
   });
 }
 
-function alertPresentationForFacts(facts: readonly SecIpoFilingFact[]):
-  | { title: string; whyMatched: string }
-  | undefined {
-  if (facts.length === 0) return undefined;
-  if (facts.length === 1) {
-    const fact = facts[0]!;
-    return {
-      title: fact.classification === "new_registration"
-        ? "New SEC S-1 registration"
-        : "SEC S-1 registration update",
-      whyMatched: fact.classification === "new_registration"
-        ? "A newly observed S-1 is a potential IPO registration, not confirmation of an IPO."
-        : "A newly observed S-1/A amends an existing registration and is not a new IPO candidate.",
-    };
-  }
-  return {
-    title: `${facts.length} new SEC S-1 filings`,
-    whyMatched:
-      "The configured SEC feed contained multiple newly observed S-1 registrations or amendments.",
-  };
-}
-
 function alertPresentation(evaluation: SecIpoEvaluation) {
-  return alertPresentationForFacts(
+  return secIpoAlertPresentationForFacts(
     evaluation.findings.map(({ fact }) => fact),
   );
+}
+
+async function publishSignalReport(input: {
+  clients?: SecIpoWorkspaceWorkerClients;
+  evaluation: SecIpoEvaluation;
+  signal?: AbortSignal;
+  scope: { ownerId: string; workspaceId: string };
+}): Promise<string | null> {
+  const facts = input.evaluation.findings.map(({ fact }) => fact);
+  if (facts.length === 0) return null;
+  const artifactId = secIpoReportArtifactId({ facts, ...input.scope });
+  const published = await (input.clients?.publishReport ?? publishReportArtifact)({
+    artifactId,
+    report: buildSecIpoSignalReport({
+      asOf: input.evaluation.checkpoint.watermark,
+      facts,
+    }),
+    signal: input.signal,
+  });
+  if (published.artifactId !== artifactId || published.kind !== "report") {
+    throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
+  }
+  return artifactReferenceForId(artifactId);
 }
 
 function evaluationFromProjections(input: {
@@ -329,7 +341,7 @@ export async function evaluateSecIpoSourceForWorker(input: {
   );
   if (existing) {
     const outcome = await finalizeExistingWorkspaceRunOutcomeForWorker({
-      alertPresentation: alertPresentationForFacts(
+      alertPresentation: secIpoAlertPresentationForFacts(
         existing.finding?.facts?.filter(
           (fact): fact is SecIpoFilingFact => fact.kind === "sec_ipo_filing",
         ) ?? [],
@@ -465,13 +477,22 @@ export async function evaluateSecIpoSourceForWorker(input: {
     monitorId: envelope.monitorId,
     scope,
   });
+  const reportArtifactRef = await publishSignalReport({
+    clients: input.clients,
+    evaluation,
+    signal: input.ctx.abortSignal,
+    scope,
+  });
   const outcome = await commitDeterministicWorkspaceEvaluationForWorker({
     alertPresentation: alertPresentation(evaluation),
     checkpoint: evaluation.checkpoint,
     clients: input.clients,
     ctx: input.ctx,
     environment: input.environment,
-    finding: findingCandidate(evaluation),
+    finding: findingCandidate(
+      evaluation,
+      reportArtifactRef ? [reportArtifactRef] : [],
+    ),
     initialBaseline: evaluation.baselineEstablished,
     now,
     toolId: EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
@@ -512,7 +533,7 @@ export async function recoverSecIpoWorkspaceRunForControlPlane(input: {
   );
   if (!existing) return Object.freeze({ status: "missing" });
   return finalizePriorWorkspaceRunOutcomeForControlPlane({
-    alertPresentation: alertPresentationForFacts(
+    alertPresentation: secIpoAlertPresentationForFacts(
       existing.finding?.facts?.filter(
         (fact): fact is SecIpoFilingFact => fact.kind === "sec_ipo_filing",
       ) ?? [],

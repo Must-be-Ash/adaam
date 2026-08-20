@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
+import { artifactIdFromReference } from "../agent/lib/artifact-reference";
 import type { OfficialPublicSourceResponse } from "../agent/tools/fetch_public_source";
 import {
   readPublicSourceAcquisitionResult,
@@ -171,16 +172,34 @@ const alerts = new MemoryCreateStore();
 const monitors = new MemoryMonitorStore();
 const acquisitions = new MemoryCasStore();
 const subscriptions = new MemoryCasStore();
+const publishedReports = new Map<string, unknown>();
+let publishReportCalls = 0;
+let publishedReportSignal: AbortSignal | undefined;
 const clients = {
   acquisition: acquisitions,
   alert: alerts,
   finding: findings,
   monitor: monitors,
+  async publishReport(input: {
+    artifactId: string;
+    report: unknown;
+    signal?: AbortSignal;
+  }) {
+    publishReportCalls += 1;
+    publishedReportSignal = input.signal;
+    publishedReports.set(input.artifactId, input.report);
+    return {
+      artifactId: input.artifactId,
+      kind: "report" as const,
+      publicUrl: `https://eve.example/artifacts/${input.artifactId}`,
+    };
+  },
   sourceCoverage: coverage,
   state,
   subscription: subscriptions,
 };
 const verificationNow = new Date();
+const workerAbortController = new AbortController();
 
 function countRecords(store: MemoryCreateStore, recordType: string): number {
   return [...store.values.values()].filter((raw) =>
@@ -363,7 +382,10 @@ async function execute(
 ) {
   return evaluateSecIpoSourceForWorker({
     clients: { ...clients, ...overrides, fetchSource },
-    ctx: { session: { auth: { current: prepared.request.auth } } },
+    ctx: {
+      abortSignal: workerAbortController.signal,
+      session: { auth: { current: prepared.request.auth } },
+    },
     environment: runtimeEnvironment,
     now,
   });
@@ -439,6 +461,8 @@ const laterPrepared = await prepare({
   now: laterNow,
   scope: workspaceA.scope,
 });
+const reportsBeforeLater = publishedReports.size;
+const publishCallsBeforeLater = publishReportCalls;
 const later = await execute(
   laterPrepared,
   laterNow,
@@ -451,6 +475,15 @@ assert.equal(
   later.outcome.finding?.facts?.[0]?.classification,
   "new_registration",
 );
+assert.equal(publishedReports.size, reportsBeforeLater + 1);
+assert.equal(publishReportCalls, publishCallsBeforeLater + 1);
+assert.equal(publishedReportSignal, workerAbortController.signal);
+assert.ok(artifactIdFromReference(later.outcome.finding?.artifactRefs[0] ?? ""));
+const laterAlert = [...alerts.values.values()]
+  .map((raw) => JSON.parse(raw) as { recordType?: string; title?: string; whyMatched?: string })
+  .find(({ recordType }) => recordType === "workspace_alert");
+assert.match(laterAlert?.title ?? "", /New Candidate Corp/u);
+assert.match(laterAlert?.whyMatched ?? "", /readable report/u);
 assert.equal(alerts.values.size, 1);
 assert.equal(countRecords(findings, "workspace_run_outcome"), 3);
 assert.deepEqual(
@@ -459,6 +492,8 @@ assert.deepEqual(
   }),
   { ...later, replayed: true },
 );
+assert.equal(publishedReports.size, reportsBeforeLater + 1);
+assert.equal(publishReportCalls, publishCallsBeforeLater + 1);
 
 monitorA = await getWorkspaceMonitor(
   workspaceA.scope,
