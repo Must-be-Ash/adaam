@@ -27,6 +27,7 @@ const idSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_./:@-]{1,159}$/u);
 const timestampSchema = z.string().datetime({ offset: true });
 const alertSourceSchema = z.object({
   canonicalUrl: z.string().url().max(2_048),
+  role: z.enum(["official", "supplementary"]).optional(),
   sourceId: idSchema,
 }).strict();
 const alertSchema = z.object({
@@ -168,6 +169,7 @@ export async function stageWorkspaceAlert(input: {
     schemaVersion: 1,
     sourceLinks: input.finding.provenance.map((source) => ({
       canonicalUrl: source.canonicalUrl,
+      role: source.role,
       sourceId: source.sourceId,
     })),
     sourceRefs: input.finding.provenance.map((source) => source.sourceId),

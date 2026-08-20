@@ -53,7 +53,14 @@ const finding = {
     accessClassification: "public",
     canonicalUrl: "https://www.sec.gov/Archives/fixture.htm",
     origin: "https://www.sec.gov",
+    role: "official",
     sourceId: "sec-latest-s1-filings",
+  }, {
+    accessClassification: "public",
+    canonicalUrl: "https://example.com/issuer-context",
+    origin: "https://example.com",
+    role: "supplementary",
+    sourceId: "exa-public-context",
   }],
   recordType: "workspace_finding",
   runId: "run_fixture",
@@ -98,10 +105,11 @@ const client = new MemoryStore();
 const alert = await stageWorkspaceAlert({ finding, monitor, now, scope }, client);
 assert.equal(alert.workspaceName, "IPO Filings");
 assert.equal(alert.eventTime, finding.asOf);
-assert.deepEqual(alert.sourceLinks, [{
-  canonicalUrl: finding.provenance[0]!.canonicalUrl,
-  sourceId: finding.provenance[0]!.sourceId,
-}]);
+assert.deepEqual(alert.sourceLinks, finding.provenance.map((source) => ({
+  canonicalUrl: source.canonicalUrl,
+  role: source.role,
+  sourceId: source.sourceId,
+})));
 assert.equal(alert.findingId, finding.findingId);
 assert.deepEqual(await stageWorkspaceAlert({ finding, monitor, now: new Date(now.getTime() + 1_000), scope }, client), alert);
 assert.deepEqual(await readWorkspaceAlert(scope, finding.findingId, client), alert);

@@ -1,8 +1,20 @@
+import { createHash } from "node:crypto";
+
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 
 import { publishReportArtifact } from "./artifact-store";
 import { artifactReferenceForId } from "./artifact-reference";
+import {
+  createHybridEvidenceEphemeralArtifactStore,
+  type HybridEvidenceArtifactStore,
+} from "./hybrid-evidence-artifact-store";
+import { resolveHybridTaskModelRoute } from "./hybrid-evidence-model-routing";
+import {
+  runWorkspaceSemanticEvidenceBundleJob,
+  type WorkspaceSemanticModelUsage,
+} from "./hybrid-evidence-semantic";
+import { startHybridEvidenceWorkerTask, type PreparedHybridEvidenceWorkerRun } from "./hybrid-evidence-worker";
 import {
   evaluateSecIpoPage,
   deriveSecIpoSignalId,
@@ -57,12 +69,25 @@ import {
   fetchOfficialPublicSourceText,
   type OfficialPublicSourceResponse,
 } from "../tools/fetch_public_source";
+import {
+  createSecIpoResearchDefinition,
+  isSecIpoAgenticResearchPack,
+  SEC_IPO_AGENTIC_PACK_VERSION,
+} from "./sec-ipo-semantics";
+import { strategyPackCatalog, type StrategyPackCatalogEntry } from "./strategy-pack-catalog";
+import { readWorkspaceDocument } from "./workspace-state-store";
 import type { PreparedWorkspaceWorkerRecovery } from "./workspace-worker-runner";
 import {
   buildSecIpoSignalReport,
+  secIpoAlertPresentationForBrief,
   secIpoAlertPresentationForFacts,
   secIpoReportArtifactId,
 } from "./sec-ipo-signal-report";
+import {
+  shouldPublishWorkspaceExecutiveArtifact,
+  workspaceExecutiveBriefSchema,
+  type WorkspaceExecutiveBrief,
+} from "./workspace-executive-brief";
 
 export { EVALUATE_SEC_IPO_SOURCE_TOOL_ID } from "./sec-ipo-reference";
 
@@ -73,10 +98,22 @@ type WorkerContext = Parameters<typeof requireWorkspaceWorkerAuth>[0] & {
 export interface SecIpoWorkspaceWorkerClients
   extends WorkspaceWorkerControlPlaneClients {
   readonly acquisition?: PublicSourceAcquisitionStoreClient;
+  readonly artifacts?: HybridEvidenceArtifactStore;
   readonly fetchSource?: (
     requestedUrl: string,
   ) => Promise<OfficialPublicSourceResponse>;
   readonly publishReport?: typeof publishReportArtifact;
+  readonly semantic?: {
+    readonly acquisition?: Parameters<typeof runWorkspaceSemanticEvidenceBundleJob>[1]["acquisition"];
+    readonly budget?: Parameters<typeof runWorkspaceSemanticEvidenceBundleJob>[1]["budget"];
+    readonly catalog?: Parameters<typeof runWorkspaceSemanticEvidenceBundleJob>[1]["catalog"];
+    readonly execute?: (
+      prepared: PreparedHybridEvidenceWorkerRun,
+    ) => Promise<WorkspaceSemanticModelUsage | void>;
+    readonly jobs?: Parameters<typeof runWorkspaceSemanticEvidenceBundleJob>[1]["jobs"];
+    readonly lineage?: Parameters<typeof runWorkspaceSemanticEvidenceBundleJob>[1]["lineage"];
+    readonly semantic?: Parameters<typeof runWorkspaceSemanticEvidenceBundleJob>[1]["semantic"];
+  };
   readonly subscription?: PublicSourceSubscriptionStoreClient;
 }
 
@@ -132,6 +169,7 @@ function currentCheckpoint(monitor: WorkspaceMonitor): SecIpoCheckpoint | null {
 function findingCandidate(
   evaluation: SecIpoEvaluation,
   artifactRefs: readonly string[] = [],
+  executiveSummary?: string,
 ): WorkspaceFindingCandidate | null {
   if (evaluation.findings.length === 0) return null;
   const facts = evaluation.findings.map(({ fact }) => fact);
@@ -139,9 +177,9 @@ function findingCandidate(
     (timestamp, fact) => fact.updatedAt > timestamp ? fact.updatedAt : timestamp,
     facts[0]!.updatedAt,
   );
-  const summary = evaluation.findings.length === 1
+  const summary = executiveSummary ?? (evaluation.findings.length === 1
     ? evaluation.findings[0]!.summary
-    : `${evaluation.findings.length} new or amended SEC S-1 filings were observed in the configured window.`;
+    : `${evaluation.findings.length} new or amended SEC S-1 filings were observed in the configured window.`);
   return {
     accessClassification: "public",
     artifactRefs: [...artifactRefs],
@@ -156,6 +194,81 @@ function findingCandidate(
     }],
     summary,
   };
+}
+
+type SecIpoResearchRuntime = Readonly<{
+  definition: ReturnType<typeof createSecIpoResearchDefinition>;
+  modelId: string;
+  pack: StrategyPackCatalogEntry;
+  reasoning: ReturnType<typeof resolveHybridTaskModelRoute>["reasoning"];
+  workspaceGeneration: number;
+}>;
+
+async function resolveSecIpoResearchRuntime(input: {
+  capabilities: Awaited<ReturnType<typeof resolveWorkspaceWorkerCapabilitySnapshot>>;
+  clients?: SecIpoWorkspaceWorkerClients;
+  environment: NodeJS.ProcessEnv;
+  monitor: WorkspaceMonitor;
+  scope: ReturnType<typeof authorizeWorkspaceWorkerStore>;
+}): Promise<SecIpoResearchRuntime | null> {
+  const managed = input.monitor.managedBy;
+  if (
+    !managed || managed.packId !== "ipo-filings" ||
+    managed.packVersion !== SEC_IPO_AGENTIC_PACK_VERSION
+  ) {
+    return null;
+  }
+  const strategy = await readWorkspaceDocument("strategy", input.scope, input.clients?.state);
+  const pack = strategyPackCatalog.resolve({
+    contentDigest: managed.packContentDigest,
+    id: managed.packId,
+    version: managed.packVersion,
+  });
+  const snapshot = strategy?.schemaVersion === 2
+    ? strategy.value.pendingSnapshot ?? strategy.value.lastActiveSnapshot
+    : null;
+  if (
+    !pack || !isSecIpoAgenticResearchPack(pack) ||
+    strategy?.schemaVersion !== 2 || strategy.value.lifecycleState !== "active" ||
+    strategy.value.pack?.id !== pack.id ||
+    strategy.value.pack.version !== pack.version ||
+    strategy.value.pack.contentDigest !== pack.contentDigest ||
+    snapshot?.workspaceGeneration === undefined
+  ) {
+    throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
+  }
+  const configured = resolveHybridTaskModelRoute("semantic_interpretation", input.environment);
+  const candidates = input.capabilities.resolved.workerModelIds
+    .map((modelId) => createSecIpoResearchDefinition([modelId]))
+    .filter((definition) => pack.evidenceContracts?.some((contract) =>
+      contract.id === definition.definitionId &&
+      contract.version === definition.definitionVersion &&
+      contract.digest === definition.definitionDigest
+    ));
+  if (candidates.length !== 1 || candidates[0]?.allowedModelIds[0] !== configured.modelId) {
+    throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
+  }
+  return Object.freeze({
+    definition: candidates[0]!,
+    modelId: configured.modelId,
+    pack,
+    reasoning: configured.reasoning,
+    workspaceGeneration: snapshot.workspaceGeneration,
+  });
+}
+
+async function drainHybridWorker(
+  prepared: PreparedHybridEvidenceWorkerRun,
+): Promise<void> {
+  const handle = await startHybridEvidenceWorkerTask(prepared.request);
+  const reader = handle.events.getReader();
+  try {
+    while (!(await reader.read()).done) {
+      // The compiled completion tool durably owns the result commit.
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 async function selectUnseenEvaluationFindings(input: {
@@ -195,6 +308,7 @@ function alertPresentation(evaluation: SecIpoEvaluation) {
 }
 
 async function publishSignalReport(input: {
+  brief?: WorkspaceExecutiveBrief;
   clients?: SecIpoWorkspaceWorkerClients;
   evaluation: SecIpoEvaluation;
   signal?: AbortSignal;
@@ -207,6 +321,7 @@ async function publishSignalReport(input: {
     artifactId,
     report: buildSecIpoSignalReport({
       asOf: input.evaluation.checkpoint.watermark,
+      brief: input.brief,
       facts,
     }),
     signal: input.signal,
@@ -215,6 +330,55 @@ async function publishSignalReport(input: {
     throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
   }
   return artifactReferenceForId(artifactId);
+}
+
+export async function materializeSecIpoExecutiveOutput(input: {
+  approvedSupplementaryUrls: readonly string[];
+  brief: WorkspaceExecutiveBrief;
+  clients?: SecIpoWorkspaceWorkerClients;
+  evaluation: SecIpoEvaluation;
+  signal?: AbortSignal;
+  scope: { ownerId: string; workspaceId: string };
+}): Promise<{
+  readonly artifactRefs: readonly string[];
+  readonly presentation: { title: string; whyMatched: string };
+}> {
+  const brief = workspaceExecutiveBriefSchema.parse(input.brief);
+  const officialUrls = new Set(
+    brief.sources.filter(({ role }) => role === "official").map(({ url }) => url),
+  );
+  const filingUrls = new Set(
+    input.evaluation.findings.map(({ fact }) => fact.canonicalFilingUrl),
+  );
+  const approvedSupplementaryUrls = new Set(input.approvedSupplementaryUrls);
+  const supplementaryUrls = brief.sources
+    .filter(({ role }) => role === "supplementary")
+    .map(({ url }) => url);
+  if (
+    officialUrls.size !== filingUrls.size ||
+    [...officialUrls].some((url) => !filingUrls.has(url)) ||
+    supplementaryUrls.some((url) => !approvedSupplementaryUrls.has(url)) ||
+    brief.materialFacts.some(({ sourceUrls }) =>
+      !sourceUrls.some((url) => officialUrls.has(url))
+    )
+  ) {
+    throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
+  }
+  const presentation = secIpoAlertPresentationForBrief(brief);
+  if (!shouldPublishWorkspaceExecutiveArtifact({
+    alertText: `${presentation.title}\n\n${presentation.whyMatched}`,
+    brief,
+  })) {
+    return Object.freeze({ artifactRefs: Object.freeze([]), presentation });
+  }
+  const artifactRef = await publishSignalReport({ ...input, brief });
+  if (artifactRef === null) {
+    throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
+  }
+  return Object.freeze({
+    artifactRefs: Object.freeze([artifactRef]),
+    presentation,
+  });
 }
 
 function evaluationFromProjections(input: {
@@ -328,12 +492,13 @@ export async function evaluateSecIpoSourceForWorker(input: {
   now?: Date;
 }): Promise<SecIpoWorkspaceWorkerResult> {
   const now = input.now ?? new Date();
+  const environment = input.environment ?? process.env;
   const envelope = requireWorkspaceWorkerAuth(
     input.ctx,
     {},
-    input.environment,
+    environment,
   );
-  const scope = authorizeWorkspaceWorkerStore(input.ctx, input.environment);
+  const scope = authorizeWorkspaceWorkerStore(input.ctx, environment);
   const existing = await readWorkspaceRunOutcome(
     scope,
     envelope.occurrenceKey,
@@ -348,7 +513,7 @@ export async function evaluateSecIpoSourceForWorker(input: {
       ),
       clients: input.clients,
       ctx: input.ctx,
-      environment: input.environment,
+      environment,
       now,
       outcome: existing,
       toolId: EVALUATE_SEC_IPO_SOURCE_TOOL_ID,
@@ -385,8 +550,18 @@ export async function evaluateSecIpoSourceForWorker(input: {
     input.clients?.monitor,
   );
   assertIpoMonitor(monitor, envelope);
-  const publicSourcePath = resolveSecPublicSourceRuntimePath(input.environment);
+  const researchRuntime = await resolveSecIpoResearchRuntime({
+    capabilities,
+    clients: input.clients,
+    environment,
+    monitor,
+    scope,
+  });
+  const publicSourcePath = resolveSecPublicSourceRuntimePath(environment);
   if (publicSourcePath === "public_source_misconfigured") {
+    throw new SecIpoWorkspaceWorkerError("sec_ipo_public_source_misconfigured");
+  }
+  if (researchRuntime && publicSourcePath !== "public_source_adapter") {
     throw new SecIpoWorkspaceWorkerError("sec_ipo_public_source_misconfigured");
   }
   const source = await authorizeWorkspaceSourceFetch({
@@ -402,6 +577,11 @@ export async function evaluateSecIpoSourceForWorker(input: {
     sourceId: source.sourceId,
   }, input.clients?.sourceCoverage);
   let evaluated: SecIpoEvaluation;
+  let researchProjection: Readonly<{
+    acquisitionId: string;
+    projections: readonly AuthorizedPublicSourceProjection[];
+    subscriptionId: string;
+  }> | null = null;
   if (publicSourcePath === "public_source_adapter") {
     const migrated = await migrateSecPublicSourceWorkspace({
       monitor,
@@ -419,7 +599,7 @@ export async function evaluateSecIpoSourceForWorker(input: {
         acquisition: input.clients?.acquisition,
         subscription: input.clients?.subscription,
       },
-      environment: input.environment,
+      environment,
       fetch: {
         adapterId: "sec-latest-filings",
         fetchResponse: async () => ({
@@ -449,6 +629,11 @@ export async function evaluateSecIpoSourceForWorker(input: {
       scope,
       sourceBaselineEstablished: coordinated.baselineEstablished,
     });
+    researchProjection = Object.freeze({
+      acquisitionId: coordinated.acquisition.acquisitionId,
+      projections: coordinated.projection.projections,
+      subscriptionId: coordinated.subscription.subscriptionId,
+    });
   } else {
     const fetched = input.clients?.fetchSource
       ? await input.clients.fetchSource(SEC_IPO_SOURCE_URL)
@@ -477,21 +662,146 @@ export async function evaluateSecIpoSourceForWorker(input: {
     monitorId: envelope.monitorId,
     scope,
   });
-  const reportArtifactRef = await publishSignalReport({
-    clients: input.clients,
-    evaluation,
-    signal: input.ctx.abortSignal,
-    scope,
-  });
+  let presentation = alertPresentation(evaluation);
+  let artifactRefs: readonly string[] = Object.freeze([]);
+  let summary: string | undefined;
+  if (researchRuntime && evaluation.findings.length > 0) {
+    if (!researchProjection || evaluation.findings.length > 16) {
+      throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
+    }
+    const artifacts = input.clients?.artifacts ?? createHybridEvidenceEphemeralArtifactStore();
+    const persisted = [];
+    try {
+      for (const finding of evaluation.findings) {
+        const projection = researchProjection.projections.find(({ fact }) =>
+          fact.payload.schemaVersion === "sec-filing/v1" &&
+          fact.payload.accessionNumber === finding.fact.accessionNumber &&
+          fact.payload.formType === finding.fact.formType
+        );
+        if (!projection) {
+          throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
+        }
+        const content = JSON.stringify({
+          accessionNumber: finding.fact.accessionNumber,
+          canonicalFilingUrl: finding.fact.canonicalFilingUrl,
+          cik: finding.fact.cik,
+          classification: finding.fact.classification,
+          companyName: finding.fact.companyName,
+          filedAt: finding.fact.filedAt,
+          fileNumber: finding.fact.fileNumber,
+          formType: finding.fact.formType,
+          summary: finding.summary,
+          updatedAt: finding.fact.updatedAt,
+        });
+        const artifact = await artifacts.persist({
+          acquisitionId: researchProjection.acquisitionId,
+          authority: "SEC",
+          bytes: Buffer.from(content, "utf8"),
+          canonicalPublicUrl: finding.fact.canonicalFilingUrl,
+          mediaType: "text/plain",
+          now,
+          observedAt: finding.fact.observedAt,
+          parserEligibility: null,
+          sourceInstanceId: projection.fact.sourceInstanceId,
+          structure: {
+            characterCount: content.length,
+            columnCount: null,
+            pageCount: null,
+            rowCount: null,
+            sheetCount: null,
+          },
+        });
+        persisted.push({ artifact, content, projection });
+      }
+      const semantic = await runWorkspaceSemanticEvidenceBundleJob({
+        definition: researchRuntime.definition,
+        environment,
+        members: persisted.map(({ artifact, content, projection }) => ({
+          artifact,
+          locators: [{
+            factRevisionId: projection.fact.revisionId,
+            kind: "source_fact" as const,
+            payloadDigest: projection.fact.payloadDigest,
+          }, {
+            artifactDigest: artifact.contentDigest,
+            end: content.length,
+            kind: "text_span" as const,
+            spanDigest: createHash("sha256").update(content).digest("hex"),
+            start: 0,
+          }],
+          memberId: projection.fact.revisionId,
+          projectionReference: {
+            factRevisionId: projection.fact.revisionId,
+            sourceId: SEC_IPO_SOURCE_ID,
+            subscriptionId: researchProjection!.subscriptionId,
+          },
+          role: "section" as const,
+          semanticContext: Object.freeze({ normalizedSecFiling: true }),
+        })),
+        modelId: researchRuntime.modelId,
+        now,
+        pack: {
+          contentDigest: researchRuntime.pack.contentDigest,
+          id: researchRuntime.pack.id,
+          version: researchRuntime.pack.version,
+        },
+        parentBudgetRunId: envelope.runId,
+        reasoning: researchRuntime.reasoning,
+        scope,
+        workspaceGeneration: researchRuntime.workspaceGeneration,
+      }, {
+        acquisition: input.clients?.semantic?.acquisition ?? input.clients?.acquisition,
+        artifacts,
+        budget: input.clients?.semantic?.budget,
+        catalog: input.clients?.semantic?.catalog,
+        execute: input.clients?.semantic?.execute ?? drainHybridWorker,
+        jobs: input.clients?.semantic?.jobs,
+        lineage: input.clients?.semantic?.lineage,
+        monitor: input.clients?.monitor,
+        semantic: input.clients?.semantic?.semantic,
+        state: input.clients?.state,
+        subscription: input.clients?.subscription,
+      });
+      const accepted = semantic.record.acceptedResult;
+      if (!accepted) {
+        throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
+      }
+      const brief = workspaceExecutiveBriefSchema.parse(accepted.payload);
+      const output = await materializeSecIpoExecutiveOutput({
+        approvedSupplementaryUrls: semantic.record.researchUrlGrants,
+        brief,
+        clients: input.clients,
+        evaluation,
+        signal: input.ctx.abortSignal,
+        scope,
+      });
+      artifactRefs = output.artifactRefs;
+      presentation = output.presentation;
+      summary = output.presentation.whyMatched;
+    } finally {
+      for (const { artifact } of persisted) {
+        await artifacts.deleteUnreferenced(artifact.contentDigest);
+      }
+    }
+  } else if (!researchRuntime) {
+    const reportArtifactRef = await publishSignalReport({
+      clients: input.clients,
+      evaluation,
+      signal: input.ctx.abortSignal,
+      scope,
+    });
+    artifactRefs = reportArtifactRef ? Object.freeze([reportArtifactRef]) : Object.freeze([]);
+  }
   const outcome = await commitDeterministicWorkspaceEvaluationForWorker({
-    alertPresentation: alertPresentation(evaluation),
+    alertPresentation: presentation,
     checkpoint: evaluation.checkpoint,
     clients: input.clients,
     ctx: input.ctx,
-    environment: input.environment,
+    environment,
     finding: findingCandidate(
       evaluation,
-      reportArtifactRef ? [reportArtifactRef] : [],
+      artifactRefs,
+      summary,
     ),
     initialBaseline: evaluation.baselineEstablished,
     now,

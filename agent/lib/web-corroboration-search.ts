@@ -12,7 +12,7 @@ const EXA_SEARCH_URL = "https://api.exa.ai/search";
 const MAX_RESULTS = 5;
 const ZERO_COST = Object.freeze({ amountUsd: "0.000000", billableUnits: 0, currency: "USD" as const });
 
-const queryInputSchema = z.object({
+export const webCorroborationQueryInputSchema = z.object({
   endPublishedAt: z.string().datetime({ offset: true }),
   publicTargetTerms: z.array(z.string().trim().min(1).max(80)).min(1).max(8),
   publicTopicTerms: z.array(z.string().trim().min(1).max(80)).max(4),
@@ -33,9 +33,9 @@ export type WebCorroborationQuery = Readonly<{
 }>;
 
 export function compileWebCorroborationQuery(
-  value: z.input<typeof queryInputSchema>,
+  value: z.input<typeof webCorroborationQueryInputSchema>,
 ): WebCorroborationQuery {
-  const input = queryInputSchema.parse(value);
+  const input = webCorroborationQueryInputSchema.parse(value);
   const terms = [...new Set([...input.publicTargetTerms, ...input.publicTopicTerms]
     .map((term) => term.replace(/[^\p{L}\p{N} .&'-]/gu, " ").replace(/\s+/gu, " ").trim())
     .filter(Boolean))];
@@ -60,6 +60,7 @@ export interface WebCorroborationProvider {
     readonly enabled: boolean;
     readonly now?: Date;
     readonly query: WebCorroborationQuery;
+    readonly signal?: AbortSignal;
   }): Promise<WebCorroborationSearch>;
 }
 
@@ -115,6 +116,7 @@ export function createExaWebCorroborationProvider(input: {
         return localReceipt({ now, query: request.query, status: "not_run" });
       }
       try {
+        const timeoutSignal = AbortSignal.timeout(timeoutMs);
         const response = await transport(EXA_SEARCH_URL, {
           body: JSON.stringify({
             category: "news",
@@ -127,7 +129,9 @@ export function createExaWebCorroborationProvider(input: {
           headers: { "Content-Type": "application/json", "x-api-key": apiKey },
           method: "POST",
           redirect: "error",
-          signal: AbortSignal.timeout(timeoutMs),
+          signal: request.signal
+            ? AbortSignal.any([request.signal, timeoutSignal])
+            : timeoutSignal,
         });
         if (!response.ok || response.url !== EXA_SEARCH_URL) {
           return localReceipt({ now, query: request.query, status: "unavailable" });
@@ -154,7 +158,10 @@ export function createExaWebCorroborationProvider(input: {
           schemaVersion: 1,
           status: results.length > 0 ? "candidates_found" : "not_found",
         });
-      } catch {
+      } catch (error) {
+        if (request.signal?.aborted) {
+          throw request.signal.reason ?? error;
+        }
         return localReceipt({ now, query: request.query, status: "unavailable" });
       }
     },

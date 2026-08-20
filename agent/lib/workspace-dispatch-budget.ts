@@ -2,8 +2,10 @@ import { Redis } from "@upstash/redis";
 import { z } from "zod";
 
 import {
+  readWorkspaceBudgetLedger,
   reconcileWorkspaceRunBudget,
   reserveWorkspaceRunBudget,
+  summarizeWorkspaceChildBudgetUsage,
   type WorkspaceBudgetLedgerClient,
   type WorkspaceBudgetReservation,
 } from "./workspace-budget-ledger";
@@ -497,6 +499,14 @@ export async function reserveWorkspaceMonitorDispatchBudget(
         inputTokens,
         now,
         outputTokens,
+        ...(job.monitor.tighteningLimits.paidPerRun === null
+          ? {}
+          : {
+              paidCostCeiling: {
+                amount: job.monitor.tighteningLimits.paidPerRun,
+                kind: "known" as const,
+              },
+            }),
         policy: budget.value,
         policyRevision: budget.revision,
         runId: id,
@@ -527,12 +537,29 @@ export async function finishWorkspaceMonitorDispatchBudget(
     throw new WorkspaceDispatchBudgetError("global_budget_conflict");
   }
   const now = input.now ?? new Date();
+  const ledger = await readWorkspaceBudgetLedger(job.scope, clients.workspace);
+  const children = summarizeWorkspaceChildBudgetUsage(
+    ledger,
+    reservation.runId,
+  );
+  const outcome = input.outcome === "reconciled" && children.hasUnsettledReservation
+    ? "uncertain" as const
+    : input.outcome;
+  const childPaidMicros = BigInt(children.paidMicros);
+  const actualPaidCost = `${childPaidMicros / 1_000_000n}.${(childPaidMicros % 1_000_000n)
+    .toString()
+    .padStart(6, "0")}`;
   await reconcileWorkspaceRunBudget(
     {
-      actualInputTokens: input.actualInputTokens,
-      actualOutputTokens: input.actualOutputTokens,
+      actualInputTokens: outcome === "reconciled"
+        ? (input.actualInputTokens ?? 0) + children.inputTokens
+        : input.actualInputTokens,
+      actualOutputTokens: outcome === "reconciled"
+        ? (input.actualOutputTokens ?? 0) + children.outputTokens
+        : input.actualOutputTokens,
+      ...(outcome === "reconciled" ? { actualPaidCost } : {}),
       now,
-      outcome: input.outcome,
+      outcome,
       runId: reservation.runId,
       scope: job.scope,
     },
@@ -540,7 +567,7 @@ export async function finishWorkspaceMonitorDispatchBudget(
   );
   await finishGlobal(
     reservation.runId,
-    input.outcome === "released" ? "released" : "settled",
+    outcome === "released" ? "released" : "settled",
     now,
     clients.global ?? store(),
   );

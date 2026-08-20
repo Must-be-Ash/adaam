@@ -12,6 +12,10 @@ import {
 } from "./hybrid-evidence-schema";
 import type { HybridEvidenceBudgetReservation } from "./hybrid-evidence-budget";
 import {
+  normalizeHybridEvidenceResearchUrl,
+  SEC_IPO_RESEARCH_DEFINITION_ID,
+} from "./hybrid-evidence-research";
+import {
   HYBRID_MODEL_REASONING_VALUES,
   type HybridModelReasoning,
 } from "./hybrid-evidence-model-routing";
@@ -25,12 +29,14 @@ const digestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const timestampSchema = z.string().datetime({ offset: true });
 const envelopeSchema = z.object({
   allowedLocators: z.array(evidenceLocatorSchema).min(1).max(64),
+  approvedResearchUrls: z.array(z.string().url().max(2_048)).max(8).default([]),
   artifactDigests: z.array(digestSchema).min(1).max(16),
   authVersion: z.literal(1),
   budget: z.object({
     inputTokens: z.number().int().nonnegative(),
     outputTokens: z.number().int().nonnegative(),
     paidMicros: z.string().regex(/^(?:0|[1-9]\d*)$/u),
+    parentRunId: z.string().min(1).max(160).nullable().default(null),
     reservationKey: z.string().min(3).max(160),
     scope: z.enum(["deployment_source_recovery", "workspace"]),
   }).strict(),
@@ -61,6 +67,8 @@ const envelopeSchema = z.object({
     expires <= issued ||
     expires - issued > HYBRID_EVIDENCE_WORKER_MAX_RUNTIME_MS ||
     value.budget.scope !== expectedBudgetScope ||
+    (value.definitionId === SEC_IPO_RESEARCH_DEFINITION_ID &&
+      value.budget.parentRunId === null) ||
     value.allowedLocators.some((locator) =>
       ("artifactDigest" in locator &&
         !value.artifactDigests.includes(locator.artifactDigest)) ||
@@ -137,6 +145,7 @@ function signature(payload: string, environment: NodeJS.ProcessEnv): Buffer {
 }
 
 export function createHybridEvidenceWorkerEnvelope(input: {
+  approvedResearchUrls?: readonly string[];
   budget: HybridEvidenceBudgetReservation;
   capabilityRevision: number;
   expiresAt: Date;
@@ -153,12 +162,18 @@ export function createHybridEvidenceWorkerEnvelope(input: {
   const reservation = input.budget.reservation;
   const parsed = envelopeSchema.safeParse({
     allowedLocators: input.locators,
+    approvedResearchUrls: [...new Set(
+      (input.approvedResearchUrls ?? []).map(normalizeHybridEvidenceResearchUrl),
+    )].sort(),
     artifactDigests: input.job.artifactDigests,
     authVersion: 1,
     budget: {
       inputTokens: reservation.inputTokens,
       outputTokens: reservation.outputTokens,
       paidMicros: reservation.paidMicros,
+      parentRunId: input.budget.lane === "workspace_semantic"
+        ? input.budget.parentRunId
+        : null,
       reservationKey: input.budget.reservationKey,
       scope: input.job.budgetReservation.scope,
     },

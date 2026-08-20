@@ -37,6 +37,7 @@ const reservationSchema = z.object({
   kind: z.enum(["hybrid_model_attempt", "paid_source_attempt", "scheduled_monitor"]).default("scheduled_monitor"),
   outputTokens: z.number().int().nonnegative(),
   paidMicros: microsSchema,
+  parentRunId: z.string().min(1).max(160).nullable().optional(),
   policyRevision: z.number().int().positive(),
   reconciledInputTokens: z.number().int().nonnegative().nullable(),
   reconciledOutputTokens: z.number().int().nonnegative().nullable(),
@@ -239,6 +240,47 @@ function usagePaid(reservation: WorkspaceBudgetReservation): bigint {
   return BigInt(reservation.reconciledPaidMicros ?? reservation.paidMicros);
 }
 
+function isTopLevelReservation(
+  reservation: WorkspaceBudgetReservation,
+): boolean {
+  return reservation.parentRunId == null;
+}
+
+export interface WorkspaceChildBudgetUsage {
+  hasUnsettledReservation: boolean;
+  inputTokens: number;
+  outputTokens: number;
+  paidMicros: string;
+}
+
+export function summarizeWorkspaceChildBudgetUsage(
+  ledger: WorkspaceBudgetLedger,
+  parentRunId: string,
+): WorkspaceChildBudgetUsage {
+  const children = ledger.reservations.filter(
+    (reservation) =>
+      reservation.parentRunId === parentRunId &&
+      reservation.state !== "released",
+  );
+  return Object.freeze({
+    hasUnsettledReservation: children.some(
+      ({ state }) => state === "reserved" || state === "uncertain",
+    ),
+    inputTokens: children.reduce(
+      (total, reservation) => total + usageTokens(reservation, "input"),
+      0,
+    ),
+    outputTokens: children.reduce(
+      (total, reservation) => total + usageTokens(reservation, "output"),
+      0,
+    ),
+    paidMicros: children.reduce(
+      (total, reservation) => total + usagePaid(reservation),
+      0n,
+    ).toString(),
+  });
+}
+
 export function formatWorkspacePaidMicros(micros: string): string {
   const amount = BigInt(micros);
   const whole = amount / 1_000_000n;
@@ -256,14 +298,21 @@ export function summarizeWorkspaceBudgetUsage(
 ): WorkspaceBudgetUsageSummary {
   const calendar = calendarParts(now, timeZone);
   const today = ledger.reservations.filter(
-    (reservation) => reservation.calendarDay === calendar.day && reservation.state !== "released",
+    (reservation) =>
+      isTopLevelReservation(reservation) &&
+      reservation.calendarDay === calendar.day &&
+      reservation.state !== "released",
   );
   const thisMonth = ledger.reservations.filter(
-    (reservation) => reservation.calendarMonth === calendar.month && reservation.state !== "released",
+    (reservation) =>
+      isTopLevelReservation(reservation) &&
+      reservation.calendarMonth === calendar.month &&
+      reservation.state !== "released",
   );
   return Object.freeze({
     activeWorkers: ledger.reservations.filter(
-      (reservation) => reservation.state === "reserved",
+      (reservation) =>
+        isTopLevelReservation(reservation) && reservation.state === "reserved",
     ).length,
     calendarDay: calendar.day,
     calendarMonth: calendar.month,
@@ -331,6 +380,7 @@ export async function reserveWorkspaceRunBudget(
     now?: Date;
     outputTokens: number;
     paidCostCeiling?: { amount: string; kind: "known" } | { kind: "unknown" };
+    parentRunId?: string;
     policy: WorkspaceBudgetPolicyValue;
     policyRevision: number;
     runId: string;
@@ -381,6 +431,7 @@ export async function reserveWorkspaceRunBudget(
       if (
         existing.policyRevision !== input.policyRevision ||
         existing.kind !== (input.kind ?? "scheduled_monitor") ||
+        (existing.parentRunId ?? null) !== (input.parentRunId ?? null) ||
         existing.inputTokens !== input.inputTokens ||
         existing.outputTokens !== input.outputTokens ||
         BigInt(existing.paidMicros) !== paid
@@ -393,11 +444,34 @@ export async function reserveWorkspaceRunBudget(
       throw new WorkspaceBudgetError("budget_policy_stale");
     }
     const reservations = prune(current.reservations, calendar.month);
+    const kind = input.kind ?? "scheduled_monitor";
+    const parent = input.parentRunId === undefined
+      ? null
+      : reservations.find(({ runId }) => runId === input.parentRunId) ?? null;
+    if (
+      input.parentRunId !== undefined &&
+      (
+        input.runId === input.parentRunId ||
+        kind === "scheduled_monitor" ||
+        parent === null ||
+        parent.kind !== "scheduled_monitor" ||
+        parent.parentRunId != null ||
+        parent.state !== "reserved" ||
+        parent.policyRevision !== input.policyRevision ||
+        parent.calendarDay !== calendar.day ||
+        parent.calendarMonth !== calendar.month
+      )
+    ) {
+      throw new WorkspaceBudgetError("budget_reservation_conflict");
+    }
     const today = reservations.filter(
-      (reservation) => reservation.calendarDay === calendar.day,
+      (reservation) =>
+        isTopLevelReservation(reservation) &&
+        reservation.calendarDay === calendar.day,
     );
     const active = reservations.filter(
-      (reservation) => reservation.state === "reserved",
+      (reservation) =>
+        isTopLevelReservation(reservation) && reservation.state === "reserved",
     );
     const dailyRuns = today.filter(
       (reservation) =>
@@ -416,17 +490,28 @@ export async function reserveWorkspaceRunBudget(
       0n,
     );
     const monthlyPaid = reservations
-      .filter((reservation) => reservation.calendarMonth === calendar.month)
+      .filter((reservation) =>
+        isTopLevelReservation(reservation) &&
+        reservation.calendarMonth === calendar.month
+      )
       .reduce((total, reservation) => total + usagePaid(reservation), 0n);
-    if (
-      dailyRuns + ((input.kind ?? "scheduled_monitor") === "scheduled_monitor" ? 1 : 0) > policy.maximumScheduledRunsPerDay ||
+    const nestedUsage = parent === null
+      ? null
+      : summarizeWorkspaceChildBudgetUsage(current, parent.runId);
+    const exceedsParent = parent !== null && nestedUsage !== null && (
+      nestedUsage.inputTokens + input.inputTokens > parent.inputTokens ||
+      nestedUsage.outputTokens + input.outputTokens > parent.outputTokens ||
+      BigInt(nestedUsage.paidMicros) + paid > BigInt(parent.paidMicros)
+    );
+    const exceedsTopLevel = parent === null && (
+      dailyRuns + (kind === "scheduled_monitor" ? 1 : 0) > policy.maximumScheduledRunsPerDay ||
       active.length + 1 > policy.maximumConcurrentWorkers ||
       dailyInput + input.inputTokens > policy.maximumInputTokensPerDay ||
       dailyOutput + input.outputTokens > policy.maximumOutputTokensPerDay ||
       (caps !== undefined && dailyPaid + paid > caps.day) ||
-      (caps !== undefined && monthlyPaid + paid > caps.month) ||
-      reservations.length >= MAX_RESERVATIONS
-    ) {
+      (caps !== undefined && monthlyPaid + paid > caps.month)
+    );
+    if (exceedsParent || exceedsTopLevel || reservations.length >= MAX_RESERVATIONS) {
       throw new WorkspaceBudgetError("budget_exhausted");
     }
     const reservation: WorkspaceBudgetReservation = {
@@ -434,9 +519,10 @@ export async function reserveWorkspaceRunBudget(
       calendarMonth: calendar.month,
       createdAt: timestamp,
       inputTokens: input.inputTokens,
-      kind: input.kind ?? "scheduled_monitor",
+      kind,
       outputTokens: input.outputTokens,
       paidMicros: paid.toString(),
+      parentRunId: input.parentRunId ?? null,
       policyRevision: input.policyRevision,
       reconciledInputTokens: null,
       reconciledOutputTokens: null,
@@ -494,6 +580,12 @@ export async function reconcileWorkspaceRunBudget(
     if (
       normalized.outputTokens !== null &&
       (!Number.isSafeInteger(normalized.outputTokens) || normalized.outputTokens < 0)
+    ) {
+      throw new WorkspaceBudgetError("budget_reservation_conflict");
+    }
+    if (
+      (normalized.inputTokens !== null && normalized.inputTokens > existing.inputTokens) ||
+      (normalized.outputTokens !== null && normalized.outputTokens > existing.outputTokens)
     ) {
       throw new WorkspaceBudgetError("budget_reservation_conflict");
     }

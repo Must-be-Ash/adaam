@@ -28,6 +28,7 @@ export type HybridEvidenceBudgetReservation =
     }>
   | Readonly<{
       lane: "workspace_semantic";
+      parentRunId: string | null;
       reservation: WorkspaceBudgetReservation;
       reservationKey: string;
       scope: AuthorizedWorkspaceStoreScope;
@@ -49,6 +50,7 @@ export async function reserveHybridEvidenceAttempt(input: {
   environment?: NodeJS.ProcessEnv;
   job: HybridEvidenceJob;
   now?: Date;
+  parentRunId?: string;
   scope?: AuthorizedWorkspaceStoreScope;
 }, clients: {
   global?: WorkspaceGlobalBudgetClient;
@@ -104,6 +106,7 @@ export async function reserveHybridEvidenceAttempt(input: {
       capabilities.value.workerModelPolicy.maximumOutputTokens,
     ),
     paidCostCeiling: { amount: input.definition.limits.maximumPaidCostUsd, kind: "known" },
+    parentRunId: input.parentRunId,
     policy: budget.value,
     policyRevision: budget.revision,
     runId: input.job.budgetReservation.key,
@@ -111,6 +114,7 @@ export async function reserveHybridEvidenceAttempt(input: {
   }, clients.workspace);
   return Object.freeze({
     lane: "workspace_semantic" as const,
+    parentRunId: input.parentRunId ?? null,
     reservation,
     reservationKey: input.job.budgetReservation.key,
     scope: input.scope,

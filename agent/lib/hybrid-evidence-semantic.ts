@@ -64,6 +64,7 @@ import {
   prepareHybridEvidenceWorkerRun,
   type PreparedHybridEvidenceWorkerRun,
 } from "./hybrid-evidence-worker";
+import { SEC_IPO_RESEARCH_DEFINITION_ID } from "./hybrid-evidence-research";
 import type {
   CanonicalPublicFactRevision,
   PublicSourceProjection,
@@ -806,7 +807,7 @@ async function reconcileAcceptedSemanticUsage(input: {
 
 export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
   typeof prepareWorkspaceSemanticEvidenceJob
->[0] & { environment?: NodeJS.ProcessEnv }, clients: {
+>[0] & { environment?: NodeJS.ProcessEnv; parentBudgetRunId?: string }, clients: {
   acquisition?: PublicSourceAcquisitionStoreClient;
   artifacts: HybridEvidenceArtifactStore;
   budget?: WorkspaceBudgetLedgerClient;
@@ -949,9 +950,17 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
         environment: input.environment,
         job: record.job,
         now: input.now,
+        parentRunId: input.parentBudgetRunId,
         scope: input.scope,
       }, { state: clients.state, workspace: clients.budget });
       const worker = await prepareHybridEvidenceWorkerRun({
+        approvedResearchUrls: prepared.definition.definitionId ===
+            SEC_IPO_RESEARCH_DEFINITION_ID
+          ? [
+              prepared.artifact.canonicalPublicUrl,
+              prepared.projection.fact.provenance.publicUrl,
+            ]
+          : undefined,
         budget: reservation,
         definition: prepared.definition,
         environment: input.environment,
@@ -1178,7 +1187,7 @@ function bundleInvalidationCause(
 
 export async function runWorkspaceSemanticEvidenceBundleJob(input: Parameters<
   typeof prepareWorkspaceSemanticEvidenceBundleJob
->[0] & { environment?: NodeJS.ProcessEnv }, clients: {
+>[0] & { environment?: NodeJS.ProcessEnv; parentBudgetRunId?: string }, clients: {
   acquisition?: PublicSourceAcquisitionStoreClient;
   artifacts: HybridEvidenceArtifactStore;
   budget?: WorkspaceBudgetLedgerClient;
@@ -1305,9 +1314,17 @@ export async function runWorkspaceSemanticEvidenceBundleJob(input: Parameters<
         environment: input.environment,
         job: record.job,
         now: input.now,
+        parentRunId: input.parentBudgetRunId,
         scope: input.scope,
       }, { state: clients.state, workspace: clients.budget });
       const worker = await prepareHybridEvidenceWorkerRun({
+        approvedResearchUrls: prepared.definition.definitionId ===
+            SEC_IPO_RESEARCH_DEFINITION_ID
+          ? [...new Set([
+              ...prepared.artifacts.map(({ canonicalPublicUrl }) => canonicalPublicUrl),
+              ...prepared.members.map(({ projection }) => projection.fact.provenance.publicUrl),
+            ])]
+          : undefined,
         budget: reservation,
         definition: prepared.definition,
         environment: input.environment,

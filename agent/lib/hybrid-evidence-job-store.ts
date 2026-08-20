@@ -19,6 +19,10 @@ import {
   type HybridEvidenceJob,
   type HybridEvidenceJobDefinition,
 } from "./hybrid-evidence-schema";
+import {
+  hybridEvidenceResearchDecisionSchema,
+  normalizeHybridEvidenceResearchUrl,
+} from "./hybrid-evidence-research";
 
 const KEY_PREFIX = "eve:hybrid-evidence:v1:job:";
 const MAX_CAS_ATTEMPTS = 8;
@@ -54,6 +58,10 @@ const recordSchema = z.object({
   failureCode: hybridEvidenceErrorCodeSchema.nullable(),
   job: hybridEvidenceJobSchema,
   quarantineCodes: z.array(hybridEvidenceErrorCodeSchema).max(16),
+  researchDecision: hybridEvidenceResearchDecisionSchema.nullable().default(null),
+  researchFetchCompleted: z.boolean().default(false),
+  researchSearchCompleted: z.boolean().default(false),
+  researchUrlGrants: z.array(z.string().url().max(2_048)).max(5).default([]),
   recordType: z.literal("hybrid_evidence_job_record"),
   schemaVersion: z.literal(1),
 }).strict();
@@ -283,10 +291,118 @@ export async function prepareHybridEvidenceJob(input: {
         failureCode: null,
         job,
         quarantineCodes: [],
+        researchDecision: null,
+        researchFetchCompleted: false,
+        researchSearchCompleted: false,
+        researchUrlGrants: [],
         recordType: "hybrid_evidence_job_record" as const,
         schemaVersion: 1 as const,
       });
       return { record, result: record };
+    },
+  });
+}
+
+export async function persistHybridEvidenceResearchDecision(input: {
+  claimToken: string;
+  decision: z.input<typeof hybridEvidenceResearchDecisionSchema>;
+  jobId: string;
+  now?: Date;
+}, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
+  const decision = hybridEvidenceResearchDecisionSchema.parse(input.decision);
+  const timestamp = (input.now ?? new Date()).toISOString();
+  return updateRecord({
+    client,
+    jobId: input.jobId,
+    mutate(current) {
+      if (!current) throw new HybridEvidenceJobStoreError("job_not_found");
+      if (
+        current.job.state !== "running" ||
+        current.claimTokenDigest !== tokenDigest(input.claimToken)
+      ) {
+        throw new HybridEvidenceJobStoreError("job_conflict");
+      }
+      if (current.researchDecision !== null) {
+        if (JSON.stringify(current.researchDecision) !== JSON.stringify(decision)) {
+          throw new HybridEvidenceJobStoreError("job_conflict");
+        }
+        return { record: current, result: current };
+      }
+      const next = recordSchema.parse({
+        ...current,
+        job: { ...current.job, updatedAt: timestamp },
+        researchDecision: decision,
+      });
+      return { record: next, result: next };
+    },
+  });
+}
+
+export async function persistHybridEvidenceResearchSearch(input: {
+  claimToken: string;
+  jobId: string;
+  now?: Date;
+  urls: readonly string[];
+}, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
+  const urls = [...new Set(input.urls.map(normalizeHybridEvidenceResearchUrl))]
+    .sort()
+    .slice(0, 5);
+  const timestamp = (input.now ?? new Date()).toISOString();
+  return updateRecord({
+    client,
+    jobId: input.jobId,
+    mutate(current) {
+      if (!current) throw new HybridEvidenceJobStoreError("job_not_found");
+      if (
+        current.job.state !== "running" ||
+        current.claimTokenDigest !== tokenDigest(input.claimToken) ||
+        current.researchDecision?.decision !== "research_needed"
+      ) {
+        throw new HybridEvidenceJobStoreError("job_conflict");
+      }
+      if (current.researchSearchCompleted) {
+        if (JSON.stringify(current.researchUrlGrants) !== JSON.stringify(urls)) {
+          throw new HybridEvidenceJobStoreError("job_conflict");
+        }
+        return { record: current, result: current };
+      }
+      const next = recordSchema.parse({
+        ...current,
+        job: { ...current.job, updatedAt: timestamp },
+        researchSearchCompleted: true,
+        researchUrlGrants: urls,
+      });
+      return { record: next, result: next };
+    },
+  });
+}
+
+export async function persistHybridEvidenceResearchFetchCompletion(input: {
+  claimToken: string;
+  jobId: string;
+  now?: Date;
+}, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
+  const timestamp = (input.now ?? new Date()).toISOString();
+  return updateRecord({
+    client,
+    jobId: input.jobId,
+    mutate(current) {
+      if (!current) throw new HybridEvidenceJobStoreError("job_not_found");
+      if (
+        current.job.state !== "running" ||
+        current.claimTokenDigest !== tokenDigest(input.claimToken) ||
+        current.researchDecision?.decision !== "research_needed" ||
+        !current.researchSearchCompleted
+      ) {
+        throw new HybridEvidenceJobStoreError("job_conflict");
+      }
+      if (current.researchFetchCompleted) return { record: current, result: current };
+      const next = recordSchema.parse({
+        ...current,
+        job: { ...current.job, updatedAt: timestamp },
+        researchFetchCompleted: true,
+      });
+      return { record: next, result: next };
     },
   });
 }

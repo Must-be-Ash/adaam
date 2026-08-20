@@ -9,7 +9,13 @@ import {
   WorkspaceDispatchBudgetError,
   type WorkspaceGlobalBudgetClient,
 } from "../agent/lib/workspace-dispatch-budget";
-import type { WorkspaceBudgetLedgerClient } from "../agent/lib/workspace-budget-ledger";
+import {
+  readWorkspaceBudgetLedger,
+  reconcileWorkspaceRunBudget,
+  reserveWorkspaceRunBudget,
+  summarizeWorkspaceBudgetUsage,
+  type WorkspaceBudgetLedgerClient,
+} from "../agent/lib/workspace-budget-ledger";
 import type { ClaimedWorkspaceMonitor } from "../agent/lib/workspace-monitor-store";
 import {
   authorizeDeploymentWorkspaceStore,
@@ -342,6 +348,101 @@ await finishWorkspaceMonitorDispatchBudget(
   recoveredBudget,
   { now, outcome: "released" },
   overlapClients,
+);
+
+const nestedGlobal = new MemoryStore();
+const nestedState = new MemoryStore();
+const nestedWorkspace = new MemoryStore();
+const nestedPolicy = {
+  ...policy,
+  maximumPaidPerCall: "0.500000",
+  maximumPaidPerDay: "1.000000",
+  maximumPaidPerMonth: "2.000000",
+};
+await writeWorkspaceDocument("budget", {
+  expectedRevision: 0,
+  now,
+  scope: scopeC,
+  value: nestedPolicy,
+}, nestedState);
+const nestedBaseJob = job(scopeC, "nested");
+const nestedJob = {
+  ...nestedBaseJob,
+  monitor: {
+    ...nestedBaseJob.monitor,
+    tighteningLimits: {
+      ...nestedBaseJob.monitor.tighteningLimits,
+      paidPerRun: "0.500000",
+    },
+  },
+};
+const nestedReservation = await reserveWorkspaceMonitorDispatchBudget(nestedJob, {
+  clients: {
+    global: nestedGlobal,
+    state: nestedState,
+    workspace: nestedWorkspace,
+  },
+  environment,
+  now,
+});
+assert.equal(nestedReservation.workspace.paidMicros, "500000");
+const nestedModel = await reserveWorkspaceRunBudget({
+  inputTokens: 200,
+  kind: "hybrid_model_attempt",
+  now,
+  outputTokens: 50,
+  paidCostCeiling: { amount: "0.400000", kind: "known" },
+  parentRunId: nestedReservation.runId,
+  policy: nestedPolicy,
+  policyRevision: 1,
+  runId: "nested-model",
+  scope: scopeC,
+}, nestedWorkspace);
+const nestedSearch = await reserveWorkspaceRunBudget({
+  inputTokens: 0,
+  kind: "paid_source_attempt",
+  now,
+  outputTokens: 0,
+  paidCostCeiling: { amount: "0.010000", kind: "known" },
+  parentRunId: nestedReservation.runId,
+  policy: nestedPolicy,
+  policyRevision: 1,
+  runId: "nested-search",
+  scope: scopeC,
+}, nestedWorkspace);
+await Promise.all([
+  reconcileWorkspaceRunBudget({
+    actualInputTokens: 100,
+    actualOutputTokens: 25,
+    actualPaidCost: "0.300000",
+    outcome: "reconciled",
+    runId: nestedModel.runId,
+    scope: scopeC,
+  }, nestedWorkspace),
+  reconcileWorkspaceRunBudget({
+    actualPaidCost: "0.005000",
+    outcome: "reconciled",
+    runId: nestedSearch.runId,
+    scope: scopeC,
+  }, nestedWorkspace),
+]);
+await finishWorkspaceMonitorDispatchBudget(
+  nestedJob,
+  nestedReservation,
+  { now, outcome: "reconciled" },
+  { global: nestedGlobal, workspace: nestedWorkspace },
+);
+const nestedLedger = await readWorkspaceBudgetLedger(scopeC, nestedWorkspace);
+const settledParent = nestedLedger.reservations.find(
+  ({ runId }) => runId === nestedReservation.runId,
+);
+assert.equal(settledParent?.reconciledInputTokens, 100);
+assert.equal(settledParent?.reconciledOutputTokens, 25);
+assert.equal(settledParent?.reconciledPaidMicros, "305000");
+assert.equal(
+  summarizeWorkspaceBudgetUsage(nestedLedger, now, nestedPolicy.ownerTimezone)
+    .activeWorkers,
+  0,
 );
 
 const scheduleSource = await readFile(

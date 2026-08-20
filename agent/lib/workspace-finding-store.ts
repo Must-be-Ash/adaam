@@ -51,6 +51,7 @@ const provenanceSchema = z.object({
   accessClassification: z.enum(["public", "owner_private"]),
   canonicalUrl: z.string().url().max(2_048),
   origin: z.string().url().max(500),
+  role: z.enum(["official", "supplementary"]).optional(),
   sourceId: idSchema,
 }).strict().superRefine((source, context) => {
   const canonical = new URL(source.canonicalUrl);

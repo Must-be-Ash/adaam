@@ -530,6 +530,7 @@ monitorA = await getWorkspaceMonitor(
 );
 assert.ok(monitorA);
 const sameFilingNow = verificationNow;
+const publishCallsBeforeNoChange = publishReportCalls;
 const sameFiling = await execute(
   await prepare({
     monitor: monitorA,
@@ -542,6 +543,11 @@ const sameFiling = await execute(
 assert.equal(sameFiling.outcome.outcome, "no_match");
 assert.equal(sameFiling.factCount, 0);
 assert.equal(alerts.values.size, 2);
+assert.equal(
+  publishReportCalls,
+  publishCallsBeforeNoChange,
+  "a no-new-facts IPO occurrence must finish before artifact or later frontier/research work",
+);
 
 monitorA = await getWorkspaceMonitor(
   workspaceA.scope,

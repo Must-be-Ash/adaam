@@ -388,15 +388,22 @@ assert.deepEqual(
     "inverse-cramer@1.2.0",
     "inverse-cramer@1.3.0",
     "ipo-filings@1.0.0",
+    "ipo-filings@1.1.0",
     "public-commentary-tracker@1.0.0",
     "public-commentary-tracker@1.1.0",
   ],
 );
-const productionPack = productionCheck.entries.find(({ id }) => id === "ipo-filings");
+const productionPack = productionCheck.entries.find(
+  ({ id, version }) => id === "ipo-filings" && version === "1.0.0",
+);
+const agenticProductionPack = productionCheck.entries.find(
+  ({ id, version }) => id === "ipo-filings" && version === "1.1.0",
+);
 assert.equal(productionPack?.maturity, "reference");
-assert.equal(productionPack?.sources[0]?.sourceId, "sec-latest-s1-filings");
-assert.equal(productionPack?.monitors[0]?.resourceId, "detect-new-s1");
-assert.equal(productionPack?.evaluations.suiteId, "eval.sec-ipo/v1");
+assert.equal(agenticProductionPack?.maturity, "experimental");
+assert.equal(agenticProductionPack?.sources[0]?.sourceId, "sec-latest-s1-filings");
+assert.equal(agenticProductionPack?.monitors[0]?.resourceId, "detect-new-s1");
+assert.equal(agenticProductionPack?.evaluations.suiteId, "eval.sec-ipo/v1");
 const { publicSource, ...legacySourceContract } =
   STRATEGY_PACK_REFERENCE_CATALOG.sourceContracts[SEC_IPO_SOURCE_ID];
 assert.deepEqual(

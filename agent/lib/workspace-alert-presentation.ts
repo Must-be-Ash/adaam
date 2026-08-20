@@ -22,11 +22,28 @@ function singleLine(value: string, maximum: number): string {
 }
 
 function sourceEvidence(alert: WorkspaceAlert): string {
-  return (alert.sourceLinks ?? alert.sourceRefs.map((sourceId) => ({ sourceId })))
-    .map((source) => "canonicalUrl" in source
-      ? `${singleLine(source.sourceId, 160)}: ${source.canonicalUrl}`
-      : singleLine(source.sourceId, 160))
-    .join(", ");
+  const sources = alert.sourceLinks ?? alert.sourceRefs.map((sourceId) => ({ sourceId }));
+  const lines = sources.map((source) => {
+    if (!("canonicalUrl" in source)) return singleLine(source.sourceId, 160);
+    const role = "role" in source ? source.role : undefined;
+    const prefix = role
+      ? `${role === "supplementary" ? "Supplementary context" : "Official source"} · `
+      : "";
+    return `${prefix}${singleLine(source.sourceId, 160)}: ${source.canonicalUrl}`;
+  });
+  const retained: string[] = [];
+  let length = 0;
+  for (const line of lines) {
+    const added = line.length + (retained.length === 0 ? 0 : 2);
+    if (length + added > 1_600) break;
+    retained.push(line);
+    length += added;
+  }
+  const omitted = lines.length - retained.length;
+  return [
+    ...retained,
+    ...(omitted > 0 ? [`${omitted} additional source${omitted === 1 ? "" : "s"} in the readable report`] : []),
+  ].join(", ");
 }
 
 function artifactEvidenceLines(alert: WorkspaceAlert): string[] {

@@ -78,6 +78,10 @@ import { isReviewedPublicSource } from "./public-source-registry";
 import { resolveParameterizedStrategyPackSources } from "./strategy-pack-source-resolution";
 import { inspectWorkspaceHybridEvidence } from "./hybrid-evidence-semantic";
 import { resolveHybridTaskModelRoute } from "./hybrid-evidence-model-routing";
+import {
+  isSecIpoAgenticResearchPack,
+  SEC_IPO_AGENTIC_RESEARCH_BUDGET,
+} from "./sec-ipo-semantics";
 import type { WorkspaceSemanticEvidenceStoreClient } from "./hybrid-evidence-semantic-store";
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
 import type { PublicSourceSubscriptionStoreClient } from "./public-source-subscription-store";
@@ -907,7 +911,7 @@ function effectiveCapabilities(
     financialToolIds: [],
     hardDeniedCapabilityIds: [...new Set([...SHARED_HARD_DENIALS, ...pack.capabilities.hardDenied])].sort(),
     maximumDataAccessClassification: "public",
-    paidResearchAllowed: false,
+    paidResearchAllowed: isSecIpoAgenticResearchPack(pack),
     providerTools: [],
     researchToolIds: researchToolIds.sort(),
     skills: pack.skills.map(({ id, version }) => ({ id, version })),
@@ -927,7 +931,10 @@ export function resolveStrategyPackWorkerModelPolicy(input: {
   fallback?: WorkspaceCapabilityManifestValue["workerModelPolicy"];
   pack: StrategyPackCatalogEntry;
 }): WorkspaceCapabilityManifestValue["workerModelPolicy"] {
-  if (input.pack.capabilities.required.includes("evaluate_public_commentary_signals")) {
+  if (
+    input.pack.capabilities.required.includes("evaluate_public_commentary_signals") ||
+    isSecIpoAgenticResearchPack(input.pack)
+  ) {
     const workerModelId =
       input.environment.EVE_STRATEGY_PACK_WORKER_MODEL_ID ?? "google/gemini-3.6-flash";
     const semanticModelId = resolveHybridTaskModelRoute(
@@ -956,6 +963,7 @@ export function resolveStrategyPackInitialBudgetPolicy(
   const usesPaidXTimeline = pack.sources.some((source) =>
     source.allowedOrigins.includes("https://api.x.com")
   );
+  const usesAgenticIpoResearch = isSecIpoAgenticResearchPack(pack);
   const requestedRunsPerDay = Math.min(
     ceilings.maximumScheduledRunsPerDay,
     pack.monitors.reduce((sum, monitor) => sum + monitor.suggestedBudget.maximumRunsPerDay, 0),
@@ -983,12 +991,26 @@ export function resolveStrategyPackInitialBudgetPolicy(
       outputPerRun * requestedRunsPerDay,
     ),
     maximumOutputTokensPerRun: outputPerRun,
-    maximumPaidPerCall: usesPaidXTimeline ? "1.000000" : null,
-    maximumPaidPerDay: usesPaidXTimeline ? "2.000000" : null,
-    maximumPaidPerMonth: usesPaidXTimeline ? "10.000000" : null,
+    maximumPaidPerCall: usesPaidXTimeline
+      ? "1.000000"
+      : usesAgenticIpoResearch
+        ? SEC_IPO_AGENTIC_RESEARCH_BUDGET.maximumPaidPerCall
+        : null,
+    maximumPaidPerDay: usesPaidXTimeline
+      ? "2.000000"
+      : usesAgenticIpoResearch
+        ? SEC_IPO_AGENTIC_RESEARCH_BUDGET.maximumPaidPerDay
+        : null,
+    maximumPaidPerMonth: usesPaidXTimeline
+      ? "10.000000"
+      : usesAgenticIpoResearch
+        ? SEC_IPO_AGENTIC_RESEARCH_BUDGET.maximumPaidPerMonth
+        : null,
     maximumScheduledRunsPerDay: requestedRunsPerDay,
     ownerTimezone: typeof ownerTimezone === "string" ? ownerTimezone : "UTC",
-    unknownPriceFallbackCeiling: "0",
+    unknownPriceFallbackCeiling: usesAgenticIpoResearch
+      ? SEC_IPO_AGENTIC_RESEARCH_BUDGET.unknownPriceFallbackCeiling
+      : "0",
   };
 }
 
@@ -1160,7 +1182,9 @@ function monitorPreparations(input: {
           monitor.suggestedBudget.maximumOutputTokensPerRun,
           input.budget.maximumOutputTokensPerRun,
         ),
-        paidPerRun: null,
+        paidPerRun: isSecIpoAgenticResearchPack(input.pack)
+          ? SEC_IPO_AGENTIC_RESEARCH_BUDGET.paidPerRun
+          : null,
       },
     });
   });

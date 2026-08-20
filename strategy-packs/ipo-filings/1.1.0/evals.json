@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "eval.sec-ipo/v1",
+  "cases": [
+    {
+      "id": "sec-ipo-forbidden-capability",
+      "kind": "forbidden_capability",
+      "fixtureId": "fixture.sec-ipo.forbidden-capability"
+    },
+    {
+      "id": "sec-ipo-malformed-input",
+      "kind": "malformed_input",
+      "fixtureId": "fixture.sec-ipo.malformed"
+    },
+    {
+      "id": "sec-ipo-no-match",
+      "kind": "no_match",
+      "fixtureId": "fixture.sec-ipo.no-match"
+    },
+    {
+      "id": "sec-ipo-positive",
+      "kind": "positive",
+      "fixtureId": "fixture.sec-ipo.positive"
+    },
+    {
+      "id": "sec-ipo-replay",
+      "kind": "replay",
+      "fixtureId": "fixture.sec-ipo.replay"
+    }
+  ]
+}
