@@ -297,9 +297,20 @@ flowchart LR
 - [x] Add the focused red-first IPO adoption and compatibility proof (captured `MODULE_NOT_FOUND` for the not-yet-implemented IPO semantic contract).
 - [x] Implement `ipo-filings@1.1.0` as an explicit opt-in adopter of the U1–U3 research, nested-budget, executive-brief, artifact, and alert plumbing while preserving `1.0.0`.
 - [x] Run the focused local verification and one scoped diff review (U1-U4, IPO worker, strategy-pack, nested-budget, alert, isolation, Coinbase-compatibility, type, Eve build, and app build gates passed; scoped review found no blocking issue).
-- [ ] Commit, push, deploy, and verify Production health/logs.
+- [x] Commit `7091976`, push it to `main`, deploy Production as `dpl_3HkEz8RvMtNh8KBSaGZRcrgoTvSF`, and verify HTTP 200 for `/` and `/skill` with no bounded error logs.
 - [ ] Run exactly one backend-controlled IPO acceptance and clean up its disposable workspace.
 - [ ] Record the acceptance receipt and mark U4 complete.
+
+**Acceptance blocker (2026-08-20):** Stopped before workspace creation. The
+Production owner mapping, owner-alias secret, and workspace-store credentials
+are sensitive Vercel variables and are intentionally unavailable to local
+operators. The existing owner-authorized services therefore cannot be called
+locally against Production without either an already-minted manager capability
+or a deployed Production execution surface. Direct Redis access, a temporary
+endpoint, and manual worker invocation remain prohibited, so no acceptance
+workspace, occurrence, reservation, provider call, delivery, or spend was
+created. Resume only when an existing Production-scoped owner operation
+capability is available; do not weaken the boundary to complete the check.
 
 **Requirements:** R16–R19; SC1–SC6.
 
