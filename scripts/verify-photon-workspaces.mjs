@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { photonApprovalGuardKey } from "../agent/lib/photon-approval-store.ts";
-import { isPhotonContentlessOutboundReplyEcho } from "../agent/lib/photon-imessage-ingress.ts";
+import { isPhotonContentlessOutboundControlEcho } from "../agent/lib/photon-imessage-ingress.ts";
 import {
   applyPhotonWorkspaceManagerAction,
   claimPhotonWorkspaceManagerRequest,
@@ -33,7 +33,7 @@ import {
 } from "../agent/lib/photon-workspace.ts";
 
 assert.equal(
-  isPhotonContentlessOutboundReplyEcho({
+  isPhotonContentlessOutboundControlEcho({
     attachments: [],
     raw: {
       content: {
@@ -46,6 +46,22 @@ assert.equal(
   }),
   true,
   "Contentless Photon replies targeting an outbound message must not dispatch",
+);
+
+assert.equal(
+  isPhotonContentlessOutboundControlEcho({
+    attachments: [],
+    raw: {
+      content: {
+        target: { direction: "outbound" },
+        type: "read",
+      },
+      direction: "inbound",
+    },
+    text: "",
+  }),
+  true,
+  "Contentless Photon read receipts targeting an outbound message must not dispatch",
 );
 
 for (const message of [
@@ -82,7 +98,7 @@ for (const message of [
   },
 ]) {
   assert.equal(
-    isPhotonContentlessOutboundReplyEcho(message),
+    isPhotonContentlessOutboundControlEcho(message),
     false,
     "Owner-authored Photon messages must remain dispatchable",
   );

@@ -2,7 +2,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function isPhotonContentlessOutboundReplyEcho(message: {
+export function isPhotonContentlessOutboundControlEcho(message: {
   attachments?: readonly unknown[];
   raw?: unknown;
   text: string;
@@ -18,7 +18,7 @@ export function isPhotonContentlessOutboundReplyEcho(message: {
   const content = message.raw.content;
   if (
     !isRecord(content) ||
-    content.type !== "reply" ||
+    (content.type !== "reply" && content.type !== "read") ||
     "content" in content
   ) {
     return false;

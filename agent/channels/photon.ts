@@ -85,7 +85,7 @@ import { projectPhotonWorkspaceRuntimeScope } from "../lib/workspace-runtime-sco
 import { workspaceAlertTurnContext } from "../lib/workspace-alert-presentation";
 import { readWorkspaceAlertById } from "../lib/workspace-alert-store";
 import { createPhotonImessageAdapter } from "../lib/photon-imessage-adapter";
-import { isPhotonContentlessOutboundReplyEcho } from "../lib/photon-imessage-ingress";
+import { isPhotonContentlessOutboundControlEcho } from "../lib/photon-imessage-ingress";
 import {
   PhotonIngressRolloutError,
   resolvePhotonIngressRolloutMode,
@@ -1065,7 +1065,7 @@ async function dispatch(
   if (
     message.author.isBot ||
     message.author.isMe ||
-    isPhotonContentlessOutboundReplyEcho(message) ||
+    isPhotonContentlessOutboundControlEcho(message) ||
     !thread.isDM
   ) {
     return;
