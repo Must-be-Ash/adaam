@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { photonApprovalGuardKey } from "../agent/lib/photon-approval-store.ts";
+import { isPhotonContentlessOutboundReplyEcho } from "../agent/lib/photon-imessage-ingress.ts";
 import {
   applyPhotonWorkspaceManagerAction,
   claimPhotonWorkspaceManagerRequest,
@@ -30,6 +31,62 @@ import {
   physicalPhotonThreadId,
   workspaceAwarePhotonAdapter,
 } from "../agent/lib/photon-workspace.ts";
+
+assert.equal(
+  isPhotonContentlessOutboundReplyEcho({
+    attachments: [],
+    raw: {
+      content: {
+        target: { direction: "outbound" },
+        type: "reply",
+      },
+      direction: "inbound",
+    },
+    text: "",
+  }),
+  true,
+  "Contentless Photon replies targeting an outbound message must not dispatch",
+);
+
+for (const message of [
+  {
+    attachments: [],
+    raw: {
+      content: { type: "text" },
+      direction: "inbound",
+    },
+    text: "ordinary owner message",
+  },
+  {
+    attachments: [],
+    raw: {
+      content: {
+        content: { text: "genuine reply", type: "text" },
+        target: { direction: "outbound" },
+        type: "reply",
+      },
+      direction: "inbound",
+    },
+    text: "genuine reply",
+  },
+  {
+    attachments: [{ name: "owner-file.pdf" }],
+    raw: {
+      content: {
+        target: { direction: "outbound" },
+        type: "reply",
+      },
+      direction: "inbound",
+    },
+    text: "",
+  },
+]) {
+  assert.equal(
+    isPhotonContentlessOutboundReplyEcho(message),
+    false,
+    "Owner-authored Photon messages must remain dispatchable",
+  );
+}
 
 for (const request of [
   "manage sessions",

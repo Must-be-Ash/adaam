@@ -85,6 +85,7 @@ import { projectPhotonWorkspaceRuntimeScope } from "../lib/workspace-runtime-sco
 import { workspaceAlertTurnContext } from "../lib/workspace-alert-presentation";
 import { readWorkspaceAlertById } from "../lib/workspace-alert-store";
 import { createPhotonImessageAdapter } from "../lib/photon-imessage-adapter";
+import { isPhotonContentlessOutboundReplyEcho } from "../lib/photon-imessage-ingress";
 import {
   PhotonIngressRolloutError,
   resolvePhotonIngressRolloutMode,
@@ -1061,7 +1062,14 @@ async function dispatch(
   for (const skipped of context?.skipped ?? []) {
     await dispatch(thread, skipped);
   }
-  if (message.author.isBot || !thread.isDM) return;
+  if (
+    message.author.isBot ||
+    message.author.isMe ||
+    isPhotonContentlessOutboundReplyEcho(message) ||
+    !thread.isDM
+  ) {
+    return;
+  }
 
   const senderId = message.author.userId;
   const principalId = photonPrincipalId(senderId);
