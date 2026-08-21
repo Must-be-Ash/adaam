@@ -532,7 +532,7 @@ export async function quarantineHybridEvidenceJob(input: {
   now?: Date;
 }, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
   const codes = [...new Set(input.codes)].sort();
-  const timestamp = (input.now ?? new Date()).toISOString();
+  const requestedTimestamp = (input.now ?? new Date()).toISOString();
   return updateRecord({
     client,
     jobId: input.jobId,
@@ -544,6 +544,9 @@ export async function quarantineHybridEvidenceJob(input: {
       if (current.job.state !== "completed" || codes.length === 0) {
         throw new HybridEvidenceJobStoreError("job_conflict");
       }
+      const timestamp = requestedTimestamp < current.job.updatedAt
+        ? current.job.updatedAt
+        : requestedTimestamp;
       const quarantined = recordSchema.parse({
         ...current,
         failureCode: codes[0],

@@ -681,11 +681,19 @@ await completeHybridEvidenceJob({
   jobId: quarantinePrepared.job.jobId,
   now: new Date(now.getTime() + 1_000),
 }, terminalJobs);
-assert.equal((await quarantineHybridEvidenceJob({
+const quarantinedWithOccurrenceClock = await quarantineHybridEvidenceJob({
   codes: ["validator_failed"],
   jobId: quarantinePrepared.job.jobId,
-  now: new Date(now.getTime() + 2_000),
-}, terminalJobs)).job.state, "quarantined");
+  // Scheduled callers retain the occurrence timestamp while model completion
+  // advances the durable job clock. Quarantine must remain monotonic.
+  now,
+}, terminalJobs);
+assert.equal(quarantinedWithOccurrenceClock.job.state, "quarantined");
+assert.equal(
+  quarantinedWithOccurrenceClock.job.updatedAt,
+  new Date(now.getTime() + 1_000).toISOString(),
+  "quarantining a completed job must preserve monotonic lifecycle time",
+);
 assert.equal((await readHybridEvidenceJob(quarantinePrepared.job.jobId, terminalJobs))?.candidateDigest !== null, true);
 
 const explicitUncertain = new MemoryCas();
