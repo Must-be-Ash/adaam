@@ -64,14 +64,16 @@ assert.equal(resolvePublicCommentaryFirstRunStart({
   windowEndAt: activatedAt,
 }), "2026-08-20T00:00:00.000Z");
 
-const pack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.2" });
+const pack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.3" });
 assert.ok(pack);
 assert.equal(
   pack.monitors[0]?.lifecycleContractId,
   PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID,
 );
 const researchDefinition = createInverseCramerResearchDefinition(["openai/gpt-5.4"]);
-const semanticDefinition = createInverseCramerSemanticDefinition(["openai/gpt-5.4"]);
+const semanticDefinition = createInverseCramerSemanticDefinition(["openai/gpt-5.4"], {
+  definitionVersion: "1.0.2",
+});
 assert.equal(
   pack.evidenceContracts?.find(({ id }) => id === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID)?.digest,
   semanticDefinition.definitionDigest,
@@ -85,7 +87,7 @@ assert.equal(resolveHybridEvidenceWorkerContract(INVERSE_CRAMER_RESEARCH_DEFINIT
 assert.equal(resolveHybridEvidenceWorkerContract(INVERSE_CRAMER_RESEARCH_DEFINITION_ID)?.research
   ?.budget.paidPerRun, "3.500000");
 const budget = resolveStrategyPackInitialBudgetPolicy(pack, { timezone: "UTC" }, activatedAt);
-assert.equal(budget.maximumInputTokensPerRun, 25_000);
+assert.equal(budget.maximumInputTokensPerRun, 40_000);
 assert.equal(budget.maximumPaidPerCall, "1.000000");
 assert.equal(budget.maximumPaidPerDay, "5.000000");
 

@@ -103,7 +103,7 @@ const SHARED_HARD_DENIALS = Object.freeze([
 ]);
 const DEFAULT_BUDGET_CEILINGS = Object.freeze({
   maximumInputTokensPerDay: 100_000,
-  maximumInputTokensPerRun: 25_000,
+  maximumInputTokensPerRun: 40_000,
   maximumOutputTokensPerDay: 96_000,
   maximumOutputTokensPerRun: 12_000,
   maximumScheduledRunsPerDay: 144,
