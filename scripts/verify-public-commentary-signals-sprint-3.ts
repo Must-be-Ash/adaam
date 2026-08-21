@@ -105,6 +105,7 @@ const scopeC = authorizeDeploymentWorkspaceStore({ ownerId, workspaceId: workspa
 const store = new MemoryStore();
 const now = "2026-08-18T18:00:00.000Z";
 const text = "I remain bullish on $AAPL for the next quarter.";
+const secondText = "that kind of day, nothing actionable here.";
 const spanDigest = createHash("sha256").update(text).digest("hex");
 const artifactDigest = "a".repeat(64);
 const citation = { artifactDigest, end: text.length, kind: "text_span" as const, spanDigest, start: 0 };
@@ -995,7 +996,16 @@ const productionClients = {
       const providerPostId = new URL(request.url).pathname.split("/").at(-1)!;
       return {
         body: JSON.stringify({
-          data: {
+          data: providerPostId === "902" ? {
+            author_id: "14216123",
+            conversation_id: "902",
+            created_at: "2026-08-18T17:05:00.000Z",
+            edit_controls: { editable_until: "2026-08-18T17:35:00.000Z" },
+            edit_history_tweet_ids: ["902"],
+            entities: { cashtags: [] },
+            id: providerPostId,
+            text: secondText,
+          } : {
             author_id: "14216123",
             conversation_id: "900",
             created_at: "2026-08-18T17:00:00.000Z",
@@ -1017,6 +1027,9 @@ const productionClients = {
       };
     }
     return {
+      // A real cadence window routinely returns more than one original post, so
+      // the production fixture must project two statements through one
+      // occurrence, not one.
       body: JSON.stringify(productionPhase === "baseline" ? {
         data: [{
           author_id: "14216123",
@@ -1027,8 +1040,17 @@ const productionClients = {
           entities: { cashtags: [{ tag: "AAPL" }] },
           id: "900",
           text,
+        }, {
+          author_id: "14216123",
+          conversation_id: "902",
+          created_at: "2026-08-18T17:05:00.000Z",
+          edit_controls: { editable_until: "2026-08-18T17:35:00.000Z" },
+          edit_history_tweet_ids: ["902"],
+          entities: { cashtags: [] },
+          id: "902",
+          text: secondText,
         }],
-        meta: { newest_id: "900", result_count: 1 },
+        meta: { newest_id: "902", result_count: 2 },
       } : { data: [], meta: { result_count: 0 } }),
       finalUrl: request.url,
       observedAt: productionPhase === "baseline" ? "2026-08-18T18:00:16.000Z" : "2026-08-19T18:01:00.000Z",
@@ -1407,11 +1429,13 @@ for (const [scope, monitor, runId] of [
   assert.ok(lifecycleResult.acknowledgeDurableCommit);
   pendingLifecycleCommits.push(lifecycleResult.acknowledgeDurableCommit);
 }
-assert.equal(productionExactUrls.length, 2, "one bounded edit-chain lookup must fan out to both workspaces");
+// Post 900 carries a two-entry edit chain and post 902 a single-entry chain, so
+// three bounded lookups cover both tracked posts and fan out to both workspaces.
+assert.equal(productionExactUrls.length, 3, "one bounded edit-chain lookup per tracked revision must fan out to both workspaces");
 for (const acknowledge of pendingLifecycleCommits) await acknowledge();
 assert.equal(new URL(productionExactUrls[0]!).pathname, "/2/tweets/900");
 assert.equal(new URL(productionExactUrls[1]!).pathname, "/2/tweets/901");
-assert.equal(productionXCalls, 4, "baseline, next timeline, and one bounded shared edit-chain lookup are the only external reads");
+assert.equal(productionXCalls, 5, "baseline, next timeline, and the bounded shared edit-chain lookups are the only external reads");
 const productionBudgetLedger = await readWorkspaceBudgetLedger(scopeA, productionRuntime);
 const exactReservation = productionBudgetLedger.reservations.find(({ runId }) => runId.startsWith("x-exact."));
 assert.equal(exactReservation?.state, "reconciled");
@@ -1419,7 +1443,8 @@ assert.equal(exactReservation?.reconciledPaidMicros, "10000");
 const paidTimelineReservation = productionBudgetLedger.reservations.find(({ runId }) =>
   runId.startsWith("x-timeline.") && runId.includes(createHash("sha256").update(productionRunId).digest("hex")));
 assert.equal(paidTimelineReservation?.state, "reconciled");
-assert.equal(paidTimelineReservation?.reconciledPaidMicros, "5000");
+// Two billable post reads at $0.005000 each.
+assert.equal(paidTimelineReservation?.reconciledPaidMicros, "10000");
 assert.equal((await readRevocableEvidenceEnvelope("revocable-evidence.x.900", productionRuntime))?.currentLifecycle, "withheld");
 
 const workerCapabilities = await readFile(new URL("../agent/subagents/workspace-worker/tools/capabilities.ts", import.meta.url), "utf8");
