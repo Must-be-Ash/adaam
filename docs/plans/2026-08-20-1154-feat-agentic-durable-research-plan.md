@@ -298,6 +298,9 @@ flowchart LR
 - [x] Implement `ipo-filings@1.1.0` as an explicit opt-in adopter of the U1–U3 research, nested-budget, executive-brief, artifact, and alert plumbing while preserving `1.0.0`.
 - [x] Run the focused local verification and one scoped diff review (U1-U4, IPO worker, strategy-pack, nested-budget, alert, isolation, Coinbase-compatibility, type, Eve build, and app build gates passed; scoped review found no blocking issue).
 - [x] Commit `7091976`, push it to `main`, deploy Production as `dpl_3HkEz8RvMtNh8KBSaGZRcrgoTvSF`, and verify HTTP 200 for `/` and `/skill` with no bounded error logs.
+- [x] Reproduce the first Production acceptance failures with focused red proof: the research prompt exhausted the task-mode cumulative input window before completion, and the operational failure write minted a new occurrence identity that allowed the same due time to dispatch twice.
+- [x] Implement the immutable `ipo-filings@1.1.1` token-window patch, compact the signed research prompt, and preserve occurrence identity across ordinary failure recovery; the focused U1, U4, monitor-store, and attempt-2 recovery proofs pass.
+- [x] Run the focused compatibility, catalog, type, Eve-build, and application-build gates and complete one concise fix-scoped diff review with no blocking findings.
 - [ ] Run exactly one backend-controlled IPO acceptance and clean up its disposable workspace.
 - [ ] Record the acceptance receipt and mark U4 complete.
 

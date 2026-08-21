@@ -72,7 +72,7 @@ import {
 import {
   createSecIpoResearchDefinition,
   isSecIpoAgenticResearchPack,
-  SEC_IPO_AGENTIC_PACK_VERSION,
+  SEC_IPO_RESEARCH_DEFINITION_ID,
 } from "./sec-ipo-semantics";
 import { strategyPackCatalog, type StrategyPackCatalogEntry } from "./strategy-pack-catalog";
 import { readWorkspaceDocument } from "./workspace-state-store";
@@ -213,8 +213,7 @@ async function resolveSecIpoResearchRuntime(input: {
 }): Promise<SecIpoResearchRuntime | null> {
   const managed = input.monitor.managedBy;
   if (
-    !managed || managed.packId !== "ipo-filings" ||
-    managed.packVersion !== SEC_IPO_AGENTIC_PACK_VERSION
+    !managed || managed.packId !== "ipo-filings"
   ) {
     return null;
   }
@@ -239,7 +238,12 @@ async function resolveSecIpoResearchRuntime(input: {
   }
   const configured = resolveHybridTaskModelRoute("semantic_interpretation", input.environment);
   const candidates = input.capabilities.resolved.workerModelIds
-    .map((modelId) => createSecIpoResearchDefinition([modelId]))
+    .flatMap((modelId) => (pack.evidenceContracts ?? []).flatMap((contract) =>
+      contract.id === SEC_IPO_RESEARCH_DEFINITION_ID &&
+          (contract.version === "1.0.0" || contract.version === "1.0.1")
+        ? [createSecIpoResearchDefinition([modelId], contract.version)]
+        : []
+    ))
     .filter((definition) => pack.evidenceContracts?.some((contract) =>
       contract.id === definition.definitionId &&
       contract.version === definition.definitionVersion &&

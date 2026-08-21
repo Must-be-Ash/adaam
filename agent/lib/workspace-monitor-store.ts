@@ -1399,6 +1399,58 @@ function boundedMonitorErrorCode(value: string): string {
     : "workspace_run_failed";
 }
 
+async function recordWorkspaceMonitorOperationalFailure(
+  input: {
+    errorCode: string;
+    expectedRevision: number;
+    failures: number;
+    monitorId: string;
+    now: Date;
+    scope: AuthorizedWorkspaceStoreScope;
+  },
+  client: WorkspaceMonitorStoreClient,
+): Promise<WorkspaceMonitor> {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  const key = workspaceMonitorRecordStorageKey(input.scope, input.monitorId);
+  const currentRaw = rawValue(await client.get(key));
+  if (currentRaw === null) throw new WorkspaceMonitorError("monitor_not_found");
+  const current = parseMonitor(currentRaw, input.scope);
+  if (current.configurationRevision !== input.expectedRevision) {
+    throw new WorkspaceMonitorError("monitor_conflict");
+  }
+  const timestamp = input.now.toISOString();
+  const next = monitorSchema.safeParse({
+    ...current,
+    consecutiveFailures: input.failures,
+    lastErrorCode: input.errorCode,
+    lastRunAt: timestamp,
+    updatedAt: timestamp,
+  });
+  if (
+    !next.success ||
+    next.data.configurationRevision !== current.configurationRevision ||
+    next.data.workspaceId !== current.workspaceId ||
+    next.data.ownerId !== current.ownerId ||
+    JSON.stringify(next.data.managedBy) !== JSON.stringify(current.managedBy)
+  ) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  const nextRaw = JSON.stringify(next.data);
+  if (Buffer.byteLength(nextRaw, "utf8") > MAX_RECORD_BYTES) {
+    throw new WorkspaceMonitorError("monitor_invalid");
+  }
+  if (!(await client.update({
+      dueAtMs: dueAt(next.data),
+      dueKey: DUE_KEY,
+      expected: currentRaw,
+      next: nextRaw,
+      recordKey: key,
+    }))) {
+    throw new WorkspaceMonitorError("monitor_conflict");
+  }
+  return next.data;
+}
+
 export async function recordWorkspaceMonitorFailure(
   input: {
     errorCode: string;
@@ -1423,6 +1475,16 @@ export async function recordWorkspaceMonitorFailure(
   const pauseCode = paused && boundedErrorCode.startsWith("worker_recovery_")
     ? boundedErrorCode
     : "auto_paused_after_repeated_failures";
+  if (!paused) {
+    return recordWorkspaceMonitorOperationalFailure({
+      errorCode: boundedErrorCode,
+      expectedRevision: input.expectedRevision,
+      failures,
+      monitorId: input.monitorId,
+      now,
+      scope: input.scope,
+    }, client);
+  }
   return updateWorkspaceMonitor(
     {
       expectedRevision: input.expectedRevision,

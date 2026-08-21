@@ -13,6 +13,7 @@ import type { HybridEvidenceBudgetReservation } from "../agent/lib/hybrid-eviden
 import { HybridEvidenceResearchAttemptError } from "../agent/lib/hybrid-evidence-research-receipt";
 import { decodeHybridEvidenceWorkerToken } from "../agent/lib/hybrid-evidence-auth";
 import { createWorkspaceSemanticDefinition } from "../agent/lib/hybrid-evidence-definition-registry";
+import { digestHybridEvidenceValue } from "../agent/lib/hybrid-evidence-schema";
 import {
   HybridEvidenceJobStoreError,
   persistHybridEvidenceResearchDecision,
@@ -365,7 +366,10 @@ const locator = {
   start: 0,
 };
 
-async function prepareSignedResearchJob(workspaceId: string) {
+async function prepareSignedResearchJob(
+  workspaceId: string,
+  inputProjection?: unknown,
+) {
   const scope = authorizeDeploymentWorkspaceStore({
     ownerId: "owner_fixture",
     workspaceId,
@@ -405,6 +409,12 @@ async function prepareSignedResearchJob(workspaceId: string) {
   const prepared = await prepareHybridEvidenceJob({
     artifacts: [artifact],
     definition,
+    ...(inputProjection === undefined
+      ? {}
+      : {
+          inputContextDigest: digestHybridEvidenceValue(inputProjection),
+          inputProjection,
+        }),
     locators: [locator],
     modelId,
     now,
@@ -451,6 +461,7 @@ async function prepareSignedResearchJob(workspaceId: string) {
     locators: [locator],
     now,
     prepared,
+    ...(inputProjection === undefined ? {} : { inputProjection }),
   });
 }
 
@@ -555,7 +566,28 @@ const removeFixtureClients = installHybridEvidenceWorkerFixtureClients({
 });
 
 try {
-  const reportWorker = await prepareSignedResearchJob("123e4567-e89b-42d3-a456-426614174001");
+  const largeProjectionSentinel = "projection-content-must-not-enter-the-worker-prompt";
+  const reportWorker = await prepareSignedResearchJob(
+    "123e4567-e89b-42d3-a456-426614174001",
+    {
+      members: Array.from({ length: 8 }, (_, index) => ({
+        content: `${largeProjectionSentinel}-${index}-${"x".repeat(1_024)}`,
+        role: "section",
+      })),
+      recordType: "workspace_semantic_role_bound_projection",
+      schemaVersion: 2,
+    },
+  );
+  assert.equal(
+    reportWorker.request.input.message.includes(largeProjectionSentinel),
+    false,
+    "the signed research prompt must not duplicate the projection returned by its read tool",
+  );
+  assert.ok(
+    Buffer.byteLength(reportWorker.request.input.message, "utf8") < 6_000,
+    "the bounded research prompt must leave room for its required multi-step tool loop",
+  );
+  assert.match(reportWorker.request.input.message, new RegExp(reportWorker.record.job.inputDigest));
   const reportCtx = {
     session: {
       auth: { current: reportWorker.request.auth, initiator: reportWorker.request.auth },

@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "id": "ipo-filings",
+  "version": "1.1.1",
+  "displayName": "IPO Filings",
+  "description": "Detect newly published SEC S-1 registrations, distinguish amendments, and produce a bounded executive research brief.",
+  "maturity": "experimental",
+  "compatibility": {
+    "coreSchemaVersion": 1,
+    "workspaceSchemaVersion": 1,
+    "strategyPackSchemaVersion": 1
+  },
+  "workspaceInstructionPath": "workspace.md",
+  "configuration": [
+    {
+      "key": "timezone",
+      "kind": "iana_timezone",
+      "label": "Timezone",
+      "description": "Timezone used for the local daily filing checks.",
+      "required": true,
+      "default": "UTC",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "key": "dailyTimes",
+      "kind": "daily_local_times",
+      "label": "Daily check times",
+      "description": "Unique local times when the SEC filing monitor may run.",
+      "required": true,
+      "default": ["09:00", "16:00"],
+      "minimumItems": 1,
+      "maximumItems": 8,
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "rolloverGenerationOnChange": true
+    }
+  ],
+  "skills": [
+    {
+      "id": "public-event-monitoring",
+      "version": "1.1.0",
+      "description": "Evaluate the official SEC S-1 feed and explain material new filings through bounded research.",
+      "instructionPath": "playbook.md"
+    }
+  ],
+  "capabilities": {
+    "required": [
+      "evaluate_sec_ipo_source",
+      "skill.public-event-monitoring"
+    ],
+    "hardDenied": [
+      "broker.mutation",
+      "coinbase_create_order",
+      "filesystem",
+      "interactive.approval",
+      "masterkey_mcp",
+      "private.history",
+      "shell",
+      "web.search"
+    ]
+  },
+  "evidenceContracts": [
+    {
+      "id": "sec-ipo-frontier-research",
+      "version": "1.0.1",
+      "digest": "37b8aa0f133bd59debff637ff4e31f69f99cca5a0dc8299fa125e11f37a0529e"
+    }
+  ],
+  "sources": [
+    {
+      "sourceId": "sec-latest-s1-filings",
+      "contractVersion": "1.0.0",
+      "contractDigest": "c9d9fd8e6c0881fd59692e1986b151c17df30a9e899074222098888d56127f98",
+      "canonicalUrl": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=S-1&owner=include&count=40&output=atom",
+      "allowedOrigins": ["https://www.sec.gov"],
+      "accessClassification": "public"
+    }
+  ],
+  "monitors": [
+    {
+      "resourceId": "detect-new-s1",
+      "displayName": "Detect new S-1 filings",
+      "instructionPath": "monitors/detect-new-s1.md",
+      "timezoneConfigurationKey": "timezone",
+      "dailyTimesConfigurationKey": "dailyTimes",
+      "sourceIds": ["sec-latest-s1-filings"],
+      "requiredCapabilityIds": ["evaluate_sec_ipo_source"],
+      "findingSchemaId": "ipo-registration-filing/v1",
+      "alertPresentationId": "alert.public-event/v1",
+      "suggestedBudget": {
+        "maximumInputTokensPerRun": 40000,
+        "maximumOutputTokensPerRun": 2000,
+        "maximumRunsPerDay": 8
+      },
+      "activationDefault": "paused",
+      "overridableFields": ["schedule"]
+    }
+  ],
+  "evaluationsPath": "evals.json"
+}

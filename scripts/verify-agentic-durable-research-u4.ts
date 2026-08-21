@@ -46,13 +46,27 @@ assert.deepEqual(policy.allowedModelIds, [
   "google/gemini-3.6-flash",
   "openai/gpt-5.4",
 ]);
-const definition = createSecIpoResearchDefinition(["openai/gpt-5.4"]);
+const definition = createSecIpoResearchDefinition(["openai/gpt-5.4"], "1.0.0");
 assert.equal(definition.definitionId, SEC_IPO_RESEARCH_DEFINITION_ID);
 assert.deepEqual(adopted.evidenceContracts, [{
   digest: definition.definitionDigest,
   id: definition.definitionId,
   version: definition.definitionVersion,
 }]);
+
+const tokenLimitPatch = strategyPackCatalog.resolve({ id: "ipo-filings", version: "1.1.1" });
+assert.ok(tokenLimitPatch, "the immutable IPO token-limit patch must be available");
+assert.equal(isSecIpoAgenticResearchPack(tokenLimitPatch), true);
+const tokenLimitDefinition = createSecIpoResearchDefinition(["openai/gpt-5.4"], "1.0.1");
+assert.equal(tokenLimitDefinition.limits.maximumInputTokens, 40_000);
+assert.deepEqual(tokenLimitPatch.evidenceContracts, [{
+  digest: tokenLimitDefinition.definitionDigest,
+  id: tokenLimitDefinition.definitionId,
+  version: tokenLimitDefinition.definitionVersion,
+}]);
+assert.equal(tokenLimitPatch.monitors[0]?.suggestedBudget.maximumInputTokensPerRun, 40_000);
+assert.equal(tokenLimitPatch.capabilities.hardDenied.includes("coinbase_create_order"), true);
+assert.equal(tokenLimitPatch.capabilities.hardDenied.includes("interactive.approval"), true);
 
 const officialText = JSON.stringify({
   accessionNumber: "0000123456-26-000001",
@@ -121,7 +135,7 @@ assert.throws(() => secIpoResearchValidationContract.validate({
 }));
 
 const budget = resolveStrategyPackInitialBudgetPolicy(
-  adopted,
+  tokenLimitPatch,
   { dailyTimes: ["09:00"], timezone: "UTC" },
   "2026-08-20T19:00:00.000Z",
 );
@@ -132,7 +146,7 @@ assert.equal(budget.unknownPriceFallbackCeiling, "0.250000");
 
 assert.equal(
   strategyPackCatalog.listLatestModelSafe().find(({ id }) => id === "ipo-filings")?.version,
-  "1.1.0",
+  "1.1.1",
 );
 
 console.info("Agentic durable research U4 IPO adoption verification passed.");

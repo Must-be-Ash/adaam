@@ -12,6 +12,7 @@ import {
   isWorkspaceMonitorCheckpointOnlyBaseline,
   listWorkspaceMonitors,
   pauseWorkspaceMonitorsAfterRestore,
+  recordWorkspaceMonitorFailure,
   releaseWorkspaceMonitorLease,
   resolveWorkspaceStrategyManagedMonitors,
   suspendWorkspaceMonitorsForArchive,
@@ -599,6 +600,76 @@ const recovered = await claimWorkspaceMonitorOccurrence(
 );
 assert.equal(recovered.occurrence.occurrenceKey, occurrenceKey);
 assert.equal(recovered.occurrence.attempt, 2);
+
+const failedOccurrenceClient = new MemoryStore();
+const failedOccurrenceMonitor = await createWorkspaceMonitor({
+  deliverySubscriptionId: "delivery.failed-occurrence",
+  instruction: "Preserve one occurrence identity across failure recovery.",
+  name: "Failed occurrence fixture",
+  nextOccurrenceAt: scheduledFor,
+  now,
+  schedule: { at: scheduledFor, kind: "one_time" },
+  scope,
+  sources: [source(0)],
+}, failedOccurrenceClient);
+const failedOccurrenceFirstClaim = await claimWorkspaceMonitorOccurrence({
+  configurationRevision: failedOccurrenceMonitor.configurationRevision,
+  leaseForMs: 60_000,
+  monitorId: failedOccurrenceMonitor.monitorId,
+  now: new Date(scheduledFor),
+  occurrenceIdentity: scheduledFor,
+  scheduledFor,
+  scope,
+}, failedOccurrenceClient);
+const failedOccurrence = await recordWorkspaceMonitorFailure({
+  errorCode: "model_output_invalid",
+  expectedRevision: failedOccurrenceMonitor.configurationRevision,
+  failureThreshold: 3,
+  monitorId: failedOccurrenceMonitor.monitorId,
+  now: new Date("2026-08-14T12:05:30.000Z"),
+  scope,
+}, failedOccurrenceClient);
+assert.equal(
+  failedOccurrence.configurationRevision,
+  failedOccurrenceMonitor.configurationRevision,
+  "an operational failure must not mint a new occurrence identity",
+);
+assert.equal(failedOccurrence.consecutiveFailures, 1);
+assert.equal(failedOccurrence.lastErrorCode, "model_output_invalid");
+assert.equal(await releaseWorkspaceMonitorLease({
+  leaseToken: failedOccurrenceFirstClaim.leaseToken,
+  monitorId: failedOccurrenceMonitor.monitorId,
+  scope,
+}, failedOccurrenceClient), true);
+const failedOccurrenceRecovery = await claimWorkspaceMonitorOccurrence({
+  configurationRevision: failedOccurrence.configurationRevision,
+  leaseForMs: 60_000,
+  monitorId: failedOccurrence.monitorId,
+  now: new Date("2026-08-14T12:05:31.000Z"),
+  occurrenceIdentity: scheduledFor,
+  scheduledFor,
+  scope,
+}, failedOccurrenceClient);
+assert.equal(
+  failedOccurrenceRecovery.occurrence.occurrenceKey,
+  failedOccurrenceFirstClaim.occurrence.occurrenceKey,
+);
+assert.equal(failedOccurrenceRecovery.occurrence.attempt, 2);
+const failedOccurrencePaused = await recordWorkspaceMonitorFailure({
+  errorCode: "worker_recovery_outcome_missing",
+  expectedRevision: failedOccurrence.configurationRevision,
+  failureThreshold: 2,
+  monitorId: failedOccurrence.monitorId,
+  now: new Date("2026-08-14T12:05:32.000Z"),
+  scope,
+}, failedOccurrenceClient);
+assert.equal(failedOccurrencePaused.lifecycleState, "paused_failure");
+assert.equal(
+  failedOccurrencePaused.configurationRevision,
+  failedOccurrence.configurationRevision + 1,
+  "a terminal lifecycle change must still mint a new configuration revision",
+);
+assert.equal(failedOccurrencePaused.nextOccurrenceAt, null);
 const completed = await completeWorkspaceMonitorCheckpoint(
   {
     completedAt: new Date("2026-08-14T12:06:00.000Z"),

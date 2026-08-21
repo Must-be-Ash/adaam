@@ -10,7 +10,8 @@ import { SEC_IPO_RESEARCH_DEFINITION_ID } from "./hybrid-evidence-research";
 import { workspaceExecutiveBriefSchema } from "./workspace-executive-brief";
 
 export { SEC_IPO_RESEARCH_DEFINITION_ID } from "./hybrid-evidence-research";
-export const SEC_IPO_AGENTIC_PACK_VERSION = "1.1.0";
+export const SEC_IPO_AGENTIC_PACK_VERSION = "1.1.1";
+export type SecIpoResearchDefinitionVersion = "1.0.0" | "1.0.1";
 export const SEC_IPO_AGENTIC_RESEARCH_BUDGET = Object.freeze({
   maximumPaidPerCall: "0.250000",
   maximumPaidPerDay: "1.000000",
@@ -106,7 +107,10 @@ export const secIpoResearchValidationContract: WorkspaceSemanticValidationContra
     },
   });
 
-export function createSecIpoResearchDefinition(modelIds: readonly string[]) {
+export function createSecIpoResearchDefinition(
+  modelIds: readonly string[],
+  definitionVersion: SecIpoResearchDefinitionVersion,
+) {
   const allowedModelIds = [...new Set(modelIds)].sort();
   if (allowedModelIds.length === 0) {
     throw new Error("hybrid_definition_model_policy_empty");
@@ -117,7 +121,7 @@ export function createSecIpoResearchDefinition(modelIds: readonly string[]) {
     allowedMediaTypes: ["text/plain"],
     allowedModelIds,
     definitionId: SEC_IPO_RESEARCH_DEFINITION_ID,
-    definitionVersion: "1.0.0",
+    definitionVersion,
     inputProjection: {
       schemaId: "workspace-semantic-role-bound-projection",
       schemaVersion: "2.0.0",
@@ -127,16 +131,16 @@ export function createSecIpoResearchDefinition(modelIds: readonly string[]) {
       delimiterPolicy: "untrusted_evidence_xml/v1",
       digest: digestHybridEvidenceValue([
         "sec-ipo-frontier-research",
-        "1.0.0",
+        definitionVersion,
         SEC_IPO_RESEARCH_INSTRUCTION,
       ]),
       templateId: "sec-ipo-frontier-research",
-      version: "1.0.0",
+      version: definitionVersion,
     },
     limits: {
       maximumAttempts: 1,
       maximumEvidenceBytes: 64 * 1_024,
-      maximumInputTokens: 10_000,
+      maximumInputTokens: definitionVersion === "1.0.0" ? 10_000 : 40_000,
       maximumOutputTokens: 2_000,
       maximumPages: 0,
       maximumPaidCostUsd: "0.2500",
@@ -168,9 +172,13 @@ export function isSecIpoAgenticResearchPack(pack: Readonly<{
   id: string;
   version: string;
 }>): boolean {
-  return pack.id === "ipo-filings" &&
-    pack.version === SEC_IPO_AGENTIC_PACK_VERSION &&
+  const definitionVersion = pack.version === "1.1.0"
+    ? "1.0.0"
+    : pack.version === SEC_IPO_AGENTIC_PACK_VERSION
+    ? "1.0.1"
+    : null;
+  return pack.id === "ipo-filings" && definitionVersion !== null &&
     pack.evidenceContracts?.some(({ id, version }) =>
-      id === SEC_IPO_RESEARCH_DEFINITION_ID && version === "1.0.0"
+      id === SEC_IPO_RESEARCH_DEFINITION_ID && version === definitionVersion
     ) === true;
 }

@@ -389,6 +389,7 @@ assert.deepEqual(
     "inverse-cramer@1.3.0",
     "ipo-filings@1.0.0",
     "ipo-filings@1.1.0",
+    "ipo-filings@1.1.1",
     "public-commentary-tracker@1.0.0",
     "public-commentary-tracker@1.1.0",
   ],
