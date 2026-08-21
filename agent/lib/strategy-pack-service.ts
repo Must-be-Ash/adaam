@@ -101,11 +101,18 @@ const SHARED_HARD_DENIALS = Object.freeze([
   "provider.mutation",
   "shell",
 ]);
+// An occurrence reserves its whole per-run allowance as the parent envelope and
+// every nested semantic child draws from it, so these ceilings must fund a
+// strategy's fan-out across the statements in one cadence window rather than a
+// single model call. Real money stays bounded by the unchanged paid-per-run,
+// paid-per-day, and paid-per-month ceilings; the daily token ceilings are
+// coupled to the per-run ceiling because a run whose reservation exceeds the
+// daily allowance can never dispatch.
 const DEFAULT_BUDGET_CEILINGS = Object.freeze({
-  maximumInputTokensPerDay: 100_000,
-  maximumInputTokensPerRun: 40_000,
-  maximumOutputTokensPerDay: 96_000,
-  maximumOutputTokensPerRun: 12_000,
+  maximumInputTokensPerDay: 1_400_000,
+  maximumInputTokensPerRun: 280_000,
+  maximumOutputTokensPerDay: 280_000,
+  maximumOutputTokensPerRun: 56_000,
   maximumScheduledRunsPerDay: 144,
 });
 

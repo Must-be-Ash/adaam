@@ -23,9 +23,26 @@ import { resolveHybridEvidenceWorkerContract } from "../agent/lib/hybrid-evidenc
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import { buildPublicCommentarySignalReport } from "../agent/lib/public-commentary-signal-report";
 import {
+  createInverseCramerActionabilityDefinition,
   createInverseCramerSemanticDefinition,
   INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
 } from "../agent/lib/public-commentary-semantics";
+import { PUBLIC_COMMENTARY_OCCURRENCE_LIMITS } from "../agent/lib/public-commentary-vertical";
+import {
+  reserveWorkspaceRunBudget,
+  type WorkspaceBudgetLedgerClient,
+} from "../agent/lib/workspace-budget-ledger";
+import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization";
+
+class MemoryCas implements WorkspaceBudgetLedgerClient {
+  readonly values = new Map<string, string>();
+  async compareAndSet(key: string, expected: string | null, next: string) {
+    if ((this.values.get(key) ?? null) !== expected) return false;
+    this.values.set(key, next);
+    return true;
+  }
+  async get(key: string) { return this.values.get(key) ?? null; }
+}
 import { workspaceExecutiveBriefSchema } from "../agent/lib/workspace-executive-brief";
 
 const activatedAt = "2026-08-20T12:00:00.000Z";
@@ -90,6 +107,78 @@ const budget = resolveStrategyPackInitialBudgetPolicy(pack, { timezone: "UTC" },
 assert.equal(budget.maximumInputTokensPerRun, 40_000);
 assert.equal(budget.maximumPaidPerCall, "1.000000");
 assert.equal(budget.maximumPaidPerDay, "5.000000");
+
+// An occurrence reserves its whole per-run allowance as the parent envelope and
+// every nested compact semantic child draws from it, so the active envelope must
+// fund the declared semantic fan-out over the statements in one cadence window.
+const compactDefinition = createInverseCramerActionabilityDefinition(["openai/gpt-5.4"]);
+const activePack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.6" });
+assert.ok(activePack);
+const activeBudget = resolveStrategyPackInitialBudgetPolicy(activePack, { timezone: "UTC" }, activatedAt);
+const fanOut = PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.semanticConcurrency;
+assert.ok(
+  compactDefinition.limits.maximumInputTokens * fanOut <= activeBudget.maximumInputTokensPerRun,
+  "the occurrence envelope must fund the declared concurrent semantic children",
+);
+assert.ok(
+  compactDefinition.limits.maximumOutputTokens * fanOut <= activeBudget.maximumOutputTokensPerRun,
+);
+// A run whose reservation exceeds the daily allowance could never dispatch.
+assert.ok(activeBudget.maximumInputTokensPerRun <= activeBudget.maximumInputTokensPerDay);
+assert.ok(activeBudget.maximumOutputTokensPerRun <= activeBudget.maximumOutputTokensPerDay);
+assert.equal(budget.maximumInputTokensPerRun, 40_000, "historical packs keep their declared envelope");
+
+// Exact Production reproduction: two projected statements evaluated at the
+// declared concurrency each reserve the compact ceiling from the same parent.
+async function fanOutReservationOutcome(policy: typeof activeBudget) {
+  const ledger = new MemoryCas();
+  const scope = authorizeDeploymentWorkspaceStore(
+    { ownerId: "owner_fixture", workspaceId: "44444444-4444-4444-8444-444444444444" },
+    { EVE_DEPLOYMENT_OWNER_ID: "owner_fixture" },
+  );
+  const now = new Date(activatedAt);
+  const occurrence = {
+    inputTokens: policy.maximumInputTokensPerRun,
+    now,
+    outputTokens: policy.maximumOutputTokensPerRun,
+    paidCostCeiling: { amount: "3.500000", kind: "known" as const },
+    policy,
+    policyRevision: 1,
+    runId: "occurrence.fan-out",
+    scope,
+  };
+  await reserveWorkspaceRunBudget(occurrence, ledger);
+  const child = (index: number) => ({
+    inputTokens: compactDefinition.limits.maximumInputTokens,
+    kind: "hybrid_model_attempt" as const,
+    now,
+    outputTokens: compactDefinition.limits.maximumOutputTokens,
+    paidCostCeiling: { amount: compactDefinition.limits.maximumPaidCostUsd, kind: "known" as const },
+    parentRunId: occurrence.runId,
+    policy,
+    policyRevision: 1,
+    runId: `occurrence.fan-out.statement-${index}`,
+    scope,
+  });
+  try {
+    for (let index = 0; index < fanOut; index += 1) {
+      await reserveWorkspaceRunBudget(child(index), ledger);
+    }
+    return "funded" as const;
+  } catch (error) {
+    return error instanceof Error ? error.message : "unknown";
+  }
+}
+assert.equal(
+  await fanOutReservationOutcome(activeBudget),
+  "funded",
+  "1.4.6 must fund every concurrent semantic child from one occurrence envelope",
+);
+assert.equal(
+  await fanOutReservationOutcome(budget),
+  "budget_exhausted",
+  "the superseded 40,000-token envelope funded only one child, which is the reported defect",
+);
 
 const statementUrl = "https://x.com/jimcramer/status/123";
 const brief = workspaceExecutiveBriefSchema.parse({

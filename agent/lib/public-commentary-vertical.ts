@@ -88,7 +88,7 @@ export interface PublicCommentarySourceBinding {
   readonly sourceInstanceId: string;
 }
 
-const PUBLIC_COMMENTARY_OCCURRENCE_LIMITS = Object.freeze({
+export const PUBLIC_COMMENTARY_OCCURRENCE_LIMITS = Object.freeze({
   batchSize: 8,
   maximumFactIdentities: 8,
   maximumFacts: 8,
