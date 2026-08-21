@@ -394,7 +394,9 @@ export function createProductionPublicCommentaryPipeline(input: {
           ? "1.0.0"
           : managedPack.version === "1.4.2"
           ? "1.0.1"
-          : "1.0.2",
+          : managedPack.version === "1.4.3"
+          ? "1.0.2"
+          : "1.0.3",
       })
     : createCommentarySemanticDefinition([semanticRoute.modelId], {
         allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],

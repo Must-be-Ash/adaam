@@ -64,7 +64,7 @@ assert.equal(resolvePublicCommentaryFirstRunStart({
   windowEndAt: activatedAt,
 }), "2026-08-20T00:00:00.000Z");
 
-const pack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.3" });
+const pack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.4" });
 assert.ok(pack);
 assert.equal(
   pack.monitors[0]?.lifecycleContractId,
@@ -72,7 +72,7 @@ assert.equal(
 );
 const researchDefinition = createInverseCramerResearchDefinition(["openai/gpt-5.4"]);
 const semanticDefinition = createInverseCramerSemanticDefinition(["openai/gpt-5.4"], {
-  definitionVersion: "1.0.2",
+  definitionVersion: "1.0.3",
 });
 assert.equal(
   pack.evidenceContracts?.find(({ id }) => id === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID)?.digest,

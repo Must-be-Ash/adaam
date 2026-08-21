@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "inverse-cramer",
+  "version": "1.4.4",
+  "displayName": "Inverse Cramer",
+  "description": "Interpret final public commentary from the pinned Jim Cramer X identity, apply the deterministic inverse-direction policy, and produce a bounded executive research brief.",
+  "maturity": "experimental",
+  "compatibility": { "coreSchemaVersion": 1, "workspaceSchemaVersion": 1, "strategyPackSchemaVersion": 1 },
+  "workspaceInstructionPath": "workspace.md",
+  "configuration": [
+    { "key": "timezone", "kind": "iana_timezone", "label": "Timezone", "description": "Timezone used to display monitor activity and budget windows.", "required": true, "default": "UTC", "mutableAfterInstall": true, "pauseManagedMonitorsOnChange": true, "rolloverGenerationOnChange": true },
+    { "key": "cadenceMinutes", "kind": "bounded_enum", "label": "Polling cadence", "description": "Controls acquisition completely. Enabling runs immediately over the preceding cadence interval; later runs collect every unseen post from the durable checkpoint.", "required": true, "allowedValues": ["hours_1", "hours_12", "hours_24", "hours_6", "minutes_10", "minutes_15", "minutes_30", "minutes_60"], "default": "minutes_10", "mutableAfterInstall": true, "pauseManagedMonitorsOnChange": true, "rolloverGenerationOnChange": true },
+    { "key": "selectedSymbols", "kind": "bounded_token_list", "label": "Alert watchlist", "description": "Optional ticker or token alert filter; empty means all resolved assets. Findings are still evaluated outside a nonempty filter.", "required": true, "tokenFormat": "market_symbol", "default": [], "minimumItems": 0, "maximumItems": 32, "mutableAfterInstall": true, "pauseManagedMonitorsOnChange": true, "rolloverGenerationOnChange": true },
+    { "key": "includeReplies", "kind": "bounded_enum", "label": "Replies", "description": "Whether direct replies may be evaluated.", "required": true, "allowedValues": ["exclude", "include"], "default": "exclude", "mutableAfterInstall": true, "pauseManagedMonitorsOnChange": true, "rolloverGenerationOnChange": true },
+    { "key": "includeQuotePosts", "kind": "bounded_enum", "label": "Quote posts", "description": "Whether Cramer's own words attached to quote posts may be evaluated.", "required": true, "allowedValues": ["exclude", "include"], "default": "exclude", "mutableAfterInstall": true, "pauseManagedMonitorsOnChange": true, "rolloverGenerationOnChange": true },
+    { "key": "minimumMateriality", "kind": "bounded_enum", "label": "Minimum materiality", "description": "Deterministic score required before an accepted result may alert.", "required": true, "allowedValues": ["threshold_50", "threshold_65", "threshold_80"], "default": "threshold_65", "mutableAfterInstall": true, "pauseManagedMonitorsOnChange": true, "rolloverGenerationOnChange": true },
+    { "key": "minimumConfidence", "kind": "bounded_enum", "label": "Minimum confidence", "description": "Lowest semantic confidence that may create a research alert.", "required": true, "allowedValues": ["high", "low", "medium"], "default": "medium", "mutableAfterInstall": true, "pauseManagedMonitorsOnChange": true, "rolloverGenerationOnChange": true },
+    { "key": "relatedSourceSearch", "kind": "bounded_enum", "label": "Related-source search", "description": "Run optional metadata-only Exa corroboration when separately enabled and budgeted.", "required": true, "allowedValues": ["disabled", "enabled"], "default": "disabled", "mutableAfterInstall": true, "pauseManagedMonitorsOnChange": true, "rolloverGenerationOnChange": true },
+    { "key": "alerts", "kind": "bounded_enum", "label": "Alerts", "description": "Stage one executive alert for eligible findings; the initial cadence backfill emits at most one cited summary alert.", "required": true, "allowedValues": ["disabled", "enabled"], "default": "disabled", "mutableAfterInstall": true, "pauseManagedMonitorsOnChange": true, "rolloverGenerationOnChange": true }
+  ],
+  "skills": [{ "id": "inverse-cramer-commentary-analysis", "version": "1.1.0", "description": "Apply the bounded public-commentary playbook, registered inverse-direction policy, and executive research contract without widening identity or sources.", "instructionPath": "playbook.md" }],
+  "capabilities": { "required": ["evaluate_public_commentary_signals", "skill.inverse-cramer-commentary-analysis"], "hardDenied": ["broker.mutation", "coinbase_create_order", "filesystem", "financial.mutation", "interactive.approval", "masterkey_mcp", "private.history", "provider.mutation", "shell", "web.search"] },
+  "evidenceContracts": [
+    { "id": "commentary-direction-inversion", "version": "1.0.0", "digest": "1294b771fd7e5dbbf5fc35dba448bc010ad6dec0687a7e7ac3f376724dbb57af" },
+    { "id": "inverse-cramer-frontier-research", "version": "1.0.0", "digest": "1092e9c2df5dc599941ac61e3c3933793a7f41fae73293036372afd4f1dcb86e" },
+    { "id": "inverse-cramer-semantic-materiality", "version": "1.0.3", "digest": "14af0139683377c4c5bb492fcc75c22883ae5d77594b1711b444465e671349d9" }
+  ],
+  "sources": [{ "sourceId": "x-jim-cramer-public-statements", "contractVersion": "1.0.0", "contractDigest": "cfc44775cb9aaf01ddd5e583e267137158651414c09e8d2d2fc2af10d3f953a5", "canonicalUrl": "https://api.x.com/2/users/14216123/tweets", "allowedOrigins": ["https://api.x.com"], "accessClassification": "public" }],
+  "monitors": [{ "resourceId": "evaluate-public-commentary", "displayName": "Inverse Cramer public commentary", "instructionPath": "monitors/evaluate-public-commentary.md", "lifecycleContractId": "monitor.public-commentary-cadence/v1", "intervalMinutesConfigurationKey": "cadenceMinutes", "sourceIds": ["x-jim-cramer-public-statements"], "requiredCapabilityIds": ["evaluate_public_commentary_signals"], "findingSchemaId": "public-commentary-signal/v1", "alertPresentationId": "alert.public-commentary-signal/v1", "suggestedBudget": { "maximumInputTokensPerRun": 40000, "maximumOutputTokensPerRun": 12000, "maximumRunsPerDay": 144 }, "activationDefault": "paused", "overridableFields": ["schedule"] }],
+  "evaluationsPath": "evals.json"
+}

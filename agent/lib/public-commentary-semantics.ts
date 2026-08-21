@@ -482,7 +482,7 @@ export function createInverseCramerSemanticDefinition(
   modelIds: readonly string[],
   options: Readonly<{
     allowedAdapterIds?: readonly string[];
-    definitionVersion?: "1.0.0" | "1.0.1" | "1.0.2";
+    definitionVersion?: "1.0.0" | "1.0.1" | "1.0.2" | "1.0.3";
   }> = {},
 ) {
   const allowedModelIds = [...new Set(modelIds)].sort();
@@ -517,7 +517,11 @@ export function createInverseCramerSemanticDefinition(
         : definitionVersion === "1.0.1"
         ? 24_000
         : 40_000,
-      maximumOutputTokens: definitionVersion === "1.0.2" ? 8_000 : 2_000,
+      maximumOutputTokens: definitionVersion === "1.0.3"
+        ? 12_000
+        : definitionVersion === "1.0.2"
+        ? 8_000
+        : 2_000,
       maximumPages: 0,
       maximumPaidCostUsd: "0.2500",
       maximumRows: 0,
