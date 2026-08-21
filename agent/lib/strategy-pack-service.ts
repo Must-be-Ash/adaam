@@ -356,7 +356,7 @@ export function strategyPackCreateSelectionRequest(
       : {}),
     ...(input.configuration ? { configuration: { ...input.configuration } } : {}),
     expectedRegistryRevision: input.expectedRegistryRevision,
-    name: input.name,
+    name: normalizeStrategyPackWorkspaceName(input.name),
     pack: Object.freeze({
       contentDigest: pack.contentDigest,
       id: pack.id,
@@ -366,6 +366,14 @@ export function strategyPackCreateSelectionRequest(
       ? { xIdentityResolutionReceipt: input.xIdentityResolutionReceipt }
       : {}),
   });
+}
+
+function normalizeStrategyPackWorkspaceName(name: string): string {
+  try {
+    return normalizePhotonWorkspaceName(name);
+  } catch (cause) {
+    throw new StrategyPackServiceError("strategy_pack_invalid_request", { cause });
+  }
 }
 
 export function strategyPackConfigureSelectionRequest(input: {
@@ -740,7 +748,13 @@ function parseRequest(value: unknown) {
   }
   const parsed = mutationRequestSchema.safeParse(value);
   if (!parsed.success) throw new StrategyPackServiceError("strategy_pack_invalid_request");
-  return { payloadDigest: sha256(encoded), request: parsed.data };
+  return {
+    payloadDigest: sha256(encoded),
+    request: {
+      ...parsed.data,
+      name: normalizeStrategyPackWorkspaceName(parsed.data.name),
+    },
+  };
 }
 
 function parseLifecycleRequest<T>(value: unknown, schema: z.ZodType<T>) {

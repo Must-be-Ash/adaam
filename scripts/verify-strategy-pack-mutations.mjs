@@ -533,6 +533,14 @@ try {
     },
   });
   await assertInvalidWithoutPersistence({
+    code: "strategy_pack_invalid_request",
+    requestOverride: {
+      ...request,
+      expectedRegistryRevision: 2,
+      name: "Inverse Cramer Lifecycle Acceptance 20260821",
+    },
+  });
+  await assertInvalidWithoutPersistence({
     code: "strategy_pack_authority_expansion",
     dependenciesOverride: {
       capabilityInventory: [{ category: "financial", id: "tool.alpha.fetch" }],
