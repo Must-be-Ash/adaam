@@ -210,6 +210,32 @@ assert.deepEqual(
   complete,
 );
 assert.deepEqual(
+  await completeWorkspaceSourceCoverage({
+    checkpoint: {
+      contentDigest: complete.checkpoint!.contentDigest,
+      watermark: complete.checkpoint!.watermark,
+    },
+    now,
+    runId,
+    scope,
+  }, client),
+  complete,
+);
+await assert.rejects(
+  completeWorkspaceSourceCoverage({
+    checkpoint: {
+      contentDigest: "c".repeat(64),
+      watermark: complete.checkpoint!.watermark,
+    },
+    now,
+    runId,
+    scope,
+  }, client),
+  (error) =>
+    error instanceof WorkspaceSourceCoverageError &&
+    error.code === "source_coverage_conflict",
+);
+assert.deepEqual(
   await createWorkspaceSourceCoverage(
     {
       configurationRevision: 3,

@@ -817,6 +817,36 @@ assert.notEqual(
   publicLaterB.outcome.finding?.findingId,
 );
 
+const freshNoChangeWorkspace = await setupWorkspace(
+  "923e4567-e89b-42d3-a456-426614174000",
+  new Date(verificationNow.getTime() - 60 * 60_000),
+);
+const freshNoChangePrepared = await prepare({
+  ...freshNoChangeWorkspace,
+  now: verificationNow,
+});
+const freshNoChange = await execute(
+  freshNoChangePrepared,
+  verificationNow,
+  countedFetch(fixtureBodies.later),
+  {},
+  publicSourceEnvironment,
+);
+assert.equal(freshNoChange.baselineEstablished, true);
+assert.equal(freshNoChange.factCount, 0);
+assert.equal(freshNoChange.outcome.outcome, "no_match");
+const freshNoChangeReplay = await execute(
+  freshNoChangePrepared,
+  verificationNow,
+  async () => {
+    throw new Error("a completed fresh-workspace no-change replay must not fetch");
+  },
+  {},
+  publicSourceEnvironment,
+);
+assert.equal(freshNoChangeReplay.replayed, true);
+assert.deepEqual(freshNoChangeReplay.outcome, freshNoChange.outcome);
+
 const subscriptionIdA = publicMonitorA.publicSourceSubscriptions![0]!.subscriptionId;
 const subscriptionIdB = publicMonitorB.publicSourceSubscriptions![0]!.subscriptionId;
 const [subscriptionA, subscriptionB] = await Promise.all([

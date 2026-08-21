@@ -392,14 +392,14 @@ function evaluationFromProjections(input: {
   scope: { ownerId: string; workspaceId: string };
   sourceBaselineEstablished: boolean;
 }): SecIpoEvaluation {
-  const baselineEstablished = input.previousCheckpoint === null &&
-    input.sourceBaselineEstablished;
   const eligibleProjections = input.previousCheckpoint === null
     ? input.projections
     : input.projections.filter(({ fact }) =>
         fact.payload.schemaVersion === "sec-filing/v1" &&
         fact.payload.updatedAt > input.previousCheckpoint!.watermark
       );
+  const baselineEstablished = input.previousCheckpoint === null &&
+    (input.sourceBaselineEstablished || eligibleProjections.length === 0);
   const findings = baselineEstablished
     ? []
     : eligibleProjections.map(({ fact }) => {

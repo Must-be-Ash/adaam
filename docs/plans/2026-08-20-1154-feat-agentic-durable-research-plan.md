@@ -289,7 +289,9 @@ flowchart LR
 
 **Goal:** Prove the focused shared additions through IPO before any other strategy migration begins.
 
-**Status:** Stopped after the single permitted Production acceptance failed (2026-08-20).
+**Status:** Local repair complete, not deployed. The single permitted Production
+acceptance failed and was cleaned up on 2026-08-20. Deployment and a new
+acceptance remain pending.
 
 **Progress:**
 
@@ -304,6 +306,25 @@ flowchart LR
 - [x] Commit `6a901af`, push it to `main`, deploy Production as `dpl_3E76Zt8dPhwCNLUZGZTR64yYR7yU`, and verify HTTP 200 for `/` and `/skill` with no bounded deployment errors.
 - [x] Run exactly one backend-controlled IPO acceptance and clean up its disposable workspace.
 - [x] Record the failed acceptance receipt below; leave U4 incomplete and do not start another fix or acceptance.
+
+**Recovery progress:**
+
+- [x] Reproduce the exact no-change source-projection/result-commit conflict in the smallest existing focused verifier.
+- [x] Fix only the incorrect source-coverage idempotency/ordering decision while preserving genuine conflicts, provenance, deduplication, and workspace isolation.
+- [x] Prove that the first deterministic commit after acquisition succeeds, identical completed-operation replay is idempotent, and a genuinely different conflicting operation still fails.
+- [ ] Deploy the focused repair and verify Production health and bounded logs.
+- [ ] Run one new fresh zero-usage IPO Production acceptance, clean it up, and mark U4 complete only if that single occurrence is green.
+- [ ] Begin separate Commentary, Earnings, and Congressional migration sprints only after U4 is green; the Congressional defect remains an independent prerequisite.
+
+The local repair reproduced the Production geometry in the existing IPO worker
+verifier: a fresh workspace observed a source-global `no_change` result and
+failed at deterministic source-coverage commit. The repair makes an empty first
+workspace projection establish that workspace's baseline without relaxing the
+source-coverage store. Focused IPO/source-coverage/U4 checks, TypeScript, and the
+Eve build passed; identical completed-operation replay remains idempotent and a
+different completed checkpoint still raises `source_coverage_conflict`.
+Deployment, Production acceptance, and every strategy migration remain separate
+unchecked work and must not start as part of the local repair.
 
 **Failed acceptance receipt (2026-08-20):** An owner-authorized manager
 capability archived the prior failed `IPO Agentic Acceptance U4` workspace and
