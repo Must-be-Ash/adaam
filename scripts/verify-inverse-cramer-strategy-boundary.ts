@@ -240,6 +240,51 @@ assert.equal(publishCalls, 0);
 assert.deepEqual(textOnly.artifactRefs, []);
 assert.match(textOnly.presentation.whyMatched, /immutable Inverse Cramer transform/iu);
 
+// A completed supplementary research pass must publish a readable artifact and
+// still deliver a concise Photon alert that cites the statement. Only the
+// no-research single-source path stays text-only.
+const supplementaryUrl = "https://example.com/micron-hbm-coverage";
+const researchedBrief = workspaceExecutiveBriefSchema.parse({
+  ...brief,
+  research: { status: "completed" },
+  sources: [
+    { label: "Jim Cramer statement", role: "official", url: statementUrl },
+    { label: "Supplementary coverage", role: "supplementary", url: supplementaryUrl },
+  ],
+});
+const publishedArtifacts: string[] = [];
+const researched = await materializeInverseCramerExecutiveOutput({
+  approvedSupplementaryUrls: [supplementaryUrl],
+  asOf: activatedAt,
+  brief: researchedBrief,
+  clients: {
+    publishReport: async ({ artifactId }) => {
+      publishedArtifacts.push(artifactId);
+      return { artifactId, kind: "report" as const };
+    },
+  },
+  factIdentities: ["finding.fixture"],
+  officialUrls: [statementUrl],
+  scope: { ownerId: "owner_fixture", workspaceId: "11111111-1111-4111-8111-111111111111" } as never,
+});
+assert.equal(publishedArtifacts.length, 1, "a completed research pass must publish one readable artifact");
+assert.equal(researched.artifactRefs.length, 1, "the alert must reference the published artifact");
+assert.ok(
+  researched.presentation.whyMatched.length <= 1_000,
+  "the Photon alert stays an executive summary rather than the full brief",
+);
+assert.match(researched.presentation.title, /Inverse Cramer/iu);
+// A supplementary source the research grant never approved must be refused.
+await assert.rejects(materializeInverseCramerExecutiveOutput({
+  approvedSupplementaryUrls: [],
+  asOf: activatedAt,
+  brief: researchedBrief,
+  clients: { publishReport: async () => { throw new Error("ungranted_source_must_not_publish"); } },
+  factIdentities: ["finding.fixture"],
+  officialUrls: [statementUrl],
+  scope: { ownerId: "owner_fixture", workspaceId: "11111111-1111-4111-8111-111111111111" } as never,
+}), /public_commentary_strategy_invalid/u);
+
 for (const path of [
   "agent/lib/strategy-pack-service.ts",
   "agent/lib/workspace-monitor-store.ts",

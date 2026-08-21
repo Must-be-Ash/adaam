@@ -1147,6 +1147,46 @@ const committedProductionCoverage = await completeWorkspaceSourceCoverage({
   scope: scopeA,
 }, productionRuntime);
 assert.equal(committedProductionCoverage.state, "complete", "the first delayed-observation result commit must succeed");
+// Production reproduction: once an occurrence has committed, its run source
+// fence refuses any second acquisition with `source_outside_fence`. That guard
+// is correct and must stay, so a repeated worker invocation can never re-enter
+// the pipeline and must finalize from its committed outcome instead.
+{
+  const readsBeforeReplay = productionXCalls;
+  await assert.rejects(productionPipeline.run({
+    configuration,
+    configurationGeneration: 1,
+    environment: {},
+    monitorId: productionMonitor.monitorId,
+    ownerId,
+    pack: base.pack,
+    scope: scopeA,
+    window: { endAt: now, startAt: "2026-08-18T17:50:00.000Z" },
+  }), /source_outside_fence/u, "a completed occurrence must refuse a second acquisition");
+  assert.equal(
+    productionXCalls,
+    readsBeforeReplay,
+    "a refused re-entry must not perform any billable source read",
+  );
+}
+const commentaryWorkerSource = await readFile(
+  new URL("../agent/lib/public-commentary-workspace-worker.ts", import.meta.url),
+  "utf8",
+);
+{
+  const replayIndex = commentaryWorkerSource.indexOf("finalizeExistingWorkspaceRunOutcomeForWorker({");
+  const pipelineIndex = commentaryWorkerSource.indexOf("createProductionPublicCommentaryPipeline({");
+  assert.ok(replayIndex > 0 && pipelineIndex > 0);
+  assert.ok(
+    commentaryWorkerSource.includes("replayed: true"),
+    "the worker must report a replayed occurrence",
+  );
+  assert.doesNotMatch(
+    commentaryWorkerSource,
+    /commit: \(\) => existing/u,
+    "replay must be resolved before the pipeline runs, not at the commit boundary",
+  );
+}
 assert.deepEqual(await completeWorkspaceSourceCoverage({
   checkpoint: productionBaseline.checkpoint,
   now: new Date("2026-08-18T18:00:18.000Z"),

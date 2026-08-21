@@ -1311,6 +1311,27 @@ export async function evaluatePublicCommentarySignalsForWorker(input: {
   const envelope = requireWorkspaceWorkerAuth(input.ctx, {}, environment);
   const scope = authorizeWorkspaceWorkerStore(input.ctx, environment);
   const existing = await readWorkspaceRunOutcome(scope, envelope.occurrenceKey, input.clients?.finding);
+  if (existing) {
+    // This occurrence already committed a durable outcome. Re-entering the
+    // pipeline would re-acquire the source, and the run's source-coverage fence
+    // correctly refuses that with `source_outside_fence`, so a duplicate tool
+    // invocation could never reach its own replay path. Finalize from the
+    // committed outcome instead, with no repeated source read, model call, paid
+    // cost, finding, artifact, or alert.
+    const outcome = await finalizeExistingWorkspaceRunOutcomeForWorker({
+      clients: input.clients,
+      ctx: input.ctx,
+      environment,
+      now,
+      outcome: existing,
+      toolId: INVERSE_CRAMER_EVALUATION_TOOL_ID,
+    });
+    return Object.freeze({
+      analyzedStatements: existing.finding?.facts?.length ?? 0,
+      outcome,
+      replayed: true,
+    });
+  }
   const [capabilities, monitor, strategy] = await Promise.all([
     resolveWorkspaceWorkerCapabilitySnapshot({
       envelope,
@@ -1403,35 +1424,25 @@ export async function evaluatePublicCommentarySignalsForWorker(input: {
     : pipelineResult;
   const outcome = await commitThenAcknowledgePublicCommentaryResult({
     acknowledge: result.acknowledgeDurableCommit,
-    commit: () => existing
-      ? finalizeExistingWorkspaceRunOutcomeForWorker({
-          alertPresentation: result.alertPresentation ?? undefined,
-          alertPresentations: result.alertPresentations,
-          clients: input.clients,
-          ctx: input.ctx,
-          environment,
-          now,
-          outcome: existing,
-          toolId: INVERSE_CRAMER_EVALUATION_TOOL_ID,
-        })
-      : commitDeterministicWorkspaceEvaluationForWorker({
-          alertPresentation: result.alertPresentation ?? undefined,
-          alertPresentations: result.alertPresentations,
-          checkpoint: result.checkpoint,
-          clients: input.clients,
-          ctx: input.ctx,
-          environment,
-          finding: result.finding,
-          initialBaseline: resolvePublicCommentaryCommitInitialBaseline({
-            cadenceDerivedBackfill,
-            checkpointOnlyBaseline: isWorkspaceMonitorCheckpointOnlyBaseline(monitor),
-            firstRunLookback: strategy.value.configuration.firstRunLookback,
-          }),
-          now,
-          toolId: INVERSE_CRAMER_EVALUATION_TOOL_ID,
-        }),
+    // A committed outcome already returned above, so this is always a first commit.
+    commit: () => commitDeterministicWorkspaceEvaluationForWorker({
+      alertPresentation: result.alertPresentation ?? undefined,
+      alertPresentations: result.alertPresentations,
+      checkpoint: result.checkpoint,
+      clients: input.clients,
+      ctx: input.ctx,
+      environment,
+      finding: result.finding,
+      initialBaseline: resolvePublicCommentaryCommitInitialBaseline({
+        cadenceDerivedBackfill,
+        checkpointOnlyBaseline: isWorkspaceMonitorCheckpointOnlyBaseline(monitor),
+        firstRunLookback: strategy.value.configuration.firstRunLookback,
+      }),
+      now,
+      toolId: INVERSE_CRAMER_EVALUATION_TOOL_ID,
+    }),
   });
-  return Object.freeze({ analyzedStatements: result.analyzedStatements, outcome, replayed: existing !== null });
+  return Object.freeze({ analyzedStatements: result.analyzedStatements, outcome, replayed: false });
 }
 
 export const evaluatePublicCommentarySignalsTool = defineTool({
