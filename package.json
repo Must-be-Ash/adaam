@@ -73,6 +73,7 @@
     "verify:agentic-durable-research:u2": "jiti scripts/verify-agentic-durable-research-u2.ts",
     "verify:agentic-durable-research:u3": "jiti scripts/verify-agentic-durable-research-u3.ts",
     "verify:agentic-durable-research:u4": "jiti scripts/verify-agentic-durable-research-u4.ts",
+    "verify:agentic-durable-research:contract-dispatch": "jiti scripts/verify-shared-research-contract-dispatch.ts",
     "verify:earnings-call-changes:sprint-0": "jiti scripts/verify-earnings-call-changes-sprint-0.ts",
     "verify:earnings-call-changes:sprint-1": "jiti scripts/verify-earnings-call-changes-sprint-1.ts",
     "verify:earnings-call-changes:sprint-2": "jiti scripts/verify-earnings-call-changes-sprint-2.ts",

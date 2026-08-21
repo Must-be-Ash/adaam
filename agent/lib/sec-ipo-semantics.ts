@@ -6,10 +6,9 @@ import {
   evidenceLocatorSchema,
   hybridEvidenceJobDefinitionSchema,
 } from "./hybrid-evidence-schema";
-import { SEC_IPO_RESEARCH_DEFINITION_ID } from "./hybrid-evidence-research";
 import { workspaceExecutiveBriefSchema } from "./workspace-executive-brief";
 
-export { SEC_IPO_RESEARCH_DEFINITION_ID } from "./hybrid-evidence-research";
+export const SEC_IPO_RESEARCH_DEFINITION_ID = "sec-ipo-frontier-research";
 export const SEC_IPO_AGENTIC_PACK_VERSION = "1.1.1";
 export type SecIpoResearchDefinitionVersion = "1.0.0" | "1.0.1";
 export const SEC_IPO_AGENTIC_RESEARCH_BUDGET = Object.freeze({

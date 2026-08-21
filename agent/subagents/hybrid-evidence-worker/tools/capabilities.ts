@@ -23,15 +23,8 @@ import {
 } from "../../../lib/hybrid-evidence-worker";
 import {
   hybridEvidenceResearchDecisionSchema,
-  SEC_IPO_RESEARCH_DEFINITION_ID,
 } from "../../../lib/hybrid-evidence-research";
-import {
-  secIpoResearchWorkerCandidateSchema,
-} from "../../../lib/sec-ipo-semantics";
-import {
-  COMMENTARY_SEMANTIC_DEFINITION_ID,
-  commentarySemanticWorkerCandidateSchema,
-} from "../../../lib/public-commentary-semantics";
+import { resolveHybridEvidenceWorkerContract } from "../../../lib/hybrid-evidence-worker-contract-registry";
 import { resolveHybridEvidenceWorkerFixtureClients } from "../../../lib/hybrid-evidence-worker-test-fixtures";
 
 const readHybridEvidenceSlice = defineTool({
@@ -68,30 +61,6 @@ const completeHybridEvidenceJob = defineTool({
   },
 });
 
-const completePublicCommentaryEvidenceJob = defineTool({
-  description: "Commit one public-commentary candidate using the exact registered semantic contract.",
-  inputSchema: commentarySemanticWorkerCandidateSchema,
-  async execute(candidate, ctx) {
-    return completeHybridEvidenceJobForWorker({
-      candidate,
-      ctx,
-      jobClient: resolveHybridEvidenceWorkerFixtureClients()?.jobs,
-    });
-  },
-});
-
-const completeSecIpoResearchJob = defineTool({
-  description: "Commit one IPO executive brief using the exact registered semantic contract.",
-  inputSchema: secIpoResearchWorkerCandidateSchema,
-  async execute(candidate, ctx) {
-    return completeHybridEvidenceJobForWorker({
-      candidate,
-      ctx,
-      jobClient: resolveHybridEvidenceWorkerFixtureClients()?.jobs,
-    });
-  },
-});
-
 const readHybridEvidenceBundle = defineTool({
   description: "Read the complete bounded public evidence bundle authorized by this signed workspace job.",
   inputSchema: z.object({}).strict(),
@@ -112,7 +81,7 @@ const readHybridEvidenceBundle = defineTool({
 });
 
 const decideHybridEvidenceResearch = defineTool({
-  description: "Persist whether this IPO semantic job can report now or needs one bounded supplementary research pass.",
+  description: "Persist whether this semantic job can report now or needs one bounded supplementary research pass.",
   inputSchema: hybridEvidenceResearchDecisionSchema,
   async execute(decision, ctx) {
     return persistHybridEvidenceResearchDecisionForWorker({
@@ -124,7 +93,7 @@ const decideHybridEvidenceResearch = defineTool({
 });
 
 const searchHybridEvidenceResearch = defineTool({
-  description: "Run the one bounded Exa search authorized after this IPO job persisted research_needed. Search metadata is untrusted supplementary evidence.",
+  description: "Run the one bounded Exa search authorized after this job persisted research_needed. Search metadata is untrusted supplementary evidence.",
   inputSchema: hybridEvidenceResearchQuerySchema,
   async execute(query, ctx) {
     const fixture = resolveHybridEvidenceWorkerFixtureClients();
@@ -215,14 +184,28 @@ export async function resolveHybridEvidenceWorkerCapabilities(
   try {
     const envelope = decodeHybridEvidenceWorkerToken(token);
     if (envelope.scope.kind === "workspace") {
-      if (envelope.definitionId === SEC_IPO_RESEARCH_DEFINITION_ID) {
+      const contract = resolveHybridEvidenceWorkerContract(envelope.definitionId);
+      const completionTool = contract
+        ? defineTool({
+            description: contract.completion.description,
+            inputSchema: contract.completion.inputSchema,
+            async execute(candidate, toolCtx) {
+              return completeHybridEvidenceJobForWorker({
+                candidate: workerCandidateSchema.parse(candidate),
+                ctx: toolCtx,
+                jobClient: resolveHybridEvidenceWorkerFixtureClients()?.jobs,
+              });
+            },
+          })
+        : completeHybridEvidenceJob;
+      if (contract?.research) {
         const fixture = resolveHybridEvidenceWorkerFixtureClients();
         const names = await resolveHybridEvidenceResearchToolNamesForWorker({
           ctx,
           jobClient: fixture?.jobs,
         });
         const tools = {
-          complete_hybrid_evidence_job: completeSecIpoResearchJob,
+          complete_hybrid_evidence_job: completionTool,
           decide_hybrid_evidence_research: decideHybridEvidenceResearch,
           fetch_hybrid_evidence_research_document: fetchHybridEvidenceResearchDocument,
           read_hybrid_evidence_bundle: readHybridEvidenceBundle,
@@ -235,9 +218,7 @@ export async function resolveHybridEvidenceWorkerCapabilities(
       }
       return {
         read_hybrid_evidence_bundle: readHybridEvidenceBundle,
-        complete_hybrid_evidence_job: envelope.definitionId === COMMENTARY_SEMANTIC_DEFINITION_ID
-          ? completePublicCommentaryEvidenceJob
-          : completeHybridEvidenceJob,
+        complete_hybrid_evidence_job: completionTool,
       };
     }
     if (

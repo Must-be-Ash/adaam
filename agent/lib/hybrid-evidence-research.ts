@@ -5,8 +5,6 @@ import { Readable } from "node:stream";
 
 import { z } from "zod";
 
-export const SEC_IPO_RESEARCH_DEFINITION_ID = "sec-ipo-frontier-research";
-
 const MAXIMUM_DOCUMENT_BYTES = 64 * 1_024;
 const MAXIMUM_REDIRECTS = 3;
 const FETCH_TIMEOUT_MS = 10_000;
@@ -125,16 +123,16 @@ export function normalizeHybridEvidenceResearchUrl(value: string): string {
 
 export function resolveHybridEvidenceResearchToolNames(input: {
   readonly decision: HybridEvidenceResearchDecision["decision"] | null;
-  readonly definitionId: string;
   readonly fetchCompleted?: boolean;
   readonly hasGrantedUrls?: boolean;
+  readonly researchEnabled: boolean;
   readonly searchCompleted?: boolean;
 }): readonly HybridEvidenceResearchToolName[] {
   const base: HybridEvidenceResearchToolName[] = [
     "complete_hybrid_evidence_job",
     "read_hybrid_evidence_bundle",
   ];
-  if (input.definitionId !== SEC_IPO_RESEARCH_DEFINITION_ID) return Object.freeze(base);
+  if (!input.researchEnabled) return Object.freeze(base);
   if (input.decision === null) {
     return Object.freeze([
       "decide_hybrid_evidence_research",

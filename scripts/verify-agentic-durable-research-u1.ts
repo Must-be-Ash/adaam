@@ -7,8 +7,8 @@ import {
   createPinnedHybridEvidenceResearchLookup,
   normalizeHybridEvidenceResearchUrl,
   resolveHybridEvidenceResearchToolNames,
-  SEC_IPO_RESEARCH_DEFINITION_ID,
 } from "../agent/lib/hybrid-evidence-research";
+import { SEC_IPO_RESEARCH_DEFINITION_ID } from "../agent/lib/sec-ipo-semantics";
 import type { HybridEvidenceBudgetReservation } from "../agent/lib/hybrid-evidence-budget";
 import { HybridEvidenceResearchAttemptError } from "../agent/lib/hybrid-evidence-research-receipt";
 import { decodeHybridEvidenceWorkerToken } from "../agent/lib/hybrid-evidence-auth";
@@ -40,12 +40,12 @@ const digest = (value: string) => createHash("sha256").update(value).digest("hex
 
 assert.deepEqual(resolveHybridEvidenceResearchToolNames({
   decision: null,
-  definitionId: SEC_IPO_RESEARCH_DEFINITION_ID,
+  researchEnabled: true,
 }), ["decide_hybrid_evidence_research", "read_hybrid_evidence_bundle"]);
 
 assert.deepEqual(resolveHybridEvidenceResearchToolNames({
   decision: "report_now",
-  definitionId: SEC_IPO_RESEARCH_DEFINITION_ID,
+  researchEnabled: true,
 }), ["complete_hybrid_evidence_job", "read_hybrid_evidence_bundle"]);
 
 const pinnedLookup = createPinnedHybridEvidenceResearchLookup("8.8.8.8");
@@ -68,7 +68,7 @@ assert.throws(
 
 assert.deepEqual(resolveHybridEvidenceResearchToolNames({
   decision: "research_needed",
-  definitionId: SEC_IPO_RESEARCH_DEFINITION_ID,
+  researchEnabled: true,
 }), [
   "read_hybrid_evidence_bundle",
   "search_hybrid_evidence_research",
@@ -83,8 +83,8 @@ assert.equal(isHybridEvidenceCapabilityRevisionAllowed({
 }), false);
 assert.deepEqual(resolveHybridEvidenceResearchToolNames({
   decision: "research_needed",
-  definitionId: SEC_IPO_RESEARCH_DEFINITION_ID,
   hasGrantedUrls: true,
+  researchEnabled: true,
   searchCompleted: true,
 }), [
   "complete_hybrid_evidence_job",
@@ -94,7 +94,7 @@ assert.deepEqual(resolveHybridEvidenceResearchToolNames({
 
 assert.deepEqual(resolveHybridEvidenceResearchToolNames({
   decision: "research_needed",
-  definitionId: "semantic-public-text-reference",
+  researchEnabled: false,
 }), ["complete_hybrid_evidence_job", "read_hybrid_evidence_bundle"]);
 
 assert.equal(

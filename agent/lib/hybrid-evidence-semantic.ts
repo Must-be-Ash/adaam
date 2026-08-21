@@ -64,7 +64,7 @@ import {
   prepareHybridEvidenceWorkerRun,
   type PreparedHybridEvidenceWorkerRun,
 } from "./hybrid-evidence-worker";
-import { SEC_IPO_RESEARCH_DEFINITION_ID } from "./hybrid-evidence-research";
+import { resolveHybridEvidenceWorkerContract } from "./hybrid-evidence-worker-contract-registry";
 import type {
   CanonicalPublicFactRevision,
   PublicSourceProjection,
@@ -954,8 +954,9 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
         scope: input.scope,
       }, { state: clients.state, workspace: clients.budget });
       const worker = await prepareHybridEvidenceWorkerRun({
-        approvedResearchUrls: prepared.definition.definitionId ===
-            SEC_IPO_RESEARCH_DEFINITION_ID
+        approvedResearchUrls: resolveHybridEvidenceWorkerContract(
+            prepared.definition.definitionId,
+          )?.research?.approvedUrlPolicy === "evidence_sources"
           ? [
               prepared.artifact.canonicalPublicUrl,
               prepared.projection.fact.provenance.publicUrl,
@@ -1318,8 +1319,9 @@ export async function runWorkspaceSemanticEvidenceBundleJob(input: Parameters<
         scope: input.scope,
       }, { state: clients.state, workspace: clients.budget });
       const worker = await prepareHybridEvidenceWorkerRun({
-        approvedResearchUrls: prepared.definition.definitionId ===
-            SEC_IPO_RESEARCH_DEFINITION_ID
+        approvedResearchUrls: resolveHybridEvidenceWorkerContract(
+            prepared.definition.definitionId,
+          )?.research?.approvedUrlPolicy === "evidence_sources"
           ? [...new Set([
               ...prepared.artifacts.map(({ canonicalPublicUrl }) => canonicalPublicUrl),
               ...prepared.members.map(({ projection }) => projection.fact.provenance.publicUrl),

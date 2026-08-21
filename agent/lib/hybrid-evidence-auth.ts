@@ -11,10 +11,8 @@ import {
   type HybridEvidenceJob,
 } from "./hybrid-evidence-schema";
 import type { HybridEvidenceBudgetReservation } from "./hybrid-evidence-budget";
-import {
-  normalizeHybridEvidenceResearchUrl,
-  SEC_IPO_RESEARCH_DEFINITION_ID,
-} from "./hybrid-evidence-research";
+import { normalizeHybridEvidenceResearchUrl } from "./hybrid-evidence-research";
+import { resolveHybridEvidenceWorkerContract } from "./hybrid-evidence-worker-contract-registry";
 import {
   HYBRID_MODEL_REASONING_VALUES,
   type HybridModelReasoning,
@@ -63,11 +61,12 @@ const envelopeSchema = z.object({
   const expectedBudgetScope = value.scope.kind === "source_global"
     ? "deployment_source_recovery"
     : "workspace";
+  const workerContract = resolveHybridEvidenceWorkerContract(value.definitionId);
   if (
     expires <= issued ||
     expires - issued > HYBRID_EVIDENCE_WORKER_MAX_RUNTIME_MS ||
     value.budget.scope !== expectedBudgetScope ||
-    (value.definitionId === SEC_IPO_RESEARCH_DEFINITION_ID &&
+    (workerContract?.research?.requiresParentRunId === true &&
       value.budget.parentRunId === null) ||
     value.allowedLocators.some((locator) =>
       ("artifactDigest" in locator &&
