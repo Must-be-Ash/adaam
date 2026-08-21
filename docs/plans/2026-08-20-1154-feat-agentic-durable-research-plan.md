@@ -289,9 +289,9 @@ flowchart LR
 
 **Goal:** Prove the focused shared additions through IPO before any other strategy migration begins.
 
-**Status:** Local repair complete, not deployed. The single permitted Production
-acceptance failed and was cleaned up on 2026-08-20. Deployment and a new
-acceptance remain pending.
+**Status:** Complete. Repair commit `4171a95` is deployed to Production and one
+fresh zero-usage IPO acceptance completed green and was cleaned up. Separate
+strategy migrations are now eligible to begin, but none started in this phase.
 
 **Progress:**
 
@@ -312,9 +312,16 @@ acceptance remain pending.
 - [x] Reproduce the exact no-change source-projection/result-commit conflict in the smallest existing focused verifier.
 - [x] Fix only the incorrect source-coverage idempotency/ordering decision while preserving genuine conflicts, provenance, deduplication, and workspace isolation.
 - [x] Prove that the first deterministic commit after acquisition succeeds, identical completed-operation replay is idempotent, and a genuinely different conflicting operation still fails.
-- [ ] Deploy the focused repair and verify Production health and bounded logs.
-- [ ] Run one new fresh zero-usage IPO Production acceptance, clean it up, and mark U4 complete only if that single occurrence is green.
+- [x] Deploy the focused repair and verify Production health and bounded logs.
+- [x] Run one new fresh zero-usage IPO Production acceptance, clean it up, and mark U4 complete only if that single occurrence is green.
 - [ ] Begin separate Commentary, Earnings, and Congressional migration sprints only after U4 is green; the Congressional defect remains an independent prerequisite.
+
+**Fresh acceptance progress:**
+
+- [x] Create `IPO U4 Production Acceptance 2026-08-20` through the owner-authorized backend, initially paused and bound to `ipo-filings@1.1.1`.
+- [x] Verify its new ledger has zero runs, tokens, workers, and actual spend before activation.
+- [x] Arm exactly one near-future occurrence and observe its first terminal result without retry.
+- [x] Pause/archive the workspace and verify its monitor is non-dispatchable with `nextOccurrenceAt: null`.
 
 The local repair reproduced the Production geometry in the existing IPO worker
 verifier: a fresh workspace observed a source-global `no_change` result and
@@ -323,8 +330,8 @@ workspace projection establish that workspace's baseline without relaxing the
 source-coverage store. Focused IPO/source-coverage/U4 checks, TypeScript, and the
 Eve build passed; identical completed-operation replay remains idempotent and a
 different completed checkpoint still raises `source_coverage_conflict`.
-Deployment, Production acceptance, and every strategy migration remain separate
-unchecked work and must not start as part of the local repair.
+The repair is deployed from main at `4171a95`; Production health and bounded
+error logs are green. Every strategy migration remains separate unchecked work.
 
 **Failed acceptance receipt (2026-08-20):** An owner-authorized manager
 capability archived the prior failed `IPO Agentic Acceptance U4` workspace and
@@ -341,6 +348,28 @@ one run and `$0` paid-tool/model spend against the conservative `$0.25` per-call
 ceiling. The workspace was immediately archived. Its monitor is
 `suspended_archived` with `nextOccurrenceAt: null`; the earlier U4 workspace is
 also archived and non-dispatchable. Per R17, no retry or follow-on fix was made.
+
+**Green acceptance receipt (2026-08-20):** Repair commit `4171a95` was
+fast-forwarded to `main` and deployed as
+`dpl_GSD5RNoReJzBe5fPkRCzQds2McoX`; `/` and `/skill` returned HTTP 200 and the
+bounded deployment/runtime error query was empty. The owner-authorized backend
+created `IPO U4 Production Acceptance 2026-08-20`
+(`c9c687b9-c66b-41a6-85eb-c36d5aa2e30e`) initially paused and bound to
+`ipo-filings@1.1.1`. Its new ledger started with zero runs, tokens, active
+workers, and paid spend. Exactly one scheduled occurrence ran at
+`2026-08-21T01:55:00.000Z` as Eve run
+`wrun_41M0H0FH6C0GYNZRFGY84YMAHN` and completed successfully. The SEC adapter
+retained eight complete readable feed entries, observed `no_change`, and the
+workspace evaluator committed `baselineEstablished: true`, `factCount: 0`, and
+`outcome: no_match`. Frontier research, Exa/fetch, findings, artifacts, and
+Photon delivery correctly did not run. Vercel observed 6,597 input tokens,
+1,476 output tokens, and `$0.01048275` model cost; the reconciled workspace
+ledger recorded one run, the same token counts, zero active workers, and `$0`
+paid-provider spend against the conservative `$0.25` per-call/unknown-price
+ceiling. The monitor was paused immediately, then the disposable workspace was
+archived. Its monitor is `suspended_archived` at configuration revision 5 with
+`nextOccurrenceAt: null`; the acceptance-monitor dispatchability query is empty
+and Main is active again.
 
 **Requirements:** R16–R19; SC1–SC6.
 
