@@ -289,7 +289,7 @@ flowchart LR
 
 **Goal:** Prove the focused shared additions through IPO before any other strategy migration begins.
 
-**Status:** In progress.
+**Status:** Stopped after the single permitted Production acceptance failed (2026-08-20).
 
 **Progress:**
 
@@ -301,19 +301,25 @@ flowchart LR
 - [x] Reproduce the first Production acceptance failures with focused red proof: the research prompt exhausted the task-mode cumulative input window before completion, and the operational failure write minted a new occurrence identity that allowed the same due time to dispatch twice.
 - [x] Implement the immutable `ipo-filings@1.1.1` token-window patch, compact the signed research prompt, and preserve occurrence identity across ordinary failure recovery; the focused U1, U4, monitor-store, and attempt-2 recovery proofs pass.
 - [x] Run the focused compatibility, catalog, type, Eve-build, and application-build gates and complete one concise fix-scoped diff review with no blocking findings.
-- [ ] Run exactly one backend-controlled IPO acceptance and clean up its disposable workspace.
-- [ ] Record the acceptance receipt and mark U4 complete.
+- [x] Commit `6a901af`, push it to `main`, deploy Production as `dpl_3E76Zt8dPhwCNLUZGZTR64yYR7yU`, and verify HTTP 200 for `/` and `/skill` with no bounded deployment errors.
+- [x] Run exactly one backend-controlled IPO acceptance and clean up its disposable workspace.
+- [x] Record the failed acceptance receipt below; leave U4 incomplete and do not start another fix or acceptance.
 
-**Acceptance blocker (2026-08-20):** Stopped before workspace creation. The
-Production owner mapping, owner-alias secret, and workspace-store credentials
-are sensitive Vercel variables and are intentionally unavailable to local
-operators. The existing owner-authorized services therefore cannot be called
-locally against Production without either an already-minted manager capability
-or a deployed Production execution surface. Direct Redis access, a temporary
-endpoint, and manual worker invocation remain prohibited, so no acceptance
-workspace, occurrence, reservation, provider call, delivery, or spend was
-created. Resume only when an existing Production-scoped owner operation
-capability is available; do not weaken the boundary to complete the check.
+**Failed acceptance receipt (2026-08-20):** An owner-authorized manager
+capability archived the prior failed `IPO Agentic Acceptance U4` workspace and
+created `IPO Agentic Acceptance U4 Final` (`86637877-1d9b-4514-92ef-9f0063d4026a`)
+bound to `ipo-filings@1.1.1`. Its ledger started at zero. Exactly one scheduled
+occurrence ran at `2026-08-21T01:09:00.000Z` (`wrun_41M0GXVAQ80GWCYF64CWZ47SVV`).
+SEC acquisition completed with eight readable facts and a `no_change` outcome,
+so frontier research, findings, artifacts, and Photon delivery did not run. The
+first failing stage was deterministic result commit:
+`WorkspaceSourceCoverageError: source_coverage_conflict`; the monitor surfaced
+terminal `worker_recovery_outcome_missing`. Vercel observed 6,154 input tokens,
+1,359 output tokens, and `$0.00971175` model cost; the workspace ledger recorded
+one run and `$0` paid-tool/model spend against the conservative `$0.25` per-call
+ceiling. The workspace was immediately archived. Its monitor is
+`suspended_archived` with `nextOccurrenceAt: null`; the earlier U4 workspace is
+also archived and non-dispatchable. Per R17, no retry or follow-on fix was made.
 
 **Requirements:** R16–R19; SC1–SC6.
 
