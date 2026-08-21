@@ -99,6 +99,33 @@ assert.equal(
   pack.evidenceContracts?.find(({ id }) => id === INVERSE_CRAMER_RESEARCH_DEFINITION_ID)?.digest,
   researchDefinition.definitionDigest,
 );
+// The research child reads the signed finding, may take one bounded supplementary
+// pass, and must still emit a complete executive brief through its completion
+// tool. Version 1.0.0 sized that whole session at 2,000 cumulative output tokens,
+// which Production exhausted with SESSION_TOKEN_LIMIT_REACHED before the brief
+// could commit. Historical packs keep the original contract.
+assert.equal(researchDefinition.definitionVersion, "1.0.0");
+assert.equal(researchDefinition.limits.maximumOutputTokens, 2_000);
+const activeResearchDefinition = createInverseCramerResearchDefinition(["openai/gpt-5.4"], "1.0.1");
+assert.equal(activeResearchDefinition.limits.maximumInputTokens, 40_000);
+assert.equal(activeResearchDefinition.limits.maximumOutputTokens, 12_000);
+assert.equal(
+  activeResearchDefinition.limits.maximumPaidCostUsd,
+  researchDefinition.limits.maximumPaidCostUsd,
+  "resizing the research session must not raise its paid ceiling",
+);
+{
+  const researchPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.7" });
+  assert.ok(researchPack);
+  assert.deepEqual(
+    researchPack.evidenceContracts?.find(({ id }) => id === INVERSE_CRAMER_RESEARCH_DEFINITION_ID),
+    {
+      digest: activeResearchDefinition.definitionDigest,
+      id: INVERSE_CRAMER_RESEARCH_DEFINITION_ID,
+      version: "1.0.1",
+    },
+  );
+}
 assert.equal(resolveHybridEvidenceWorkerContract(INVERSE_CRAMER_RESEARCH_DEFINITION_ID)?.research
   ?.requiresParentRunId, true);
 assert.equal(resolveHybridEvidenceWorkerContract(INVERSE_CRAMER_RESEARCH_DEFINITION_ID)?.research

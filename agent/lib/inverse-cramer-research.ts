@@ -107,7 +107,10 @@ export const inverseCramerResearchValidationContract: WorkspaceSemanticValidatio
     },
   });
 
-export function createInverseCramerResearchDefinition(modelIds: readonly string[]) {
+export function createInverseCramerResearchDefinition(
+  modelIds: readonly string[],
+  definitionVersion: "1.0.0" | "1.0.1" = "1.0.0",
+) {
   const allowedModelIds = [...new Set(modelIds)].sort();
   if (allowedModelIds.length === 0) {
     throw new Error("hybrid_definition_model_policy_empty");
@@ -118,7 +121,7 @@ export function createInverseCramerResearchDefinition(modelIds: readonly string[
     allowedMediaTypes: ["text/plain"],
     allowedModelIds,
     definitionId: INVERSE_CRAMER_RESEARCH_DEFINITION_ID,
-    definitionVersion: "1.0.0",
+    definitionVersion,
     inputProjection: {
       schemaId: "workspace-semantic-role-bound-projection",
       schemaVersion: "2.0.0",
@@ -128,17 +131,22 @@ export function createInverseCramerResearchDefinition(modelIds: readonly string[
       delimiterPolicy: "untrusted_evidence_xml/v1",
       digest: digestHybridEvidenceValue([
         INVERSE_CRAMER_RESEARCH_DEFINITION_ID,
-        "1.0.0",
+        definitionVersion,
         instruction,
       ]),
       templateId: INVERSE_CRAMER_RESEARCH_DEFINITION_ID,
-      version: "1.0.0",
+      version: definitionVersion,
     },
+    // The research child reads the signed finding, may take one bounded
+    // supplementary pass, and must still emit a complete executive brief
+    // through its completion tool. Version 1.0.0 sized that whole session at
+    // 2,000 cumulative output tokens, which Production exhausted before the
+    // brief could be committed. Paid ceilings are unchanged.
     limits: {
       maximumAttempts: 1,
       maximumEvidenceBytes: 64 * 1_024,
-      maximumInputTokens: 12_000,
-      maximumOutputTokens: 2_000,
+      maximumInputTokens: definitionVersion === "1.0.0" ? 12_000 : 40_000,
+      maximumOutputTokens: definitionVersion === "1.0.0" ? 2_000 : 12_000,
       maximumPages: 0,
       maximumPaidCostUsd: "0.2500",
       maximumRows: 0,

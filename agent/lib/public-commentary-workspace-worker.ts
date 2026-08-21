@@ -1059,8 +1059,9 @@ async function resolveInverseCramerResearchRuntime(input: {
   const configured = resolveHybridTaskModelRoute("semantic_interpretation", input.environment);
   const candidates = input.capabilities.resolved.workerModelIds
     .flatMap((modelId) => (pack.evidenceContracts ?? []).flatMap((contract) =>
-      contract.id === INVERSE_CRAMER_RESEARCH_DEFINITION_ID && contract.version === "1.0.0"
-        ? [createInverseCramerResearchDefinition([modelId])]
+      contract.id === INVERSE_CRAMER_RESEARCH_DEFINITION_ID &&
+          (contract.version === "1.0.0" || contract.version === "1.0.1")
+        ? [createInverseCramerResearchDefinition([modelId], contract.version)]
         : []
     ))
     .filter((definition) => pack.evidenceContracts?.some((contract) =>
