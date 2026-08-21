@@ -321,9 +321,18 @@ export async function materializePublicCommentarySignal(input: {
   record: PublicCommentaryFindingRecord;
 }>> {
   const statement = publicStatementSchema.parse(input.statement);
+  // A finding's analysis identity is the immutable pack provenance triple. The
+  // caller's pack reference may also carry runtime routing hints such as the
+  // monitor lifecycle contract, which must never enter that identity or change
+  // a finding digest, so narrow it once at this boundary.
+  const pack = Object.freeze({
+    contentDigest: input.pack.contentDigest,
+    id: input.pack.id,
+    version: input.pack.version,
+  });
   const semantic = readAttestedCommentarySemanticResult({
     allowedAdapterIds: [input.source.adapterId],
-    pack: input.pack,
+    pack,
     result: input.semanticResult,
     scope: input.scope,
   });
@@ -396,7 +405,7 @@ export async function materializePublicCommentarySignal(input: {
       interpretationDefinitionDigest: input.interpretationDefinitionDigest,
       monitorId: input.monitorId,
       ownerId: input.ownerId,
-      pack: input.pack,
+      pack,
       policyDigest: registeredPolicy.policy.definitionDigest,
       statementRevisionId: input.statementRevisionId,
       workspaceId: input.scope.workspaceId,

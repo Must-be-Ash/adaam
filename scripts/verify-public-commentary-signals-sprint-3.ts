@@ -693,6 +693,40 @@ await assert.rejects(materializePublicCommentarySignal({
   }),
 }, new MemoryStore()), /public_commentary_citation_invalid/u, "a registered locator that does not attest the verified statement must stay rejected");
 
+// Production routes the monitor lifecycle contract alongside the pack reference.
+// That runtime hint must not enter a finding's immutable analysis identity.
+const routedExtraction = {
+  attribution: "direct" as const,
+  confidence: "medium" as const,
+  evidence: [naturalLanguageEvidenceSpan],
+  extractionId: "commentary-extraction.routed-pack-fixture",
+  horizon: "weeks" as const,
+  recordType: "commentary_extraction" as const,
+  schemaVersion: 1 as const,
+  stance: "bullish" as const,
+  targets: [{ displayName: "Micron Technology", symbol: "MU", type: "equity" as const }],
+  topic: "investment_view" as const,
+  voiceOwnership: "speaker" as const,
+};
+const routedMaterialization = await materializePublicCommentarySignal({
+  ...compactMaterializationInput,
+  extraction: routedExtraction,
+  pack: { ...compactPack, lifecycleContractId: PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID },
+}, new MemoryStore());
+assert.deepEqual(
+  routedMaterialization.record.finding.analysisIdentity.pack,
+  { contentDigest: compactPack.contentDigest, id: compactPack.id, version: compactPack.version },
+  "a routed pack reference must narrow to the immutable provenance triple",
+);
+assert.equal(
+  routedMaterialization.record.finding.findingId,
+  (await materializePublicCommentarySignal(
+    { ...compactMaterializationInput, extraction: routedExtraction },
+    new MemoryStore(),
+  )).record.finding.findingId,
+  "the routing hint must not change a finding digest",
+);
+
 let overflowSemanticCalls = 0;
 let overflowSemanticActive = 0;
 let overflowSemanticMaximumActive = 0;
