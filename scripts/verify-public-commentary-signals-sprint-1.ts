@@ -76,6 +76,22 @@ const authenticatedFetch = createXPublicStatementFetch({
 const authenticatedResponse = await authenticatedFetch(createXTimelineRequest({ sourceInstance: source.sourceInstance }));
 assert.equal(observedAuthorization, "Bearer fixture-secret");
 assert.ok(!JSON.stringify(authenticatedResponse).includes("fixture-secret"));
+assert.equal(
+  new URL((createXTimelineRequest as (input: {
+    excludeReplies: boolean;
+    sourceInstance: typeof source.sourceInstance;
+  }) => XPublicStatementRequest)({
+    excludeReplies: true,
+    sourceInstance: source.sourceInstance,
+  }).url).searchParams.get("exclude"),
+  "retweets,replies",
+  "the provider request must omit replies when the strategy excludes them",
+);
+assert.equal(
+  new URL(createXTimelineRequest({ sourceInstance: source.sourceInstance }).url).searchParams.get("exclude"),
+  "retweets",
+  "reply-including strategies must not ask the provider to exclude replies",
+);
 
 const observedAt = "2026-08-18T06:10:00.000Z";
 const window = { endAt: "2026-08-18T06:20:00.000Z", startAt: "2026-08-18T06:10:00.000Z" };

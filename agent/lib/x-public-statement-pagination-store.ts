@@ -19,6 +19,7 @@ const itemSchema = z.object({
   recordDigest: digestSchema,
 }).strict();
 const indexSchema = z.object({
+  excludeReplies: z.boolean().optional(),
   expectedCursorRevision: z.number().int().nonnegative(),
   firstRunStartAt: z.string().datetime({ offset: true }).nullable().optional(),
   items: z.array(itemSchema).max(MAX_ITEMS),
@@ -82,6 +83,7 @@ export async function readXPublicStatementPaginationItems(
 }
 
 export async function appendXPublicStatementPaginationContinuation(input: {
+  readonly excludeReplies?: boolean;
   readonly expectedCursorRevision: number;
   readonly firstRunStartAt?: string | null;
   readonly items: readonly XPublicStatementPaginationItem[];
@@ -110,6 +112,9 @@ export async function appendXPublicStatementPaginationContinuation(input: {
     if (current && (current.firstRunStartAt ?? null) !== (input.firstRunStartAt ?? null)) {
       throw new Error("x_pagination_continuation_conflict");
     }
+    if (current && (current.excludeReplies ?? false) !== (input.excludeReplies ?? false)) {
+      throw new Error("x_pagination_continuation_conflict");
+    }
     const byRevision = new Map((current?.items ?? []).map((item) => [item.factRevisionId, item]));
     for (const item of input.items) {
       const record = recordSchema.parse({ ...item, recordType: "x_public_statement_pagination_item", schemaVersion: 1 });
@@ -126,6 +131,7 @@ export async function appendXPublicStatementPaginationContinuation(input: {
     }
     const next = indexSchema.parse({
       expectedCursorRevision: input.expectedCursorRevision,
+      excludeReplies: input.excludeReplies ?? false,
       firstRunStartAt: input.firstRunStartAt ?? null,
       items: [...byRevision.values()],
       nextToken: input.nextToken,

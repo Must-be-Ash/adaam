@@ -22,6 +22,10 @@ import {
 import { resolveHybridEvidenceWorkerContract } from "../agent/lib/hybrid-evidence-worker-contract-registry";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import { buildPublicCommentarySignalReport } from "../agent/lib/public-commentary-signal-report";
+import {
+  createInverseCramerSemanticDefinition,
+  INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
+} from "../agent/lib/public-commentary-semantics";
 import { workspaceExecutiveBriefSchema } from "../agent/lib/workspace-executive-brief";
 
 const activatedAt = "2026-08-20T12:00:00.000Z";
@@ -60,13 +64,18 @@ assert.equal(resolvePublicCommentaryFirstRunStart({
   windowEndAt: activatedAt,
 }), "2026-08-20T00:00:00.000Z");
 
-const pack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.0" });
+const pack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.1" });
 assert.ok(pack);
 assert.equal(
   pack.monitors[0]?.lifecycleContractId,
   PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID,
 );
 const researchDefinition = createInverseCramerResearchDefinition(["openai/gpt-5.4"]);
+const semanticDefinition = createInverseCramerSemanticDefinition(["openai/gpt-5.4"]);
+assert.equal(
+  pack.evidenceContracts?.find(({ id }) => id === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID)?.digest,
+  semanticDefinition.definitionDigest,
+);
 assert.equal(
   pack.evidenceContracts?.find(({ id }) => id === INVERSE_CRAMER_RESEARCH_DEFINITION_ID)?.digest,
   researchDefinition.definitionDigest,

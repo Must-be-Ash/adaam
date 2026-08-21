@@ -201,6 +201,7 @@ export function createXPublicStatementFetch(options: {
 }
 
 export function createXTimelineRequest(input: {
+  readonly excludeReplies?: boolean;
   readonly firstRunStartAt?: string | null;
   readonly paginationToken?: string;
   readonly sourceInstance: PublicSourceInstance;
@@ -208,7 +209,7 @@ export function createXTimelineRequest(input: {
   const source = publicSourceInstanceSchema.parse(input.sourceInstance);
   const configuration = xConfiguration(source);
   const url = new URL(configuration.canonicalUrl);
-  url.searchParams.set("exclude", "retweets");
+  url.searchParams.set("exclude", input.excludeReplies ? "retweets,replies" : "retweets");
   url.searchParams.set("expansions", "author_id,edit_history_tweet_ids,in_reply_to_user_id,referenced_tweets.id");
   url.searchParams.set("max_results", "100");
   url.searchParams.set("tweet.fields", "author_id,conversation_id,created_at,edit_controls,edit_history_tweet_ids,entities,in_reply_to_user_id,referenced_tweets,text,withheld");
@@ -226,10 +227,15 @@ export function createXTimelineRequest(input: {
   return Object.freeze({ kind: "timeline", url: url.toString() });
 }
 
-function xTimelineRequestVariantDigest(firstRunStartAt: string | null): string {
+function xTimelineRequestVariantDigest(input: {
+  readonly excludeReplies: boolean;
+  readonly firstRunStartAt: string | null;
+}): string {
   return digestPublicSourceValue([
     "x-public-statements-timeline-request",
-    firstRunStartAt === null ? { mode: "cursor" } : { mode: "lookback", startAt: firstRunStartAt },
+    input.firstRunStartAt === null
+      ? { excludeReplies: input.excludeReplies, mode: "cursor" }
+      : { excludeReplies: input.excludeReplies, mode: "lookback", startAt: input.firstRunStartAt },
   ]);
 }
 
@@ -584,6 +590,7 @@ function errorAcquisition(input: {
 export async function acquireXPublicStatements(input: {
   readonly client?: PublicSourceAcquisitionStoreClient;
   readonly evidence: XRevocableEvidenceOptions;
+  readonly excludeReplies?: boolean;
   readonly firstRunStartAt?: string | null;
   readonly responses: readonly XPublicStatementResponse[];
   readonly sourceInstance: PublicSourceInstance;
@@ -592,7 +599,10 @@ export async function acquireXPublicStatements(input: {
   readonly priorPostsRead?: number;
 }): Promise<XPublicStatementAcquisition> {
   const sourceInstance = publicSourceInstanceSchema.parse(input.sourceInstance);
-  const requestVariantDigest = xTimelineRequestVariantDigest(input.firstRunStartAt ?? null);
+  const requestVariantDigest = xTimelineRequestVariantDigest({
+    excludeReplies: input.excludeReplies ?? false,
+    firstRunStartAt: input.firstRunStartAt ?? null,
+  });
   const configuration = xConfiguration(sourceInstance);
   const parsedPages = input.responses.map(parseBody);
   const currentPostsRead = parsedPages.reduce((total, page) => total + (page.data?.length ?? 0), 0);
@@ -797,6 +807,7 @@ const replayReceipt = Object.freeze({
 export async function runSharedXPublicStatementAcquisition(input: {
   readonly client?: PublicSourceAcquisitionStoreClient;
   readonly evidence: XRevocableEvidenceOptions;
+  readonly excludeReplies?: boolean;
   readonly fetchResponse: (request: XPublicStatementRequest) => Promise<XPublicStatementResponse>;
   readonly firstRunStartAt?: string | null;
   readonly sourceId: string;
@@ -813,11 +824,16 @@ export async function runSharedXPublicStatementAcquisition(input: {
     await clearXPublicStatementPaginationContinuation(continuation, input.evidence.client);
     continuation = null;
   }
+  const excludeReplies = input.excludeReplies ?? false;
+  if (continuation && (continuation.excludeReplies ?? false) !== excludeReplies) {
+    await clearXPublicStatementPaginationContinuation(continuation, input.evidence.client);
+    continuation = null;
+  }
   // A bounded first-run page chain may finish in a later scheduled occurrence.
   // Resume the durable chain with its original lower bound instead of treating
   // the new occurrence's cursor-mode request as incompatible.
   const firstRunStartAt = continuation?.firstRunStartAt ?? requestedFirstRunStartAt;
-  const requestVariantDigest = xTimelineRequestVariantDigest(firstRunStartAt);
+  const requestVariantDigest = xTimelineRequestVariantDigest({ excludeReplies, firstRunStartAt });
   const committedForWindow = await readCommittedPublicSourceAcquisitionForWindow({
     accessClassification: "public",
     adapterDefinitionDigest: reviewed.sourceInstance.adapterDefinitionDigest,
@@ -866,6 +882,7 @@ export async function runSharedXPublicStatementAcquisition(input: {
     try {
       for (let page = 0; page < xConfiguration(sourceInstance).maximumPagesPerPoll; page += 1) {
         const response = await input.fetchResponse(createXTimelineRequest({
+          excludeReplies,
           firstRunStartAt,
           paginationToken,
           sourceInstance,
@@ -906,6 +923,7 @@ export async function runSharedXPublicStatementAcquisition(input: {
           sourceInstance,
         });
         continuation = await appendXPublicStatementPaginationContinuation({
+          excludeReplies,
           expectedCursorRevision: sourceInstance.cursor.revision,
           firstRunStartAt,
           items: normalized,
@@ -937,6 +955,7 @@ export async function runSharedXPublicStatementAcquisition(input: {
       const prepared = await acquireXPublicStatements({
         client: input.client,
         evidence: input.evidence,
+        excludeReplies,
         firstRunStartAt,
         priorItems,
         priorPostsRead: continuation?.postsRead,

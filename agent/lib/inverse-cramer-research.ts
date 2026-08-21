@@ -10,7 +10,6 @@ import { workspaceExecutiveBriefSchema } from "./workspace-executive-brief";
 
 export const INVERSE_CRAMER_RESEARCH_DEFINITION_ID =
   "inverse-cramer-frontier-research";
-export const INVERSE_CRAMER_AGENTIC_PACK_VERSION = "1.4.0";
 export const INVERSE_CRAMER_AGENTIC_RESEARCH_BUDGET = Object.freeze({
   maximumPaidPerCall: "0.250000",
   maximumPaidPerDay: "5.000000",
@@ -171,7 +170,6 @@ export function isInverseCramerAgenticResearchPack(pack: Readonly<{
   version: string;
 }>): boolean {
   return pack.id === "inverse-cramer" &&
-    pack.version === INVERSE_CRAMER_AGENTIC_PACK_VERSION &&
     pack.evidenceContracts?.some(({ id, version }) =>
       id === INVERSE_CRAMER_RESEARCH_DEFINITION_ID && version === "1.0.0"
     ) === true;

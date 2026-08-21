@@ -56,6 +56,8 @@ import {
 } from "./public-commentary-signal-report";
 import {
   createCommentarySemanticDefinition,
+  createInverseCramerSemanticDefinition,
+  INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
   recoverNamedAssetCommentaryMetadata,
 } from "./public-commentary-semantics";
 import {
@@ -373,9 +375,25 @@ export function createProductionPublicCommentaryPipeline(input: {
   }>>();
   const semanticRoute = resolveHybridTaskModelRoute("semantic_interpretation", input.environment);
   assertHybridModelRouteAllowed(semanticRoute, input.allowedModelIds);
-  const definition = createCommentarySemanticDefinition([semanticRoute.modelId], {
-    allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
-  });
+  const managed = input.monitor.managedBy;
+  const managedPack = managed ? strategyPackCatalog.resolve({
+    contentDigest: managed.packContentDigest,
+    id: managed.packId,
+    version: managed.packVersion,
+  }) : null;
+  if (!managedPack || managedPack.availability !== "available") {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+  }
+  const directModelActionability = managedPack.evidenceContracts?.some(
+    ({ id }) => id === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
+  ) ?? false;
+  const definition = directModelActionability
+    ? createInverseCramerSemanticDefinition([semanticRoute.modelId], {
+        allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
+      })
+    : createCommentarySemanticDefinition([semanticRoute.modelId], {
+        allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
+      });
   let occurrenceCorrections: Awaited<ReturnType<typeof materializePublicCommentaryCorrection>>[] = [];
   let pendingRehydrationAcknowledgements: Readonly<{
     outcomeId: string;
@@ -383,7 +401,7 @@ export function createProductionPublicCommentaryPipeline(input: {
   }>[] = [];
 
   const pipeline = createPublicCommentaryPipeline({
-    acquireAndProject: async ({ cadenceMinutes, firstRunLookback, pack, scope, window }) => {
+    acquireAndProject: async ({ cadenceMinutes, firstRunLookback, includeQuotePosts, includeReplies, pack, scope, window }) => {
       occurrenceCorrections = [];
       pendingRehydrationAcknowledgements = [];
       const authorized = await authorizeWorkspaceSourceFetch({
@@ -433,6 +451,7 @@ export function createProductionPublicCommentaryPipeline(input: {
           fetch: xSource ? {
             adapterId: "x-public-statements" as const,
             evidence,
+            excludeReplies: includeReplies === "exclude",
             firstRunStartAt,
             fetchResponse: timelineReservation?.state === "reserved"
               ? fetchResponse!
@@ -495,6 +514,10 @@ export function createProductionPublicCommentaryPipeline(input: {
           continue;
         }
         if (statement.provider !== "x") throw new Error("x_statement_provider_invalid");
+        if (
+          (statement.role === "reply" && includeReplies === "exclude") ||
+          (statement.role === "quote" && includeQuotePosts === "exclude")
+        ) continue;
         await registerWorkspaceXPublicStatementForRehydration({
           scope,
           stablePostId: statement.stablePostId,
@@ -806,7 +829,8 @@ export function createProductionPublicCommentaryPipeline(input: {
     findings: clients?.commentaryFindings,
     recoverExtraction: clients?.recoverExtraction ?? recoverNamedAssetCommentaryMetadata,
     state: clients?.state,
-    interpret: async ({ plaintext, statement, statementRevisionId }) => {
+    directModelActionability,
+    interpret: async ({ plaintext, selectedSymbols, statement, statementRevisionId }) => {
       const subject = semanticSubjects.get(statementRevisionId);
       if (!subject) {
         throw new PublicCommentaryWorkspaceWorkerError("public_commentary_source_unavailable");
@@ -855,7 +879,11 @@ export function createProductionPublicCommentaryPipeline(input: {
               subscriptionId: subject.subscriptionId,
             },
             role: "subject_statement",
-            semanticContext: Object.freeze({ metadataOnly: false }),
+            semanticContext: Object.freeze({
+              metadataOnly: false,
+              selectedSymbols: Object.freeze([...selectedSymbols]),
+              watchlistMode: selectedSymbols.length === 0 ? "all_resolved_assets" : "selected_symbols",
+            }),
           }],
           modelId: semanticRoute.modelId,
           now: input.now,

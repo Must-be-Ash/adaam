@@ -4,7 +4,10 @@ import { readFile } from "node:fs/promises";
 
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import { createPublicCommentaryPipeline, INVERSE_CRAMER_POLICY, materializePublicCommentaryCorrection, materializePublicCommentarySignal, readAttestedCommentarySemanticResult } from "../agent/lib/public-commentary-vertical";
-import { createCommentarySemanticDefinition } from "../agent/lib/public-commentary-semantics";
+import {
+  createCommentarySemanticDefinition,
+  createInverseCramerSemanticDefinition,
+} from "../agent/lib/public-commentary-semantics";
 import { digestHybridEvidenceValue, hybridAcceptedResultSchema } from "../agent/lib/hybrid-evidence-schema";
 import type { PublicCommentaryAttemptStoreClient } from "../agent/lib/public-commentary-attempt-store";
 import { readLatestPublicCommentaryFinding, readPublicCommentaryFindingByStatementRevision, type PublicCommentaryFindingStoreClient } from "../agent/lib/public-commentary-finding-store";
@@ -474,6 +477,110 @@ assert.equal(filteredSemanticCalls, 0);
 assert.equal(filteredResult.analyzedStatements, 2);
 assert.equal(filteredResult.finding, null);
 
+const naturalLanguageText = "Micron is executing better than anyone expected and its HBM position keeps improving.";
+const naturalLanguageSpan = {
+  end: naturalLanguageText.length,
+  spanDigest: createHash("sha256").update(naturalLanguageText).digest("hex"),
+  start: 0,
+};
+const naturalLanguageStatement = statement({
+  contentDigest: digestPublicCommentaryValue(naturalLanguageText),
+  entities: { cashtags: [], mentions: [], urls: [] },
+  textLocators: [naturalLanguageSpan],
+});
+const directModelPack = { contentDigest: "5".repeat(64), id: "inverse-cramer", version: "1.4.1" } as const;
+const directModelDefinition = createInverseCramerSemanticDefinition(["openai/gpt-5.4"]);
+const naturalLanguageCitation = { artifactDigest, kind: "text_span" as const, ...naturalLanguageSpan };
+const directModelSemantic = {
+  ...semantic,
+  counterevidence: [{ citations: [naturalLanguageCitation], statement: "The statement alone does not prove future returns." }],
+  facts: [{ citations: [naturalLanguageCitation], statement: "Cramer describes Micron's execution and HBM position positively." }],
+  forecast: {
+    ...semantic.forecast,
+    catalysts: [{ citations: [naturalLanguageCitation], statement: "Further HBM execution could support the expressed view." }],
+    invalidationConditions: [{ citations: [naturalLanguageCitation], statement: "A later reversal by the speaker would invalidate the current view." }],
+    likelyImplication: { citations: [naturalLanguageCitation], statement: "The registered inverse policy can evaluate an opposite-direction research candidate." },
+    risks: [{ citations: [naturalLanguageCitation], statement: "The statement does not establish predictive accuracy." }],
+    scenarios: [{ citations: [naturalLanguageCitation], condition: "The statement remains current.", direction: "negative" as const, label: "base" as const, rationale: "Only the registered transform supplies direction." }],
+  },
+  inferences: [{ citations: [naturalLanguageCitation], statement: "The speaker expresses a bullish view of Micron." }],
+  marketView: {
+    stance: "bullish" as const,
+    targets: [{ displayName: "Micron Technology", symbol: "MU", type: "equity" as const }],
+  },
+  rationale: "The signed statement supports a positive view of Micron.",
+  recommendation: {
+    ...semantic.recommendation,
+    citations: [naturalLanguageCitation],
+  },
+};
+const directModelSemanticResult = hybridAcceptedResultSchema.parse({
+  ...semanticResultA,
+  definition: {
+    definitionDigest: directModelDefinition.definitionDigest,
+    definitionId: directModelDefinition.definitionId,
+    definitionVersion: directModelDefinition.definitionVersion,
+  },
+  model: {
+    ...semanticResultA.model,
+    modelOutputDigest: digestHybridEvidenceValue(directModelSemantic),
+    promptTemplateDigest: directModelDefinition.instructionTemplate.digest,
+  },
+  outputDigest: digestHybridEvidenceValue(directModelSemantic),
+  payload: directModelSemantic,
+  resultId: `hybrid-result.${digestHybridEvidenceValue(directModelSemantic)}`,
+  scope: {
+    ...semanticResultA.scope,
+    packContentDigest: directModelPack.contentDigest,
+    packId: directModelPack.id,
+    packVersion: directModelPack.version,
+  },
+  validationTrace: [{
+    errorCode: null,
+    outcome: "passed",
+    validatorId: directModelDefinition.requiredValidator.validatorId,
+    validatorVersion: directModelDefinition.requiredValidator.version,
+  }],
+});
+let directModelSelectedSymbols: readonly string[] | null = null;
+const directModelPipeline = createPublicCommentaryPipeline({
+  acquireAndProject: async () => ({
+    checkpoint: { contentDigest: "5".repeat(64), watermark: "200" },
+    statements: [{
+      plaintext: naturalLanguageText,
+      source: base.source,
+      statement: naturalLanguageStatement,
+      statementRevisionId: "statement.x.200.natural-language.1",
+    }],
+  }),
+  attempts: new MemoryAttemptStore(),
+  corroboration: { async search() { throw new Error("direct_model_path_must_not_search_before_materiality"); } },
+  directModelActionability: true,
+  findings: new MemoryStore(),
+  interpret: async ({ selectedSymbols }) => {
+    directModelSelectedSymbols = selectedSymbols;
+    return {
+      evidence: { result: directModelSemanticResult },
+      record: { job: { state: "accepted" } },
+      strategyEvidence: { result: directModelSemanticResult },
+    } as never;
+  },
+});
+const directModelResult = await directModelPipeline.run({
+  ...paidRequest,
+  configuration: { ...configuration, selectedSymbols: ["MU"] },
+  configurationGeneration: 5,
+  environment: {
+    EVE_HYBRID_FAST_MODEL_ID: "anthropic/claude-haiku-4.5",
+    EVE_HYBRID_FAST_MODEL_REASONING: "provider-default",
+    EVE_HYBRID_FRONTIER_MODEL_ID: "openai/gpt-5.4",
+    EVE_HYBRID_FRONTIER_MODEL_REASONING: "high",
+  },
+  pack: directModelPack,
+});
+assert.deepEqual(directModelSelectedSymbols, ["MU"], "the signed semantic input must receive the owner watchlist");
+assert.equal(directModelResult.finding?.facts[0]?.finding.policyDecision.researchDirection, "bearish");
+
 let overflowSemanticCalls = 0;
 let overflowSemanticActive = 0;
 let overflowSemanticMaximumActive = 0;
@@ -504,7 +611,7 @@ const overflowPipeline = createPublicCommentaryPipeline({
 const overflowResult = await overflowPipeline.run({
   ...paidRequest,
   configuration,
-  configurationGeneration: 5,
+  configurationGeneration: 6,
   environment: {},
 });
 assert.equal(overflowResult.analyzedStatements, 508);
@@ -537,7 +644,7 @@ const overEnvelopePipeline = createPublicCommentaryPipeline({
   },
 });
 await assert.rejects(
-  overEnvelopePipeline.run({ ...paidRequest, configuration, configurationGeneration: 6, environment: {} }),
+  overEnvelopePipeline.run({ ...paidRequest, configuration, configurationGeneration: 7, environment: {} }),
   /public_commentary_occurrence_statements_overflow/u,
 );
 assert.equal(overEnvelopeSemanticCalls, 0);

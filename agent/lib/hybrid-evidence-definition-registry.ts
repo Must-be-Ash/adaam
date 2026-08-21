@@ -15,7 +15,10 @@ import {
   type HybridEvidenceJobDefinition,
 } from "./hybrid-evidence-schema";
 import { workspaceSemanticEvidenceRoleSchema } from "./hybrid-evidence-semantic-store";
-import { commentarySemanticValidationContract } from "./public-commentary-semantics";
+import {
+  commentarySemanticValidationContract,
+  inverseCramerSemanticValidationContract,
+} from "./public-commentary-semantics";
 import { secIpoResearchValidationContract } from "./sec-ipo-semantics";
 import { inverseCramerResearchValidationContract } from "./inverse-cramer-research";
 
@@ -342,6 +345,7 @@ export const workspaceSemanticValidationRegistry = createWorkspaceSemanticValida
   earningsCallSectionSemanticValidationContract,
   earningsCallSynthesisSemanticValidationContract,
   commentarySemanticValidationContract,
+  inverseCramerSemanticValidationContract,
   inverseCramerResearchValidationContract,
   secIpoResearchValidationContract,
 ]);

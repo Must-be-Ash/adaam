@@ -27,9 +27,13 @@ import {
 } from "./public-commentary-schema";
 import {
   createCommentarySemanticDefinition,
+  createInverseCramerSemanticDefinition,
   extractCommentaryMetadata,
   commentarySemanticPayloadSchema,
+  INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
+  inverseCramerSemanticPayloadSchema,
   type CommentarySemanticPayload,
+  type InverseCramerSemanticPayload,
 } from "./public-commentary-semantics";
 import { resolvePublicCommentaryRuntimeFlags } from "./public-commentary-flags";
 import {
@@ -132,7 +136,7 @@ export function partitionPublicCommentaryStatements<T>(values: readonly T[]): re
 
 const confidenceRank = { high: 3, low: 1, medium: 2 } as const;
 
-function semanticCitations(payload: CommentarySemanticPayload) {
+function semanticCitations(payload: CommentarySemanticPayload | InverseCramerSemanticPayload) {
   return [
     ...payload.facts.flatMap(({ citations }) => citations),
     ...payload.inferences.flatMap(({ citations }) => citations),
@@ -153,11 +157,16 @@ export function readAttestedCommentarySemanticResult(input: {
   readonly pack?: Readonly<{ contentDigest: string; id: string; version: string }>;
   readonly result: HybridAcceptedResult;
   readonly scope: AuthorizedWorkspaceStoreScope;
-}): CommentarySemanticPayload {
+}): CommentarySemanticPayload | InverseCramerSemanticPayload {
   const result = hybridAcceptedResultSchema.parse(input.result);
-  const definition = createCommentarySemanticDefinition([result.model.modelId], {
-    allowedAdapterIds: input.allowedAdapterIds,
-  });
+  const directModel = result.definition.definitionId === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID;
+  const definition = directModel
+    ? createInverseCramerSemanticDefinition([result.model.modelId], {
+        allowedAdapterIds: input.allowedAdapterIds,
+      })
+    : createCommentarySemanticDefinition([result.model.modelId], {
+        allowedAdapterIds: input.allowedAdapterIds,
+      });
   const passedValidator = result.validationTrace.some((trace) =>
     trace.outcome === "passed" && trace.errorCode === null &&
     trace.validatorId === definition.requiredValidator.validatorId &&
@@ -178,10 +187,15 @@ export function readAttestedCommentarySemanticResult(input: {
     result.outputDigest !== digestHybridEvidenceValue(result.payload) ||
     !passedValidator
   ) throw new Error("public_commentary_semantic_attestation_invalid");
-  return commentarySemanticPayloadSchema.parse(result.payload);
+  return directModel
+    ? inverseCramerSemanticPayloadSchema.parse(result.payload)
+    : commentarySemanticPayloadSchema.parse(result.payload);
 }
 
-function interpretation(payload: CommentarySemanticPayload, statementRevisionId: string) {
+function interpretation(
+  payload: CommentarySemanticPayload | InverseCramerSemanticPayload,
+  statementRevisionId: string,
+) {
   return commentaryInterpretationSchema.parse({
     assumptions: payload.assumptions,
     confidence: payload.confidence,
@@ -194,6 +208,46 @@ function interpretation(payload: CommentarySemanticPayload, statementRevisionId:
     risks: payload.forecast?.risks.map(({ statement }) => statement) ?? [],
     scenarios: payload.forecast?.scenarios.map(({ citations: _citations, ...scenario }) => scenario) ?? [],
     schemaVersion: 1,
+  });
+}
+
+function extractionFromInverseCramerSemantic(input: {
+  readonly payload: InverseCramerSemanticPayload;
+  readonly plaintext: string;
+  readonly statement: PublicStatement;
+}) {
+  const role = publicStatementRole(input.statement);
+  const voiceOwnership = input.statement.attribution === "direct"
+    ? "speaker" as const
+    : role === "quote" || input.statement.attribution === "quoted"
+      ? "quoted_party" as const
+      : "unclear" as const;
+  const { marketView } = input.payload;
+  return commentaryExtractionSchema.parse({
+    attribution: input.statement.attribution,
+    confidence: input.payload.confidence,
+    evidence: [{
+      end: input.plaintext.length,
+      spanDigest: createHash("sha256").update(input.plaintext).digest("hex"),
+      start: 0,
+    }],
+    extractionId: `commentary-extraction.${digestPublicCommentaryValue([
+      "inverse-cramer-semantic",
+      publicStatementStableId(input.statement),
+      input.statement.revision,
+      marketView,
+    ])}`,
+    horizon: input.payload.horizon,
+    recordType: "commentary_extraction",
+    schemaVersion: 1,
+    stance: marketView.stance,
+    targets: marketView.targets,
+    topic: input.payload.outcome === "accepted" &&
+      (marketView.stance === "bullish" || marketView.stance === "bearish") &&
+      marketView.targets.length > 0
+      ? "investment_view"
+      : marketView.targets.length > 0 ? "market_commentary" : "other",
+    voiceOwnership,
   });
 }
 
@@ -744,6 +798,8 @@ export function createPublicCommentaryPipeline(input: {
   readonly acquireAndProject: (request: Readonly<{
     cadenceMinutes: PublicCommentaryConfiguration["cadenceMinutes"];
     firstRunLookback: PublicCommentaryConfiguration["firstRunLookback"];
+    includeQuotePosts: PublicCommentaryConfiguration["includeQuotePosts"];
+    includeReplies: PublicCommentaryConfiguration["includeReplies"];
     pack: Readonly<{ contentDigest: string; id: string; version: string }>;
     scope: AuthorizedWorkspaceStoreScope;
     window: Readonly<{ endAt: string; startAt: string }>;
@@ -754,6 +810,7 @@ export function createPublicCommentaryPipeline(input: {
   readonly attempts?: PublicCommentaryAttemptStoreClient;
   readonly budget?: WorkspaceBudgetLedgerClient;
   readonly corroboration: WebCorroborationProvider;
+  readonly directModelActionability?: boolean;
   readonly findings?: PublicCommentaryFindingStoreClient;
   readonly policy?: ReturnType<typeof createCommentaryPolicyDefinition>;
   readonly recoverExtraction?: Parameters<typeof extractCommentaryMetadata>[0]["recover"];
@@ -762,6 +819,7 @@ export function createPublicCommentaryPipeline(input: {
     attemptId: string;
     corroboration: WebCorroborationSearch;
     plaintext: string;
+    selectedSymbols: readonly string[];
     statement: PublicStatement;
     statementRevisionId: string;
   }>) => Promise<PublicCommentarySemanticRun>;
@@ -783,6 +841,8 @@ export function createPublicCommentaryPipeline(input: {
       const acquired = await input.acquireAndProject({
         cadenceMinutes: configuration.cadenceMinutes,
         firstRunLookback: configuration.firstRunLookback,
+        includeQuotePosts: configuration.includeQuotePosts,
+        includeReplies: configuration.includeReplies,
         pack: request.pack,
         scope: request.scope,
         window: request.window,
@@ -823,6 +883,48 @@ export function createPublicCommentaryPipeline(input: {
             (publicStatementRole(statement) === "reply" && configuration.includeReplies === "exclude") ||
             (publicStatementRole(statement) === "quote" && configuration.includeQuotePosts === "exclude")
           ) return null;
+          if (input.directModelActionability && request.pack.id === "inverse-cramer") {
+            const queryDigest = digestPublicCommentaryValue([
+              "inverse-cramer-direct-model",
+              request.configurationGeneration,
+              projected.statementRevisionId,
+            ]);
+            const attemptId = publicCommentaryStatementAttemptId({
+              configurationGeneration: request.configurationGeneration,
+              queryDigest,
+              statementRevisionId: projected.statementRevisionId,
+            });
+            const corroboration = localCorroboration({
+              now: new Date(request.window.endAt),
+              queryDigest,
+              status: "not_run",
+            });
+            const semanticRun = await input.interpret({
+              attemptId,
+              corroboration,
+              plaintext: projected.plaintext,
+              selectedSymbols: configuration.selectedSymbols,
+              statement,
+              statementRevisionId: projected.statementRevisionId,
+            });
+            if (semanticRun.record.job.state === "quarantined" || semanticRun.evidence === null) {
+              return null;
+            }
+            const semantic = inverseCramerSemanticPayloadSchema.parse(semanticRun.evidence.result.payload);
+            return Object.freeze({
+              corroboration,
+              extraction: extractionFromInverseCramerSemantic({
+                payload: semantic,
+                plaintext: projected.plaintext,
+                statement,
+              }),
+              impactClassification: null,
+              projected,
+              researchSubject: semanticRun.researchSubject ?? null,
+              semanticResult: semanticRun.evidence.result,
+              statement,
+            });
+          }
           const extracted = (await extractCommentaryMetadata({
             environment: request.environment,
             recover: input.recoverExtraction,
@@ -892,6 +994,7 @@ export function createPublicCommentaryPipeline(input: {
             attemptId,
             corroboration,
             plaintext: projected.plaintext,
+            selectedSymbols: configuration.selectedSymbols,
             statement,
             statementRevisionId: projected.statementRevisionId,
           });
@@ -954,7 +1057,9 @@ export function createPublicCommentaryPipeline(input: {
             statement,
             statementRevisionId: projected.statementRevisionId,
           }, input.findings);
-          const semantic = commentarySemanticPayloadSchema.parse(semanticResult.payload);
+          const semantic = semanticResult.definition.definitionId === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID
+            ? inverseCramerSemanticPayloadSchema.parse(semanticResult.payload)
+            : commentarySemanticPayloadSchema.parse(semanticResult.payload);
           accepted.push(Object.freeze({
             materialized,
             researchSubject: researchSubject ? Object.freeze({

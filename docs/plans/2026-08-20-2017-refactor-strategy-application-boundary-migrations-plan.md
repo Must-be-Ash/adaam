@@ -206,7 +206,7 @@ The initial `origin/main` audit identified the following candidates. Each active
 
 - [x] Baseline A — Shared durable-research U1–U4 implemented; `ipo-filings@1.1.1` passed one zero-usage Production acceptance and was cleaned up. Receipt is in `docs/plans/2026-08-20-1154-feat-agentic-durable-research-plan.md`.
 - [x] Baseline B — Shared hybrid-evidence worker contract dispatch landed in commit `58901f8`; Production deploy trigger `f88d7c3` is healthy.
-- [x] U1 — Migrate and accept Inverse Cramer.
+- [ ] U1 — Migrate and accept Inverse Cramer. Reopened for the focused direct-model actionability correction below.
 - [ ] U2 — Migrate and accept Public Commentary Tracker.
 - [ ] U3 — Migrate and accept Earnings Call Changes.
 - [ ] U4 — Repair, migrate, and accept Congressional Signals.
@@ -262,6 +262,23 @@ The initial `origin/main` audit identified the following candidates. Each active
 - [x] One zero-usage Production occurrence terminal and reported. Fresh workspace `Inverse Cramer U1 Acceptance 0528` (`inverse-cramer@1.4.0`) acquired three complete original/final X posts in its cadence-derived interval and terminalized once as `no_match`. Deterministic extraction found no statement eligible for frontier interpretation, so semantic research, findings, artifacts, and Photon delivery were correctly not invoked. The scheduled occurrence reserved 25,000 input tokens, 12,000 output tokens, and `$3.500000`; its nested X call reserved `$1.000000`. Both reconciled to 5,746 input tokens, 859 output tokens, and `$0.015000` actual total spend (three billable X reads), with zero active workers.
 - [x] Disposable monitor paused/archived and non-dispatchable. Monitor `ac472433-4336-539e-bf93-6ad3b56e5880` is `suspended_archived`, configuration revision 4, `lastCompletedAt: 2026-08-21T05:29:21.867Z`, `lastErrorCode: null`, and `nextOccurrenceAt: null`; Main was restored active.
 - [x] U1 and Progress Tracker marked complete before U2 begins.
+
+#### U1 focused correction — direct model actionability
+
+The accepted `1.4.0` path still used deterministic asset/stance extraction as a
+precondition for semantic evaluation. That can discard natural-language market
+views before the model sees them. Correct only that ordering for a new immutable
+Inverse Cramer pack version; do not change Public Commentary Tracker or any
+historical pack.
+
+- [x] Focused red proof captured. Sprint 3 failed because a natural-language Micron view without a cashtag or parser keyword completed without reaching semantic evaluation; Sprint 1 failed because a reply-excluding configuration still emitted `exclude=retweets` instead of `exclude=retweets,replies`.
+- [x] Model contract returns the referenced asset/market and Cramer's stance; the signed semantic input includes the optional owner watchlist. The focused Micron fixture resolves `MU`, carries `selectedSymbols: ["MU"]`, and reaches the semantic contract without cashtags or parser sentiment keywords.
+- [x] Existing inverse-direction policy, deterministic watchlist enforcement, thresholds, research, artifact, alert, budget, replay, and isolation behavior remain intact. The direct-model fixture produces the registered bearish inverse direction while the pre-existing watchlist, replay, correction, and workspace-isolation assertions remain green.
+- [x] X acquisition requests only supported selected roles. Reposts remain provider-excluded; replies now join the provider `exclude` parameter when disabled. X's user-posts endpoint has no quote exclusion parameter, so disabled quote posts are discarded before semantic evaluation and are not registered for later paid rehydration.
+- [x] Focused verification and concise diff review green. Public-commentary Sprints 1 and 3, follow-up, tracker reuse, strategy boundary, shared research contract dispatch and U1–U3, pack/catalog owner surfaces, TypeScript, Eve build, application build, and `git diff --check` passed. Review confirmed historical packs remain immutable, final watchlist enforcement remains deterministic, and disabled quotes cannot trigger semantic or paid rehydration work.
+- [ ] New immutable pack version committed, pushed, deployed, and Production health verified.
+- [ ] One fresh zero-usage Production occurrence terminal; disposable workspace paused/archived with `nextOccurrenceAt: null` and receipt recorded.
+- [ ] U1 and Progress Tracker marked complete again before U2 begins.
 
 ### U2. Migrate and accept Public Commentary Tracker
 

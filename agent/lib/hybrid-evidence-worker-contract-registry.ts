@@ -1,6 +1,8 @@
 import {
   COMMENTARY_SEMANTIC_DEFINITION_ID,
   commentarySemanticWorkerCandidateSchema,
+  INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
+  inverseCramerSemanticWorkerCandidateSchema,
 } from "./public-commentary-semantics";
 import {
   SEC_IPO_RESEARCH_DEFINITION_ID,
@@ -32,6 +34,16 @@ const contracts = Object.freeze([
       budget: INVERSE_CRAMER_AGENTIC_RESEARCH_BUDGET,
       requiresParentRunId: true as const,
     }),
+  }),
+  Object.freeze({
+    capabilityRevisions: Object.freeze([2]),
+    completion: Object.freeze({
+      description:
+        "Commit one Inverse Cramer market-view candidate using the exact registered semantic contract.",
+      inputSchema: inverseCramerSemanticWorkerCandidateSchema,
+    }),
+    definitionId: INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
+    research: null,
   }),
   Object.freeze({
     capabilityRevisions: Object.freeze([1, 2]),
