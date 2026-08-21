@@ -488,8 +488,10 @@ const naturalLanguageStatement = statement({
   entities: { cashtags: [], mentions: [], urls: [] },
   textLocators: [naturalLanguageSpan],
 });
-const directModelPack = { contentDigest: "5".repeat(64), id: "inverse-cramer", version: "1.4.1" } as const;
-const directModelDefinition = createInverseCramerSemanticDefinition(["openai/gpt-5.4"]);
+const directModelPack = { contentDigest: "5".repeat(64), id: "inverse-cramer", version: "1.4.4" } as const;
+const directModelDefinition = createInverseCramerSemanticDefinition(["openai/gpt-5.4"], {
+  definitionVersion: "1.0.3",
+});
 const naturalLanguageCitation = { artifactDigest, kind: "text_span" as const, ...naturalLanguageSpan };
 const directModelSemantic = {
   ...semantic,
@@ -542,6 +544,11 @@ const directModelSemanticResult = hybridAcceptedResultSchema.parse({
     validatorVersion: directModelDefinition.requiredValidator.version,
   }],
 });
+assert.equal(readAttestedCommentarySemanticResult({
+  pack: directModelPack,
+  result: directModelSemanticResult,
+  scope: scopeA,
+}).outcome, "accepted", "the active Inverse Cramer semantic version must attest without downgrading");
 let directModelSelectedSymbols: readonly string[] | null = null;
 const directModelPipeline = createPublicCommentaryPipeline({
   acquireAndProject: async () => ({
