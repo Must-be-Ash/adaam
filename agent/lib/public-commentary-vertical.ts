@@ -26,10 +26,12 @@ import {
   type WebCorroborationSearch,
 } from "./public-commentary-schema";
 import {
+  createInverseCramerActionabilityDefinition,
   createCommentarySemanticDefinition,
   createInverseCramerSemanticDefinition,
   extractCommentaryMetadata,
   commentarySemanticPayloadSchema,
+  INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
   INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
   inverseCramerSemanticPayloadSchema,
   type CommentarySemanticPayload,
@@ -136,7 +138,14 @@ export function partitionPublicCommentaryStatements<T>(values: readonly T[]): re
 
 const confidenceRank = { high: 3, low: 1, medium: 2 } as const;
 
+function isCompactInverseCramerPayload(
+  payload: CommentarySemanticPayload | InverseCramerSemanticPayload,
+): payload is Extract<InverseCramerSemanticPayload, { citations: readonly unknown[] }> {
+  return "citations" in payload && "uncertainty" in payload;
+}
+
 function semanticCitations(payload: CommentarySemanticPayload | InverseCramerSemanticPayload) {
+  if (isCompactInverseCramerPayload(payload)) return payload.citations;
   return [
     ...payload.facts.flatMap(({ citations }) => citations),
     ...payload.inferences.flatMap(({ citations }) => citations),
@@ -159,8 +168,15 @@ export function readAttestedCommentarySemanticResult(input: {
   readonly scope: AuthorizedWorkspaceStoreScope;
 }): CommentarySemanticPayload | InverseCramerSemanticPayload {
   const result = hybridAcceptedResultSchema.parse(input.result);
-  const directModel = result.definition.definitionId === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID;
-  const definition = directModel
+  const compactDirectModel =
+    result.definition.definitionId === INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID;
+  const legacyDirectModel = result.definition.definitionId === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID;
+  const directModel = compactDirectModel || legacyDirectModel;
+  const definition = compactDirectModel
+    ? createInverseCramerActionabilityDefinition([result.model.modelId], {
+        allowedAdapterIds: input.allowedAdapterIds,
+      })
+    : legacyDirectModel
     ? createInverseCramerSemanticDefinition([result.model.modelId], {
         allowedAdapterIds: input.allowedAdapterIds,
         definitionVersion: z.enum(["1.0.0", "1.0.1", "1.0.2", "1.0.3"])
@@ -198,6 +214,21 @@ function interpretation(
   payload: CommentarySemanticPayload | InverseCramerSemanticPayload,
   statementRevisionId: string,
 ) {
+  if (isCompactInverseCramerPayload(payload)) {
+    return commentaryInterpretationSchema.parse({
+      assumptions: payload.uncertainty,
+      confidence: payload.confidence,
+      counterevidence: payload.counterevidence,
+      horizon: payload.horizon,
+      implications: payload.outcome === "accepted" ? [payload.rationale] : [],
+      interpretationId: `commentary-interpretation.${digestPublicCommentaryValue([statementRevisionId, payload])}`,
+      invalidationConditions: [],
+      recordType: "commentary_interpretation",
+      risks: payload.uncertainty,
+      scenarios: [],
+      schemaVersion: 1,
+    });
+  }
   return commentaryInterpretationSchema.parse({
     assumptions: payload.assumptions,
     confidence: payload.confidence,
@@ -409,8 +440,12 @@ export async function materializePublicCommentarySignal(input: {
     `Classification: ${input.impactClassification ?? extraction.stance}. Possible ${extraction.targets[0]?.symbol ?? "asset"} implication: ${direction} pressure.`,
     `Direction: ${direction}.`,
     `Confidence: ${semantic.confidence}. Horizon: ${semantic.horizon}.`,
-    `Uncertainty: ${semantic.assumptions.length ? semantic.assumptions.join("; ") : semantic.forecast?.risks.map(({ statement }) => statement).join("; ") || "No additional uncertainty stated."}`,
-    `Counterevidence: ${semantic.counterevidence.map(({ statement }) => statement).join("; ") || "None cited."}`,
+    `Uncertainty: ${isCompactInverseCramerPayload(semantic)
+      ? semantic.uncertainty.join("; ") || "No additional uncertainty stated."
+      : semantic.assumptions.length ? semantic.assumptions.join("; ") : semantic.forecast?.risks.map(({ statement }) => statement).join("; ") || "No additional uncertainty stated."}`,
+    `Counterevidence: ${isCompactInverseCramerPayload(semantic)
+      ? semantic.counterevidence.join("; ") || "None cited."
+      : semantic.counterevidence.map(({ statement }) => statement).join("; ") || "None cited."}`,
     `Related coverage: ${corroboration.status}. Corroboration status: ${corroboration.status}.${corroboration.status === "candidates_found" ? "" : " Warning: corroboration is weak or unavailable; the source remains visible."}`,
     `Primary citation: ${statement.canonicalUrl} revision ${statement.revision}. The revocable source text is not copied into permanent findings or alerts.`,
     policy.directionDisclosure,
@@ -1059,19 +1094,26 @@ export function createPublicCommentaryPipeline(input: {
             statement,
             statementRevisionId: projected.statementRevisionId,
           }, input.findings);
-          const semantic = semanticResult.definition.definitionId === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID
+          const semantic = (
+            semanticResult.definition.definitionId === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID ||
+            semanticResult.definition.definitionId === INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID
+          )
             ? inverseCramerSemanticPayloadSchema.parse(semanticResult.payload)
             : commentarySemanticPayloadSchema.parse(semanticResult.payload);
           accepted.push(Object.freeze({
             materialized,
             researchSubject: researchSubject ? Object.freeze({
               ...researchSubject,
-              counterevidence: Object.freeze(semantic.counterevidence.map(({ statement }) => statement)),
+              counterevidence: Object.freeze(isCompactInverseCramerPayload(semantic)
+                ? semantic.counterevidence
+                : semantic.counterevidence.map(({ statement }) => statement)),
               summary: semantic.rationale,
-              uncertainty: Object.freeze([
-                ...semantic.assumptions,
-                ...(semantic.forecast?.risks.map(({ statement }) => statement) ?? []),
-              ]),
+              uncertainty: Object.freeze(isCompactInverseCramerPayload(semantic)
+                ? semantic.uncertainty
+                : [
+                    ...semantic.assumptions,
+                    ...(semantic.forecast?.risks.map(({ statement }) => statement) ?? []),
+                  ]),
             }) : null,
           }));
         }

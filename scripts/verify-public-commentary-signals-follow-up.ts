@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 
+import { z } from "zod";
+
 import {
   listLatestStrategyPacks,
   resolveStrategyPackIntervalMinutes,
@@ -7,6 +9,7 @@ import {
   resolveStrategyPackInitialMonitorDueAt,
 } from "../agent/lib/strategy-pack-service";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
+import { resolveHybridEvidenceWorkerContract } from "../agent/lib/hybrid-evidence-worker-contract-registry";
 import { createXTimelineRequest } from "../agent/lib/x-public-statement-adapter";
 import {
   resolveHybridEvidenceWorkerAuthEnvironment,
@@ -16,8 +19,11 @@ import { resolveReviewedPublicSource } from "../agent/lib/public-source-registry
 import {
   commentarySemanticWorkerCandidateSchema,
   createCommentarySemanticDefinition,
+  createInverseCramerActionabilityDefinition,
   createInverseCramerSemanticDefinition,
   extractCommentaryMetadata,
+  inverseCramerActionabilityWorkerCandidateSchema,
+  inverseCramerSemanticWorkerCandidateSchema,
   recoverNamedAssetCommentaryMetadata,
 } from "../agent/lib/public-commentary-semantics";
 import {
@@ -27,6 +33,7 @@ import {
 import { decideCommentaryPolicy } from "../agent/lib/commentary-policy";
 import {
   drainPublicCommentaryHybridWorker,
+  resolvePublicCommentarySemanticReasoning,
   resolvePublicCommentaryCommitInitialBaseline,
   resolvePublicCommentaryFirstRunStart,
 } from "../agent/lib/public-commentary-workspace-worker";
@@ -42,12 +49,12 @@ import {
 const versions = strategyPackCatalog.entries
   .filter(({ id }) => id === "inverse-cramer")
   .map(({ version }) => version);
-assert.deepEqual(versions, ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.4.1", "1.4.2", "1.4.3", "1.4.4"]);
+assert.deepEqual(versions, ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.4.1", "1.4.2", "1.4.3", "1.4.4", "1.4.5"]);
 assert.equal(
   strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.0.0" })?.contentDigest,
   "c84defe79be9b72da6deaa7e7c3bc9254fa27f1286a79073b260ee4b90bcb434",
 );
-const latestPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.4" });
+const latestPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.5" });
 assert.ok(latestPack);
 const semanticDefinition = createCommentarySemanticDefinition(["openai/gpt-5.4"]);
 const directSemanticDefinition = createInverseCramerSemanticDefinition(["openai/gpt-5.4"], {
@@ -56,9 +63,14 @@ const directSemanticDefinition = createInverseCramerSemanticDefinition(["openai/
 assert.equal(directSemanticDefinition.definitionVersion, "1.0.3");
 assert.equal(directSemanticDefinition.limits.maximumInputTokens, 40_000);
 assert.equal(directSemanticDefinition.limits.maximumOutputTokens, 12_000);
+const compactActionabilityDefinition = createInverseCramerActionabilityDefinition(["openai/gpt-5.4"]);
+assert.equal(compactActionabilityDefinition.definitionVersion, "1.0.0");
+assert.equal(compactActionabilityDefinition.limits.maximumInputTokens, 24_000);
+assert.equal(compactActionabilityDefinition.limits.maximumOutputTokens, 4_000);
+assert.equal(compactActionabilityDefinition.limits.maximumRuntimeMs, 180_000);
 assert.ok(
   (latestPack?.monitors[0]?.suggestedBudget.maximumInputTokensPerRun ?? 0) >=
-    directSemanticDefinition.limits.maximumInputTokens,
+    compactActionabilityDefinition.limits.maximumInputTokens,
 );
 const scheduledAt = new Date("2026-08-19T18:23:12.551Z");
 const dispatchedAt = new Date("2026-08-19T18:24:31.000Z");
@@ -142,12 +154,67 @@ assert.equal(commentarySemanticWorkerCandidateSchema.safeParse({
   },
   unknowns: ["Material context is absent."],
 }).success, false);
+assert.equal(inverseCramerActionabilityWorkerCandidateSchema.safeParse({
+  citations: [semanticCitation],
+  disposition: "accepted",
+  fields: {
+    citations: [semanticCitation],
+    confidence: "medium",
+    counterevidence: [],
+    horizon: "weeks",
+    marketView: {
+      stance: "bullish",
+      targets: [{ displayName: "Micron Technology", symbol: "MU", type: "equity" }],
+    },
+    outcome: "accepted",
+    rationale: "Cramer expresses a positive view of Micron's memory positioning.",
+    uncertainty: ["The statement is not a forecast of future returns."],
+  },
+  unknowns: [],
+}).success, true);
+assert.equal(inverseCramerActionabilityWorkerCandidateSchema.safeParse({
+  citations: [semanticCitation],
+  disposition: "accepted",
+  fields: {
+    assumptions: [],
+    confidence: "medium",
+    counterevidence: [],
+    facts: [],
+    forecast: null,
+    horizon: "weeks",
+    inferences: [],
+    marketView: { stance: "bullish", targets: [] },
+    outcome: "accepted",
+    rationale: "Legacy oversized candidate.",
+    recommendation: null,
+  },
+  unknowns: [],
+}).success, false, "the active compact tool must not expose the historical report-sized schema");
+const compactWorkerContract = resolveHybridEvidenceWorkerContract(
+  compactActionabilityDefinition.definitionId,
+);
+assert.ok(compactWorkerContract);
+assert.equal(compactWorkerContract.completion.inputSchema, inverseCramerActionabilityWorkerCandidateSchema);
+const legacyCompletionSchemaBytes = Buffer.byteLength(JSON.stringify(
+  z.toJSONSchema(inverseCramerSemanticWorkerCandidateSchema),
+));
+const compactCompletionSchemaBytes = Buffer.byteLength(JSON.stringify(
+  z.toJSONSchema(inverseCramerActionabilityWorkerCandidateSchema),
+));
+assert.ok(
+  compactCompletionSchemaBytes * 2 < legacyCompletionSchemaBytes,
+  `compact actionability schema must remain less than half the historical report schema (${compactCompletionSchemaBytes}/${legacyCompletionSchemaBytes})`,
+);
 assert.deepEqual(latestPack.evidenceContracts.find(({ id }) =>
-  id === "inverse-cramer-semantic-materiality"), {
-  digest: directSemanticDefinition.definitionDigest,
-  id: "inverse-cramer-semantic-materiality",
-  version: "1.0.3",
+  id === "inverse-cramer-market-view-actionability"), {
+  digest: compactActionabilityDefinition.definitionDigest,
+  id: "inverse-cramer-market-view-actionability",
+  version: "1.0.0",
 });
+assert.equal(resolvePublicCommentarySemanticReasoning(latestPack, { reasoning: "high" }), "low");
+const historicalPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.4" });
+assert.ok(historicalPack);
+assert.equal(resolvePublicCommentarySemanticReasoning(historicalPack, { reasoning: "high" }), "high");
 assert.equal(latestPack.monitors[0]?.suggestedBudget.maximumInputTokensPerRun, 40_000);
 const workerRequest = {} as Parameters<typeof drainPublicCommentaryHybridWorker>[0];
 await assert.rejects(
@@ -193,7 +260,7 @@ assert.deepEqual(
     EVE_STRATEGY_PACK_CATALOG_ENABLED: "1",
     EVE_WORKSPACE_STATE_ENABLED: "1",
   } }).packs.filter(({ id }) => id === "inverse-cramer").map(({ version }) => version),
-  ["1.4.4"],
+  ["1.4.5"],
 );
 assert.equal(latestPack.configuration.some(({ key }) => key === "firstRunLookback"), false);
 assert.equal(resolveStrategyPackInitialMonitorDueAt({

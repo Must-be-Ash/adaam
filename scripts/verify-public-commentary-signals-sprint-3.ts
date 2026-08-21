@@ -6,6 +6,7 @@ import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import { createPublicCommentaryPipeline, INVERSE_CRAMER_POLICY, materializePublicCommentaryCorrection, materializePublicCommentarySignal, readAttestedCommentarySemanticResult } from "../agent/lib/public-commentary-vertical";
 import {
   createCommentarySemanticDefinition,
+  createInverseCramerActionabilityDefinition,
   createInverseCramerSemanticDefinition,
 } from "../agent/lib/public-commentary-semantics";
 import { digestHybridEvidenceValue, hybridAcceptedResultSchema } from "../agent/lib/hybrid-evidence-schema";
@@ -549,6 +550,54 @@ assert.equal(readAttestedCommentarySemanticResult({
   result: directModelSemanticResult,
   scope: scopeA,
 }).outcome, "accepted", "the active Inverse Cramer semantic version must attest without downgrading");
+const compactPack = { contentDigest: "6".repeat(64), id: "inverse-cramer", version: "1.4.5" } as const;
+const compactDefinition = createInverseCramerActionabilityDefinition(["openai/gpt-5.4"]);
+const compactSemantic = {
+  citations: [naturalLanguageCitation],
+  confidence: "medium" as const,
+  counterevidence: ["The statement does not establish predictive accuracy."],
+  horizon: "weeks" as const,
+  marketView: {
+    stance: "bullish" as const,
+    targets: [{ displayName: "Micron Technology", symbol: "MU", type: "equity" as const }],
+  },
+  outcome: "accepted" as const,
+  rationale: "Cramer expresses a positive view of Micron's execution and HBM position.",
+  uncertainty: ["The statement is commentary, not a return forecast."],
+};
+const compactSemanticResult = hybridAcceptedResultSchema.parse({
+  ...semanticResultA,
+  definition: {
+    definitionDigest: compactDefinition.definitionDigest,
+    definitionId: compactDefinition.definitionId,
+    definitionVersion: compactDefinition.definitionVersion,
+  },
+  model: {
+    ...semanticResultA.model,
+    modelOutputDigest: digestHybridEvidenceValue(compactSemantic),
+    promptTemplateDigest: compactDefinition.instructionTemplate.digest,
+  },
+  outputDigest: digestHybridEvidenceValue(compactSemantic),
+  payload: compactSemantic,
+  resultId: `hybrid-result.${digestHybridEvidenceValue(compactSemantic)}`,
+  scope: {
+    ...semanticResultA.scope,
+    packContentDigest: compactPack.contentDigest,
+    packId: compactPack.id,
+    packVersion: compactPack.version,
+  },
+  validationTrace: [{
+    errorCode: null,
+    outcome: "passed",
+    validatorId: compactDefinition.requiredValidator.validatorId,
+    validatorVersion: compactDefinition.requiredValidator.version,
+  }],
+});
+assert.equal(readAttestedCommentarySemanticResult({
+  pack: compactPack,
+  result: compactSemanticResult,
+  scope: scopeA,
+}).outcome, "accepted", "the current compact actionability result must attest");
 let directModelSelectedSymbols: readonly string[] | null = null;
 const directModelPipeline = createPublicCommentaryPipeline({
   acquireAndProject: async () => ({
@@ -567,9 +616,9 @@ const directModelPipeline = createPublicCommentaryPipeline({
   interpret: async ({ selectedSymbols }) => {
     directModelSelectedSymbols = selectedSymbols;
     return {
-      evidence: { result: directModelSemanticResult },
+      evidence: { result: compactSemanticResult },
       record: { job: { state: "accepted" } },
-      strategyEvidence: { result: directModelSemanticResult },
+      strategyEvidence: { result: compactSemanticResult },
     } as never;
   },
 });
@@ -583,7 +632,7 @@ const directModelResult = await directModelPipeline.run({
     EVE_HYBRID_FRONTIER_MODEL_ID: "openai/gpt-5.4",
     EVE_HYBRID_FRONTIER_MODEL_REASONING: "high",
   },
-  pack: directModelPack,
+  pack: compactPack,
 });
 assert.deepEqual(directModelSelectedSymbols, ["MU"], "the signed semantic input must receive the owner watchlist");
 assert.equal(directModelResult.finding?.facts[0]?.finding.policyDecision.researchDirection, "bearish");

@@ -17,6 +17,7 @@ import {
 import { workspaceSemanticEvidenceRoleSchema } from "./hybrid-evidence-semantic-store";
 import {
   commentarySemanticValidationContract,
+  inverseCramerActionabilityValidationContract,
   inverseCramerSemanticValidationContract,
 } from "./public-commentary-semantics";
 import { secIpoResearchValidationContract } from "./sec-ipo-semantics";
@@ -345,6 +346,7 @@ export const workspaceSemanticValidationRegistry = createWorkspaceSemanticValida
   earningsCallSectionSemanticValidationContract,
   earningsCallSynthesisSemanticValidationContract,
   commentarySemanticValidationContract,
+  inverseCramerActionabilityValidationContract,
   inverseCramerSemanticValidationContract,
   inverseCramerResearchValidationContract,
   secIpoResearchValidationContract,

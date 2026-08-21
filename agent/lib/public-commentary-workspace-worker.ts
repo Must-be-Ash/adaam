@@ -56,7 +56,9 @@ import {
 } from "./public-commentary-signal-report";
 import {
   createCommentarySemanticDefinition,
+  createInverseCramerActionabilityDefinition,
   createInverseCramerSemanticDefinition,
+  INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
   INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
   recoverNamedAssetCommentaryMetadata,
 } from "./public-commentary-semantics";
@@ -385,9 +387,18 @@ export function createProductionPublicCommentaryPipeline(input: {
     throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
   }
   const directModelActionability = managedPack.evidenceContracts?.some(
-    ({ id }) => id === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
+    ({ id }) =>
+      id === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID ||
+      id === INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
   ) ?? false;
-  const definition = directModelActionability
+  const compactActionability = managedPack.evidenceContracts?.some(
+    ({ id }) => id === INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
+  ) ?? false;
+  const definition = compactActionability
+    ? createInverseCramerActionabilityDefinition([semanticRoute.modelId], {
+        allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
+      })
+    : directModelActionability
     ? createInverseCramerSemanticDefinition([semanticRoute.modelId], {
         allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
         definitionVersion: managedPack.version === "1.4.1"
@@ -401,6 +412,7 @@ export function createProductionPublicCommentaryPipeline(input: {
     : createCommentarySemanticDefinition([semanticRoute.modelId], {
         allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
       });
+  const semanticReasoning = resolvePublicCommentarySemanticReasoning(managedPack, semanticRoute);
   let occurrenceCorrections: Awaited<ReturnType<typeof materializePublicCommentaryCorrection>>[] = [];
   let pendingRehydrationAcknowledgements: Readonly<{
     outcomeId: string;
@@ -900,7 +912,7 @@ export function createProductionPublicCommentaryPipeline(input: {
             version: input.monitor.managedBy!.packVersion,
           },
           parentBudgetRunId: input.runId,
-          reasoning: semanticRoute.reasoning,
+          reasoning: semanticReasoning,
           scope: input.scope,
           workspaceGeneration: input.workspaceGeneration,
         }, {
@@ -1003,6 +1015,15 @@ type InverseCramerResearchRuntime = Readonly<{
   reasoning: ReturnType<typeof resolveHybridTaskModelRoute>["reasoning"];
   workspaceGeneration: number;
 }>;
+
+export function resolvePublicCommentarySemanticReasoning(
+  pack: Pick<StrategyPackCatalogEntry, "evidenceContracts">,
+  configured: Readonly<{ reasoning: "high" }>,
+) {
+  return pack.evidenceContracts?.some(
+    ({ id }) => id === INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
+  ) === true ? "low" as const : configured.reasoning;
+}
 
 async function resolveInverseCramerResearchRuntime(input: {
   capabilities: Awaited<ReturnType<typeof resolveWorkspaceWorkerCapabilitySnapshot>>;
