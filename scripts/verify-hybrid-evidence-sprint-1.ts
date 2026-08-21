@@ -493,10 +493,17 @@ const acceptedResult = hybridAcceptedResultSchema.parse({
 });
 const accepted = await acceptHybridEvidenceJob({
   jobId: preparedA.job.jobId,
-  now: new Date(now.getTime() + 2_000),
+  // Scheduled callers retain the occurrence timestamp while the delegated
+  // model completes later. Acceptance must not regress the durable job clock.
+  now,
   result: acceptedResult,
 }, jobs);
 assert.equal(accepted.job.state, "accepted");
+assert.equal(
+  accepted.job.updatedAt,
+  new Date(now.getTime() + 1_000).toISOString(),
+  "accepting a completed job must preserve monotonic lifecycle time",
+);
 await artifacts.setReference({
   active: true,
   artifactDigest: artifact.contentDigest,

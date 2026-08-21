@@ -494,7 +494,7 @@ export async function acceptHybridEvidenceJob(input: {
   result: HybridAcceptedResult;
 }, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
   const result = hybridAcceptedResultSchema.parse(input.result);
-  const timestamp = (input.now ?? new Date()).toISOString();
+  const requestedTimestamp = (input.now ?? new Date()).toISOString();
   return updateRecord({
     client,
     jobId: input.jobId,
@@ -513,6 +513,9 @@ export async function acceptHybridEvidenceJob(input: {
       ) {
         throw new HybridEvidenceJobStoreError("job_conflict");
       }
+      const timestamp = requestedTimestamp < current.job.updatedAt
+        ? current.job.updatedAt
+        : requestedTimestamp;
       const accepted = recordSchema.parse({
         ...current,
         acceptedResult: result,
