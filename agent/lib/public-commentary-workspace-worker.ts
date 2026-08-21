@@ -48,7 +48,11 @@ import {
   type PublicCommentaryFindingStoreClient,
 } from "./public-commentary-finding-store";
 import { resolvePublicCommentaryRuntimeFlags } from "./public-commentary-flags";
-import { commentaryFindingSchema, publicStatementSchema } from "./public-commentary-schema";
+import {
+  commentaryFindingSchema,
+  digestPublicCommentaryEvidenceSpan,
+  publicStatementSchema,
+} from "./public-commentary-schema";
 import {
   buildPublicCommentarySignalReport,
   publicCommentaryAlertPresentationForBrief,
@@ -877,7 +881,7 @@ export function createProductionPublicCommentaryPipeline(input: {
         artifactDigest: artifact.contentDigest,
         end: plaintext.length,
         kind: "text_span" as const,
-        spanDigest: createHash("sha256").update(plaintext).digest("hex"),
+        spanDigest: digestPublicCommentaryEvidenceSpan(plaintext),
         start: 0,
       });
       try {
@@ -1217,7 +1221,7 @@ async function runInverseCramerExecutiveResearch(input: {
           artifactDigest: artifact.contentDigest,
           end: content.length,
           kind: "text_span" as const,
-          spanDigest: createHash("sha256").update(content).digest("hex"),
+          spanDigest: digestPublicCommentaryEvidenceSpan(content),
           start: 0,
         }],
         memberId: subject.statementRevisionId,

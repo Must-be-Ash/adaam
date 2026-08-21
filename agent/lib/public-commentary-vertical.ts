@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { z } from "zod";
 
 import {
@@ -12,11 +10,13 @@ import {
   parsePublicCommentaryImpactHypotheses,
 } from "./public-commentary-tracker";
 import {
+  attestPublicCommentaryTextSpan,
   commentaryCorrectionSchema,
   commentaryExtractionSchema,
   commentaryFindingSchema,
   commentaryInterpretationSchema,
   commentaryMaterialitySchema,
+  digestPublicCommentaryEvidenceSpan,
   digestPublicCommentaryValue,
   publicStatementRole,
   publicStatementSchema,
@@ -261,7 +261,7 @@ function extractionFromInverseCramerSemantic(input: {
     confidence: input.payload.confidence,
     evidence: [{
       end: input.plaintext.length,
-      spanDigest: createHash("sha256").update(input.plaintext).digest("hex"),
+      spanDigest: digestPublicCommentaryEvidenceSpan(input.plaintext),
       start: 0,
     }],
     extractionId: `commentary-extraction.${digestPublicCommentaryValue([
@@ -333,10 +333,16 @@ export async function materializePublicCommentarySignal(input: {
     statement.contentReference === null ||
     statement.lifecycle !== "final" && statement.lifecycle !== "edited"
   ) throw new Error("public_commentary_statement_not_final");
-  const permitted = new Set(statement.textLocators.map(({ end, spanDigest, start }) =>
-    digestPublicCommentaryValue({ end, spanDigest, start })));
-  if (semanticCitations(semantic).some(({ end, spanDigest, start }) =>
-    !permitted.has(digestPublicCommentaryValue({ end, spanDigest, start })))) {
+  const registered = statement.textLocators.map((span) =>
+    attestPublicCommentaryTextSpan({ plaintext: input.plaintext, span }));
+  const permitted = new Set(registered.filter((identity): identity is string => identity !== null));
+  if (
+    registered.some((identity) => identity === null) ||
+    semanticCitations(semantic).some((span) => {
+      const identity = attestPublicCommentaryTextSpan({ plaintext: input.plaintext, span });
+      return identity === null || !permitted.has(identity);
+    })
+  ) {
     throw new Error("public_commentary_citation_invalid");
   }
   const extraction = input.extraction
@@ -344,9 +350,8 @@ export async function materializePublicCommentarySignal(input: {
     : (await extractCommentaryMetadata({ statement, text: input.plaintext })).extraction;
   if (
     extraction.attribution !== statement.attribution ||
-    extraction.evidence.some(({ end, spanDigest, start }) =>
-      start < 0 || end > input.plaintext.length ||
-      createHash("sha256").update(input.plaintext.slice(start, end)).digest("hex") !== spanDigest)
+    extraction.evidence.some((span) =>
+      attestPublicCommentaryTextSpan({ plaintext: input.plaintext, span }) === null)
   ) throw new Error("public_commentary_extraction_attestation_invalid");
   const interpreted = interpretation(semantic, input.statementRevisionId);
   const registeredPolicy = input.policy ?? INVERSE_CRAMER_POLICY;

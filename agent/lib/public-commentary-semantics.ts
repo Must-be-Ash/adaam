@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
-
 import { z } from "zod";
 
 import {
+  attestPublicCommentaryTextSpan,
   commentaryExtractionSchema,
+  digestPublicCommentaryEvidenceSpan,
   digestPublicCommentaryValue,
   publicStatementRole,
   publicStatementSchema,
@@ -702,7 +702,7 @@ export function createInverseCramerActionabilityDefinition(
 function exactSpan(text: string) {
   return Object.freeze({
     end: text.length,
-    spanDigest: createHash("sha256").update(text).digest("hex"),
+    spanDigest: digestPublicCommentaryEvidenceSpan(text),
     start: 0,
   });
 }
@@ -833,8 +833,8 @@ export async function extractCommentaryMetadata(input: {
   }));
   if (
     recovered.attribution !== statement.attribution ||
-    recovered.evidence.some((span) => span.start < 0 || span.end > input.text.length ||
-      createHash("sha256").update(input.text.slice(span.start, span.end)).digest("hex") !== span.spanDigest)
+    recovered.evidence.some((span) =>
+      attestPublicCommentaryTextSpan({ plaintext: input.text, span }) === null)
   ) throw new Error("citation_invalid");
   return Object.freeze({ extraction: recovered, recovery: Object.freeze({ attempted: true, route }) });
 }

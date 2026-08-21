@@ -8,6 +8,7 @@ import { resolveOfficialWebStatementRuntimePath, resolveXPublicStatementRuntimeP
 import { createPublicSourceSubscription, resolvePublicSourceWorkspaceReference } from "../agent/lib/public-source-workspace-reference";
 import { ensurePublicSourceSubscription, projectPublicSourceAcquisition, type PublicSourceSubscriptionStoreClient } from "../agent/lib/public-source-subscription-store";
 import { resolvePublicCommentaryRuntimeFlags } from "../agent/lib/public-commentary-flags";
+import { attestPublicCommentaryTextSpan, digestPublicCommentaryEvidenceSpan } from "../agent/lib/public-commentary-schema";
 import { projectPublicCommentarySourceEvent } from "../agent/lib/public-commentary-workspace-isolation";
 import { purgeRevocableEvidence, readRevocableEvidenceEnvelope, readRevocableEvidencePayload, transitionRevocableEvidence, type RevocableEvidenceStoreClient } from "../agent/lib/revocable-evidence-store";
 import { X_PUBLIC_STATEMENTS_PUBLIC_SOURCE_ADAPTER, X_PUBLIC_STATEMENTS_SOURCE_ID } from "../agent/lib/strategy-pack-reference-catalog";
@@ -140,6 +141,34 @@ assert.equal(externalReads, 2);
 assert.equal(new URL(fetchedRequests[0]!.url).searchParams.get("since_id"), null);
 assert.equal(new URL(fetchedRequests[0]!.url).searchParams.get("exclude"), "retweets");
 assert.equal(new URL(fetchedRequests[1]!.url).searchParams.get("pagination_token"), "fixture-next");
+// The registered locator and the signed evidence slice use different digest
+// functions, so materialization resolves both through the verified text itself.
+const acquiredOriginal = acquired.statements.find((fact) =>
+  fact.payload.schemaVersion === "public-statement/v1" && fact.payload.statement.stablePostId === "100");
+assert.ok(acquiredOriginal && acquiredOriginal.payload.schemaVersion === "public-statement/v1");
+const acquiredLocator = acquiredOriginal.payload.statement.textLocators[0]!;
+assert.equal(acquiredLocator.spanDigest, acquiredOriginal.payload.statement.contentDigest);
+assert.ok(attestPublicCommentaryTextSpan({
+  plaintext: fixturePosts.original.text,
+  span: acquiredLocator,
+}), "the canonical locator must attest the statement text");
+assert.equal(
+  attestPublicCommentaryTextSpan({ plaintext: fixturePosts.original.text, span: acquiredLocator }),
+  attestPublicCommentaryTextSpan({
+    plaintext: fixturePosts.original.text,
+    span: {
+      end: fixturePosts.original.text.length,
+      spanDigest: digestPublicCommentaryEvidenceSpan(fixturePosts.original.text),
+      start: 0,
+    },
+  }),
+  "the canonical locator and the signed evidence slice must resolve to one verified identity",
+);
+assert.equal(attestPublicCommentaryTextSpan({
+  plaintext: "A different statement.",
+  span: acquiredLocator,
+}), null, "a locator that does not attest the verified text must not resolve");
+
 assert.ok(!JSON.stringify(acquired).includes(fixturePosts.original.text));
 assert.ok(![...store.values.entries()].filter(([key]) => !key.startsWith("revocable-payload:")).some(([, value]) => value.includes(fixturePosts.original.text)));
 for (const fact of acquired.statements) {

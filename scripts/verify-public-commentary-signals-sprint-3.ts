@@ -479,11 +479,21 @@ assert.equal(filteredResult.analyzedStatements, 2);
 assert.equal(filteredResult.finding, null);
 
 const naturalLanguageText = "Micron is executing better than anyone expected and its HBM position keeps improving.";
+// Production registers a canonical statement locator with the same canonical-JSON
+// digest it uses for `contentDigest`, while the signed evidence slice the model
+// cites is digested over the artifact's exact UTF-8 bytes. Both attest the same
+// verified span, so materialization must accept the handoff.
 const naturalLanguageSpan = {
+  end: naturalLanguageText.length,
+  spanDigest: digestPublicCommentaryValue(naturalLanguageText),
+  start: 0,
+};
+const naturalLanguageEvidenceSpan = {
   end: naturalLanguageText.length,
   spanDigest: createHash("sha256").update(naturalLanguageText).digest("hex"),
   start: 0,
 };
+assert.notEqual(naturalLanguageSpan.spanDigest, naturalLanguageEvidenceSpan.spanDigest);
 const naturalLanguageStatement = statement({
   contentDigest: digestPublicCommentaryValue(naturalLanguageText),
   entities: { cashtags: [], mentions: [], urls: [] },
@@ -493,7 +503,7 @@ const directModelPack = { contentDigest: "5".repeat(64), id: "inverse-cramer", v
 const directModelDefinition = createInverseCramerSemanticDefinition(["openai/gpt-5.4"], {
   definitionVersion: "1.0.3",
 });
-const naturalLanguageCitation = { artifactDigest, kind: "text_span" as const, ...naturalLanguageSpan };
+const naturalLanguageCitation = { artifactDigest, kind: "text_span" as const, ...naturalLanguageEvidenceSpan };
 const directModelSemantic = {
   ...semantic,
   counterevidence: [{ citations: [naturalLanguageCitation], statement: "The statement alone does not prove future returns." }],
@@ -636,6 +646,52 @@ const directModelResult = await directModelPipeline.run({
 });
 assert.deepEqual(directModelSelectedSymbols, ["MU"], "the signed semantic input must receive the owner watchlist");
 assert.equal(directModelResult.finding?.facts[0]?.finding.policyDecision.researchDirection, "bearish");
+
+const compactMaterializationInput = {
+  ...base,
+  configuration: { ...configuration, selectedSymbols: ["MU"] },
+  configurationGeneration: 5,
+  pack: compactPack,
+  plaintext: naturalLanguageText,
+  scope: scopeA,
+  semanticResult: compactSemanticResult,
+  statement: naturalLanguageStatement,
+  statementRevisionId: "statement.x.200.natural-language.1",
+};
+const forgedCitation = (span: Readonly<{ end: number; spanDigest: string; start: number }>) => {
+  const payload = { ...compactSemantic, citations: [{ artifactDigest, kind: "text_span" as const, ...span }] };
+  return hybridAcceptedResultSchema.parse({
+    ...compactSemanticResult,
+    model: { ...compactSemanticResult.model, modelOutputDigest: digestHybridEvidenceValue(payload) },
+    outputDigest: digestHybridEvidenceValue(payload),
+    payload,
+    resultId: `hybrid-result.${digestHybridEvidenceValue(payload)}`,
+  });
+};
+await assert.rejects(materializePublicCommentarySignal({
+  ...compactMaterializationInput,
+  semanticResult: forgedCitation({
+    end: naturalLanguageEvidenceSpan.end,
+    spanDigest: createHash("sha256").update("Micron is collapsing.").digest("hex"),
+    start: 0,
+  }),
+}, new MemoryStore()), /public_commentary_citation_invalid/u, "a digest that does not attest the cited text must stay rejected");
+await assert.rejects(materializePublicCommentarySignal({
+  ...compactMaterializationInput,
+  semanticResult: forgedCitation({
+    end: 20,
+    spanDigest: createHash("sha256").update(naturalLanguageText.slice(0, 20)).digest("hex"),
+    start: 0,
+  }),
+}, new MemoryStore()), /public_commentary_citation_invalid/u, "a span the source never registered must stay rejected");
+await assert.rejects(materializePublicCommentarySignal({
+  ...compactMaterializationInput,
+  statement: statement({
+    contentDigest: digestPublicCommentaryValue(naturalLanguageText),
+    entities: { cashtags: [], mentions: [], urls: [] },
+    textLocators: [{ ...naturalLanguageSpan, spanDigest: "f".repeat(64) }],
+  }),
+}, new MemoryStore()), /public_commentary_citation_invalid/u, "a registered locator that does not attest the verified statement must stay rejected");
 
 let overflowSemanticCalls = 0;
 let overflowSemanticActive = 0;

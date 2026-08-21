@@ -47,6 +47,31 @@ export function digestPublicCommentaryValue(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
 }
 
+// Signed evidence slices are digested over their exact UTF-8 bytes because the
+// hybrid evidence artifact store verifies a span by re-reading those bytes,
+// while a canonical public statement registers its locator with the same
+// canonical-JSON digest it uses for `contentDigest`. Both attest the same text,
+// so the shared verified identity of a span is its position plus the actual
+// text it covers, never one layer's raw digest string.
+export function digestPublicCommentaryEvidenceSpan(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+export function attestPublicCommentaryTextSpan(input: {
+  readonly plaintext: string;
+  readonly span: Readonly<{ end: number; spanDigest: string; start: number }>;
+}): string | null {
+  const { end, spanDigest, start } = input.span;
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)) return null;
+  if (start < 0 || start >= end || end > input.plaintext.length) return null;
+  const text = input.plaintext.slice(start, end);
+  const evidenceSpanDigest = digestPublicCommentaryEvidenceSpan(text);
+  if (spanDigest !== evidenceSpanDigest && spanDigest !== digestPublicCommentaryValue(text)) {
+    return null;
+  }
+  return digestPublicCommentaryValue({ end, spanDigest: evidenceSpanDigest, start });
+}
+
 function safePublicUrl(value: string): boolean {
   try {
     const url = new URL(value);
