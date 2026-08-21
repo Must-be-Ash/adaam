@@ -64,7 +64,7 @@ assert.equal(resolvePublicCommentaryFirstRunStart({
   windowEndAt: activatedAt,
 }), "2026-08-20T00:00:00.000Z");
 
-const pack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.1" });
+const pack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.2" });
 assert.ok(pack);
 assert.equal(
   pack.monitors[0]?.lifecycleContractId,

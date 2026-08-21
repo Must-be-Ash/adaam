@@ -163,6 +163,7 @@ export function readAttestedCommentarySemanticResult(input: {
   const definition = directModel
     ? createInverseCramerSemanticDefinition([result.model.modelId], {
         allowedAdapterIds: input.allowedAdapterIds,
+        definitionVersion: result.definition.definitionVersion === "1.0.0" ? "1.0.0" : "1.0.1",
       })
     : createCommentarySemanticDefinition([result.model.modelId], {
         allowedAdapterIds: input.allowedAdapterIds,

@@ -480,19 +480,23 @@ export function createCommentarySemanticDefinition(
 
 export function createInverseCramerSemanticDefinition(
   modelIds: readonly string[],
-  options: Readonly<{ allowedAdapterIds?: readonly string[] }> = {},
+  options: Readonly<{
+    allowedAdapterIds?: readonly string[];
+    definitionVersion?: "1.0.0" | "1.0.1";
+  }> = {},
 ) {
   const allowedModelIds = [...new Set(modelIds)].sort();
   const allowedAdapterIds = [...new Set(options.allowedAdapterIds ?? ["x-public-statements"])].sort();
   if (allowedModelIds.length === 0) throw new Error("hybrid_definition_model_policy_empty");
   if (allowedAdapterIds.length === 0) throw new Error("hybrid_definition_adapter_policy_empty");
+  const definitionVersion = options.definitionVersion ?? "1.0.1";
   const core = {
     accessClassifications: ["public"],
     allowedAdapterIds,
     allowedMediaTypes: ["text/plain"],
     allowedModelIds,
     definitionId: INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
-    definitionVersion: "1.0.0",
+    definitionVersion,
     inputProjection: { schemaId: "workspace-semantic-role-bound-projection", schemaVersion: "2.0.0" },
     instructionTemplate: {
       content: INVERSE_CRAMER_SEMANTIC_INSTRUCTION,
@@ -508,7 +512,7 @@ export function createInverseCramerSemanticDefinition(
     limits: {
       maximumAttempts: 1,
       maximumEvidenceBytes: 25_000,
-      maximumInputTokens: 12_000,
+      maximumInputTokens: definitionVersion === "1.0.0" ? 12_000 : 24_000,
       maximumOutputTokens: 2_000,
       maximumPages: 0,
       maximumPaidCostUsd: "0.2500",

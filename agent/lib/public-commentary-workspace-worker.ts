@@ -390,6 +390,7 @@ export function createProductionPublicCommentaryPipeline(input: {
   const definition = directModelActionability
     ? createInverseCramerSemanticDefinition([semanticRoute.modelId], {
         allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
+        definitionVersion: managedPack.version === "1.4.1" ? "1.0.0" : "1.0.1",
       })
     : createCommentarySemanticDefinition([semanticRoute.modelId], {
         allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],

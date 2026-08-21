@@ -42,15 +42,21 @@ import {
 const versions = strategyPackCatalog.entries
   .filter(({ id }) => id === "inverse-cramer")
   .map(({ version }) => version);
-assert.deepEqual(versions, ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.4.1"]);
+assert.deepEqual(versions, ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.4.1", "1.4.2"]);
 assert.equal(
   strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.0.0" })?.contentDigest,
   "c84defe79be9b72da6deaa7e7c3bc9254fa27f1286a79073b260ee4b90bcb434",
 );
-const latestPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.1" });
+const latestPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.2" });
 assert.ok(latestPack);
 const semanticDefinition = createCommentarySemanticDefinition(["openai/gpt-5.4"]);
 const directSemanticDefinition = createInverseCramerSemanticDefinition(["openai/gpt-5.4"]);
+assert.equal(directSemanticDefinition.definitionVersion, "1.0.1");
+assert.equal(directSemanticDefinition.limits.maximumInputTokens, 24_000);
+assert.ok(
+  (latestPack?.monitors[0]?.suggestedBudget.maximumInputTokensPerRun ?? 0) >=
+    directSemanticDefinition.limits.maximumInputTokens,
+);
 const scheduledAt = new Date("2026-08-19T18:23:12.551Z");
 const dispatchedAt = new Date("2026-08-19T18:24:31.000Z");
 assert.equal(resolveHybridEvidenceWorkerIssuedAt({
@@ -137,7 +143,7 @@ assert.deepEqual(latestPack.evidenceContracts.find(({ id }) =>
   id === "inverse-cramer-semantic-materiality"), {
   digest: directSemanticDefinition.definitionDigest,
   id: "inverse-cramer-semantic-materiality",
-  version: "1.0.0",
+  version: "1.0.1",
 });
 assert.equal(latestPack.monitors[0]?.suggestedBudget.maximumInputTokensPerRun, 25_000);
 const workerRequest = {} as Parameters<typeof drainPublicCommentaryHybridWorker>[0];
@@ -184,7 +190,7 @@ assert.deepEqual(
     EVE_STRATEGY_PACK_CATALOG_ENABLED: "1",
     EVE_WORKSPACE_STATE_ENABLED: "1",
   } }).packs.filter(({ id }) => id === "inverse-cramer").map(({ version }) => version),
-  ["1.4.1"],
+  ["1.4.2"],
 );
 assert.equal(latestPack.configuration.some(({ key }) => key === "firstRunLookback"), false);
 assert.equal(resolveStrategyPackInitialMonitorDueAt({
