@@ -206,7 +206,7 @@ The initial `origin/main` audit identified the following candidates. Each active
 
 - [x] Baseline A — Shared durable-research U1–U4 implemented; `ipo-filings@1.1.1` passed one zero-usage Production acceptance and was cleaned up. Receipt is in `docs/plans/2026-08-20-1154-feat-agentic-durable-research-plan.md`.
 - [x] Baseline B — Shared hybrid-evidence worker contract dispatch landed in commit `58901f8`; Production deploy trigger `f88d7c3` is healthy.
-- [ ] U1 — Migrate and accept Inverse Cramer.
+- [x] U1 — Migrate and accept Inverse Cramer.
 - [ ] U2 — Migrate and accept Public Commentary Tracker.
 - [ ] U3 — Migrate and accept Earnings Call Changes.
 - [ ] U4 — Repair, migrate, and accept Congressional Signals.
@@ -257,10 +257,11 @@ The initial `origin/main` audit identified the following candidates. Each active
 - [x] Smallest contract migration implemented. Inverse Cramer `1.4.0` declares its lifecycle and research contracts; generic scheduling and dispatch no longer select it by strategy name; final research, nested spend, executive output, and replay use the shared registered plumbing while historical pack versions remain immutable.
 - [x] Focused verification and concise diff review green. Lifecycle dispatch/skip/deduplication, public-commentary Sprints 0–4/follow-up/tracker reuse, shared research U1–U3/contract dispatch, aggregate-versus-per-call budget enforcement, pack/runtime/owner surfaces, workspace/worker isolation, the frozen real-source fixture, one controlled real-model case, TypeScript, Eve build, application build, and `git diff --check` passed.
 - [x] Commit pushed to `main`; Production health and bounded logs green. Implementation `f1c4749` and verified-author deploy trigger `8115d75` produced READY deployment `dpl_iUzzPpKvHyB2iCoHkpHicsPYRGPt`; `/`, `/skill`, and `/eve/v1/health` returned HTTP 200, and the bounded post-ready error/warning log scan was empty.
-- [ ] Production acceptance blocker — the single owner-authorized `strategy-pack-create` attempt for a fresh paused `inverse-cramer@1.4.0` workspace failed at `2026-08-21T05:01:50Z` before registry commit. Production logged `strategy_pack_mutation_failure_total` with `reasonCode: storage_failure` and the manager route returned its storage-failure response. Routing remained revision 82, no matching workspace or monitor exists, no occurrence dispatched, and no cost was incurred. Per the unit stop condition, do not retry creation or begin U2 until this creation-path failure is diagnosed and repaired in a separately authorized focused step.
-- [ ] One zero-usage Production occurrence terminal and reported.
-- [ ] Disposable monitor paused/archived and non-dispatchable.
-- [ ] U1 and Progress Tracker marked complete before U2 begins.
+- [x] Creation-path blocker contained. Redaction-safe transaction diagnostics shipped in `d9998c0`; the original Upstash `storage_failure` did not reproduce on the next single paused diagnostic creation, so it is recorded as transient rather than claimed fixed. The diagnostic workspace was archived normally with `nextOccurrenceAt: null`, no occurrence, and no cost.
+- [x] First-run selection hypothesis disproved before a code repair. A focused production-pipeline fixture now proves a declared 12-hour cadence contract sends one acquired original/final post into deterministic analysis while preserving the no-search/no-semantic path for non-actionable commentary. The prior live semantic count of zero therefore reflects the designed deterministic actionability gate, not loss at baseline selection.
+- [x] One zero-usage Production occurrence terminal and reported. Fresh workspace `Inverse Cramer U1 Acceptance 0528` (`inverse-cramer@1.4.0`) acquired three complete original/final X posts in its cadence-derived interval and terminalized once as `no_match`. Deterministic extraction found no statement eligible for frontier interpretation, so semantic research, findings, artifacts, and Photon delivery were correctly not invoked. The scheduled occurrence reserved 25,000 input tokens, 12,000 output tokens, and `$3.500000`; its nested X call reserved `$1.000000`. Both reconciled to 5,746 input tokens, 859 output tokens, and `$0.015000` actual total spend (three billable X reads), with zero active workers.
+- [x] Disposable monitor paused/archived and non-dispatchable. Monitor `ac472433-4336-539e-bf93-6ad3b56e5880` is `suspended_archived`, configuration revision 4, `lastCompletedAt: 2026-08-21T05:29:21.867Z`, `lastErrorCode: null`, and `nextOccurrenceAt: null`; Main was restored active.
+- [x] U1 and Progress Tracker marked complete before U2 begins.
 
 ### U2. Migrate and accept Public Commentary Tracker
 

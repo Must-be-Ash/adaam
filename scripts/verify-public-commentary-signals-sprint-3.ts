@@ -17,6 +17,7 @@ import { workspaceFindingCandidateSchema } from "../agent/lib/workspace-finding-
 import { readWorkspaceBudgetLedger, reserveWorkspaceRunBudget, type WorkspaceBudgetLedgerClient } from "../agent/lib/workspace-budget-ledger";
 import { writeWorkspaceDocument, type WorkspaceStateStoreClient } from "../agent/lib/workspace-state-store";
 import { isWorkspaceMonitorCheckpointOnlyBaseline, prepareWorkspaceMonitorCreate, requiresManagedMonitorActivationWatermark } from "../agent/lib/workspace-monitor-store";
+import { PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID } from "../agent/lib/workspace-monitor-lifecycle-contract";
 import { STRATEGY_PACK_REFERENCE_CATALOG } from "../agent/lib/strategy-pack-reference-catalog";
 import { commitThenAcknowledgePublicCommentaryResult, createProductionPublicCommentaryPipeline } from "../agent/lib/public-commentary-workspace-worker";
 import { authorizeWorkspaceXExactPostFetch, completeWorkspaceSourceCoverage, createWorkspaceSourceCoverage, readWorkspaceSourceCoverage, WorkspaceSourceCoverageError } from "../agent/lib/workspace-source-coverage";
@@ -93,8 +94,10 @@ const ownerId = "owner_fixture";
 const environment = { EVE_DEPLOYMENT_OWNER_ID: ownerId };
 const workspaceA = "11111111-1111-4111-8111-111111111111";
 const workspaceB = "22222222-2222-4222-8222-222222222222";
+const workspaceC = "33333333-3333-4333-8333-333333333333";
 const scopeA = authorizeDeploymentWorkspaceStore({ ownerId, workspaceId: workspaceA }, environment);
 const scopeB = authorizeDeploymentWorkspaceStore({ ownerId, workspaceId: workspaceB }, environment);
+const scopeC = authorizeDeploymentWorkspaceStore({ ownerId, workspaceId: workspaceC }, environment);
 const store = new MemoryStore();
 const now = "2026-08-18T18:00:00.000Z";
 const text = "I remain bullish on $AAPL for the next quarter.";
@@ -886,6 +889,153 @@ await assert.rejects(completeWorkspaceSourceCoverage({
 }, productionRuntime), (error) =>
   error instanceof WorkspaceSourceCoverageError && error.code === "source_coverage_conflict",
   "a different completed result must remain a genuine conflict");
+
+const cadenceRuntime = new MemoryRuntimeCas();
+const cadencePack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.0" });
+assert.ok(cadencePack && cadencePack.availability === "available");
+const cadenceMonitor = prepareWorkspaceMonitorCreate({
+  activateManagedMonitor: true,
+  deliverySubscriptionId: "delivery.inverse-cramer.cadence-first-run",
+  idempotencyKey: "inverse-cramer-cadence-first-run",
+  instruction: "Evaluate exactly one cadence-derived first-run interval.",
+  lifecycleContractId: PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID,
+  managedBy: {
+    bindingRevision: 1,
+    kind: "strategy_pack",
+    packContentDigest: cadencePack.contentDigest,
+    packId: cadencePack.id,
+    packVersion: cadencePack.version,
+    resourceId: "evaluate-public-commentary",
+  },
+  name: "Inverse Cramer cadence first-run fixture",
+  nextOccurrenceAt: now,
+  now: new Date(now),
+  publicSourceIds: ["x-jim-cramer-public-statements"],
+  schedule: { anchor: now, everyMinutes: 720, kind: "interval" },
+  scope: scopeC,
+  sources: productionMonitor.sources,
+}).monitor;
+assert.equal(isWorkspaceMonitorCheckpointOnlyBaseline(cadenceMonitor), true);
+await writeWorkspaceDocument("budget", {
+  expectedRevision: 0,
+  now: new Date(now),
+  scope: scopeC,
+  value: productionBudget,
+}, cadenceRuntime);
+const cadenceRunId = "run.inverse-cramer.cadence-first-run";
+await reserveWorkspaceRunBudget({
+  inputTokens: productionBudget.maximumInputTokensPerRun,
+  kind: "scheduled_monitor",
+  now: new Date(now),
+  outputTokens: productionBudget.maximumOutputTokensPerRun,
+  paidCostCeiling: { amount: "2.000000", kind: "known" },
+  policy: productionBudget,
+  policyRevision: 1,
+  runId: cadenceRunId,
+  scope: scopeC,
+}, cadenceRuntime);
+await createWorkspaceSourceCoverage({
+  configurationRevision: cadenceMonitor.configurationRevision,
+  monitorId: cadenceMonitor.monitorId,
+  now: new Date(now),
+  runId: cadenceRunId,
+  scope: scopeC,
+  sources: cadenceMonitor.sources.map(({ canonicalUrl, origin, sourceId }) => ({
+    canonicalUrl,
+    origin,
+    sourceId,
+  })),
+  window: { endAt: now, startAt: "2026-08-18T06:00:00.000Z" },
+}, cadenceRuntime);
+const cadenceTimelineUrls: string[] = [];
+const cadencePipeline = createProductionPublicCommentaryPipeline({
+  allowedModelIds: ["openai/gpt-5.4"],
+  clients: {
+    acquisition: cadenceRuntime,
+    artifacts: createHybridEvidenceEphemeralArtifactStore({
+      blob: new MemoryBlob(),
+      index: cadenceRuntime,
+    }),
+    commentaryFindings: cadenceRuntime,
+    corroboration: { async search() { throw new Error("non_actionable_first_run_must_not_search"); } },
+    fetchResponse: async (request) => {
+      assert.equal(request.kind, "timeline");
+      cadenceTimelineUrls.push(request.url);
+      const cadenceText = "Tune in tonight for the latest market discussion.";
+      return {
+        body: JSON.stringify({
+          data: [{
+            author_id: "14216123",
+            conversation_id: "950",
+            created_at: "2026-08-18T17:00:00.000Z",
+            edit_controls: { editable_until: "2026-08-18T17:30:00.000Z" },
+            edit_history_tweet_ids: ["950"],
+            entities: {},
+            id: "950",
+            text: cadenceText,
+          }],
+          meta: { newest_id: "950", result_count: 1 },
+        }),
+        finalUrl: request.url,
+        observedAt: "2026-08-18T18:00:16.000Z",
+        rateLimit: 100,
+        rateRemaining: 99,
+        rateReset: 1_777_000_000,
+        requestedUrl: request.url,
+        status: 200,
+      };
+    },
+    sourceCoverage: cadenceRuntime,
+    semantic: { budget: cadenceRuntime },
+    state: cadenceRuntime,
+    subscription: cadenceRuntime,
+    xEvidence: {
+      client: cadenceRuntime,
+      encryptionKey: Buffer.alloc(32, 8),
+      keyReference: "kms://fixture/public-commentary-cadence",
+    },
+  },
+  environment: {
+    EVE_HYBRID_FAST_MODEL_ID: "anthropic/claude-haiku-4.5",
+    EVE_HYBRID_FAST_MODEL_REASONING: "provider-default",
+    EVE_HYBRID_FRONTIER_MODEL_ID: "openai/gpt-5.4",
+    EVE_HYBRID_FRONTIER_MODEL_REASONING: "high",
+    EVE_PUBLIC_SOURCE_ACQUISITION_ENABLED: "1",
+    EVE_PUBLIC_SOURCE_PROJECTIONS_ENABLED: "1",
+    EVE_X_PUBLIC_STATEMENT_SOURCE_ENABLED: "1",
+  },
+  monitor: cadenceMonitor,
+  now: new Date(now),
+  runId: cadenceRunId,
+  scope: scopeC,
+  workspaceGeneration: 1,
+});
+const cadenceFirstRun = await cadencePipeline.run({
+  configuration: { ...configuration, cadenceMinutes: "hours_12" },
+  configurationGeneration: 1,
+  environment: {
+    EVE_HYBRID_FAST_MODEL_ID: "anthropic/claude-haiku-4.5",
+    EVE_HYBRID_FAST_MODEL_REASONING: "provider-default",
+    EVE_HYBRID_FRONTIER_MODEL_ID: "openai/gpt-5.4",
+    EVE_HYBRID_FRONTIER_MODEL_REASONING: "high",
+  },
+  initialBackfill: true,
+  monitorId: cadenceMonitor.monitorId,
+  ownerId,
+  parentBudgetRunId: cadenceRunId,
+  pack: {
+    contentDigest: cadencePack.contentDigest,
+    id: cadencePack.id,
+    lifecycleContractId: PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID,
+    version: cadencePack.version,
+  },
+  scope: scopeC,
+  window: { endAt: now, startAt: "2026-08-18T06:00:00.000Z" },
+});
+assert.equal(new URL(cadenceTimelineUrls[0]!).searchParams.get("start_time"), "2026-08-18T06:00:00.000Z");
+assert.equal(cadenceFirstRun.analyzedStatements, 1,
+  "a cadence-derived first run must pass its acquired interval into deterministic statement analysis");
+assert.equal(cadenceFirstRun.finding, null);
 
 const productionMonitorB = prepareWorkspaceMonitorCreate({
   activateManagedMonitor: true,
