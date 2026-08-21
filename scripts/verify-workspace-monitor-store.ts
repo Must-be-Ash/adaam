@@ -24,6 +24,7 @@ import {
 } from "../agent/lib/workspace-monitor-store";
 import type { WorkspaceStrategyBindingValue } from "../agent/lib/workspace-state-store";
 import { authorizePhotonWorkspaceControlPlaneStore } from "../agent/lib/workspace-store-authorization";
+import { PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID } from "../agent/lib/workspace-monitor-lifecycle-contract";
 
 class MemoryStore implements WorkspaceMonitorStoreClient {
   calls = 0;
@@ -274,9 +275,10 @@ const inverseMonitor = await createWorkspaceMonitor({
     kind: "strategy_pack",
     packContentDigest: packDigest,
     packId: "inverse-cramer",
-    packVersion: "1.3.0",
-    resourceId: "monitor-inverse-cramer-commentary",
+    packVersion: "1.4.0",
+    resourceId: "evaluate-public-commentary",
   },
+  lifecycleContractId: PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID,
   name: "Inverse Cramer",
   nextOccurrenceAt: scheduledFor,
   now,
@@ -340,9 +342,10 @@ const staleInverseMonitor = await createWorkspaceMonitor({
     kind: "strategy_pack",
     packContentDigest: packDigest,
     packId: "inverse-cramer",
-    packVersion: "1.3.0",
-    resourceId: "monitor-inverse-cramer-commentary",
+    packVersion: "1.4.0",
+    resourceId: "evaluate-public-commentary",
   },
+  lifecycleContractId: PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID,
   name: "Stale inverse Cramer",
   nextOccurrenceAt: scheduledFor,
   now,

@@ -2463,8 +2463,9 @@ export default defineChannel({
                 lifecycleState: "enabled",
                 nextOccurrenceAt: resolveStrategyPackInitialMonitorDueAt({
                   activate: monitor.sourceCheckpoint.contentDigest === null,
+                  lifecycleContractId: monitor.lifecycleContractId,
+                  managedBy: monitor.managedBy,
                   now,
-                  packId: monitor.managedBy?.packId ?? "",
                   scheduledAt: next.scheduledAt,
                 }),
                 pauseReason: null,

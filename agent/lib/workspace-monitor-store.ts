@@ -3,6 +3,8 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { z } from "zod";
 
+import { resolveManagedMonitorLifecycleContract } from "./workspace-monitor-lifecycle-contract";
+
 import {
   authorizeDeploymentWorkspaceStore,
   assertAuthorizedWorkspaceStoreScope,
@@ -236,6 +238,7 @@ const monitorSchema = z
     lastCompletedAt: timestampSchema.nullable(),
     lastErrorCode: z.string().max(64).nullable(),
     lastRunAt: timestampSchema.nullable(),
+    lifecycleContractId: idSchema.optional(),
     lifecycleState: z.enum([
       "enabled",
       "paused",
@@ -294,7 +297,7 @@ const monitorSchema = z
         context.addIssue({ code: "custom", message: "Enabled monitor cannot be paused." });
       }
       if (
-        (monitor.managedBy?.packId === "inverse-cramer" || monitor.managedBy?.packId === "public-commentary-tracker") &&
+        resolveManagedMonitorLifecycleContract(monitor)?.activationWatermark === "on_enable" &&
         monitor.activationWatermark === undefined
       ) {
         context.addIssue({ code: "custom", message: "Managed monitor needs an activation watermark." });
@@ -336,15 +339,20 @@ export type WorkspaceMonitorSchedule = z.infer<typeof workspaceMonitorScheduleSc
 export type WorkspaceMonitorManagedBy = z.infer<typeof workspaceMonitorManagedBySchema>;
 export type WorkspaceMonitorOccurrence = z.infer<typeof occurrenceSchema>;
 
-export function requiresManagedMonitorActivationWatermark(packId: string | null | undefined): boolean {
-  return packId === "earnings-call-changes" || packId === "inverse-cramer" ||
-    packId === "public-commentary-tracker";
+export function requiresManagedMonitorActivationWatermark(
+  monitor: Readonly<{
+    lifecycleContractId?: string;
+    managedBy?: WorkspaceMonitorManagedBy | null;
+  }>,
+): boolean {
+  return monitor.managedBy?.packId === "earnings-call-changes" ||
+    resolveManagedMonitorLifecycleContract(monitor)?.activationWatermark === "on_enable";
 }
 
 export function isWorkspaceMonitorCheckpointOnlyBaseline(
-  monitor: Pick<WorkspaceMonitor, "activationWatermark" | "managedBy" | "sourceCheckpoint">,
+  monitor: Pick<WorkspaceMonitor, "activationWatermark" | "lifecycleContractId" | "managedBy" | "sourceCheckpoint">,
 ): boolean {
-  return requiresManagedMonitorActivationWatermark(monitor.managedBy?.packId) &&
+  return requiresManagedMonitorActivationWatermark(monitor) &&
     monitor.activationWatermark !== undefined &&
     monitor.sourceCheckpoint.contentDigest === null &&
     monitor.sourceCheckpoint.watermark === null;
@@ -720,8 +728,7 @@ export async function claimDueWorkspaceMonitors(
     }
     const selection = selectWorkspaceMonitorDueOccurrence({
       ...(isWorkspaceMonitorCheckpointOnlyBaseline(monitor) &&
-          (monitor.managedBy?.packId === "inverse-cramer" ||
-            monitor.managedBy?.packId === "public-commentary-tracker") &&
+          resolveManagedMonitorLifecycleContract(monitor)?.initialOccurrence === "immediate" &&
           monitor.activationWatermark === monitor.nextOccurrenceAt
         ? { immediateOccurrenceAt: monitor.activationWatermark }
         : {}),
@@ -820,6 +827,7 @@ export interface WorkspaceMonitorCreateInput {
     endAt?: string | null;
     idempotencyKey?: string;
     instruction: string;
+    lifecycleContractId?: string;
     managedBy?: z.input<typeof workspaceMonitorManagedBySchema> | null;
     name: string;
     nextOccurrenceAt: string | null;
@@ -947,7 +955,7 @@ export function prepareWorkspaceMonitorCreate(
       workspaceId: input.scope.workspaceId,
     }));
   const candidate = monitorSchema.safeParse({
-    ...(enabled && requiresManagedMonitorActivationWatermark(input.managedBy?.packId)
+    ...(enabled && requiresManagedMonitorActivationWatermark(input)
       ? { activationWatermark: now }
       : {}),
     configurationRevision: 1,
@@ -959,6 +967,7 @@ export function prepareWorkspaceMonitorCreate(
     lastCompletedAt: null,
     lastErrorCode: null,
     lastRunAt: null,
+    ...(input.lifecycleContractId ? { lifecycleContractId: input.lifecycleContractId } : {}),
     lifecycleState: enabled ? "enabled" : "paused",
     managedBy: input.managedBy ?? null,
     monitorId,
@@ -1239,7 +1248,7 @@ export async function updateWorkspaceMonitor(
     ...current,
     ...input.patch,
     ...(targetLifecycle === "enabled" && current.lifecycleState !== "enabled" &&
-        requiresManagedMonitorActivationWatermark(current.managedBy?.packId) && !current.activationWatermark
+        requiresManagedMonitorActivationWatermark(current) && !current.activationWatermark
       ? { activationWatermark: updatedAt }
       : {}),
     configurationRevision: current.configurationRevision + 1,

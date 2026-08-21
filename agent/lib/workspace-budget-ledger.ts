@@ -400,6 +400,7 @@ export async function reserveWorkspaceRunBudget(
   const now = input.now ?? new Date();
   const timestamp = now.toISOString();
   const calendar = calendarParts(now, policy.ownerTimezone);
+  const kind = input.kind ?? "scheduled_monitor";
   if (
     !Number.isSafeInteger(input.inputTokens) ||
     input.inputTokens < 0 ||
@@ -419,7 +420,10 @@ export async function reserveWorkspaceRunBudget(
     paid > 0n
       ? effectivePaidCaps(policy, input.deploymentPaidCaps)
       : undefined;
-  if (caps && paid > caps.call) {
+  // A scheduled-monitor reservation is the occurrence's aggregate spend
+  // envelope, not a provider call. Per-call limits apply to each nested model
+  // or paid-source reservation while the parent remains bounded by day/month.
+  if (caps && kind !== "scheduled_monitor" && paid > caps.call) {
     throw new WorkspaceBudgetError("budget_exhausted");
   }
 
@@ -444,7 +448,6 @@ export async function reserveWorkspaceRunBudget(
       throw new WorkspaceBudgetError("budget_policy_stale");
     }
     const reservations = prune(current.reservations, calendar.month);
-    const kind = input.kind ?? "scheduled_monitor";
     const parent = input.parentRunId === undefined
       ? null
       : reservations.find(({ runId }) => runId === input.parentRunId) ?? null;

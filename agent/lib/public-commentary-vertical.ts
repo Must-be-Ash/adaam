@@ -531,10 +531,20 @@ export interface PublicCommentaryProjectedStatement {
   readonly statementRevisionId: string;
 }
 
+export interface PublicCommentaryResearchSubject extends PublicCommentaryProjectedStatement {
+  readonly acquisitionId: string;
+  readonly counterevidence?: readonly string[];
+  readonly factPayloadDigest: string;
+  readonly sourceInstanceId: string;
+  readonly subscriptionId: string;
+  readonly summary?: string;
+  readonly uncertainty?: readonly string[];
+}
+
 type PublicCommentarySemanticRun = Pick<
   WorkspaceSemanticEvidenceBundleRunResult,
   "evidence" | "record" | "strategyEvidence"
->;
+> & Readonly<{ researchSubject?: PublicCommentaryResearchSubject }>;
 
 export function publicCommentaryStatementAttemptId(input: {
   readonly configurationGeneration: number;
@@ -598,6 +608,7 @@ async function runBudgetedCorroboration(input: {
   readonly configurationGeneration: number;
   readonly environment: NodeJS.ProcessEnv;
   readonly now: Date;
+  readonly parentRunId?: string;
   readonly provider: WebCorroborationProvider;
   readonly query: ReturnType<typeof compileWebCorroborationQuery>;
   readonly scope: AuthorizedWorkspaceStoreScope;
@@ -686,6 +697,7 @@ async function runBudgetedCorroboration(input: {
     now: input.now,
     outputTokens: 0,
     paidCostCeiling: { amount: EXA_SEARCH_RESERVATION_USD, kind: "known" },
+    parentRunId: input.parentRunId,
     policy: budget.value,
     policyRevision: budget.revision,
     runId: input.attemptId,
@@ -762,6 +774,7 @@ export function createPublicCommentaryPipeline(input: {
       initialBackfill?: boolean;
       monitorId: string;
       ownerId: string;
+      parentBudgetRunId?: string;
       pack: Readonly<{ contentDigest: string; id: string; version: string }>;
       scope: AuthorizedWorkspaceStoreScope;
       window: Readonly<{ endAt: string; startAt: string }>;
@@ -869,6 +882,7 @@ export function createPublicCommentaryPipeline(input: {
             configurationGeneration: request.configurationGeneration,
             environment: request.environment,
             now: new Date(request.window.endAt),
+            parentRunId: request.parentBudgetRunId,
             provider: input.corroboration,
             query,
             scope: request.scope,
@@ -889,11 +903,15 @@ export function createPublicCommentaryPipeline(input: {
             extraction,
             impactClassification: impact?.classification ?? null,
             projected,
+            researchSubject: semanticRun.researchSubject ?? null,
             semanticResult: semanticRun.evidence.result,
             statement,
           });
       };
-      const accepted: Awaited<ReturnType<typeof materializePublicCommentarySignal>>[] = [];
+      const accepted: Array<Readonly<{
+        materialized: Awaited<ReturnType<typeof materializePublicCommentarySignal>>;
+        researchSubject: PublicCommentaryResearchSubject | null;
+      }>> = [];
       for (const batch of partitionPublicCommentaryStatements(acquired.statements)) {
         const prepared: PromiseSettledResult<Awaited<ReturnType<typeof prepareProjected>>>[] = [];
         for (let offset = 0; offset < batch.length; offset += PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.semanticConcurrency) {
@@ -905,8 +923,8 @@ export function createPublicCommentaryPipeline(input: {
         if (rejected) throw rejected.reason;
         for (const result of prepared) {
           if (result.status !== "fulfilled" || result.value === null) continue;
-          const { corroboration, extraction, impactClassification, projected, semanticResult, statement } = result.value;
-          accepted.push(await materializePublicCommentarySignal({
+          const { corroboration, extraction, impactClassification, projected, researchSubject, semanticResult, statement } = result.value;
+          const materialized = await materializePublicCommentarySignal({
             configuration: {
               alerts: configuration.alerts,
               minimumConfidence: configuration.minimumConfidence,
@@ -935,14 +953,27 @@ export function createPublicCommentaryPipeline(input: {
             source: projected.source,
             statement,
             statementRevisionId: projected.statementRevisionId,
-          }, input.findings));
+          }, input.findings);
+          const semantic = commentarySemanticPayloadSchema.parse(semanticResult.payload);
+          accepted.push(Object.freeze({
+            materialized,
+            researchSubject: researchSubject ? Object.freeze({
+              ...researchSubject,
+              counterevidence: Object.freeze(semantic.counterevidence.map(({ statement }) => statement)),
+              summary: semantic.rationale,
+              uncertainty: Object.freeze([
+                ...semantic.assumptions,
+                ...(semantic.forecast?.risks.map(({ statement }) => statement) ?? []),
+              ]),
+            }) : null,
+          }));
         }
       }
-      const allMaterial = accepted.filter(({ genericFinding }) => genericFinding !== null);
+      const allMaterial = accepted.filter(({ materialized }) => materialized.genericFinding !== null);
       const material = allMaterial.slice(0, PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumFacts);
-      const facts = material.flatMap(({ genericFinding }) => genericFinding!.facts ?? [])
+      const facts = material.flatMap(({ materialized }) => materialized.genericFinding!.facts ?? [])
         .slice(0, PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumFacts);
-      const factIdentities = material.flatMap(({ genericFinding }) => genericFinding!.factIdentities)
+      const factIdentities = material.flatMap(({ materialized }) => materialized.genericFinding!.factIdentities)
         .slice(0, PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumFactIdentities);
       const aggregateSummary = allMaterial.length === 0 ? null : [
         `${allMaterial.length} validated public-commentary research candidate${allMaterial.length === 1 ? "" : "s"}.`,
@@ -954,23 +985,24 @@ export function createPublicCommentaryPipeline(input: {
       }
       const finding = material.length === 0 ? null : workspaceFindingCandidateSchema.parse({
         accessClassification: "public",
-        artifactRefs: material.flatMap(({ genericFinding }) => genericFinding!.artifactRefs).slice(0, 8),
-        asOf: material.map(({ genericFinding }) => genericFinding!.asOf).sort().at(-1)!,
+        artifactRefs: material.flatMap(({ materialized }) => materialized.genericFinding!.artifactRefs).slice(0, 8),
+        asOf: material.map(({ materialized }) => materialized.genericFinding!.asOf).sort().at(-1)!,
         factIdentities,
         facts,
-        provenance: material.flatMap(({ genericFinding }) => genericFinding!.provenance).filter((source, index, values) =>
+        provenance: material.flatMap(({ materialized }) => materialized.genericFinding!.provenance).filter((source, index, values) =>
           values.findIndex((candidate) => candidate.sourceId === source.sourceId && candidate.canonicalUrl === source.canonicalUrl) === index),
         summary: aggregateSummary,
       });
-      const firstAlert = allMaterial.find(({ alertPresentation }) => alertPresentation !== null)?.alertPresentation ?? null;
+      const firstAlert = allMaterial.find(({ materialized }) => materialized.alertPresentation !== null)
+        ?.materialized.alertPresentation ?? null;
       const alertPresentations = request.initialBackfill
         ? firstAlert ? [{
             key: "initial-summary",
             title: `${request.pack.id === "inverse-cramer" ? "Inverse Cramer" : "Public Commentary Tracker"} · initial ${configuration.cadenceMinutes.replaceAll("_", " ")} summary`,
             whyMatched: `${allMaterial.length} eligible statement${allMaterial.length === 1 ? "" : "s"} in the initial cadence interval; one summary alert was emitted to avoid spam. ${firstAlert.whyMatched}`,
           }] : []
-        : allMaterial.flatMap(({ alertPresentation, record }) => alertPresentation
-          ? [{ key: record.finding.statementRevisionId, ...alertPresentation }]
+        : allMaterial.flatMap(({ materialized }) => materialized.alertPresentation
+          ? [{ key: materialized.record.finding.statementRevisionId, ...materialized.alertPresentation }]
           : []);
       return Object.freeze({
         alertPresentation: alertPresentations[0] ?? null,
@@ -978,6 +1010,8 @@ export function createPublicCommentaryPipeline(input: {
         analyzedStatements: acquired.statements.length,
         checkpoint: acquired.checkpoint,
         finding,
+        researchSubjects: Object.freeze(material.flatMap(({ researchSubject }) =>
+          researchSubject ? [researchSubject] : [])),
       });
     },
   });

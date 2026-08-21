@@ -9,6 +9,13 @@ export interface HybridEvidenceWorkerContract {
   readonly definitionId: string;
   readonly research: Readonly<{
     approvedUrlPolicy: "evidence_sources";
+    budget: Readonly<{
+      maximumPaidPerCall: string;
+      maximumPaidPerDay: string;
+      maximumPaidPerMonth: string;
+      paidPerRun: string;
+      unknownPriceFallbackCeiling: string;
+    }>;
     requiresParentRunId: true;
   }> | null;
 }

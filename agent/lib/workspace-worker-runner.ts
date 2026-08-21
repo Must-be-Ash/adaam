@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { SessionAuthContext } from "eve/context";
 
 import type { WorkspaceDispatchReservation } from "./workspace-dispatch-budget";
+import { resolveManagedMonitorLifecycleContract } from "./workspace-monitor-lifecycle-contract";
 import {
   readWorkspaceRunOutcome,
   type WorkspaceFindingStoreClient,
@@ -220,11 +221,10 @@ export function resolveWorkspaceWorkerEvaluationWindow(job: ClaimedWorkspaceMoni
   const intervalMinutes = job.monitor.schedule.kind === "interval"
     ? job.monitor.schedule.everyMinutes
     : null;
+  const lifecycle = resolveManagedMonitorLifecycleContract(job.monitor);
   const cadenceBackfill = job.monitor.sourceCheckpoint.watermark === null &&
     intervalMinutes !== null &&
-    (job.monitor.managedBy?.packId === "public-commentary-tracker" ||
-      (job.monitor.managedBy?.packId === "inverse-cramer" &&
-        !["1.0.0", "1.1.0"].includes(job.monitor.managedBy.packVersion)));
+    lifecycle?.initialEvaluationWindow === "preceding_interval";
   const startAt = job.monitor.sourceCheckpoint.watermark ?? (cadenceBackfill
     ? new Date(Date.parse(endAt) - intervalMinutes! * 60_000).toISOString()
     : job.monitor.createdAt);

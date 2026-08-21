@@ -14,7 +14,7 @@ import { projectPublicCommentarySourceEvent } from "../agent/lib/public-commenta
 import { createExaWebCorroborationProvider, compileWebCorroborationQuery } from "../agent/lib/web-corroboration-search";
 import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization";
 import { workspaceFindingCandidateSchema } from "../agent/lib/workspace-finding-store";
-import { readWorkspaceBudgetLedger, type WorkspaceBudgetLedgerClient } from "../agent/lib/workspace-budget-ledger";
+import { readWorkspaceBudgetLedger, reserveWorkspaceRunBudget, type WorkspaceBudgetLedgerClient } from "../agent/lib/workspace-budget-ledger";
 import { writeWorkspaceDocument, type WorkspaceStateStoreClient } from "../agent/lib/workspace-state-store";
 import { isWorkspaceMonitorCheckpointOnlyBaseline, prepareWorkspaceMonitorCreate, requiresManagedMonitorActivationWatermark } from "../agent/lib/workspace-monitor-store";
 import { STRATEGY_PACK_REFERENCE_CATALOG } from "../agent/lib/strategy-pack-reference-catalog";
@@ -177,7 +177,16 @@ assert.equal(pack.monitors[0] && "intervalMinutesConfigurationKey" in pack.monit
 assert.equal(pack.evidenceContracts.find(({ id }) => id === INVERSE_CRAMER_POLICY.policy.policyId)?.digest, INVERSE_CRAMER_POLICY.policy.definitionDigest);
 assert.ok(pack.capabilities.hardDenied.includes("broker.mutation"));
 assert.ok(!STRATEGY_PACK_REFERENCE_CATALOG.capabilityIds.some((id) => /broker|order|trade/iu.test(id)));
-assert.equal(requiresManagedMonitorActivationWatermark("inverse-cramer"), true);
+assert.equal(requiresManagedMonitorActivationWatermark({
+  managedBy: {
+    bindingRevision: 1,
+    kind: "strategy_pack",
+    packContentDigest: pack.contentDigest,
+    packId: "inverse-cramer",
+    packVersion: "1.0.0",
+    resourceId: "evaluate-public-commentary",
+  },
+}), true);
 const activeMonitor = prepareWorkspaceMonitorCreate({
   activateManagedMonitor: true,
   deliverySubscriptionId: "delivery.inverse-cramer.sprint-3",
@@ -188,7 +197,7 @@ const activeMonitor = prepareWorkspaceMonitorCreate({
     packContentDigest: pack.contentDigest,
     packId: "inverse-cramer",
     packVersion: "1.0.0",
-    resourceId: "monitor-inverse-cramer-commentary",
+    resourceId: "evaluate-public-commentary",
   },
   name: "Inverse Cramer",
   nextOccurrenceAt: "2026-08-18T18:05:00.000Z",
@@ -824,6 +833,19 @@ for (const scope of [scopeA, scopeB]) {
     value: productionBudget,
   }, productionRuntime);
 }
+const reserveProductionOccurrence = async (scope: typeof scopeA, runId: string, occurrenceNow: string) =>
+  reserveWorkspaceRunBudget({
+    inputTokens: productionBudget.maximumInputTokensPerRun,
+    kind: "scheduled_monitor",
+    now: new Date(occurrenceNow),
+    outputTokens: productionBudget.maximumOutputTokensPerRun,
+    paidCostCeiling: { amount: "2.000000", kind: "known" },
+    policy: productionBudget,
+    policyRevision: 1,
+    runId,
+    scope,
+  }, productionRuntime);
+await reserveProductionOccurrence(scopeA, productionRunId, now);
 const productionBaseline = await productionPipeline.run({
   configuration,
   configurationGeneration: 1,
@@ -880,6 +902,7 @@ const productionMonitorB = prepareWorkspaceMonitorCreate({
   sources: productionMonitor.sources,
 }).monitor;
 const productionRunIdB = "run.inverse-cramer.production-wiring-b";
+await reserveProductionOccurrence(scopeB, productionRunIdB, now);
 const productionSources = productionMonitor.sources.map(({ canonicalUrl, origin, sourceId }) => ({
   canonicalUrl,
   origin,
@@ -940,6 +963,7 @@ for (const [scope, monitor, runId] of [
   [scopeA, activeProductionMonitorA, "run.inverse-cramer.rehydration-a"],
   [scopeB, activeProductionMonitorB, "run.inverse-cramer.rehydration-b"],
 ] as const) {
+  await reserveProductionOccurrence(scope, runId, rehydrationNow);
   await createWorkspaceSourceCoverage({
     configurationRevision: monitor.configurationRevision,
     monitorId: monitor.monitorId,

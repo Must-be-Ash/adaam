@@ -376,6 +376,10 @@ assert.equal(laterOccurrence.alertPresentations?.length, 2, "post-backfill quali
 
 for (const projected of statements) {
   const finding = await readPublicCommentaryFindingByStatementRevision(scope, projected.statementRevisionId, store);
+  if (projected.fixture.expectedResearchDirection === null) {
+    assert.equal(finding, null, "deterministic no-view statements must finish before frontier persistence");
+    continue;
+  }
   assert.ok(finding);
   assert.equal(finding.finding.policyDecision.researchDirection, projected.fixture.expectedResearchDirection);
   assert.equal(finding.finding.materiality.alertEligible, projected.fixture.expectedResearchDirection !== null);

@@ -34,16 +34,19 @@ import {
   publicStatementSchema,
 } from "../agent/lib/public-commentary-schema";
 import { resolveWorkspaceWorkerEvaluationWindow } from "../agent/lib/workspace-worker-runner";
+import {
+  PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID,
+} from "../agent/lib/workspace-monitor-lifecycle-contract";
 
 const versions = strategyPackCatalog.entries
   .filter(({ id }) => id === "inverse-cramer")
   .map(({ version }) => version);
-assert.deepEqual(versions, ["1.0.0", "1.1.0", "1.2.0", "1.3.0"]);
+assert.deepEqual(versions, ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0"]);
 assert.equal(
   strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.0.0" })?.contentDigest,
   "c84defe79be9b72da6deaa7e7c3bc9254fa27f1286a79073b260ee4b90bcb434",
 );
-const latestPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.3.0" });
+const latestPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.0" });
 assert.ok(latestPack);
 const semanticDefinition = createCommentarySemanticDefinition(["openai/gpt-5.4"]);
 const scheduledAt = new Date("2026-08-19T18:23:12.551Z");
@@ -134,7 +137,7 @@ assert.deepEqual(latestPack.evidenceContracts.find(({ id }) =>
   id: "public-commentary-semantic-interpretation",
   version: "1.1.0",
 });
-assert.equal(latestPack.monitors[0]?.suggestedBudget.maximumInputTokensPerRun, 12_000);
+assert.equal(latestPack.monitors[0]?.suggestedBudget.maximumInputTokensPerRun, 25_000);
 const workerRequest = {} as Parameters<typeof drainPublicCommentaryHybridWorker>[0];
 await assert.rejects(
   drainPublicCommentaryHybridWorker(workerRequest, async () => ({
@@ -179,18 +182,19 @@ assert.deepEqual(
     EVE_STRATEGY_PACK_CATALOG_ENABLED: "1",
     EVE_WORKSPACE_STATE_ENABLED: "1",
   } }).packs.filter(({ id }) => id === "inverse-cramer").map(({ version }) => version),
-  ["1.3.0"],
+  ["1.4.0"],
 );
 assert.equal(latestPack.configuration.some(({ key }) => key === "firstRunLookback"), false);
 assert.equal(resolveStrategyPackInitialMonitorDueAt({
   activate: true,
+  lifecycleContractId: PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID,
   now: new Date("2026-08-18T02:00:00.000Z"),
-  packId: "inverse-cramer",
   scheduledAt: "2026-08-18T14:00:00.000Z",
 }), "2026-08-18T02:00:00.000Z");
 assert.deepEqual(resolveWorkspaceWorkerEvaluationWindow({
   monitor: {
     createdAt: "2026-08-18T02:00:00.000Z",
+    lifecycleContractId: PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID,
     managedBy: { packId: "inverse-cramer", packVersion: "1.3.0" },
     schedule: { anchor: "2026-08-18T02:00:00.000Z", everyMinutes: 720, kind: "interval" },
     sourceCheckpoint: { contentDigest: null, watermark: null },
@@ -202,8 +206,8 @@ assert.deepEqual(resolveWorkspaceWorkerEvaluationWindow({
 });
 assert.equal(resolveStrategyPackInitialMonitorDueAt({
   activate: true,
+  lifecycleContractId: PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID,
   now: new Date("2026-08-18T02:00:00.000Z"),
-  packId: "public-commentary-tracker",
   scheduledAt: "2026-08-18T14:00:00.000Z",
 }), "2026-08-18T02:00:00.000Z");
 

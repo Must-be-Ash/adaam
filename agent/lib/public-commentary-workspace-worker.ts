@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 
+import { publishReportArtifact } from "./artifact-store";
+import { artifactReferenceForId } from "./artifact-reference";
 import {
   createHybridEvidenceEphemeralArtifactStore,
   type HybridEvidenceArtifactStore,
@@ -23,6 +25,11 @@ import {
   resolveHybridTaskModelRoute,
 } from "./hybrid-evidence-model-routing";
 import {
+  createInverseCramerResearchDefinition,
+  INVERSE_CRAMER_RESEARCH_DEFINITION_ID,
+  isInverseCramerAgenticResearchPack,
+} from "./inverse-cramer-research";
+import {
   readPublicSourceAcquisitionResult,
   readPublicSourceCorrection,
   type PublicSourceAcquisitionStoreClient,
@@ -41,7 +48,12 @@ import {
   type PublicCommentaryFindingStoreClient,
 } from "./public-commentary-finding-store";
 import { resolvePublicCommentaryRuntimeFlags } from "./public-commentary-flags";
-import { publicStatementSchema } from "./public-commentary-schema";
+import { commentaryFindingSchema, publicStatementSchema } from "./public-commentary-schema";
+import {
+  buildPublicCommentarySignalReport,
+  publicCommentaryAlertPresentationForBrief,
+  publicCommentaryReportArtifactId,
+} from "./public-commentary-signal-report";
 import {
   createCommentarySemanticDefinition,
   recoverNamedAssetCommentaryMetadata,
@@ -49,6 +61,7 @@ import {
 import {
   createPublicCommentaryPipeline,
   materializePublicCommentaryCorrection,
+  type PublicCommentaryResearchSubject,
 } from "./public-commentary-vertical";
 import {
   createDefaultRevocableEvidenceStoreClient,
@@ -56,7 +69,8 @@ import {
   readRevocableEvidencePayload,
 } from "./revocable-evidence-store";
 import { INVERSE_CRAMER_EVALUATION_TOOL_ID } from "./strategy-pack-reference-catalog";
-import { strategyPackCatalog } from "./strategy-pack-catalog";
+import { strategyPackCatalog, type StrategyPackCatalogEntry } from "./strategy-pack-catalog";
+import { resolveManagedMonitorLifecycleContract } from "./workspace-monitor-lifecycle-contract";
 import { strategyPackIntervalMinutes } from "./strategy-pack-schema";
 import {
   getWorkspaceMonitor,
@@ -91,6 +105,11 @@ import {
   type WorkspaceBudgetLedgerClient,
 } from "./workspace-budget-ledger";
 import {
+  shouldPublishWorkspaceExecutiveArtifact,
+  workspaceExecutiveBriefSchema,
+  type WorkspaceExecutiveBrief,
+} from "./workspace-executive-brief";
+import {
   createXPublicStatementFetch,
   createXExactPostRequest,
   rehydrateXPublicStatement,
@@ -108,7 +127,9 @@ import {
   type XPublicStatementRehydrationOutcome,
 } from "./x-public-statement-rehydration-store";
 
-type WorkerContext = Parameters<typeof requireWorkspaceWorkerAuth>[0];
+type WorkerContext = Parameters<typeof requireWorkspaceWorkerAuth>[0] & {
+  readonly abortSignal?: AbortSignal;
+};
 
 export interface PublicCommentaryPipelineResult {
   readonly acknowledgeDurableCommit?: () => Promise<void>;
@@ -117,6 +138,7 @@ export interface PublicCommentaryPipelineResult {
   readonly analyzedStatements: number;
   readonly checkpoint: Readonly<{ readonly contentDigest: string; readonly watermark: string }>;
   readonly finding: WorkspaceFindingCandidate | null;
+  readonly researchSubjects?: readonly PublicCommentaryResearchSubject[];
 }
 
 export async function commitThenAcknowledgePublicCommentaryResult<T>(input: {
@@ -153,11 +175,18 @@ export interface PublicCommentaryWorkspaceWorkerClients extends WorkspaceWorkerC
       initialBackfill?: boolean;
       monitorId: string;
       ownerId: string;
-      pack: Readonly<{ contentDigest: string; id: "inverse-cramer" | "public-commentary-tracker"; version: string }>;
+      parentBudgetRunId?: string;
+      pack: Readonly<{
+        contentDigest: string;
+        id: "inverse-cramer" | "public-commentary-tracker";
+        lifecycleContractId?: string;
+        version: string;
+      }>;
       scope: ReturnType<typeof authorizeWorkspaceWorkerStore>;
       window: Readonly<{ endAt: string; startAt: string }>;
     }>): Promise<PublicCommentaryPipelineResult>;
   }>;
+  readonly publishReport?: typeof publishReportArtifact;
   readonly recoverExtraction?: Parameters<typeof createPublicCommentaryPipeline>[0]["recoverExtraction"];
 }
 
@@ -196,9 +225,19 @@ function resolveXEvidence(
   });
 }
 
-function usesCadenceDerivedBackfill(pack: Readonly<{ id: string; version: string }>): boolean {
-  return pack.id === "public-commentary-tracker" ||
-    (pack.id === "inverse-cramer" && pack.version !== "1.0.0" && pack.version !== "1.1.0");
+function usesCadenceDerivedBackfill(pack: Readonly<{
+  id: string;
+  lifecycleContractId?: string;
+  version: string;
+}>): boolean {
+  return resolveManagedMonitorLifecycleContract({
+    lifecycleContractId: pack.lifecycleContractId,
+    managedBy: {
+      packId: pack.id,
+      packVersion: pack.version,
+      resourceId: "evaluate-public-commentary",
+    },
+  })?.initialEvaluationWindow === "preceding_interval";
 }
 
 export function resolvePublicCommentaryFirstRunStart(input: {
@@ -206,7 +245,7 @@ export function resolvePublicCommentaryFirstRunStart(input: {
   readonly cadence: string;
   readonly initialBaseline: boolean;
   readonly legacyFirstRunLookback?: "off" | "hours_1" | "hours_6" | "hours_12" | "hours_24";
-  readonly pack: Readonly<{ id: string; version: string }>;
+  readonly pack: Readonly<{ id: string; lifecycleContractId?: string; version: string }>;
   readonly windowEndAt: string;
 }): string | null {
   if (!input.initialBaseline) return null;
@@ -362,6 +401,7 @@ export function createProductionPublicCommentaryPipeline(input: {
         now: input.now,
         outputTokens: 0,
         paidCostCeiling: { amount: "1.000000", kind: "known" },
+        parentRunId: input.runId,
         policy: budget.value,
         policyRevision: budget.revision,
         runId: timelineReservationId,
@@ -517,6 +557,7 @@ export function createProductionPublicCommentaryPipeline(input: {
             now: input.now,
             outputTokens: 0,
             paidCostCeiling: { amount: "0.010000", kind: "known" },
+            parentRunId: input.runId,
             policy: budget.value,
             policyRevision: budget.revision,
             runId: reservationId,
@@ -797,7 +838,7 @@ export function createProductionPublicCommentaryPipeline(input: {
         start: 0,
       });
       try {
-        return await runWorkspaceSemanticEvidenceBundleJob({
+        const semantic = await runWorkspaceSemanticEvidenceBundleJob({
           definition,
           environment: input.environment,
           members: [{
@@ -823,6 +864,7 @@ export function createProductionPublicCommentaryPipeline(input: {
             id: input.monitor.managedBy!.packId,
             version: input.monitor.managedBy!.packVersion,
           },
+          parentBudgetRunId: input.runId,
           reasoning: semanticRoute.reasoning,
           scope: input.scope,
           workspaceGeneration: input.workspaceGeneration,
@@ -840,6 +882,26 @@ export function createProductionPublicCommentaryPipeline(input: {
           semantic: clients?.semantic?.semantic,
           state: clients?.state,
           subscription: clients?.subscription,
+        });
+        return Object.freeze({
+          ...semantic,
+          researchSubject: Object.freeze({
+            acquisitionId: subject.acquisitionId,
+            factPayloadDigest: subject.factPayloadDigest,
+            plaintext,
+            source: {
+              accessClassification: "public" as const,
+              adapterId: reviewedSource.adapterDefinition.adapterId,
+              canonicalUrl: source.canonicalUrl,
+              origin: new URL(source.canonicalUrl).origin,
+              sourceId: source.sourceId,
+              sourceInstanceId: subject.sourceInstanceId,
+            },
+            sourceInstanceId: subject.sourceInstanceId,
+            statement,
+            statementRevisionId,
+            subscriptionId: subject.subscriptionId,
+          }),
         });
       } finally {
         await artifacts.deleteUnreferenced(artifact.contentDigest);
@@ -899,6 +961,284 @@ export function createProductionPublicCommentaryPipeline(input: {
   });
 }
 
+type InverseCramerResearchRuntime = Readonly<{
+  definition: ReturnType<typeof createInverseCramerResearchDefinition>;
+  modelId: string;
+  pack: StrategyPackCatalogEntry;
+  reasoning: ReturnType<typeof resolveHybridTaskModelRoute>["reasoning"];
+  workspaceGeneration: number;
+}>;
+
+async function resolveInverseCramerResearchRuntime(input: {
+  capabilities: Awaited<ReturnType<typeof resolveWorkspaceWorkerCapabilitySnapshot>>;
+  clients?: PublicCommentaryWorkspaceWorkerClients;
+  environment: NodeJS.ProcessEnv;
+  monitor: WorkspaceMonitor;
+  scope: AuthorizedWorkspaceStoreScope;
+}): Promise<InverseCramerResearchRuntime | null> {
+  const managed = input.monitor.managedBy;
+  if (!managed || managed.packId !== "inverse-cramer") return null;
+  const strategy = await readWorkspaceDocument("strategy", input.scope, input.clients?.state);
+  const pack = strategyPackCatalog.resolve({
+    contentDigest: managed.packContentDigest,
+    id: managed.packId,
+    version: managed.packVersion,
+  });
+  if (!pack || !isInverseCramerAgenticResearchPack(pack)) return null;
+  const snapshot = strategy?.schemaVersion === 2
+    ? strategy.value.pendingSnapshot ?? strategy.value.lastActiveSnapshot
+    : null;
+  if (
+    strategy?.schemaVersion !== 2 || strategy.value.lifecycleState !== "active" ||
+    strategy.value.pack?.id !== pack.id || strategy.value.pack.version !== pack.version ||
+    strategy.value.pack.contentDigest !== pack.contentDigest ||
+    snapshot?.workspaceGeneration === undefined
+  ) {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+  }
+  const configured = resolveHybridTaskModelRoute("semantic_interpretation", input.environment);
+  const candidates = input.capabilities.resolved.workerModelIds
+    .flatMap((modelId) => (pack.evidenceContracts ?? []).flatMap((contract) =>
+      contract.id === INVERSE_CRAMER_RESEARCH_DEFINITION_ID && contract.version === "1.0.0"
+        ? [createInverseCramerResearchDefinition([modelId])]
+        : []
+    ))
+    .filter((definition) => pack.evidenceContracts?.some((contract) =>
+      contract.id === definition.definitionId &&
+      contract.version === definition.definitionVersion &&
+      contract.digest === definition.definitionDigest
+    ));
+  if (candidates.length !== 1 || candidates[0]?.allowedModelIds[0] !== configured.modelId) {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+  }
+  return Object.freeze({
+    definition: candidates[0]!,
+    modelId: configured.modelId,
+    pack,
+    reasoning: configured.reasoning,
+    workspaceGeneration: snapshot.workspaceGeneration,
+  });
+}
+
+export async function materializeInverseCramerExecutiveOutput(input: {
+  asOf: string;
+  approvedSupplementaryUrls: readonly string[];
+  brief: WorkspaceExecutiveBrief;
+  clients?: PublicCommentaryWorkspaceWorkerClients;
+  factIdentities: readonly string[];
+  officialUrls: readonly string[];
+  scope: AuthorizedWorkspaceStoreScope;
+  signal?: AbortSignal;
+}): Promise<Readonly<{
+  artifactRefs: readonly string[];
+  presentation: { title: string; whyMatched: string };
+}>> {
+  const brief = workspaceExecutiveBriefSchema.parse(input.brief);
+  const officialUrls = new Set(input.officialUrls);
+  const briefOfficialUrls = new Set(
+    brief.sources.filter(({ role }) => role === "official").map(({ url }) => url),
+  );
+  const approvedSupplementaryUrls = new Set(input.approvedSupplementaryUrls);
+  if (
+    officialUrls.size !== briefOfficialUrls.size ||
+    [...officialUrls].some((url) => !briefOfficialUrls.has(url)) ||
+    brief.sources.some(({ role, url }) =>
+      role === "supplementary" && !approvedSupplementaryUrls.has(url)
+    ) ||
+    brief.materialFacts.some(({ sourceUrls }) =>
+      !sourceUrls.some((url) => officialUrls.has(url))
+    )
+  ) {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+  }
+  const presentation = publicCommentaryAlertPresentationForBrief(brief);
+  if (!shouldPublishWorkspaceExecutiveArtifact({
+    alertText: `${presentation.title}\n\n${presentation.whyMatched}`,
+    brief,
+  })) {
+    return Object.freeze({ artifactRefs: Object.freeze([]), presentation });
+  }
+  const artifactId = publicCommentaryReportArtifactId({
+    factIdentities: input.factIdentities,
+    ownerId: input.scope.ownerId,
+    workspaceId: input.scope.workspaceId,
+  });
+  const published = await (input.clients?.publishReport ?? publishReportArtifact)({
+    artifactId,
+    report: buildPublicCommentarySignalReport({
+      asOf: input.asOf,
+      brief,
+    }),
+    signal: input.signal,
+  });
+  if (published.artifactId !== artifactId || published.kind !== "report") {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+  }
+  return Object.freeze({
+    artifactRefs: Object.freeze([artifactReferenceForId(artifactId)]),
+    presentation,
+  });
+}
+
+async function runInverseCramerExecutiveResearch(input: {
+  clients?: PublicCommentaryWorkspaceWorkerClients;
+  environment: NodeJS.ProcessEnv;
+  now: Date;
+  parentRunId: string;
+  result: PublicCommentaryPipelineResult;
+  runtime: InverseCramerResearchRuntime;
+  scope: AuthorizedWorkspaceStoreScope;
+  signal?: AbortSignal;
+}): Promise<PublicCommentaryPipelineResult> {
+  if (!input.result.finding) return input.result;
+  const facts = (input.result.finding.facts ?? []).flatMap((fact) => {
+    if (fact.kind !== "public_commentary_signal") return [];
+    const finding = commentaryFindingSchema.parse(fact.finding);
+    return finding.outcome === "accepted" ? [{ fact, finding }] : [];
+  });
+  if (facts.length === 0) return input.result;
+  if (facts.length !== input.result.finding.facts?.length || facts.length > 8) {
+    return input.result;
+  }
+  const subjects = facts.map(({ finding }) => {
+    const subject = input.result.researchSubjects?.find(
+      ({ statementRevisionId }) => statementRevisionId === finding.statementRevisionId,
+    );
+    if (!subject) {
+      throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+    }
+    return { finding, subject };
+  });
+  const artifacts = input.clients?.artifacts ?? createHybridEvidenceEphemeralArtifactStore();
+  const persisted: Array<Readonly<{
+    artifact: Awaited<ReturnType<HybridEvidenceArtifactStore["persist"]>>;
+    content: string;
+    finding: (typeof subjects)[number]["finding"];
+    subject: PublicCommentaryResearchSubject;
+  }>> = [];
+  try {
+    for (const { finding, subject } of subjects) {
+      const content = JSON.stringify({
+        canonicalUrl: subject.statement.canonicalUrl,
+        confidence: finding.confidence,
+        counterevidence: subject.counterevidence ?? [],
+        findingId: finding.findingId,
+        researchDirection: finding.policyDecision.researchDirection,
+        statement: subject.plaintext,
+        summary: subject.summary ?? finding.summary,
+        uncertainty: subject.uncertainty ?? [],
+      });
+      const artifact = await artifacts.persist({
+        acquisitionId: subject.acquisitionId,
+        authority: "X",
+        bytes: Buffer.from(content, "utf8"),
+        canonicalPublicUrl: subject.statement.canonicalUrl,
+        mediaType: "text/plain",
+        now: input.now,
+        observedAt: subject.statement.observedAt,
+        parserEligibility: null,
+        sourceInstanceId: subject.sourceInstanceId,
+        structure: {
+          characterCount: content.length,
+          columnCount: null,
+          pageCount: null,
+          rowCount: null,
+          sheetCount: null,
+        },
+      });
+      persisted.push(Object.freeze({ artifact, content, finding, subject }));
+    }
+    const semantic = await runWorkspaceSemanticEvidenceBundleJob({
+      definition: input.runtime.definition,
+      environment: input.environment,
+      members: persisted.map(({ artifact, content, subject }) => ({
+        artifact,
+        locators: [{
+          factRevisionId: subject.statementRevisionId,
+          kind: "source_fact" as const,
+          payloadDigest: subject.factPayloadDigest,
+        }, {
+          artifactDigest: artifact.contentDigest,
+          end: content.length,
+          kind: "text_span" as const,
+          spanDigest: createHash("sha256").update(content).digest("hex"),
+          start: 0,
+        }],
+        memberId: subject.statementRevisionId,
+        projectionReference: {
+          factRevisionId: subject.statementRevisionId,
+          sourceId: subject.source.sourceId,
+          subscriptionId: subject.subscriptionId,
+        },
+        role: "section" as const,
+        semanticContext: Object.freeze({ publicCommentaryFinding: true }),
+      })),
+      modelId: input.runtime.modelId,
+      now: input.now,
+      pack: {
+        contentDigest: input.runtime.pack.contentDigest,
+        id: input.runtime.pack.id,
+        version: input.runtime.pack.version,
+      },
+      parentBudgetRunId: input.parentRunId,
+      reasoning: input.runtime.reasoning,
+      scope: input.scope,
+      workspaceGeneration: input.runtime.workspaceGeneration,
+    }, {
+      acquisition: input.clients?.acquisition,
+      artifacts,
+      budget: input.clients?.semantic?.budget,
+      catalog: input.clients?.semantic?.catalog,
+      execute: async (prepared) => input.clients?.semantic?.execute
+        ? input.clients.semantic.execute(prepared)
+        : drainPublicCommentaryHybridWorker(prepared.request),
+      jobs: input.clients?.semantic?.jobs,
+      lineage: input.clients?.semantic?.lineage,
+      monitor: input.clients?.monitor,
+      semantic: input.clients?.semantic?.semantic,
+      state: input.clients?.state,
+      subscription: input.clients?.subscription,
+    });
+    const accepted = semantic.record.acceptedResult;
+    if (!accepted) {
+      throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+    }
+    const brief = workspaceExecutiveBriefSchema.parse(accepted.payload);
+    const output = await materializeInverseCramerExecutiveOutput({
+      approvedSupplementaryUrls: semantic.record.researchUrlGrants,
+      asOf: input.result.finding.asOf,
+      brief,
+      clients: input.clients,
+      factIdentities: input.result.finding.factIdentities ?? [],
+      officialUrls: subjects.map(({ subject }) => subject.statement.canonicalUrl),
+      scope: input.scope,
+      signal: input.signal,
+    });
+    const finding = workspaceFindingCandidateSchema.parse({
+      ...input.result.finding,
+      artifactRefs: [
+        ...(input.result.finding.artifactRefs ?? []),
+        ...output.artifactRefs,
+      ].slice(0, 8),
+      summary: output.presentation.whyMatched,
+    });
+    const alertPresentations = Object.freeze([Object.freeze({
+      key: "inverse-cramer-executive-brief",
+      ...output.presentation,
+    })]);
+    return Object.freeze({
+      ...input.result,
+      alertPresentation: output.presentation,
+      alertPresentations,
+      finding,
+    });
+  } finally {
+    for (const { artifact } of persisted) {
+      await artifacts.deleteUnreferenced(artifact.contentDigest);
+    }
+  }
+}
+
 export async function evaluatePublicCommentarySignalsForWorker(input: {
   readonly clients?: PublicCommentaryWorkspaceWorkerClients;
   readonly ctx: WorkerContext;
@@ -944,9 +1284,19 @@ export async function evaluatePublicCommentarySignalsForWorker(input: {
     strategy.value.pack.contentDigest !== monitor.managedBy.packContentDigest ||
     strategy.value.pack.version !== monitor.managedBy.packVersion
   ) throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+  const researchRuntime = await resolveInverseCramerResearchRuntime({
+    capabilities,
+    clients: input.clients,
+    environment,
+    monitor,
+    scope,
+  });
   const managedBy = monitor.managedBy;
   const cadenceDerivedBackfill = usesCadenceDerivedBackfill({
     id: managedBy.packId,
+    ...(monitor.lifecycleContractId
+      ? { lifecycleContractId: monitor.lifecycleContractId }
+      : {}),
     version: managedBy.packVersion,
   });
   const pipeline = input.clients?.pipeline ?? createProductionPublicCommentaryPipeline({
@@ -959,21 +1309,37 @@ export async function evaluatePublicCommentarySignalsForWorker(input: {
     scope,
     workspaceGeneration: envelope.strategyPack.workspaceGeneration,
   });
-  const result = await pipeline.run({
+  const pipelineResult = await pipeline.run({
     configuration: strategy.value.configuration,
     configurationGeneration: envelope.strategyPack.workspaceGeneration,
     environment,
     initialBackfill: isWorkspaceMonitorCheckpointOnlyBaseline(monitor) && cadenceDerivedBackfill,
     monitorId: monitor.monitorId,
     ownerId: scope.ownerId,
+    parentBudgetRunId: envelope.runId,
     pack: {
       contentDigest: managedBy.packContentDigest,
       id: managedBy.packId as "inverse-cramer" | "public-commentary-tracker",
+      ...(monitor.lifecycleContractId
+        ? { lifecycleContractId: monitor.lifecycleContractId }
+        : {}),
       version: managedBy.packVersion,
     },
     scope,
     window: envelope.window,
   });
+  const result = researchRuntime
+    ? await runInverseCramerExecutiveResearch({
+        clients: input.clients,
+        environment,
+        now,
+        parentRunId: envelope.runId,
+        result: pipelineResult,
+        runtime: researchRuntime,
+        scope,
+        signal: input.ctx.abortSignal,
+      })
+    : pipelineResult;
   const outcome = await commitThenAcknowledgePublicCommentaryResult({
     acknowledge: result.acknowledgeDurableCommit,
     commit: () => existing

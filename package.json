@@ -89,6 +89,7 @@
     "verify:public-commentary-signals:sprint-3": "jiti scripts/verify-public-commentary-signals-sprint-3.ts",
     "verify:public-commentary-signals:sprint-4-reuse": "jiti scripts/verify-public-commentary-signals-sprint-4-reuse.ts",
     "verify:public-commentary-signals:follow-up": "jiti scripts/verify-public-commentary-signals-follow-up.ts",
+    "verify:public-commentary-signals:boundary": "jiti scripts/verify-inverse-cramer-strategy-boundary.ts",
     "verify:public-commentary-tracker": "jiti scripts/verify-public-commentary-tracker.ts",
     "verify:official-web-statement-source": "jiti scripts/verify-official-web-statement-source.ts",
     "verify:strategy-pack-configuration-kinds": "jiti scripts/verify-strategy-pack-configuration-kinds.ts",

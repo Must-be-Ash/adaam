@@ -2,6 +2,8 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 
 import { z } from "zod";
 
+import { resolveManagedMonitorLifecycleContract } from "./workspace-monitor-lifecycle-contract";
+
 import { photonApprovalGuardKey } from "./photon-approval-store";
 import { resolvePhotonOwnerConversationIdentity } from "./owner-identity";
 import {
@@ -78,10 +80,7 @@ import { isReviewedPublicSource } from "./public-source-registry";
 import { resolveParameterizedStrategyPackSources } from "./strategy-pack-source-resolution";
 import { inspectWorkspaceHybridEvidence } from "./hybrid-evidence-semantic";
 import { resolveHybridTaskModelRoute } from "./hybrid-evidence-model-routing";
-import {
-  isSecIpoAgenticResearchPack,
-  SEC_IPO_AGENTIC_RESEARCH_BUDGET,
-} from "./sec-ipo-semantics";
+import { resolveStrategyPackResearchWorkerContract } from "./hybrid-evidence-worker-contract-registry";
 import type { WorkspaceSemanticEvidenceStoreClient } from "./hybrid-evidence-semantic-store";
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
 import type { PublicSourceSubscriptionStoreClient } from "./public-source-subscription-store";
@@ -911,7 +910,7 @@ function effectiveCapabilities(
     financialToolIds: [],
     hardDeniedCapabilityIds: [...new Set([...SHARED_HARD_DENIALS, ...pack.capabilities.hardDenied])].sort(),
     maximumDataAccessClassification: "public",
-    paidResearchAllowed: isSecIpoAgenticResearchPack(pack),
+    paidResearchAllowed: resolveStrategyPackResearchWorkerContract(pack) !== null,
     providerTools: [],
     researchToolIds: researchToolIds.sort(),
     skills: pack.skills.map(({ id, version }) => ({ id, version })),
@@ -933,7 +932,7 @@ export function resolveStrategyPackWorkerModelPolicy(input: {
 }): WorkspaceCapabilityManifestValue["workerModelPolicy"] {
   if (
     input.pack.capabilities.required.includes("evaluate_public_commentary_signals") ||
-    isSecIpoAgenticResearchPack(input.pack)
+    resolveStrategyPackResearchWorkerContract(input.pack) !== null
   ) {
     const workerModelId =
       input.environment.EVE_STRATEGY_PACK_WORKER_MODEL_ID ?? "google/gemini-3.6-flash";
@@ -963,7 +962,7 @@ export function resolveStrategyPackInitialBudgetPolicy(
   const usesPaidXTimeline = pack.sources.some((source) =>
     source.allowedOrigins.includes("https://api.x.com")
   );
-  const usesAgenticIpoResearch = isSecIpoAgenticResearchPack(pack);
+  const researchBudget = resolveStrategyPackResearchWorkerContract(pack)?.research?.budget ?? null;
   const requestedRunsPerDay = Math.min(
     ceilings.maximumScheduledRunsPerDay,
     pack.monitors.reduce((sum, monitor) => sum + monitor.suggestedBudget.maximumRunsPerDay, 0),
@@ -993,23 +992,27 @@ export function resolveStrategyPackInitialBudgetPolicy(
     maximumOutputTokensPerRun: outputPerRun,
     maximumPaidPerCall: usesPaidXTimeline
       ? "1.000000"
-      : usesAgenticIpoResearch
-        ? SEC_IPO_AGENTIC_RESEARCH_BUDGET.maximumPaidPerCall
+      : researchBudget
+        ? researchBudget.maximumPaidPerCall
         : null,
     maximumPaidPerDay: usesPaidXTimeline
-      ? "2.000000"
-      : usesAgenticIpoResearch
-        ? SEC_IPO_AGENTIC_RESEARCH_BUDGET.maximumPaidPerDay
+      ? researchBudget
+        ? (Number(researchBudget.maximumPaidPerDay) > 2
+            ? researchBudget.maximumPaidPerDay
+            : "2.000000")
+        : "2.000000"
+      : researchBudget
+        ? researchBudget.maximumPaidPerDay
         : null,
     maximumPaidPerMonth: usesPaidXTimeline
       ? "10.000000"
-      : usesAgenticIpoResearch
-        ? SEC_IPO_AGENTIC_RESEARCH_BUDGET.maximumPaidPerMonth
+      : researchBudget
+        ? researchBudget.maximumPaidPerMonth
         : null,
     maximumScheduledRunsPerDay: requestedRunsPerDay,
     ownerTimezone: typeof ownerTimezone === "string" ? ownerTimezone : "UTC",
-    unknownPriceFallbackCeiling: usesAgenticIpoResearch
-      ? SEC_IPO_AGENTIC_RESEARCH_BUDGET.unknownPriceFallbackCeiling
+    unknownPriceFallbackCeiling: researchBudget
+      ? researchBudget.unknownPriceFallbackCeiling
       : "0",
   };
 }
@@ -1110,11 +1113,17 @@ function strategyPackMonitorSchedule(
 
 export function resolveStrategyPackInitialMonitorDueAt(input: Readonly<{
   activate: boolean;
+  lifecycleContractId?: string | null;
+  managedBy?: Readonly<{ packId: string; packVersion: string; resourceId: string }> | null;
   now: Date;
-  packId: string;
   scheduledAt: string | null;
 }>): string | null {
-  return input.activate && (input.packId === "inverse-cramer" || input.packId === "public-commentary-tracker")
+  return input.activate &&
+      resolveManagedMonitorLifecycleContract({
+        lifecycleContractId: input.lifecycleContractId,
+        managedBy: input.managedBy,
+      })
+        ?.initialOccurrence === "immediate"
     ? input.now.toISOString()
     : input.scheduledAt;
 }
@@ -1129,6 +1138,17 @@ function monitorPreparations(input: {
   scope: AuthorizedWorkspaceStoreScope;
 }): PreparedWorkspaceMonitorCreate[] {
   return input.pack.monitors.map((monitor) => {
+    const lifecycle = resolveManagedMonitorLifecycleContract({
+      lifecycleContractId: monitor.lifecycleContractId,
+      managedBy: {
+        packId: input.pack.id,
+        packVersion: input.pack.version,
+        resourceId: monitor.resourceId,
+      },
+    });
+    if (monitor.lifecycleContractId && lifecycle?.id !== monitor.lifecycleContractId) {
+      throw new StrategyPackServiceError("strategy_pack_invalid_request");
+    }
     const schedule = strategyPackMonitorSchedule(
       monitor,
       input.configuration,
@@ -1152,6 +1172,7 @@ function monitorPreparations(input: {
       deliverySubscriptionId: input.deliverySubscriptionId,
       idempotencyKey: `strategy-pack:${input.pack.contentDigest}:${monitor.resourceId}`,
       instruction: monitor.instruction,
+      ...(lifecycle ? { lifecycleContractId: lifecycle.id } : {}),
       managedBy: {
         bindingRevision: 1,
         kind: "strategy_pack",
@@ -1163,8 +1184,13 @@ function monitorPreparations(input: {
       name: monitor.displayName,
       nextOccurrenceAt: resolveStrategyPackInitialMonitorDueAt({
         activate: input.activate.has(monitor.resourceId),
+        lifecycleContractId: lifecycle?.id,
+        managedBy: {
+          packId: input.pack.id,
+          packVersion: input.pack.version,
+          resourceId: monitor.resourceId,
+        },
         now: input.now,
-        packId: input.pack.id,
         scheduledAt: next?.scheduledAt ?? null,
       }),
       now: input.now,
@@ -1182,9 +1208,7 @@ function monitorPreparations(input: {
           monitor.suggestedBudget.maximumOutputTokensPerRun,
           input.budget.maximumOutputTokensPerRun,
         ),
-        paidPerRun: isSecIpoAgenticResearchPack(input.pack)
-          ? SEC_IPO_AGENTIC_RESEARCH_BUDGET.paidPerRun
-          : null,
+        paidPerRun: resolveStrategyPackResearchWorkerContract(input.pack)?.research?.budget.paidPerRun ?? null,
       },
     });
   });

@@ -376,6 +376,7 @@ const monitorBase = {
     displayName: z.string().trim().min(1).max(160),
     findingSchemaId: stableIdSchema,
     instructionPath: relativePathSchema,
+    lifecycleContractId: stableIdSchema.optional(),
     overridableFields: z.array(z.enum(["schedule"])).max(1),
     requiredCapabilityIds: z.array(stableIdSchema).min(1).max(32),
     resourceId: z

@@ -59,6 +59,32 @@ const policy = {
 const parentRunId = `${"a".repeat(64)}:attempt:1`;
 const store = new MemoryStore();
 
+const aggregateEnvelopeStore = new MemoryStore();
+const aggregateEnvelope = await reserveWorkspaceRunBudget({
+  inputTokens: 10_000,
+  kind: "scheduled_monitor",
+  now,
+  outputTokens: 2_000,
+  paidCostCeiling: { amount: "0.750000", kind: "known" },
+  policy,
+  policyRevision: 1,
+  runId: "aggregate-occurrence-envelope",
+  scope,
+}, aggregateEnvelopeStore);
+assert.equal(aggregateEnvelope.paidMicros, "750000", "an occurrence envelope may aggregate multiple individually bounded paid calls");
+await assert.rejects(reserveWorkspaceRunBudget({
+  inputTokens: 0,
+  kind: "paid_source_attempt",
+  now,
+  outputTokens: 0,
+  paidCostCeiling: { amount: "0.600000", kind: "known" },
+  parentRunId: aggregateEnvelope.runId,
+  policy,
+  policyRevision: 1,
+  runId: "over-per-call-child",
+  scope,
+}, aggregateEnvelopeStore), /budget_exhausted/u, "each paid child must still obey the per-call limit");
+
 const parent = await reserveWorkspaceRunBudget({
   inputTokens: 10_000,
   kind: "scheduled_monitor",
