@@ -16,7 +16,11 @@ import {
   removeStrategyPackWorkspaceFromSelection,
   StrategyPackServiceError,
 } from "../agent/lib/strategy-pack-service.ts";
-import { STRATEGY_PACK_TRANSACTION_REDIS_SCRIPTS } from "../agent/lib/strategy-pack-transaction.ts";
+import {
+  classifyStrategyPackTransactionStorageError,
+  STRATEGY_PACK_TRANSACTION_REDIS_SCRIPTS,
+  StrategyPackTransactionStorageError,
+} from "../agent/lib/strategy-pack-transaction.ts";
 import { listWorkspaceMonitors } from "../agent/lib/workspace-monitor-store.ts";
 import { readWorkspaceDocument } from "../agent/lib/workspace-state-store.ts";
 import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization.ts";
@@ -26,6 +30,15 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const fixtureRoot = resolve(scriptDirectory, "fixtures", "strategy-packs", "valid");
 const temporaryRoot = await mkdtemp(resolve(tmpdir(), "eve-pack-redis-"));
 const port = 20_000 + Math.floor(Math.random() * 20_000);
+
+const redactedStorageError = classifyStrategyPackTransactionStorageError(new Error(
+  'ERR Error running script (call to f_abc): @user_script:42: WRONGTYPE Operation against a key, command was: ["EVAL","owner-secret"]',
+));
+assert.ok(redactedStorageError instanceof StrategyPackTransactionStorageError);
+assert.equal(redactedStorageError.providerReasonCode, "wrong_type");
+assert.equal(redactedStorageError.scriptLine, 42);
+assert.equal(redactedStorageError.message, "Strategy pack transaction storage failed.");
+assert.doesNotMatch(redactedStorageError.message, /owner-secret|command was/iu);
 
 function redis(...args) {
   return new Promise((resolvePromise, reject) => {

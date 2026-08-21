@@ -28,6 +28,7 @@ import {
   StrategyPackServiceError,
   verifySpectrumStrategyPackMutationIdentity,
 } from "../lib/strategy-pack-service";
+import { StrategyPackTransactionStorageError } from "../lib/strategy-pack-transaction";
 import { resolveStrategyPackFlags } from "../lib/strategy-pack-flags";
 import { workspaceMonitorManagerSourcesSchema } from "../lib/workspace-monitor-input";
 import {
@@ -2374,6 +2375,12 @@ export default defineChannel({
         console.error("[photon.workspace] Strategy pack action failed", {
           action: body.action,
           error_type: "storage_failure",
+          provider_reason_code: error instanceof StrategyPackTransactionStorageError
+            ? error.providerReasonCode
+            : "unclassified",
+          script_line: error instanceof StrategyPackTransactionStorageError
+            ? error.scriptLine
+            : null,
         });
         return json({
           error: "Eve could not confirm the strategy-pack session. Refresh before trying again.",

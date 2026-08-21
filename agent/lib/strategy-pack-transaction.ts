@@ -115,6 +115,67 @@ export interface StrategyPackTransactionClient {
   >): Promise<StrategyPackReplayResult>;
 }
 
+export type StrategyPackTransactionProviderReasonCode =
+  | "rate_limited"
+  | "readonly"
+  | "request_too_large"
+  | "script_argument"
+  | "script_runtime"
+  | "unknown"
+  | "upstream_unavailable"
+  | "wrong_type";
+
+export class StrategyPackTransactionStorageError extends Error {
+  readonly code = "strategy_pack_transaction_storage_failure";
+  readonly providerReasonCode: StrategyPackTransactionProviderReasonCode;
+  readonly scriptLine: number | null;
+
+  constructor(input: {
+    cause: unknown;
+    providerReasonCode: StrategyPackTransactionProviderReasonCode;
+    scriptLine: number | null;
+  }) {
+    super("Strategy pack transaction storage failed.", { cause: input.cause });
+    this.name = "StrategyPackTransactionStorageError";
+    this.providerReasonCode = input.providerReasonCode;
+    this.scriptLine = input.scriptLine;
+  }
+}
+
+export function classifyStrategyPackTransactionStorageError(
+  cause: unknown,
+): StrategyPackTransactionStorageError {
+  const rawMessage = cause instanceof Error ? cause.message : "";
+  const providerMessage = rawMessage.split(", command was:", 1)[0] ?? "";
+  const normalized = providerMessage.toLowerCase();
+  const scriptLineMatch = providerMessage.match(/user_script:(\d+)/iu);
+  const scriptLine = scriptLineMatch ? Number.parseInt(scriptLineMatch[1]!, 10) : null;
+  const providerReasonCode: StrategyPackTransactionProviderReasonCode =
+    normalized.includes("wrongtype") || normalized.includes("wrong kind of value")
+      ? "wrong_type"
+      : normalized.includes("max request size") || normalized.includes("request too large")
+        ? "request_too_large"
+        : normalized.includes("rate limit") || normalized.includes("too many requests")
+          ? "rate_limited"
+          : normalized.includes("readonly") || normalized.includes("read only")
+            ? "readonly"
+            : normalized.includes("lua redis lib command arguments") ||
+                normalized.includes("arguments must be strings or integers")
+              ? "script_argument"
+              : normalized.includes("script") || normalized.includes("eval")
+                ? "script_runtime"
+                : normalized.includes("unavailable") ||
+                    normalized.includes("timeout") ||
+                    normalized.includes("connection")
+                  ? "upstream_unavailable"
+                  : "unknown";
+  return new StrategyPackTransactionStorageError({
+    cause,
+    providerReasonCode,
+    scriptLine: Number.isSafeInteger(scriptLine) ? scriptLine : null,
+  });
+}
+
 const READ_REPLAY_SCRIPT = `
 if redis.call("EXISTS", KEYS[1]) == 1 then
   return "blocked"
@@ -326,11 +387,16 @@ export function strategyPackTransactionClient(
           monitor.dueAtMs === null ? "" : String(monitor.dueAtMs),
         ]),
       ];
-      const result = await redisClient!.eval<string[], string>(
-        COMMIT_CREATE_SCRIPT,
-        keys,
-        args,
-      );
+      let result: string;
+      try {
+        result = await redisClient!.eval<string[], string>(
+          COMMIT_CREATE_SCRIPT,
+          keys,
+          args,
+        );
+      } catch (error) {
+        throw classifyStrategyPackTransactionStorageError(error);
+      }
       return decodeResult(result);
     },
     async commitLifecycle(input) {
@@ -365,11 +431,16 @@ export function strategyPackTransactionClient(
           monitor.dueAtMs === null ? "" : String(monitor.dueAtMs),
         ]),
       ];
-      const result = await redisClient!.eval<string[], string>(
-        COMMIT_LIFECYCLE_SCRIPT,
-        keys,
-        args,
-      );
+      let result: string;
+      try {
+        result = await redisClient!.eval<string[], string>(
+          COMMIT_LIFECYCLE_SCRIPT,
+          keys,
+          args,
+        );
+      } catch (error) {
+        throw classifyStrategyPackTransactionStorageError(error);
+      }
       return decodeResult(result);
     },
     get: (key) => redisClient!.get(key),
