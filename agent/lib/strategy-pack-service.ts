@@ -34,9 +34,11 @@ import {
   type StrategyPackObservationSink,
 } from "./strategy-pack-observability";
 import {
+  classifyStrategyPackTransactionStorageError,
   strategyPackMutationStorageKeys,
   strategyPackMutationReceiptSchema,
   strategyPackTransactionClient,
+  StrategyPackTransactionStorageError,
   type StrategyPackCreateTransactionInput,
   type StrategyPackLifecycleTransactionInput,
   type StrategyPackMutationReceipt,
@@ -1057,6 +1059,36 @@ function transactionError(status: string): never {
   throw new StrategyPackServiceError("strategy_pack_mutation_conflict");
 }
 
+function normalizeStrategyPackTransactionError(error: unknown): Error {
+  return error instanceof StrategyPackServiceError ||
+      error instanceof StrategyPackTransactionStorageError
+    ? error
+    : classifyStrategyPackTransactionStorageError(error);
+}
+
+async function readStrategyPackCreateReplay(
+  transactionClient: StrategyPackTransactionClient,
+  input: Parameters<StrategyPackTransactionClient["readReplay"]>[0],
+) {
+  try {
+    return await transactionClient.readReplay(input);
+  } catch (error) {
+    throw normalizeStrategyPackTransactionError(error);
+  }
+}
+
+async function recoverStrategyPackCreateReplay(
+  transactionClient: StrategyPackTransactionClient,
+  input: Parameters<StrategyPackTransactionClient["readReplay"]>[0],
+  primaryError: Error,
+) {
+  try {
+    return await readStrategyPackCreateReplay(transactionClient, input);
+  } catch {
+    throw primaryError;
+  }
+}
+
 function rejectionReceipt(input: {
   code:
     | "capacity_exhausted"
@@ -1231,7 +1263,13 @@ async function executeCreateStrategyPackWorkspace(
   }
   const transactionClient = dependencies.transactionClient ?? strategyPackTransactionClient(environment);
   const approvalGuardKey = photonApprovalGuardKey(input);
-  if (await transactionClient.get(approvalGuardKey)) {
+  let approvalPending: unknown;
+  try {
+    approvalPending = await transactionClient.get(approvalGuardKey);
+  } catch (error) {
+    throw normalizeStrategyPackTransactionError(error);
+  }
+  if (approvalPending) {
     throw new StrategyPackServiceError("strategy_pack_financial_approval_pending");
   }
   const sourceAssignment = sourceAssignmentSchema.safeParse(input.sourceAssignment);
@@ -1272,7 +1310,7 @@ async function executeCreateStrategyPackWorkspace(
   });
   const receiptKey = keys.receiptKey(mutationId);
   const replayInput = { approvalGuardKey, mappingKey: keys.mappingKey, mappingRaw, receiptKey };
-  const replay = await transactionClient.readReplay(replayInput);
+  const replay = await readStrategyPackCreateReplay(transactionClient, replayInput);
   const expectedReceipt = { mutationId, payloadDigest, requestIdentityDigest };
   if (replay.status === "replayed") {
     return receiptResult(replay.receiptRaw, true, expectedReceipt);
@@ -1280,7 +1318,12 @@ async function executeCreateStrategyPackWorkspace(
   if (replay.status !== "missing") transactionError(replay.status);
 
   const client = dependencies.workspaceClient ?? photonWorkspaceStoreClient();
-  const registryRecord = await readPhotonWorkspaceRegistryRecord(input, client);
+  let registryRecord: Awaited<ReturnType<typeof readPhotonWorkspaceRegistryRecord>>;
+  try {
+    registryRecord = await readPhotonWorkspaceRegistryRecord(input, client);
+  } catch (error) {
+    throw normalizeStrategyPackTransactionError(error);
+  }
   if (registryRecord.registry.revision !== request.expectedRegistryRevision) {
     throw new StrategyPackServiceError("strategy_pack_mutation_conflict");
   }
@@ -1399,11 +1442,16 @@ async function executeCreateStrategyPackWorkspace(
       }
       transactionError(committed.status);
     } catch (error) {
-      const recovered = await transactionClient.readReplay(replayInput);
+      const primaryError = normalizeStrategyPackTransactionError(error);
+      const recovered = await recoverStrategyPackCreateReplay(
+        transactionClient,
+        replayInput,
+        primaryError,
+      );
       if (recovered.status === "replayed") {
         return receiptResult(recovered.receiptRaw, true, expectedReceipt);
       }
-      throw error;
+      throw primaryError;
     }
   }
 
@@ -1546,11 +1594,16 @@ async function executeCreateStrategyPackWorkspace(
     }
     transactionError(committed.status);
   } catch (error) {
-    const recovered = await transactionClient.readReplay(replayInput);
+    const primaryError = normalizeStrategyPackTransactionError(error);
+    const recovered = await recoverStrategyPackCreateReplay(
+      transactionClient,
+      replayInput,
+      primaryError,
+    );
     if (recovered.status === "replayed") {
       return receiptResult(recovered.receiptRaw, true, expectedReceipt);
     }
-    throw error;
+    throw primaryError;
   }
 }
 

@@ -38,6 +38,7 @@ import {
   StrategyPackServiceError,
   verifySpectrumStrategyPackMutationIdentity,
 } from "../agent/lib/strategy-pack-service.ts";
+import { StrategyPackTransactionStorageError } from "../agent/lib/strategy-pack-transaction.ts";
 import {
   listWorkspaceMonitors,
   prepareWorkspaceMonitorCreate,
@@ -103,7 +104,10 @@ const references = Object.freeze({
 });
 
 class MemoryStore {
-  failNextCommit = false;
+  failNextCommit = null;
+  failNextGet = null;
+  getFailures = [];
+  readReplayFailures = [];
   indexes = new Map();
   values = new Map();
   due = new Map();
@@ -116,6 +120,13 @@ class MemoryStore {
   }
 
   async get(key) {
+    const queuedFailure = this.getFailures.shift();
+    if (queuedFailure) throw queuedFailure;
+    if (this.failNextGet) {
+      const error = this.failNextGet;
+      this.failNextGet = null;
+      throw error;
+    }
     return this.values.get(key) ?? null;
   }
 
@@ -130,6 +141,8 @@ class MemoryStore {
   }
 
   async readReplay(input) {
+    const failure = this.readReplayFailures.shift();
+    if (failure) throw failure;
     if (this.values.has(input.approvalGuardKey)) return { status: "blocked" };
     const mapping = this.values.get(input.mappingKey);
     if (mapping === undefined) return { status: "missing" };
@@ -142,8 +155,11 @@ class MemoryStore {
 
   async commitCreate(input) {
     if (this.failNextCommit) {
-      this.failNextCommit = false;
-      throw new Error("injected_transaction_failure");
+      const error = this.failNextCommit === true
+        ? new Error("injected_transaction_failure")
+        : this.failNextCommit;
+      this.failNextCommit = null;
+      throw error;
     }
     const replay = await this.readReplay(input);
     if (replay.status !== "missing") return replay;
@@ -184,8 +200,11 @@ class MemoryStore {
 
   async commitLifecycle(input) {
     if (this.failNextCommit) {
-      this.failNextCommit = false;
-      throw new Error("injected_transaction_failure");
+      const error = this.failNextCommit === true
+        ? new Error("injected_transaction_failure")
+        : this.failNextCommit;
+      this.failNextCommit = null;
+      throw error;
     }
     const replay = await this.readReplay(input);
     if (replay.status !== "missing") return replay;
@@ -554,7 +573,12 @@ try {
     turnId: "turn_failure",
   });
   const beforeFailure = new Map(client.values);
-  client.failNextCommit = true;
+  client.failNextCommit = new Error(
+    'ERR rate limit exceeded, command was: ["EVAL","owner-private"]',
+  );
+  client.readReplayFailures.push(null, new Error(
+    'ERR connection unavailable, command was: ["EVAL","owner-private"]',
+  ));
   await assert.rejects(
     createStrategyPackWorkspace({
       ...routing,
@@ -569,9 +593,90 @@ try {
         workspaceId: installOnly.receipt.targetWorkspaceId,
       },
     }, dependencies),
-    /injected_transaction_failure/u,
+    (error) => error instanceof StrategyPackTransactionStorageError &&
+      error.providerReasonCode === "rate_limited" &&
+      error.message === "Strategy pack transaction storage failed." &&
+      !error.message.includes("owner-private"),
   );
   assert.deepEqual(client.values, beforeFailure);
+
+  client.failNextGet = new Error(
+    'ERR max request size exceeded, command was: ["GET","owner-private"]',
+  );
+  await assert.rejects(
+    createStrategyPackWorkspace({
+      ...routing,
+      request: {
+        ...request,
+        expectedRegistryRevision: 2,
+        name: "Initial Storage Read Failure",
+      },
+      requestIdentity: deriveEveStrategyPackMutationIdentity({
+        ingressId: `ingress_${"5".repeat(64)}`,
+        operationOrdinal: 0,
+        stepId: "step_initial_storage_read_failure",
+        turnId: "turn_initial_storage_read_failure",
+      }),
+      sourceAssignment: {
+        generation: 1,
+        workspaceId: installOnly.receipt.targetWorkspaceId,
+      },
+    }, dependencies),
+    (error) => error instanceof StrategyPackTransactionStorageError &&
+      error.providerReasonCode === "request_too_large",
+  );
+
+  client.readReplayFailures.push(new Error(
+    'ERR WRONGTYPE Operation against a key, command was: ["EVAL","owner-private"]',
+  ));
+  await assert.rejects(
+    createStrategyPackWorkspace({
+      ...routing,
+      request: {
+        ...request,
+        expectedRegistryRevision: 2,
+        name: "Initial Replay Read Failure",
+      },
+      requestIdentity: deriveEveStrategyPackMutationIdentity({
+        ingressId: `ingress_${"6".repeat(64)}`,
+        operationOrdinal: 0,
+        stepId: "step_initial_replay_read_failure",
+        turnId: "turn_initial_replay_read_failure",
+      }),
+      sourceAssignment: {
+        generation: 1,
+        workspaceId: installOnly.receipt.targetWorkspaceId,
+      },
+    }, dependencies),
+    (error) => error instanceof StrategyPackTransactionStorageError &&
+      error.providerReasonCode === "wrong_type",
+  );
+
+  client.getFailures.push(null, new Error(
+    'ERR upstream unavailable, command was: ["GET","owner-private"]',
+  ));
+  await assert.rejects(
+    createStrategyPackWorkspace({
+      ...routing,
+      request: {
+        ...request,
+        expectedRegistryRevision: 2,
+        name: "Registry Storage Read Failure",
+      },
+      requestIdentity: deriveEveStrategyPackMutationIdentity({
+        ingressId: `ingress_${"7".repeat(64)}`,
+        operationOrdinal: 0,
+        stepId: "step_registry_storage_read_failure",
+        turnId: "turn_registry_storage_read_failure",
+      }),
+      sourceAssignment: {
+        generation: 1,
+        workspaceId: installOnly.receipt.targetWorkspaceId,
+      },
+    }, dependencies),
+    (error) => error instanceof StrategyPackTransactionStorageError &&
+      error.providerReasonCode === "upstream_unavailable",
+  );
 
   const spectrumSecret = "spectrum-secret-".repeat(4);
   const duplicateIdentity = verifySpectrumStrategyPackMutationIdentity(
