@@ -104,6 +104,7 @@ const envelope: HybridEvidenceWorkerEnvelope = {
   },
   capabilityRevision: 1,
   definitionDigest: "c".repeat(64),
+  definitionId: "hybrid-definition.routing-fixture",
   definitionVersion: "1.0.0",
   evidenceLimits: { maximumBytes: 4096, maximumPages: 0, maximumRows: 0 },
   expiresAt: new Date(issuedAt.getTime() + 60_000).toISOString(),
