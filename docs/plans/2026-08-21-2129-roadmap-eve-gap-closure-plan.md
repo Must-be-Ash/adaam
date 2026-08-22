@@ -70,8 +70,10 @@ Fresh continuity, fleet activation, and one end-of-line regression/E2E pass.
 ## Progress tracker
 
 - [ ] Sprint 0 — Hygiene and safety baseline
-- [ ] Sprint 1 — Close U1: Inverse Cramer live alert proof
-- [ ] Sprint 2 — U2: Public Commentary Tracker migration
+- [ ] Sprint 1 — Close U1: Inverse Cramer live alert proof *(no code work left;
+      waiting on a live Cramer statement — does not block Sprints 2–5)*
+- [ ] Sprint 2 — U2: Public Commentary Tracker migration *(start here after
+      Sprint 0)*
 - [ ] Sprint 3 — U3: Earnings Call Changes migration
 - [ ] Sprint 4 — U4: Congressional repair + migration
 - [ ] Sprint 5 — U5: Final boundary and isolation audit
@@ -84,17 +86,22 @@ Fresh continuity, fleet activation, and one end-of-line regression/E2E pass.
 
 Small, bounded, no refactors.
 
-- [ ] **Rotate the exposed credential** at `notes/commands.md:100`
-  (`prefix_xxx_xxx:32hex:32hex` shape; `notes/prompt.md` suggests it is a
-  trigger.dev access token). It is committed and pushed on `main`, so git
-  history retains it — rotation is the real fix. Owner performs/confirms the
-  rotation before the next step.
-- [ ] Remove `notes/` from the repository (`git rm -r`), add it to
-  `.gitignore` so the owner can keep local scratch there. HANDOFF already
-  flags it as uncurated, credential-bearing scratch.
+- [x] `notes/` removed from the repository and added to `.gitignore`
+  (2026-08-22). The owner's copies were preserved outside the repo at
+  `/Users/ashnouruzi/dev/adaam-notes/`.
+- [x] This roadmap committed and pushed (`e03b6dc`).
+- [ ] **Owner action — rotate the exposed credential.** `notes/commands.md`
+  line 100 carried a live secret (`prefix_xxx_xxx:32hex:32hex`, apparently a
+  trigger.dev access token) in a **public** repository from commit `140af0d`
+  onward. Removing the file does not un-expose it: git history retains it, and
+  a public repo must be assumed scraped. Rotation is the only complete fix and
+  is the owner's to perform. Do not attempt a history rewrite — `notes/`
+  entered history 291 commits back, so rewriting would invalidate every commit
+  receipt recorded in the plans and specs, and would still not purge GitHub's
+  unreachable objects.
 - [ ] Commit the currently untracked
-  `specs/07-strategy-platform-boundary-and-continuity.md` and this roadmap so
-  no working doc can be lost.
+  `specs/07-strategy-platform-boundary-and-continuity.md` so no working doc can
+  be lost.
 - [ ] Remove the stale worktree `.worktrees/fix-strategy-pack-create-transaction`
   and the empty `app/api/earnings-call-acceptance/` directory.
 - [ ] Verify the Congressional monitor is paused and non-dispatchable until
@@ -104,11 +111,25 @@ Small, bounded, no refactors.
 
 ## Sprint 1 — Close U1: Inverse Cramer live alert proof
 
-Authority: migration plan §U1. All U1 code is landed and deployed (through
-commit `996de7d`). The only open item is observational: workspace
+**Status: U1 implementation is complete. No code work remains in this sprint.**
+
+Authority: migration plan §U1. Every U1 repair is written, verified, committed,
+and deployed to Production (through commit `996de7d`; deployment
+`dpl_7L8qD64uMnRC7uaoGQidaSVFozWm`). The migration, the citation/fan-out/
+pack-identity/research-sizing/replay/alert-bound repairs, and the
+multi-statement session sizing all landed and passed their gates. Two
+Production occurrences terminalized cleanly, and one real iMessage alert with a
+working Discuss control was delivered and confirmed by owner screenshot.
+
+The single open item is **observational, not implementation**: one occurrence
+must fire whose window contains a genuinely material Jim Cramer statement, so
+the delivered alert can be checked for the executive brief and artifact
+reference (the earlier delivered alert predates the `5252611` alert-bound
+repair and carried the raw finding-identifier fallback). Workspace
 `Inverse Cramer Live` (`inverse-cramer@1.4.7`, monitor
-`4a699d5a-b726-5d96-83b0-79cff0ce640c`) is armed on its normal 12-hour cadence
-waiting for a material Jim Cramer statement.
+`4a699d5a-b726-5d96-83b0-79cff0ce640c`) is armed and enabled on its normal
+12-hour cadence, deliberately left unarchived, waiting for that statement.
+Cramer's posting cadence, not Eve, is the constraint — this can take days.
 
 - [ ] When a material statement occurs, confirm the delivered iMessage alert
   carries the executive brief and artifact reference (not the raw
@@ -124,16 +145,36 @@ waiting for a material Jim Cramer statement.
   Never delete or rewrite existing entries.
 - [ ] Mark U1 and its Progress Tracker entry complete in the migration plan.
 
-Sequencing note: because the remaining U1 work is purely observational, Sprint
-2 characterization and implementation may proceed in the worktree while this
-window is open. Prefer landing Sprint 2 on `main` only after the U1 alert
-proof: U2 touches shared commentary plumbing, and landing it would change the
-deployed code under the live Cramer monitor before the proof fires. If Cramer
-stays quiet for days and U2 is fully green locally, landing it anyway is
-acceptable — U2's gates include the Inverse Cramer regression fixtures that
-guard the live path, and the eventual alert then proves the combined
-deployment. Either way, Sprint 2's Production acceptance waits until U1 is
-closed (one acceptance in flight at a time).
+### Do not wait on this sprint — proceed to Sprint 2
+
+      145  
+      146 -Sequencing note: because the remaining U1 work is purely observational, Sprint                                                  
+      147 -2 characterization and implementation may proceed in the worktree while this                                                    
+      148 -window is open. Prefer landing Sprint 2 on `main` only after the U1 alert                                                       
+      149 -proof: U2 touches shared commentary plumbing, and landing it would change the                                                   
+      150 -deployed code under the live Cramer monitor before the proof fires. If Cramer                                                   
+      151 -stays quiet for days and U2 is fully green locally, landing it anyway is acceptable — U2's gates include the Inverse Cramer regression fixtures that guard the live path, and the eventual alert then proves the combined deployment. Either way, Sprint 2's Production acceptance waits until U1 is closed (one acceptance in flight at a time).
+
+Because nothing here is implementation work, **Sprint 1 must not block the
+roadmap.** After Sprint 0, go straight to Sprint 2 and let the Cramer window
+resolve on its own schedule in the background. Concretely:
+
+- Sprint 2 characterization, implementation, local gates, commit, push, and
+  Production deploy may all proceed while `Inverse Cramer Live` waits. U2's
+  local gate set includes the Inverse Cramer regression fixtures
+  (`verify:public-commentary-signals:*`, the strategy boundary corpus, the
+  frozen real-source fixture), so a green U2 is direct evidence that the live
+  Cramer path still behaves. Those gates are the guard that makes this safe.
+- The one hard rule is **one Production acceptance in flight at a time.** Do
+  not create or arm U2's disposable acceptance workspace while an unproven
+  Cramer occurrence is pending. If the Cramer alert has not fired by the time
+  U2 is deployed and ready for its acceptance, pause the `Inverse Cramer Live`
+  monitor first, run and clean up the U2 acceptance, then re-enable it.
+- Do not archive, reconfigure, or retire `Inverse Cramer Live` for any other
+  reason; it is the live proof and is intentionally unarchived.
+- When the alert fires — whatever sprint is then active — verify it, close U1
+  in the migration plan, and tick Sprint 1 here. Closing U1 is a bookkeeping
+  step that can land at any point; it is not a gate on Sprints 2–5.
 
 ## Sprint 2 — U2: Public Commentary Tracker migration
 
