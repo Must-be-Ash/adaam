@@ -121,12 +121,18 @@ plan a change from it. If you need a fact it mentions, confirm it in code first.
   2026-08-22 terminalized as `worker_recovery_outcome_missing`. Commit `44d83c6`
   added research definition `1.0.2` (12,000 output) and `ipo-filings@1.1.2`
   (160,000 input / 40,000 output per run, paid ceilings unchanged), and the
-  session was recreated on it. Its first occurrence is still pending, so if it
-  fails again, capture the Production trace before changing another number — the
-  outcome-missing error may have a cause beyond token sizing, since the
-  superseded `ipo-filings@1.0.0` monitor failed the same way. Its acquisition
-  layer is healthy: the failed occurrence had already extracted 12 SEC filings
-  before the worker failed to commit.
+  session was recreated on it. **That repair is now proven for the outer
+  worker:** the first `1.1.2` occurrence completed at 2026-08-22T17:45:54Z with
+  `lastErrorCode: null`, zero consecutive failures, and zero active workers,
+  using 6,342 input and 1,196 output tokens. The old envelope reserved the whole
+  2,000-token per-run output allowance while the shared worker session alone
+  declares 16,000, which is why it could never commit.
+- **The IPO frontier research path is still unproven.** That first green
+  occurrence found no new filings past the source cursor, so it correctly spent
+  nothing on frontier reasoning, research, or artifacts — `paidMicrosToday` is 0.
+  Definition `1.0.2`'s 12,000-token research session has therefore still never
+  executed. It needs an occurrence whose window contains a genuinely new S-1.
+  Until then, do not describe IPO research as proven.
 - `IPO Live` is temporarily on a dense same-day schedule (10:45 through 16:00
   Vancouver) purely to iterate on that proof. Once one occurrence terminalizes
   cleanly, restore its normal `["10:00", "16:00"]` cadence through the
