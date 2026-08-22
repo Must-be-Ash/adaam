@@ -86,14 +86,12 @@ Current state you must know:
   plan, and tick Sprint 1 in the roadmap. That bookkeeping can land during any
   sprint.
 
-Begin with Sprint 0. It is small: commit the untracked
-specs/07-strategy-platform-boundary-and-continuity.md, remove the stale
-worktree .worktrees/fix-strategy-pack-create-transaction and the empty
+Begin with Sprint 0. Most of it is already done and its boxes are ticked; do
+not redo those. What remains is small: remove the empty
 app/api/earnings-call-acceptance/ directory, verify the Congressional monitor
 is paused and non-dispatchable, then commit, push, and verify Production
-health. The notes/ removal and the roadmap commit are already done; leave them
-alone. The credential rotation in Sprint 0 is the owner's action, not yours.
-Do not attempt a git history rewrite under any circumstance.
+health. Credential handling is closed and is not your concern. Do not attempt
+a git history rewrite under any circumstance.
 
 At the end of each sprint, report: what changed, the exact verification that
 passed, any receipt or deployment identifiers, actual versus reserved spend if

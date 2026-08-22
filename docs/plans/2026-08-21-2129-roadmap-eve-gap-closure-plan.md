@@ -90,21 +90,16 @@ Small, bounded, no refactors.
   (2026-08-22). The owner's copies were preserved outside the repo at
   `/Users/ashnouruzi/dev/adaam-notes/`.
 - [x] This roadmap committed and pushed (`e03b6dc`).
-- [ ] **Owner action — rotate the exposed credentials.** `notes/commands.md`
-  carried at least three live secrets in a **public** repository from commit
-  `140af0d` onward: a Vercel Blob token, a Circle sandbox API key
-  (`TEST_API_KEY:<id>:<secret>`), and a standalone password. Removing the file
-  does not un-expose them: git history retains them, and a public repo must be
-  assumed scraped. Rotation is the only complete fix and is the owner's to
-  perform. The owner decided on 2026-08-22 not to rewrite history — `notes/`
-  entered 291 commits back, so a rewrite would churn every commit receipt
-  recorded in the plans and specs and still would not purge GitHub's
-  unreachable objects without a support request.
-- [ ] Commit the currently untracked
-  `specs/07-strategy-platform-boundary-and-continuity.md` so no working doc can
-  be lost.
-- [ ] Remove the stale worktree `.worktrees/fix-strategy-pack-create-transaction`
-  and the empty `app/api/earnings-call-acceptance/` directory.
+- [x] Exposed-credential handling closed out by the owner directly on
+  2026-08-22 (rotation handled outside this plan). The owner also decided
+  against a history rewrite: `notes/` entered 291 commits back, so a rewrite
+  would churn every commit receipt recorded in the plans and specs and still
+  would not purge GitHub's unreachable objects without a support request.
+- [x] `specs/07-strategy-platform-boundary-and-continuity.md` committed
+  (`cf39c25`).
+- [x] Stale worktree `.worktrees/fix-strategy-pack-create-transaction` removed;
+  only the `main` worktree remains.
+- [ ] Remove the empty `app/api/earnings-call-acceptance/` directory.
 - [ ] Verify the Congressional monitor is paused and non-dispatchable until
   Sprint 4 lands (per `docs/congressional-monitor-retry-defect.md`).
 - [ ] Commit, push, verify Production health (`/`, `/skill`, `/eve/v1/health`
