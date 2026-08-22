@@ -8,6 +8,11 @@ import {
 } from "./hybrid-evidence-schema";
 import { workspaceExecutiveBriefSchema } from "./workspace-executive-brief";
 
+// Every research contract version the runtime can still construct. The gate
+// below and the worker's candidate selection must agree: a declared version
+// missing here silently disables the executive-brief runtime for that pack.
+export const INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS = ["1.0.0", "1.0.1"] as const;
+
 export const INVERSE_CRAMER_RESEARCH_DEFINITION_ID =
   "inverse-cramer-frontier-research";
 export const INVERSE_CRAMER_AGENTIC_RESEARCH_BUDGET = Object.freeze({
@@ -179,6 +184,9 @@ export function isInverseCramerAgenticResearchPack(pack: Readonly<{
 }>): boolean {
   return pack.id === "inverse-cramer" &&
     pack.evidenceContracts?.some(({ id, version }) =>
-      id === INVERSE_CRAMER_RESEARCH_DEFINITION_ID && version === "1.0.0"
+      id === INVERSE_CRAMER_RESEARCH_DEFINITION_ID &&
+      INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS.includes(
+        version as (typeof INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS)[number],
+      )
     ) === true;
 }

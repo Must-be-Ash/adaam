@@ -27,6 +27,7 @@ import {
 import {
   createInverseCramerResearchDefinition,
   INVERSE_CRAMER_RESEARCH_DEFINITION_ID,
+  INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS,
   isInverseCramerAgenticResearchPack,
 } from "./inverse-cramer-research";
 import {
@@ -1060,8 +1061,13 @@ async function resolveInverseCramerResearchRuntime(input: {
   const candidates = input.capabilities.resolved.workerModelIds
     .flatMap((modelId) => (pack.evidenceContracts ?? []).flatMap((contract) =>
       contract.id === INVERSE_CRAMER_RESEARCH_DEFINITION_ID &&
-          (contract.version === "1.0.0" || contract.version === "1.0.1")
-        ? [createInverseCramerResearchDefinition([modelId], contract.version)]
+          INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS.includes(
+            contract.version as (typeof INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS)[number],
+          )
+        ? [createInverseCramerResearchDefinition(
+            [modelId],
+            contract.version as (typeof INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS)[number],
+          )]
         : []
     ))
     .filter((definition) => pack.evidenceContracts?.some((contract) =>

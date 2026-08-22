@@ -18,6 +18,7 @@ import {
 import {
   createInverseCramerResearchDefinition,
   INVERSE_CRAMER_RESEARCH_DEFINITION_ID,
+  isInverseCramerAgenticResearchPack,
 } from "../agent/lib/inverse-cramer-research";
 import { resolveHybridEvidenceWorkerContract } from "../agent/lib/hybrid-evidence-worker-contract-registry";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
@@ -125,6 +126,18 @@ assert.equal(
       version: "1.0.1",
     },
   );
+  // Resizing the research session to 1.0.1 must not silently disable the
+  // executive-brief runtime. Every pack that declares a supported research
+  // contract version still selects it.
+  assert.equal(isInverseCramerAgenticResearchPack(researchPack), true);
+  for (const version of ["1.4.4", "1.4.5", "1.4.6"]) {
+    const historical = strategyPackCatalog.resolve({ id: "inverse-cramer", version });
+    assert.ok(historical);
+    assert.equal(isInverseCramerAgenticResearchPack(historical), true);
+  }
+  const preResearchPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.3.0" });
+  assert.ok(preResearchPack);
+  assert.equal(isInverseCramerAgenticResearchPack(preResearchPack), false);
 }
 assert.equal(resolveHybridEvidenceWorkerContract(INVERSE_CRAMER_RESEARCH_DEFINITION_ID)?.research
   ?.requiresParentRunId, true);
