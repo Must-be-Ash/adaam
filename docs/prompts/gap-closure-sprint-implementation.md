@@ -124,7 +124,13 @@ plan a change from it. If you need a fact it mentions, confirm it in code first.
   session was recreated on it. Its first occurrence is still pending, so if it
   fails again, capture the Production trace before changing another number — the
   outcome-missing error may have a cause beyond token sizing, since the
-  superseded `ipo-filings@1.0.0` monitor failed the same way.
+  superseded `ipo-filings@1.0.0` monitor failed the same way. Its acquisition
+  layer is healthy: the failed occurrence had already extracted 12 SEC filings
+  before the worker failed to commit.
+- `IPO Live` is temporarily on a dense same-day schedule (10:45 through 16:00
+  Vancouver) purely to iterate on that proof. Once one occurrence terminalizes
+  cleanly, restore its normal `["10:00", "16:00"]` cadence through the
+  `monitor-schedule` runtime action so it stops consuming runs.
 - Three stale active sessions carry `paused_failure` monitors and are not part
   of any sprint: `IPO Overnight Test` (bound to the superseded
   `ipo-filings@1.0.0`), `Congressional Overnight Test`, and
