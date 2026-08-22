@@ -215,6 +215,42 @@ no-change live source is acceptable per the plan).
 
 - [ ] §U3 checklist complete in the migration plan (marked there).
 
+**Local work complete 2026-08-22, not landed.** Implementation, characterization,
+and every U3 local gate are green on branch `codex/u3-earnings-boundary`
+(worktree `../adaam-u3`), rebased onto `main` @ `bce7215`. Not pushed, not
+merged, not deployed: another agent has a Production occurrence in flight with
+the owner's live monitors paused mid-deploy. This branch does not touch
+`public-commentary-*`, `photon-workspace-store.ts`, or
+`photon-workspace-app.ts`. Its one edit to
+`agent/lib/hybrid-evidence-worker-contract-registry.ts` is a single additive
+contract entry, which merged cleanly alongside that agent's new
+`PUBLIC_COMMENTARY_IMPACT` entry.
+
+The rebase over `9baafc1..bce7215` produced one conflict, in the generated
+`agent/lib/strategy-pack-catalog.generated.ts`, resolved by regenerating it:
+the catalog now carries 27 entries including both
+`earnings-call-changes@1.1.0` and `public-commentary-tracker@1.3.0`. The
+`listed.count` assertion in `verify:strategy-pack-owner-surfaces` needed 27
+because both branches had independently bumped it to 26. `bce7215`'s paid
+source-read fallback leaves this pack unchanged by its own terms: a pack that
+declares a research contract keeps the envelope that contract declares.
+
+All five confirmed generic branches are gone: `workspace-monitor-store.ts`
+(~288, 348, 946, 1240) and `event-triggers.ts` (~150) now resolve the declared
+`monitor.earnings-call-transcripts/v1` lifecycle contract. Issuer discovery,
+source-family selection, and the transcript comparison contract are unchanged -
+`earnings-call-changes@1.1.0` carries the same three comparison digests as
+`1.0.1`. The new version declares the research contract, so a material
+occurrence now runs one bounded frontier child and stages an executive brief,
+and it resizes the per-run envelope from 24,000/12,000 to 160,000/32,000 above
+the shared worker session's own 64,000/16,000. See the migration plan's U3
+boundary classification for the full inventory and the two deferrals.
+
+Remaining for this sprint, in order, once `main` is free: rebase onto `main`,
+re-run the U3 gates, push, verify Production health and bounded logs, then the
+zero-usage acceptance. **The acceptance is blocked by the Sprint 7 session
+registry blocker** (48/48 retained records), so it was not attempted.
+
 ## Sprint 4 — U4: Congressional repair + migration
 
 Execute migration plan §U4 in full. First repair the recorded defect

@@ -577,6 +577,36 @@ fast-to-frontier route chain.
 - [ ] Add bounded cost/context observations without logging message text,
   balances, financial amounts, credentials, or PII.
 
+### Verifier drift found during U3 (2026-08-22)
+
+Both reproduce identically on unmodified `main` and are not U3 regressions.
+`tsconfig.json` excludes `scripts/`, so no typecheck catches fixture drift in
+verifiers; that is the common cause of the first item and of the
+already-repaired `verify:adaptive-model-routing:sprint-1` envelope
+(`2c5a577`).
+
+- [ ] `verify:agentic-durable-research:u4` asserts the latest `ipo-filings`
+  version is `1.1.1`; `44d83c6` published `1.1.2` without updating it. Decide
+  whether the assertion should track the latest version or pin the version the
+  U4 receipt covered.
+- [ ] `verify:workspace-runtime:sec-ipo-scheduled-compiled` fails with
+  `getaddrinfo ENOTFOUND fixture.invalid`. The fixture expects an unresolvable
+  host to fail closed locally, but the check reaches real DNS. Decide whether
+  it needs an injected fetch or a network-free host assertion.
+- [ ] Consider extending `tsconfig.json` `include` to `scripts/**/*.ts`, or
+  adding a second project for them, so verifier fixtures fail at typecheck
+  instead of at run time.
+
+### Monitor enable-transition source admission (2026-08-22)
+
+- [ ] `updateWorkspaceMonitor` evaluates the declared source-admission contract
+  against `current.sources`, not against `input.patch.sources`. A single call
+  that both changes sources and enables the monitor is therefore admitted on
+  the pre-patch source set. U3 preserved this behavior deliberately rather than
+  widen its diff; no caller does this today (the strategy-pack service pauses
+  before reconfiguring sources). Decide whether the check should read the
+  effective post-patch sources.
+
 ### Fix failing Coinbase order-approval evals
 
 - [ ] Reconcile `evals/coinbase/order-approval.eval.ts` and

@@ -499,13 +499,56 @@ one supported-version list, characterized across the 1.4.x lineage in
 
 **Completion checklist:**
 
-- [ ] Earnings characterization and named-branch red proof captured.
-- [ ] Contract migration implemented without changing comparison semantics.
-- [ ] Focused verification and concise diff review green.
+- [x] Earnings characterization and named-branch red proof captured. Commit `52c150b`: `scripts/verify-earnings-call-changes-boundary.ts` (registered as `verify:earnings-call-changes:boundary` and added to the sprint-5 aggregate) characterizes empty-source eligibility, reviewed-source admission, the activation watermark, deferred source retry, and research-contract resolution from the declaration alone - including an unrelated pack id that declares the earnings lifecycle contract and an earnings pack id that declares nothing - plus the strategy-owned issuer/source-family selection, the comparison policy identity, the executive-output boundary, and the per-run envelope against the shared worker session's own declared limits. It was red before the migration.
+- [x] Contract migration implemented without changing comparison semantics. Commit `52c150b`. See the boundary classification below.
+- [x] Focused verification and concise diff review green. Green locally: `verify:earnings-call-changes:sprint-0/1/2/3/4/5` (49 gates, which include `typecheck`, `build:agent`, `build`), `:boundary`, `:production-wiring`, `:worker-recovery-corrections`, `:source-lifecycle`, `verify:strategy-packs`, `:strategy-pack-runtime`, `:strategy-pack-owner-surfaces`, `:strategy-pack-mutations`, `:strategy-pack-configuration-kinds`, `verify:agentic-durable-research:u1/u2/u3`, `verify:agentic-durable-research:contract-dispatch`, `verify:public-commentary-signals:sprint-0/1/2/3/4-reuse/follow-up/boundary`, `verify:public-commentary-tracker`, `verify:congressional-signals:sprint-5`, `verify:workspace-runtime:monitor-tools/sec-ipo-worker/start-fresh`, `verify:official-web-statement-source`, `verify:interactive-tool-capabilities`, `verify-workspace-isolation`, `git diff --check`. Not pushed or deployed: another agent holds `main`.
 - [ ] Commit pushed to `main`; Production health and bounded logs green.
-- [ ] One zero-usage Production occurrence terminal and reported.
+- [ ] One zero-usage Production occurrence terminal and reported. **Blocked, not attempted:** the session registry is full at 48/48 retained records, so no acceptance workspace can be created until session deletion ships (see the roadmap's Sprint 7 blocker).
 - [ ] Disposable monitor paused/archived and non-dispatchable.
 - [ ] U3 and Progress Tracker marked complete before U4 begins.
+
+**U3 boundary classification (2026-08-22).** Occurrences of
+`earnings-call-changes` in generic modules, classified per KTD2:
+
+- `agent/lib/workspace-monitor-store.ts` (4 sites) and
+  `agent/schedules/event-triggers.ts` (1 site): removed. All five now resolve
+  `monitor.earnings-call-transcripts/v1` through
+  `resolveManagedMonitorLifecycleContract` and read a declared property
+  (`sourcelessInstall`, `sourceAdmission`, `activationWatermark`,
+  `deferredSourceRetry`). The monitor store no longer imports
+  `EARNINGS_CALL_ISSUER_CATALOG` at all.
+- `agent/tools/explain_earnings_call_change.ts`: removed. Admission is now the
+  declared `evaluate_earnings_call_changes` capability, matching U2's treatment
+  of the commentary explain tool.
+- `agent/lib/workspace-monitor-lifecycle-contract.ts` legacy bindings for
+  `1.0.0`/`1.0.1`: registry keys for immutable published versions. Retained by
+  design, as for commentary.
+- `agent/lib/earnings-call-workspace-worker.ts` binding guards (`assertMonitor`,
+  the recovery guard, the strategy-document check, the pack-identity literal
+  type) and `agent/lib/earnings-call-research.ts`
+  `isEarningsCallAgenticResearchPack`: binding validation and research-runtime
+  selection inside the strategy-owned worker, the latter additionally gated on
+  the declared research evidence contract. Retained.
+- `agent/lib/earnings-call-{policy,schema,materiality,finding-store,status-store}.ts`:
+  strategy-owned policy identity and storage key prefixes. Retained.
+- `agent/lib/strategy-pack-source-resolution.ts`: branches on the pack's
+  declared `sourceId`, not a pack id. Retained.
+- `agent/tools/get_workspace_status.ts` selects an earnings presentation
+  section by pack id. This is the same presentation decision U2 recorded for
+  `agent/channels/photon-workspace-app.ts` and deferred to the U5 audit;
+  migrating one half without the other would leave the pair inconsistent, so
+  both are left for U5 to classify together.
+
+**Two pre-existing verifier failures found during U3 (2026-08-22).** Both
+reproduce identically on unmodified `main` and are recorded in `BACKLOG.md`:
+`verify:agentic-durable-research:u4` (asserts the latest `ipo-filings` is
+`1.1.1`; `44d83c6` published `1.1.2`) and
+`verify:workspace-runtime:sec-ipo-scheduled-compiled` (reaches real DNS for
+`fixture.invalid`). A third was blocking a required U3 gate and was repaired in
+commit `2c5a577`: `scripts/verify-adaptive-model-routing-sprint-1.ts` had been
+missing the `definitionId` that `0656ff0` added to the envelope schema on
+2026-08-19, which made `verify:earnings-call-changes:sprint-5` red on `main`.
+`tsconfig.json` excludes `scripts/`, so none of these fail at typecheck.
 
 ### U4. Repair, migrate, and accept Congressional Signals
 
