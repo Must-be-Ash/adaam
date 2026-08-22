@@ -2299,6 +2299,9 @@ export default defineChannel({
               name: body.name,
               packId: body.packId,
               packVersion: body.packVersion,
+              ...(body.xIdentityResolutionReceipt
+                ? { xIdentityResolutionReceipt: body.xIdentityResolutionReceipt }
+                : {}),
             }, dependencies)
           : body.action === "strategy-pack-configure"
             ? await configureStrategyPackWorkspaceFromSelection({

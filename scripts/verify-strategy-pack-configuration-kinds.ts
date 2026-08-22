@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import {
@@ -101,5 +102,14 @@ assert.deepEqual(
   } as unknown as Parameters<typeof strategyPackPinnedXIdentityFields>[0]),
   [],
 );
+
+// The manager route accepts the resolution receipt and must forward it to the
+// create service. Dropping it silently fails every install of a pack that pins
+// an identity, and the request-schema type alone does not catch that.
+const managerRoute = readFileSync(
+  new URL("../agent/channels/photon-workspace-app.ts", import.meta.url),
+  "utf8",
+);
+assert.match(managerRoute, /xIdentityResolutionReceipt: body\.xIdentityResolutionReceipt/u);
 
 console.info("Strategy-pack bounded enum and canonical-ID list verification passed.");
