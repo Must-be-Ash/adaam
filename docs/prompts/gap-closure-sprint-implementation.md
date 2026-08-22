@@ -136,12 +136,37 @@ plan a change from it. If you need a fact it mentions, confirm it in code first.
   `ipo-filings@1.0.0`), `Congressional Overnight Test`, and
   `Inverse Cramer 1.3.0 retrying`. Leave them alone unless the owner asks for
   cleanup; they hold durable evidence and none of them can dispatch.
-- Before arming Sprint 2's disposable acceptance workspace, pause the
-  `Inverse Cramer Live` monitor if its alert has not yet fired, run and clean up
-  the U2 acceptance, then re-enable it. One acceptance in flight at a time.
 - When the Cramer alert eventually fires, verify it, close U1 in the migration
   plan, and tick Sprint 1 in the roadmap. That bookkeeping can land during any
   sprint.
+
+## Protecting the two live monitors
+
+Two owner monitors are running unattended in Production while you work, and
+Sprint 2 edits the very code one of them executes. Follow this exactly.
+
+1. **Develop freely in the worktree.** Characterization, implementation, and
+   local gates never touch Production. Nothing below restricts that work.
+2. **Pause `Inverse Cramer Live` before you push any commentary change to
+   `main`.** Inverse Cramer and Public Commentary Tracker share
+   `public-commentary-workspace-worker.ts` and `public-commentary-vertical.ts`,
+   pushing to `main` auto-deploys Production, and that monitor would then run
+   your changed code unattended. Local gates are necessary but have repeatedly
+   passed while this exact subsystem failed in Production, so do not treat them
+   as sufficient. Pause it, land and deploy, verify Production health, then
+   re-enable it.
+3. **Never deploy while an occurrence is in flight.** Check each live
+   workspace's `activeWorkers` and `nextOccurrenceAt` first. A deploy that kills
+   a running worker produces `worker_recovery_outcome_missing`, and that class of
+   error pauses a monitor immediately rather than after the usual five
+   consecutive failures. `IPO Live` is currently on a dense hourly schedule, so
+   its quiet windows are short — wait for one.
+4. **Pause both live monitors before arming any disposable acceptance
+   workspace**, run the acceptance, clean it up, then re-enable them. One
+   acceptance in flight at a time.
+5. **Re-enable what you paused.** Leaving an owner monitor paused silently ends
+   the proof it exists for. If you cannot re-enable it, say so explicitly in
+   your report rather than leaving it paused quietly.
 
 ## Where to begin
 

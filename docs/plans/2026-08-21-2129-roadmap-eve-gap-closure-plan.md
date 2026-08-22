@@ -139,19 +139,23 @@ Because nothing here is implementation work, **Sprint 1 must not block the
 roadmap.** Start at Sprint 2 and let the Cramer window
 resolve on its own schedule in the background. Concretely:
 
-- Sprint 2 characterization, implementation, local gates, commit, push, and
-  Production deploy may all proceed while `Inverse Cramer Live` waits. U2's
-  local gate set includes the Inverse Cramer regression fixtures
-  (`verify:public-commentary-signals:*`, the strategy boundary corpus, the
-  frozen real-source fixture), so a green U2 is direct evidence that the live
-  Cramer path still behaves. Those gates are the guard that makes this safe.
-- The one hard rule is **one Production acceptance in flight at a time.** Do
-  not create or arm U2's disposable acceptance workspace while an unproven
-  Cramer occurrence is pending. If the Cramer alert has not fired by the time
-  U2 is deployed and ready for its acceptance, pause the `Inverse Cramer Live`
-  monitor first, run and clean up the U2 acceptance, then re-enable it.
-- Do not archive, reconfigure, or retire `Inverse Cramer Live` for any other
-  reason; it is the live proof and is intentionally unarchived.
+- Sprint 2 characterization, implementation, and local gates may proceed freely
+  in the worktree while `Inverse Cramer Live` waits. None of that touches
+  Production.
+- **Pause `Inverse Cramer Live` before pushing any commentary change to
+  `main`,** then land, deploy, verify health, and re-enable it. U2 edits the
+  shared commentary worker and vertical that this monitor executes, and a push
+  auto-deploys. U2's gates include the Inverse Cramer fixtures, but those gates
+  passed repeatedly during U1 while this same subsystem failed in Production
+  eight times, so they are necessary and not sufficient.
+- **Never deploy while an occurrence is in flight.** A killed worker yields
+  `worker_recovery_outcome_missing`, which pauses a monitor immediately rather
+  than after five failures. Check `activeWorkers` and `nextOccurrenceAt` first.
+- **One Production acceptance in flight at a time.** Pause both live monitors
+  before arming a disposable acceptance workspace, then re-enable them after
+  cleanup.
+- Do not archive, reconfigure, or retire the live monitors for any other
+  reason; they are the live proofs and are intentionally unarchived.
 - When the alert fires — whatever sprint is then active — verify it, close U1
   in the migration plan, and tick Sprint 1 here. Closing U1 is a bookkeeping
   step that can land at any point; it is not a gate on Sprints 2–5.
