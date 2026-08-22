@@ -207,6 +207,42 @@ assert.equal(
   "the superseded 40,000-token envelope funded only one child, which is the reported defect",
 );
 
+// The outer workspace worker adds one turn per evaluated statement and must
+// still have room to call its commit tool. A session too small to finish
+// terminalized occurrences as `worker_outcome_missing` with no error at all, so
+// its declared limits must fit inside the occurrence envelope alongside the
+// nested children a realistic cadence window produces.
+{
+  const workerAgentSource = readFileSync(
+    new URL("../agent/subagents/workspace-worker/agent.ts", import.meta.url),
+    "utf8",
+  );
+  const sessionInput = Number(
+    /maxInputTokensPerSession:\s*([\d_]+)/u.exec(workerAgentSource)?.[1]?.replaceAll("_", ""),
+  );
+  const sessionOutput = Number(
+    /maxOutputTokensPerSession:\s*([\d_]+)/u.exec(workerAgentSource)?.[1]?.replaceAll("_", ""),
+  );
+  assert.ok(Number.isSafeInteger(sessionInput) && Number.isSafeInteger(sessionOutput));
+  const statementsPerOccurrence = 8;
+  // Reviewed values. Production terminalized a five-statement occurrence as
+  // `worker_outcome_missing` with no error at 32,000/8,000, because the session
+  // adds a turn per statement under high reasoning and could exhaust itself
+  // before its commit tool ran.
+  assert.equal(sessionInput, 64_000);
+  assert.equal(sessionOutput, 16_000);
+  assert.ok(
+    sessionInput + compactDefinition.limits.maximumInputTokens * statementsPerOccurrence
+      <= activeBudget.maximumInputTokensPerRun,
+    "the worker session plus a realistic fan-out must fit the occurrence input envelope",
+  );
+  assert.ok(
+    sessionOutput + compactDefinition.limits.maximumOutputTokens * statementsPerOccurrence
+      <= activeBudget.maximumOutputTokensPerRun,
+    "the worker session plus a realistic fan-out must fit the occurrence output envelope",
+  );
+}
+
 const statementUrl = "https://x.com/jimcramer/status/123";
 const brief = workspaceExecutiveBriefSchema.parse({
   confidence: "medium",
