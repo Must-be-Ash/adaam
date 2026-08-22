@@ -1,8 +1,13 @@
 # eve Agent App
 
-Read `HANDOFF.md` first. It is the canonical guide to Eve's current product
-direction, implemented architecture, safety invariants, operational workflow,
-known gaps, and production lessons.
+**The code is the source of truth for how Eve currently behaves.** Verify every
+behavioral claim against it before acting.
+
+`GOAL.md` states the owner's product target. `HANDOFF.md` is a stale snapshot of
+the owner's own notes: do not treat it as authoritative for current state,
+architecture, or flag values, and do not rely on it to plan a change. Its safety
+boundaries (financial approval, secrets, MCP normalization) still describe real
+invariants worth respecting, but confirm them in code.
 
 ## Scope discipline
 

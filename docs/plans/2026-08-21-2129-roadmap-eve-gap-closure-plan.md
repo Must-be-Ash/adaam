@@ -25,14 +25,13 @@ Fresh continuity, fleet activation, and one end-of-line regression/E2E pass.
 
 ## Ground rules for the implementing agent
 
-- **Authorities.** `GOAL.md` is the product target. `HANDOFF.md` governs safety
-  and product boundaries but is stale in places (snapshot 2026-08-19) — verify
-  against current code. Sprints 1–5 execute the remaining units of
+- **Authorities.** `GOAL.md` is the product target. **The code is the only
+  source of truth for how the system currently behaves** — verify every
+  behavioral claim against it. Sprints 1–5 execute the remaining units of
   `docs/plans/2026-08-20-2017-refactor-strategy-application-boundary-migrations-plan.md`
   ("the migration plan"), which stays the detailed authority for those units;
   do not duplicate its content here and never delete or rewrite its recorded
-  done-markers or receipts. `specs/07-strategy-platform-boundary-and-continuity.md`
-  is design input only.
+  done-markers or receipts.
 - **One thing at a time.** One sprint at a time; within a sprint one step at a
   time; check each box (with commit/receipt) before the next. Only one
   Production acceptance may be in flight at any moment.
@@ -69,11 +68,9 @@ Fresh continuity, fleet activation, and one end-of-line regression/E2E pass.
 
 ## Progress tracker
 
-- [ ] Sprint 0 — Hygiene and safety baseline
 - [ ] Sprint 1 — Close U1: Inverse Cramer live alert proof *(no code work left;
       waiting on a live Cramer statement — does not block Sprints 2–5)*
-- [ ] Sprint 2 — U2: Public Commentary Tracker migration *(start here after
-      Sprint 0)*
+- [ ] Sprint 2 — U2: Public Commentary Tracker migration *(start here)*
 - [ ] Sprint 3 — U3: Earnings Call Changes migration
 - [ ] Sprint 4 — U4: Congressional repair + migration
 - [ ] Sprint 5 — U5: Final boundary and isolation audit
@@ -81,29 +78,6 @@ Fresh continuity, fleet activation, and one end-of-line regression/E2E pass.
 - [ ] Sprint 7 — Fleet activation
 - [ ] Sprint 8 — Regression close-out and end-to-end proof
 - [ ] Sprint 9 — Docs, cleanup, and final merge
-
-## Sprint 0 — Hygiene and safety baseline
-
-Small, bounded, no refactors.
-
-- [x] `notes/` removed from the repository and added to `.gitignore`
-  (2026-08-22). The owner's copies were preserved outside the repo at
-  `/Users/ashnouruzi/dev/adaam-notes/`.
-- [x] This roadmap committed and pushed (`e03b6dc`).
-- [x] Exposed-credential handling closed out by the owner directly on
-  2026-08-22 (rotation handled outside this plan). The owner also decided
-  against a history rewrite: `notes/` entered 291 commits back, so a rewrite
-  would churn every commit receipt recorded in the plans and specs and still
-  would not purge GitHub's unreachable objects without a support request.
-- [x] `specs/07-strategy-platform-boundary-and-continuity.md` committed
-  (`cf39c25`).
-- [x] Stale worktree `.worktrees/fix-strategy-pack-create-transaction` removed;
-  only the `main` worktree remains.
-- [ ] Remove the empty `app/api/earnings-call-acceptance/` directory.
-- [ ] Verify the Congressional monitor is paused and non-dispatchable until
-  Sprint 4 lands (per `docs/congressional-monitor-retry-defect.md`).
-- [ ] Commit, push, verify Production health (`/`, `/skill`, `/eve/v1/health`
-  HTTP 200, Eve `ready`) and an empty bounded error-log scan.
 
 ## Sprint 1 — Close U1: Inverse Cramer live alert proof
 
@@ -155,7 +129,7 @@ and the eventual alert then proves the combined deployment. Either way, Sprint
 a time).
 
 Because nothing here is implementation work, **Sprint 1 must not block the
-roadmap.** After Sprint 0, go straight to Sprint 2 and let the Cramer window
+roadmap.** Start at Sprint 2 and let the Cramer window
 resolve on its own schedule in the background. Concretely:
 
 - Sprint 2 characterization, implementation, local gates, commit, push, and
