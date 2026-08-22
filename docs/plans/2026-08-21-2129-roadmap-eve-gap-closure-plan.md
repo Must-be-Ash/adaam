@@ -90,15 +90,16 @@ Small, bounded, no refactors.
   (2026-08-22). The owner's copies were preserved outside the repo at
   `/Users/ashnouruzi/dev/adaam-notes/`.
 - [x] This roadmap committed and pushed (`e03b6dc`).
-- [ ] **Owner action — rotate the exposed credential.** `notes/commands.md`
-  line 100 carried a live secret (`prefix_xxx_xxx:32hex:32hex`, apparently a
-  trigger.dev access token) in a **public** repository from commit `140af0d`
-  onward. Removing the file does not un-expose it: git history retains it, and
-  a public repo must be assumed scraped. Rotation is the only complete fix and
-  is the owner's to perform. Do not attempt a history rewrite — `notes/`
-  entered history 291 commits back, so rewriting would invalidate every commit
-  receipt recorded in the plans and specs, and would still not purge GitHub's
-  unreachable objects.
+- [ ] **Owner action — rotate the exposed credentials.** `notes/commands.md`
+  carried at least three live secrets in a **public** repository from commit
+  `140af0d` onward: a Vercel Blob token, a Circle sandbox API key
+  (`TEST_API_KEY:<id>:<secret>`), and a standalone password. Removing the file
+  does not un-expose them: git history retains them, and a public repo must be
+  assumed scraped. Rotation is the only complete fix and is the owner's to
+  perform. The owner decided on 2026-08-22 not to rewrite history — `notes/`
+  entered 291 commits back, so a rewrite would churn every commit receipt
+  recorded in the plans and specs and still would not purge GitHub's
+  unreachable objects without a support request.
 - [ ] Commit the currently untracked
   `specs/07-strategy-platform-boundary-and-continuity.md` so no working doc can
   be lost.
@@ -147,13 +148,16 @@ Cramer's posting cadence, not Eve, is the constraint — this can take days.
 
 ### Do not wait on this sprint — proceed to Sprint 2
 
-      145  
-      146 -Sequencing note: because the remaining U1 work is purely observational, Sprint                                                  
-      147 -2 characterization and implementation may proceed in the worktree while this                                                    
-      148 -window is open. Prefer landing Sprint 2 on `main` only after the U1 alert                                                       
-      149 -proof: U2 touches shared commentary plumbing, and landing it would change the                                                   
-      150 -deployed code under the live Cramer monitor before the proof fires. If Cramer                                                   
-      151 -stays quiet for days and U2 is fully green locally, landing it anyway is acceptable — U2's gates include the Inverse Cramer regression fixtures that guard the live path, and the eventual alert then proves the combined deployment. Either way, Sprint 2's Production acceptance waits until U1 is closed (one acceptance in flight at a time).
+Sequencing note: because the remaining U1 work is purely observational, Sprint 2
+characterization and implementation may proceed in the worktree while this
+window is open. Prefer landing Sprint 2 on `main` only after the U1 alert proof:
+U2 touches shared commentary plumbing, and landing it would change the deployed
+code under the live Cramer monitor before the proof fires. If Cramer stays quiet
+for days and U2 is fully green locally, landing it anyway is acceptable — U2's
+gates include the Inverse Cramer regression fixtures that guard the live path,
+and the eventual alert then proves the combined deployment. Either way, Sprint
+2's Production acceptance waits until U1 is closed (one acceptance in flight at
+a time).
 
 Because nothing here is implementation work, **Sprint 1 must not block the
 roadmap.** After Sprint 0, go straight to Sprint 2 and let the Cramer window
