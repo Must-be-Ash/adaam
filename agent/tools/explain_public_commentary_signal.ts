@@ -6,11 +6,12 @@ import {
   readPublicCommentaryFindingExplanation,
 } from "../lib/public-commentary-presentation";
 import { inspectStrategyPackWorkspace } from "../lib/strategy-pack-service";
+import { INVERSE_CRAMER_EVALUATION_TOOL_ID } from "../lib/strategy-pack-reference-catalog";
 import { requirePhotonWorkspaceToolScope } from "../lib/workspace-runtime-scope";
 import { authorizePhotonWorkspaceToolStore } from "../lib/workspace-store-authorization";
 
 export default defineTool({
-  description: "Read one exact current Inverse Cramer research finding, or the latest finding in the current authenticated workspace. Returns bounded explanation and evidence references without tools or mutations.",
+  description: "Read one exact current public-commentary research finding, or the latest finding in the current authenticated workspace. Returns bounded explanation and evidence references without tools or mutations.",
   inputSchema: z.object({
     findingId: z.string().regex(/^[A-Za-z][A-Za-z0-9_./:@-]{1,159}$/u).optional(),
   }).strict(),
@@ -21,9 +22,15 @@ export default defineTool({
       scope,
       workspaceGeneration: runtimeScope.generation,
     });
-    if (binding.state !== "active" || binding.pack?.id !== "inverse-cramer") {
-      throw new Error("public_commentary_workspace_unavailable");
-    }
+    // Every public-commentary strategy reads its own findings through this
+    // tool. The declared capability selects that, so a second commentary pack
+    // needs no exception here; workspace isolation still bounds the read to the
+    // authenticated workspace.
+    if (
+      binding.state !== "active" ||
+      !binding.capabilities.some(({ id, status }) =>
+        id === INVERSE_CRAMER_EVALUATION_TOOL_ID && status === "available")
+    ) throw new Error("public_commentary_workspace_unavailable");
     return input.findingId
       ? readPublicCommentaryFindingExplanation({ findingId: input.findingId, scope })
       : readLatestPublicCommentaryFindingExplanation(scope);

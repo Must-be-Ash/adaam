@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   classifyPublicCommentaryImpact,
   parsePublicCommentaryImpactHypotheses,
   resolvePublicCommentaryTrackerSourcePolicy,
 } from "../agent/lib/public-commentary-tracker";
+import {
+  COMMENTARY_CONFIGURED_IMPACT_CONTRACT_ID,
+  COMMENTARY_DIRECTION_INVERSION_CONTRACT_ID,
+  INVERSE_CRAMER_POLICY,
+  PUBLIC_COMMENTARY_TRACKER_POLICY,
+  resolvePublicCommentaryInterpretationContract,
+} from "../agent/lib/public-commentary-interpretation-contract";
+import { decideCommentaryPolicy } from "../agent/lib/commentary-policy";
+import { commentaryExtractionSchema } from "../agent/lib/public-commentary-schema";
+import { resolveManagedMonitorLifecycleContract } from "../agent/lib/workspace-monitor-lifecycle-contract";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import { resolveStrategyPackConfiguration } from "../agent/lib/strategy-pack-service";
 import { resolveStrategyPackSourceInstances } from "../agent/lib/strategy-pack-service";
@@ -126,5 +137,138 @@ assert.equal(
   classifyPublicCommentaryImpact("There may be escalation, but a ceasefire is also possible.", hypotheses).classification,
   "mixed",
 );
+
+// The tracker reuses the shared commentary vertical through the interpretation
+// contract its pack declares. Generic plumbing must select that behavior from
+// the declaration alone, so a differently configured commentary strategy needs
+// no branch in shared code.
+const currentPack = strategyPackCatalog.resolve({ id: "public-commentary-tracker", version: "1.2.0" });
+assert.ok(currentPack);
+assert.deepEqual(
+  currentPack.evidenceContracts?.find(({ id }) => id === COMMENTARY_CONFIGURED_IMPACT_CONTRACT_ID),
+  {
+    digest: PUBLIC_COMMENTARY_TRACKER_POLICY.policy.definitionDigest,
+    id: COMMENTARY_CONFIGURED_IMPACT_CONTRACT_ID,
+    version: "1.0.0",
+  },
+);
+assert.equal(
+  resolvePublicCommentaryInterpretationContract(currentPack)?.actionability,
+  "configured_impact_hypothesis",
+);
+// Published versions cannot declare the contract; their exact bindings keep the
+// behavior they shipped with.
+for (const version of ["1.0.0", "1.1.0"]) {
+  const historical = strategyPackCatalog.resolve({ id: "public-commentary-tracker", version });
+  assert.ok(historical);
+  assert.equal(historical.evidenceContracts?.some(({ id }) =>
+    id === COMMENTARY_CONFIGURED_IMPACT_CONTRACT_ID), false);
+  assert.equal(
+    resolvePublicCommentaryInterpretationContract(historical)?.id,
+    COMMENTARY_CONFIGURED_IMPACT_CONTRACT_ID,
+  );
+}
+// Every published commentary version must resolve a contract: the shared worker
+// terminalizes an occurrence it cannot resolve, so a missing binding would take
+// a live monitor down rather than degrade it.
+for (const entry of strategyPackCatalog.entries) {
+  if (entry.id !== "inverse-cramer" && entry.id !== "public-commentary-tracker") continue;
+  assert.equal(
+    resolvePublicCommentaryInterpretationContract(entry)?.id,
+    entry.id === "inverse-cramer"
+      ? COMMENTARY_DIRECTION_INVERSION_CONTRACT_ID
+      : COMMENTARY_CONFIGURED_IMPACT_CONTRACT_ID,
+    `${entry.id}@${entry.version} must resolve an interpretation contract`,
+  );
+}
+// Resolution reads the declaration, not the identity: an unrelated pack id that
+// declares the tracker's contract resolves to it, and one that declares nothing
+// resolves to nothing.
+assert.equal(
+  resolvePublicCommentaryInterpretationContract({
+    evidenceContracts: [{ id: COMMENTARY_CONFIGURED_IMPACT_CONTRACT_ID, version: "1.0.0" }],
+    id: "some-other-commentary-strategy",
+    version: "9.9.9",
+  })?.actionability,
+  "configured_impact_hypothesis",
+);
+assert.equal(
+  resolvePublicCommentaryInterpretationContract({
+    evidenceContracts: [{ id: COMMENTARY_DIRECTION_INVERSION_CONTRACT_ID, version: "1.0.0" }],
+    id: "some-other-commentary-strategy",
+    version: "9.9.9",
+  })?.actionability,
+  "deterministic_market_view",
+);
+assert.equal(
+  resolvePublicCommentaryInterpretationContract({
+    evidenceContracts: [],
+    id: "some-other-commentary-strategy",
+    version: "9.9.9",
+  }),
+  null,
+);
+// Two commentary strategies reach opposite conclusions on the same normalized
+// extraction because their declared contracts carry different registered
+// transforms, not because shared plumbing knows either of them.
+const bullishExtraction = commentaryExtractionSchema.parse({
+  attribution: "direct",
+  confidence: "high",
+  evidence: [{ end: 12, spanDigest: "a".repeat(64), start: 0 }],
+  extractionId: "commentary-extraction.contract-contrast",
+  horizon: "unspecified",
+  recordType: "commentary_extraction",
+  schemaVersion: 1,
+  stance: "bullish",
+  targets: [{ displayName: "Oil", symbol: "OIL", type: "commodity" }],
+  topic: "investment_view",
+  voiceOwnership: "speaker",
+});
+assert.equal(
+  decideCommentaryPolicy({ extraction: bullishExtraction, policy: PUBLIC_COMMENTARY_TRACKER_POLICY })
+    .decision.researchDirection,
+  "bullish",
+);
+assert.equal(
+  decideCommentaryPolicy({ extraction: bullishExtraction, policy: INVERSE_CRAMER_POLICY })
+    .decision.researchDirection,
+  "bearish",
+);
+// The migrated version declares its monitor lifecycle instead of relying on the
+// legacy pack-version binding, and keeps the cadence behavior it shipped with.
+assert.equal(currentPack.monitors[0]?.lifecycleContractId, "monitor.public-commentary-cadence/v1");
+assert.equal(
+  resolveManagedMonitorLifecycleContract({
+    lifecycleContractId: currentPack.monitors[0]?.lifecycleContractId,
+  })?.initialEvaluationWindow,
+  resolveManagedMonitorLifecycleContract({
+    managedBy: {
+      packId: "public-commentary-tracker",
+      packVersion: "1.1.0",
+      resourceId: "evaluate-public-commentary",
+    },
+  })?.initialEvaluationWindow,
+);
+// One occurrence runs the shared worker session plus bounded interpretation
+// children. Versions 1.0.0-1.1.0 reserved less per run than the worker session
+// alone declares, so the session could never commit an outcome.
+assert.deepEqual(currentPack.monitors[0]?.suggestedBudget, {
+  maximumInputTokensPerRun: 160_000,
+  maximumOutputTokensPerRun: 32_000,
+  maximumRunsPerDay: 144,
+});
+const workerAgent = readFileSync(
+  new URL("../agent/subagents/workspace-worker/agent.ts", import.meta.url),
+  "utf8",
+);
+const declaredSessionOutput = Number(
+  /maxOutputTokensPerSession:\s*([\d_]+)/u.exec(workerAgent)?.[1]?.replaceAll("_", "") ?? "0",
+);
+const declaredSessionInput = Number(
+  /maxInputTokensPerSession:\s*([\d_]+)/u.exec(workerAgent)?.[1]?.replaceAll("_", "") ?? "0",
+);
+assert.ok(declaredSessionOutput > 0 && declaredSessionInput > 0);
+assert.ok(currentPack.monitors[0]!.suggestedBudget.maximumOutputTokensPerRun >= declaredSessionOutput);
+assert.ok(currentPack.monitors[0]!.suggestedBudget.maximumInputTokensPerRun >= declaredSessionInput);
 
 console.info("Configurable Public Commentary Tracker verification passed.");

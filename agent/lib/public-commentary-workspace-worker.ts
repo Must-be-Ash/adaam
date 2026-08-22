@@ -73,6 +73,9 @@ import {
   type PublicCommentaryResearchSubject,
 } from "./public-commentary-vertical";
 import {
+  resolvePublicCommentaryInterpretationContract,
+} from "./public-commentary-interpretation-contract";
+import {
   createDefaultRevocableEvidenceStoreClient,
   purgeRevocableEvidence,
   readRevocableEvidencePayload,
@@ -192,6 +195,7 @@ export interface PublicCommentaryWorkspaceWorkerClients extends WorkspaceWorkerC
         version: string;
       }>;
       scope: ReturnType<typeof authorizeWorkspaceWorkerStore>;
+      strategyDisplayName?: string;
       window: Readonly<{ endAt: string; startAt: string }>;
     }>): Promise<PublicCommentaryPipelineResult>;
   }>;
@@ -399,6 +403,10 @@ export function createProductionPublicCommentaryPipeline(input: {
   const compactActionability = managedPack.evidenceContracts?.some(
     ({ id }) => id === INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
   ) ?? false;
+  const interpretation = resolvePublicCommentaryInterpretationContract(managedPack);
+  if (!interpretation) {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+  }
   const definition = compactActionability
     ? createInverseCramerActionabilityDefinition([semanticRoute.modelId], {
         allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
@@ -854,6 +862,7 @@ export function createProductionPublicCommentaryPipeline(input: {
     recoverExtraction: clients?.recoverExtraction ?? recoverNamedAssetCommentaryMetadata,
     state: clients?.state,
     directModelActionability,
+    interpretation,
     interpret: async ({ plaintext, selectedSymbols, statement, statementRevisionId }) => {
       const subject = semanticSubjects.get(statementRevisionId);
       if (!subject) {
@@ -1380,6 +1389,11 @@ export async function evaluatePublicCommentarySignalsForWorker(input: {
     scope,
   });
   const managedBy = monitor.managedBy;
+  const strategyDisplayName = strategyPackCatalog.resolve({
+    contentDigest: managedBy.packContentDigest,
+    id: managedBy.packId,
+    version: managedBy.packVersion,
+  })?.displayName ?? null;
   const cadenceDerivedBackfill = usesCadenceDerivedBackfill({
     id: managedBy.packId,
     ...(monitor.lifecycleContractId
@@ -1414,6 +1428,7 @@ export async function evaluatePublicCommentarySignalsForWorker(input: {
       version: managedBy.packVersion,
     },
     scope,
+    ...(strategyDisplayName ? { strategyDisplayName } : {}),
     window: envelope.window,
   });
   const result = researchRuntime

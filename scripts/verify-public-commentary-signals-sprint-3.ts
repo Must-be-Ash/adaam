@@ -1554,6 +1554,9 @@ assert.match(workerCapabilities, /evaluatePublicCommentarySignalsTool/u);
 assert.doesNotMatch(workerCapabilities, /broker|coinbase_create_order/u);
 const explanationTool = await readFile(new URL("../agent/tools/explain_public_commentary_signal.ts", import.meta.url), "utf8");
 assert.match(explanationTool, /authorizePhotonWorkspaceToolStore/u);
-assert.match(explanationTool, /inverse-cramer/u);
+// Both commentary strategies read their own findings through this tool. It is
+// gated by the declared evaluation capability, never by a pack identifier.
+assert.match(explanationTool, /INVERSE_CRAMER_EVALUATION_TOOL_ID/u);
+assert.doesNotMatch(explanationTool, /pack\?\.id/u);
 
 console.info("public commentary Sprint 3 pack, vertical, correction, alert, Manage, Discuss, and isolation verification passed");

@@ -1,10 +1,14 @@
 import { z } from "zod";
 
 import {
-  COMMENTARY_DIRECTION_PRESERVATION_TRANSFORM,
   createCommentaryPolicyDefinition,
   decideCommentaryPolicy,
 } from "./commentary-policy";
+import {
+  COMMENTARY_DIRECTION_INVERSION_CONTRACT,
+  INVERSE_CRAMER_POLICY,
+  type PublicCommentaryInterpretationContract,
+} from "./public-commentary-interpretation-contract";
 import {
   classifyPublicCommentaryImpact,
   parsePublicCommentaryImpactHypotheses,
@@ -74,13 +78,14 @@ import { marketSymbolSchema } from "./strategy-pack-schema";
 // Mirrors the `whyMatched` bound enforced by the shared workspace alert store.
 export const PUBLIC_COMMENTARY_ALERT_WHY_MATCHED_MAXIMUM = 1_000;
 
-export const INVERSE_CRAMER_POLICY = createCommentaryPolicyDefinition({
-  displayName: "Inverse Cramer",
-  policyId: "commentary-direction-inversion",
-  policyVersion: "1.0.0",
-  transformId: "invert-bullish-bearish",
-  transformVersion: "1.0.0",
-});
+export {
+  COMMENTARY_CONFIGURED_IMPACT_CONTRACT,
+  COMMENTARY_DIRECTION_INVERSION_CONTRACT,
+  INVERSE_CRAMER_POLICY,
+  PUBLIC_COMMENTARY_TRACKER_POLICY,
+  resolvePublicCommentaryInterpretationContract,
+  type PublicCommentaryInterpretationContract,
+} from "./public-commentary-interpretation-contract";
 
 export interface PublicCommentarySourceBinding {
   readonly accessClassification: "public";
@@ -122,14 +127,6 @@ const publicCommentaryConfigurationSchema = z.object({
 }).passthrough();
 
 type PublicCommentaryConfiguration = z.infer<typeof publicCommentaryConfigurationSchema>;
-
-export const PUBLIC_COMMENTARY_TRACKER_POLICY = createCommentaryPolicyDefinition({
-  displayName: "Configured public-commentary impact hypothesis",
-  policyId: "commentary-configured-impact",
-  policyVersion: "1.0.0",
-  transformId: COMMENTARY_DIRECTION_PRESERVATION_TRANSFORM.transformId,
-  transformVersion: COMMENTARY_DIRECTION_PRESERVATION_TRANSFORM.version,
-});
 
 export function partitionPublicCommentaryStatements<T>(values: readonly T[]): readonly (readonly T[])[] {
   const batches: T[][] = [];
@@ -888,7 +885,7 @@ export function createPublicCommentaryPipeline(input: {
   readonly corroboration: WebCorroborationProvider;
   readonly directModelActionability?: boolean;
   readonly findings?: PublicCommentaryFindingStoreClient;
-  readonly policy?: ReturnType<typeof createCommentaryPolicyDefinition>;
+  readonly interpretation?: PublicCommentaryInterpretationContract;
   readonly recoverExtraction?: Parameters<typeof extractCommentaryMetadata>[0]["recover"];
   readonly state?: WorkspaceStateStoreClient;
   readonly interpret: (request: Readonly<{
@@ -911,9 +908,11 @@ export function createPublicCommentaryPipeline(input: {
       parentBudgetRunId?: string;
       pack: Readonly<{ contentDigest: string; id: string; version: string }>;
       scope: AuthorizedWorkspaceStoreScope;
+      strategyDisplayName?: string;
       window: Readonly<{ endAt: string; startAt: string }>;
     }>) {
       const configuration = publicCommentaryConfigurationSchema.parse(request.configuration);
+      const interpretation = input.interpretation ?? COMMENTARY_DIRECTION_INVERSION_CONTRACT;
       const acquired = await input.acquireAndProject({
         cadenceMinutes: configuration.cadenceMinutes,
         firstRunLookback: configuration.firstRunLookback,
@@ -946,10 +945,10 @@ export function createPublicCommentaryPipeline(input: {
         await quarantineOverflow("statements_overflow");
         throw new Error("public_commentary_occurrence_statements_overflow");
       }
-      const trackerHypotheses = request.pack.id === "public-commentary-tracker"
+      const configuredHypotheses = interpretation.actionability === "configured_impact_hypothesis"
         ? parsePublicCommentaryImpactHypotheses(configuration.impactHypotheses)
         : null;
-      const trackerTopics = request.pack.id === "public-commentary-tracker" && Array.isArray(configuration.topics)
+      const configuredTopics = configuredHypotheses && Array.isArray(configuration.topics)
         ? configuration.topics.filter((value): value is string => typeof value === "string")
         : [];
       const prepareProjected = async (projected: PublicCommentaryProjectedStatement) => {
@@ -959,7 +958,7 @@ export function createPublicCommentaryPipeline(input: {
             (publicStatementRole(statement) === "reply" && configuration.includeReplies === "exclude") ||
             (publicStatementRole(statement) === "quote" && configuration.includeQuotePosts === "exclude")
           ) return null;
-          if (input.directModelActionability && request.pack.id === "inverse-cramer") {
+          if (input.directModelActionability) {
             const queryDigest = digestPublicCommentaryValue([
               "inverse-cramer-direct-model",
               request.configurationGeneration,
@@ -1007,8 +1006,8 @@ export function createPublicCommentaryPipeline(input: {
             statement,
             text: projected.plaintext,
           })).extraction;
-          const impact = trackerHypotheses
-            ? classifyPublicCommentaryImpact(projected.plaintext, trackerHypotheses, trackerTopics)
+          const impact = configuredHypotheses
+            ? classifyPublicCommentaryImpact(projected.plaintext, configuredHypotheses, configuredTopics)
             : null;
           const extraction = impact
             ? (() => {
@@ -1030,7 +1029,7 @@ export function createPublicCommentaryPipeline(input: {
                 });
               })()
             : extracted;
-          const semanticallyActionable = request.pack.id === "public-commentary-tracker"
+          const semanticallyActionable = interpretation.actionability === "configured_impact_hypothesis"
             ? impact !== null && impact.classification !== "unclear"
             : extraction.topic === "investment_view" &&
               extraction.targets.length > 0 &&
@@ -1122,9 +1121,7 @@ export function createPublicCommentaryPipeline(input: {
             now: new Date(request.window.endAt),
             ownerId: request.ownerId,
             pack: request.pack,
-            policy: request.pack.id === "public-commentary-tracker"
-              ? PUBLIC_COMMENTARY_TRACKER_POLICY
-              : input.policy,
+            policy: interpretation.policy,
             extraction,
             plaintext: projected.plaintext,
             scope: request.scope,
@@ -1186,7 +1183,7 @@ export function createPublicCommentaryPipeline(input: {
       const alertPresentations = request.initialBackfill
         ? firstAlert ? [{
             key: "initial-summary",
-            title: `${request.pack.id === "inverse-cramer" ? "Inverse Cramer" : "Public Commentary Tracker"} · initial ${configuration.cadenceMinutes.replaceAll("_", " ")} summary`,
+            title: `${request.strategyDisplayName ?? interpretation.policy.displayName} · initial ${configuration.cadenceMinutes.replaceAll("_", " ")} summary`,
             whyMatched: `${allMaterial.length} eligible statement${allMaterial.length === 1 ? "" : "s"} in the initial cadence interval; one summary alert was emitted to avoid spam. ${firstAlert.whyMatched}`,
           }] : []
         : allMaterial.flatMap(({ materialized }) => materialized.alertPresentation

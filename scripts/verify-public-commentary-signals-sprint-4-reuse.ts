@@ -5,9 +5,10 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 
 import {
-  COMMENTARY_DIRECTION_PRESERVATION_TRANSFORM,
-  createCommentaryPolicyDefinition,
-} from "../agent/lib/commentary-policy";
+  COMMENTARY_CONFIGURED_IMPACT_CONTRACT,
+  COMMENTARY_DIRECTION_INVERSION_CONTRACT,
+  resolvePublicCommentaryInterpretationContract,
+} from "../agent/lib/public-commentary-interpretation-contract";
 import type { PublicCommentaryAttemptStoreClient } from "../agent/lib/public-commentary-attempt-store";
 import {
   readPublicCommentaryFindingExplanation,
@@ -199,13 +200,20 @@ const statements = await Promise.all(capture.cases.map(async (fixture) => {
   });
 }));
 
-const policy = createCommentaryPolicyDefinition({
-  displayName: "Escalation-to-oil research",
-  policyId: "commentary-direction-preservation",
-  policyVersion: "1.0.0",
-  transformId: COMMENTARY_DIRECTION_PRESERVATION_TRANSFORM.transformId,
-  transformVersion: COMMENTARY_DIRECTION_PRESERVATION_TRANSFORM.version,
-});
+// The tracker reaches the shared vertical through the interpretation contract
+// its pack declares; the pipeline below is handed that contract and never reads
+// a pack identifier. Its eligibility rule and registered direction transform
+// both differ from Inverse Cramer's, which is what lets two commentary
+// strategies reach different conclusions on the same shared plumbing.
+const interpretation = resolvePublicCommentaryInterpretationContract(trackerPack);
+assert.ok(interpretation);
+assert.equal(interpretation.id, COMMENTARY_CONFIGURED_IMPACT_CONTRACT.id);
+assert.equal(interpretation.actionability, "configured_impact_hypothesis");
+assert.notEqual(interpretation.actionability, COMMENTARY_DIRECTION_INVERSION_CONTRACT.actionability);
+assert.notEqual(
+  interpretation.policy.transformId,
+  COMMENTARY_DIRECTION_INVERSION_CONTRACT.policy.transformId,
+);
 const definition = createCommentarySemanticDefinition(["openai/gpt-5.4"], {
   allowedAdapterIds: ["official-web-signed-capture"],
 });
@@ -325,7 +333,7 @@ const pipeline = createPublicCommentaryPipeline({
     const result = semanticResult(projected);
     return { evidence: { result }, record: { job: { state: "accepted" } }, strategyEvidence: { result } } as never;
   },
-  policy,
+  interpretation,
   recoverExtraction: async ({ deterministic, text }) => extractionFor(text, deterministic),
 });
 const configuration = {

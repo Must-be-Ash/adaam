@@ -976,6 +976,19 @@ export function resolveStrategyPackWorkerModelPolicy(input: {
   };
 }
 
+/*
+ * A pack that declares a pinned public X identity may never install on its
+ * default: the owner must have resolved that handle in this same thread and
+ * confirmed the numeric user ID, and the create request must carry the receipt
+ * that proves it. The declared configuration kind selects that rule, so any
+ * pack pinning an identity is covered without naming the pack.
+ */
+export function strategyPackPinnedXIdentityFields(
+  pack: Pick<StrategyPackCatalogEntry, "configuration">,
+): readonly StrategyPackCatalogEntry["configuration"][number][] {
+  return pack.configuration.filter((field) => field.kind === "x_public_identity");
+}
+
 export function resolveStrategyPackInitialBudgetPolicy(
   pack: StrategyPackCatalogEntry,
   configuration: Record<string, string | string[]>,
@@ -1364,12 +1377,12 @@ async function executeCreateStrategyPackWorkspace(
     throw new StrategyPackServiceError("strategy_pack_unavailable");
   }
   const configuration = resolveStrategyPackConfiguration(pack, request.configuration);
-  if (
-    pack.id === "public-commentary-tracker" &&
-    (!request.configuration || !Object.prototype.hasOwnProperty.call(request.configuration, "xIdentity"))
-  ) throw new StrategyPackServiceError("strategy_pack_invalid_request");
-  if (pack.id === "public-commentary-tracker") {
-    const identity = parseConfirmedXPublicIdentity(configuration.configuration.xIdentity);
+  for (const field of strategyPackPinnedXIdentityFields(pack)) {
+    if (
+      !request.configuration ||
+      !Object.prototype.hasOwnProperty.call(request.configuration, field.key)
+    ) throw new StrategyPackServiceError("strategy_pack_invalid_request");
+    const identity = parseConfirmedXPublicIdentity(configuration.configuration[field.key]);
     const secret = environment.EVE_OWNER_ALIAS_HMAC_SECRET;
     if (!secret || secret.length < 32) throw new StrategyPackServiceError("strategy_pack_mutations_disabled");
     try {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import {
   resolveStrategyPackConfiguration,
+  strategyPackPinnedXIdentityFields,
   StrategyPackServiceError,
 } from "../agent/lib/strategy-pack-service";
 import { strategyPackConfigurationFieldSchema } from "../agent/lib/strategy-pack-schema";
@@ -73,5 +74,32 @@ for (const invalid of [
       error.code === "strategy_pack_invalid_request",
   );
 }
+
+// Installing a pack that pins a public X identity requires an explicit,
+// same-thread resolution receipt. The declared configuration kind selects that
+// rule, so it is not tied to any pack identifier.
+const pinnedIdentityPacks = strategyPackCatalog.entries
+  .filter((entry) => strategyPackPinnedXIdentityFields(entry).length > 0)
+  .map(({ id, version }) => `${id}@${version}`);
+assert.deepEqual(pinnedIdentityPacks, [
+  "public-commentary-tracker@1.0.0",
+  "public-commentary-tracker@1.1.0",
+  "public-commentary-tracker@1.2.0",
+]);
+const trackerPack = strategyPackCatalog.resolve({
+  id: "public-commentary-tracker",
+  version: "1.2.0",
+});
+assert.ok(trackerPack);
+assert.deepEqual(
+  strategyPackPinnedXIdentityFields(trackerPack).map(({ key }) => key),
+  ["xIdentity"],
+);
+assert.deepEqual(
+  strategyPackPinnedXIdentityFields({
+    configuration: [{ ...fields[0], key: "notAnIdentity" }],
+  } as unknown as Parameters<typeof strategyPackPinnedXIdentityFields>[0]),
+  [],
+);
 
 console.info("Strategy-pack bounded enum and canonical-ID list verification passed.");
