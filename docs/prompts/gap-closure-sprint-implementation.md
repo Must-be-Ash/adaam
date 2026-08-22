@@ -71,6 +71,15 @@ plan a change from it. If you need a fact it mentions, confirm it in code first.
   never trading authority; approval-gated Coinbase behavior unchanged.
 - Never attempt a git history rewrite.
 
+## Operational access
+
+- **Never mint, forge, derive, or engineer a Manage Sessions capability token or
+  URL.** When you need one, stop and ask the owner. They will text Eve "manage
+  sessions" and paste the URL back to you. Do not attempt to work around this by
+  reading secrets, signing your own capability, or adding a temporary route.
+- Do not add temporary Production endpoints, edit Redis directly, or invoke
+  workers manually. Use the existing owner-authorized backend services.
+
 ## Current state
 
 - U1 (Inverse Cramer) implementation is COMPLETE. Every repair is written,
@@ -82,10 +91,22 @@ plan a change from it. If you need a fact it mentions, confirm it in code first.
   artifact reference. Cramer's posting cadence is the constraint. This can take
   days.
 - Therefore Sprint 1 does not block anything.
-- Do not archive, reconfigure, or retire `Inverse Cramer Live`. It is the live
-  proof and is intentionally left enabled and unarchived. As of 2026-08-22 it is
-  the only dispatchable monitor in Production; every other monitor, including all
-  Congressional ones, is retired, paused, or archived with no next occurrence.
+- Do not archive, reconfigure, or retire the owner's live unattended monitors,
+  currently `Inverse Cramer Live` and `IPO Live`. They are intentionally enabled
+  and unarchived so real signals exercise the alert path. Every other monitor,
+  including all Congressional ones, is retired, paused, or archived with no next
+  occurrence.
+- **Known risk on `IPO Live`.** Its research definition in
+  `agent/lib/sec-ipo-semantics.ts` caps the whole frontier research session at
+  `maximumOutputTokens: 2_000`, while that route is hard-bound to high reasoning.
+  This is the exact shape that failed repeatedly on Inverse Cramer, whose
+  equivalent session needed 12,000 output tokens once reasoning was counted.
+  IPO's Production acceptance was a natural `no_change`, so its research step has
+  never run against a real filing. When a real S-1 arrives, expect
+  `SESSION_TOKEN_LIMIT_REACHED`. If that happens, treat it as a known focused
+  repair: raise only that output ceiling through a new immutable IPO pack version
+  (input is already 40,000), keep paid ceilings unchanged, preserve historical
+  versions, and capture the Production trace before choosing the number.
 - Before arming Sprint 2's disposable acceptance workspace, pause the
   `Inverse Cramer Live` monitor if its alert has not yet fired, run and clean up
   the U2 acceptance, then re-enable it. One acceptance in flight at a time.

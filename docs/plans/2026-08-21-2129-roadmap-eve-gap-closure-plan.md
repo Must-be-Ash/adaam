@@ -54,6 +54,13 @@ Fresh continuity, fleet activation, and one end-of-line regression/E2E pass.
   first failing stage, make one focused repair, use the next natural
   occurrence; never retry the same occurrence.
 - **Cost honesty.** Always report reserved budget separately from actual spend.
+- **Owner-held access.** Never mint or engineer a Manage Sessions capability
+  token or URL. Ask the owner; they will text Eve "manage sessions" and paste
+  the URL. Do not add temporary Production endpoints or edit Redis directly.
+- **Live unattended monitors.** `Inverse Cramer Live` and `IPO Live` are the
+  owner's deliberately enabled background monitors. Do not archive, retire, or
+  reconfigure them; pause only as the acceptance rules below require, and
+  re-enable afterward.
 - **Worktrees.** At most two at all times: `main` plus one active implementation
   worktree; remove the implementation worktree after landing.
 - **Non-negotiable invariants.** Absolute workspace isolation (no instructions,
