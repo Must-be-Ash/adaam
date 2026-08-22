@@ -9,7 +9,11 @@ const REGISTRY_KEY_PREFIX = "eve:photon:v1:workspace-registry:";
 const MANAGER_KEY_PREFIX = "eve:photon:v1:workspace-manager:";
 const ALERT_ACTION_KEY_PREFIX = "eve:photon:v1:workspace-alert-action:";
 const MANAGER_REQUEST_KEY_PREFIX = "eve:photon:v1:workspace-manager-request:";
-const MANAGER_TTL_SECONDS = 15 * 60;
+// Owner-facing operational window. A manager link is an owner capability that
+// can create and archive workspaces, change budgets, and pause or resume
+// monitors, so this is the exposure window if a link leaks. Two hours keeps a
+// single owner debugging session workable without re-minting.
+const MANAGER_TTL_SECONDS = 2 * 60 * 60;
 const ALERT_ACTION_TTL_SECONDS = 10 * 60;
 export const PHOTON_WORKSPACE_LIMIT = 12;
 export const PHOTON_WORKSPACE_RETAINED_LIMIT = 48;
