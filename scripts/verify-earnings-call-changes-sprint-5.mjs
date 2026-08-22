@@ -8,6 +8,7 @@ const gates = [
   "verify:earnings-call-changes:sprint-2",
   "verify:earnings-call-changes:sprint-3",
   "verify:earnings-call-changes:sprint-4",
+  "verify:earnings-call-changes:boundary",
   "verify:earnings-call-changes:source-lifecycle",
   "verify:earnings-call-changes:worker-recovery-corrections",
   "verify:earnings-call-changes:production-wiring",

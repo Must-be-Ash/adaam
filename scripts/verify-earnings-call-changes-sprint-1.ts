@@ -203,7 +203,7 @@ const preparedMonitor = prepareWorkspaceMonitorCreate({
     packContentDigest: base.contentDigest,
     packId: "earnings-call-changes",
     packVersion: "1.0.0",
-    resourceId: "earnings-call-monitor",
+    resourceId: "compare-earnings-calls",
   },
   name: "Earnings calls",
   nextOccurrenceAt: "2026-08-18T16:00:00.000Z",

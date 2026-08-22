@@ -90,6 +90,22 @@ export const EARNINGS_CALL_ISSUER_CATALOG = Object.freeze(
   }),
 );
 
+/*
+ * Which of this strategy's declared transcript sources may actually run is an
+ * earnings decision: only an issuer whose catalog coverage is reviewed has a
+ * baseline to compare a new call against. Shared monitor plumbing reaches this
+ * through the monitor lifecycle contract the pack declares, never through the
+ * pack id.
+ */
+export function admitsReviewedEarningsCallTranscriptSources(
+  sources: readonly { readonly sourceId: string }[],
+): boolean {
+  const reviewedSourceIds = new Set(EARNINGS_CALL_ISSUER_CATALOG.entries
+    .filter(({ coverage }) => coverage.state !== "coverage_unavailable")
+    .map(({ cik }) => `earnings-call-transcripts.${cik}`));
+  return sources.some(({ sourceId }) => reviewedSourceIds.has(sourceId));
+}
+
 export class EarningsCallIssuerCatalogError extends Error {
   constructor(readonly code: "issuer_match_ambiguous" | "issuer_not_found") {
     super(code);

@@ -6,6 +6,7 @@ import {
   readLatestEarningsCallFindingExplanation,
 } from "../lib/earnings-call-presentation";
 import { inspectStrategyPackWorkspace } from "../lib/strategy-pack-service";
+import { EARNINGS_CALL_CHANGES_EVALUATION_TOOL_ID } from "../lib/strategy-pack-reference-catalog";
 import { requirePhotonWorkspaceToolScope } from "../lib/workspace-runtime-scope";
 import { authorizePhotonWorkspaceToolStore } from "../lib/workspace-store-authorization";
 
@@ -22,7 +23,16 @@ export default defineTool({
       scope,
       workspaceGeneration: runtimeScope.generation,
     });
-    if (binding.state !== "active" || binding.pack?.id !== "earnings-call-changes") {
+    // Any workspace whose bound pack declares the earnings-call evaluation
+    // capability reads its own findings through this tool. The declaration
+    // selects that, so a second transcript-comparison pack needs no exception
+    // here; workspace isolation still bounds the read to the authenticated
+    // workspace.
+    if (
+      binding.state !== "active" ||
+      !binding.capabilities.some(({ id, status }) =>
+        id === EARNINGS_CALL_CHANGES_EVALUATION_TOOL_ID && status === "available")
+    ) {
       throw new Error("earnings_call_workspace_unavailable");
     }
     return input.findingId

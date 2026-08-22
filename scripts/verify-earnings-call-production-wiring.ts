@@ -14,6 +14,8 @@ import {
 import type { EarningsCallIssuerStatusStoreClient } from "../agent/lib/earnings-call-status-store";
 import { normalizeEarningsCallTranscript } from "../agent/lib/earnings-call-transcript";
 import { EARNINGS_CALL_TRANSCRIPT_LAYOUT_DEFINITION_ID } from "../agent/lib/hybrid-evidence-definition-registry";
+import { EARNINGS_CALL_RESEARCH_DEFINITION_ID } from "../agent/lib/earnings-call-research";
+import { persistHybridEvidenceResearchDecisionForWorker } from "../agent/lib/hybrid-evidence-worker";
 import {
   createHybridEvidenceEphemeralArtifactStore,
   type HybridEvidenceArtifactIndexClient,
@@ -74,6 +76,7 @@ import {
   type WorkspaceStrategyBindingValue,
 } from "../agent/lib/workspace-state-store";
 import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization";
+import { resolveStrategyPackResearchWorkerContract } from "../agent/lib/hybrid-evidence-worker-contract-registry";
 import {
   evaluateEarningsCallChangesForWorker,
   earningsCallWorkspaceWorkerOutputSchema,
@@ -376,6 +379,8 @@ const pack = strategyPackCatalog.resolve({ id: "earnings-call-changes", version:
 assert.ok(pack);
 const frontierPack = strategyPackCatalog.resolve({ id: "earnings-call-changes", version: "1.0.1" });
 assert.ok(frontierPack);
+const researchPack = strategyPackCatalog.resolve({ id: "earnings-call-changes", version: "1.1.0" });
+assert.ok(researchPack);
 const frontierEnvironment = {
   ...environment,
   EVE_HYBRID_FRONTIER_MODEL_ID: frontierSemanticModelId,
@@ -460,6 +465,12 @@ async function installWorkspace(
     deliverySubscriptionId: `delivery.${workspaceId}`,
     idempotencyKey: `earnings-production-${workspaceId}`,
     instruction: boundResource.instruction,
+    // The install path forwards whatever monitor lifecycle contract the pack
+    // declares. Published versions declare none and reach the same contract
+    // through their exact legacy binding.
+    ...(boundResource.lifecycleContractId
+      ? { lifecycleContractId: boundResource.lifecycleContractId }
+      : {}),
     managedBy: {
       bindingRevision: 1,
       kind: "strategy_pack",
@@ -481,6 +492,15 @@ async function installWorkspace(
       origin: new URL(source.canonicalUrl).origin,
       sourceId: source.sourceId,
     })),
+    // The install path reserves the paid ceiling the pack's declared research
+    // contract carries. A pack that declares none reserves nothing, so its
+    // occurrences can never fund a paid research child.
+    tighteningLimits: {
+      inputTokensPerRun: null,
+      outputTokensPerRun: null,
+      paidPerRun:
+        resolveStrategyPackResearchWorkerContract(boundPack)?.research?.budget.paidPerRun ?? null,
+    },
   }, monitors);
   const snapshot = {
     bindingRevision: 1,
@@ -537,10 +557,19 @@ async function installWorkspace(
       value: {
         effectiveAt: baselineNow.toISOString(),
         maximumConcurrentWorkers: 2,
-        maximumInputTokensPerDay: 100_000,
-        maximumInputTokensPerRun: 24_000,
-        maximumOutputTokensPerDay: 100_000,
-        maximumOutputTokensPerRun: 12_000,
+        // The per-run envelope follows the bound pack, the way the real install
+        // path derives it. 1.0.0/1.0.1 keep 24,000/12,000; the version that
+        // declares the research contract must also fund the research child.
+        maximumInputTokensPerDay: Math.max(
+          100_000,
+          boundResource.suggestedBudget.maximumInputTokensPerRun * 4,
+        ),
+        maximumInputTokensPerRun: boundResource.suggestedBudget.maximumInputTokensPerRun,
+        maximumOutputTokensPerDay: Math.max(
+          100_000,
+          boundResource.suggestedBudget.maximumOutputTokensPerRun * 4,
+        ),
+        maximumOutputTokensPerRun: boundResource.suggestedBudget.maximumOutputTokensPerRun,
         maximumPaidPerCall: "1.00",
         maximumPaidPerDay: "10.00",
         maximumPaidPerMonth: "100.00",
@@ -661,6 +690,8 @@ const fetchResponse = async (
 };
 
 let recoveryDispatches = 0;
+let researchDispatches = 0;
+let reportPublications = 0;
 const semanticDispatches = new Map<string, number>();
 
 function recoveryCandidate(sourceText: string) {
@@ -724,6 +755,62 @@ async function completeFixtureModel(prepared: PreparedHybridEvidenceWorkerRun) {
     semanticRoutes.get(workspaceId),
   );
   semanticDispatches.set(workspaceId, (semanticDispatches.get(workspaceId) ?? 0) + 1);
+  if (prepared.record.job.definitionId === EARNINGS_CALL_RESEARCH_DEFINITION_ID) {
+    researchDispatches += 1;
+    // A research job's prompt carries no locators: the child reads the signed
+    // bundle and must persist one decision before it may complete.
+    await persistHybridEvidenceResearchDecisionForWorker({
+      ctx,
+      decision: { decision: "report_now", reason: "The cited transcript change is sufficient." },
+      environment,
+      jobClient: semantic,
+      now: new Date(prepared.record.job.startedAt!),
+    });
+    const researchCitations = envelope.allowedLocators.filter(
+      (candidate: any) => candidate.kind === "text_span",
+    );
+    const evidence: any[] = [];
+    for (const locator of researchCitations) {
+      const slice = await readHybridEvidenceSliceForWorker({
+        clients: { artifacts, jobs: semantic },
+        ctx,
+        environment,
+        locator,
+      });
+      evidence.push(JSON.parse(slice.content));
+    }
+    assert.ok(evidence.length > 0);
+    await completeHybridEvidenceJobForWorker({
+      candidate: {
+        citations: researchCitations,
+        disposition: "accepted" as const,
+        fields: {
+          confidence: "medium",
+          implications: ["Management framed the outlook more specifically than last quarter."],
+          interpretation:
+            "The current call added an explicit operating commitment the prior call did not carry.",
+          materialFacts: evidence.map((fact) => ({
+            sourceUrls: [fact.canonicalUrl],
+            statement: fact.materialFacts[0] ?? fact.inferences[0],
+          })),
+          research: { status: "not_needed" },
+          sources: evidence.map((fact) => ({
+            label: `${fact.ticker} ${fact.currentFiscalPeriod} transcript`,
+            role: "official",
+            url: fact.canonicalUrl,
+          })),
+          title: `${evidence[0].ticker} ${evidence[0].currentFiscalPeriod} earnings-call change`,
+          uncertainty: ["One call is not a trend."],
+        },
+        unknowns: [],
+      },
+      ctx,
+      environment,
+      jobClient: semantic,
+      now: new Date(prepared.record.job.startedAt!),
+    });
+    return { inputTokens: 220, outputTokens: 140, paidCostUsd: "0.004" };
+  }
   const projection = body.inputProjection;
   const bindings = projection.members.flatMap((member: any) =>
     member.semanticContext.citationSpans.map((span: any) => ({ member, span })));
@@ -812,6 +899,14 @@ const workerClients: EarningsCallWorkspaceWorkerClients = {
   finding: findings,
   hybridGlobalBudget: budget,
   monitor: monitors,
+  publishReport: (async (input: { artifactId: string }) => {
+    reportPublications += 1;
+    return {
+      artifactId: input.artifactId,
+      kind: "report" as const,
+      publicUrl: `https://eve.example/artifacts/${input.artifactId}`,
+    };
+  }) as never,
   semantic: {
     artifacts,
     budget,
@@ -906,6 +1001,10 @@ const workspaceD = await installWorkspace("123e4567-e89b-42d3-a456-426614176104"
   pack: frontierPack,
   semanticModelId: frontierSemanticModelId,
 });
+const workspaceE = await installWorkspace("123e4567-e89b-42d3-a456-426614176105", {
+  pack: researchPack,
+  semanticModelId: frontierSemanticModelId,
+});
 
 sourcePhase = "baseline";
 for (const [workspace, options] of [
@@ -913,11 +1012,18 @@ for (const [workspace, options] of [
   [workspaceB, undefined],
   [workspaceC, undefined],
   [workspaceD, { environment: frontierEnvironment, pack: frontierPack }],
+  [workspaceE, { environment: frontierEnvironment, pack: researchPack }],
 ] as const) {
   const result = await evaluate(await claim(workspace, baselineNow), baselineNow, options);
   assert.equal(result.result.outcome.outcome, "no_match");
   assert.equal(result.result.materialFindings, 0, "activation baseline must remain silent");
 }
+assert.equal(
+  researchDispatches,
+  0,
+  "a baseline occurrence with no new comparison facts must not reach frontier research",
+);
+assert.equal(reportPublications, 0, "a baseline occurrence must publish no artifact");
 assert.equal(secFetches, 1, "overlapping baseline workspaces must share source acquisition");
 assert.equal(discoveryFetches, 1, "overlapping baseline workspaces must share listing acquisition");
 assert.equal([...alerts.values.values()].length, 0);
@@ -1021,6 +1127,34 @@ assert.ok(
   (semanticDispatches.get(workspaceD.scope.workspaceId) ?? 0) > 0,
   "the 1.0.1 binding must execute GPT-5.4/high through the signed worker",
 );
+// The 1.1.0 binding declares the research contract, so its material occurrence
+// runs one bounded frontier research child and reports the executive brief.
+const liveE = await evaluate(await claim(workspaceE, liveNow), liveNow, {
+  environment: frontierEnvironment,
+  pack: researchPack,
+});
+assert.equal(liveE.result.outcome.outcome, "finding_staged");
+assert.equal(liveE.result.materialFindings, 1);
+assert.equal(researchDispatches, 1, "one material occurrence runs exactly one research child");
+assert.equal(
+  liveE.result.outcome.finding?.summary,
+  "The current call added an explicit operating commitment the prior call did not carry. Management framed the outlook more specifically than last quarter. One call is not a trend.",
+  "the staged summary must come from the executive brief, not the raw comparison inference",
+);
+assert.equal(
+  reportPublications,
+  0,
+  "a single-fact brief that fits the alert must not publish a separate artifact",
+);
+assert.equal(
+  (semanticDispatches.get(workspaceE.scope.workspaceId) ?? 0),
+  2,
+  "the 1.1.0 binding runs one comparison child and one research child",
+);
+// Versions that do not declare the research contract are untouched by it.
+assert.equal(researchDispatches, 1);
+assert.notEqual(liveD.result.outcome.finding?.summary, liveE.result.outcome.finding?.summary);
+
 assert.equal(await readLatestEarningsCallFinding(workspaceC.scope, earnings), null);
 assert.equal(await readWorkspaceRunOutcome(workspaceB.scope, liveA.prepared.envelope.occurrenceKey, findings), null);
 const alertB = await readWorkspaceAlert(workspaceB.scope, liveB.result.outcome.finding!.findingId, alerts);

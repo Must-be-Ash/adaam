@@ -318,13 +318,16 @@ export async function runEarningsCallSemanticComparison(input: {
   const citationSpansByKey = prepareCitationSpans(validated.evidence, allSpans);
   const definitions = createEarningsCallComparisonDefinitions(
     [input.modelId],
-    input.pack.version === "1.0.1"
-      ? {
+    // 1.0.0 signed the comparison children at the policy envelope's own
+    // defaults. Every version after it signs the sized session, and the
+    // declared digest in each pack must keep matching what is built here.
+    input.pack.version === "1.0.0"
+      ? {}
+      : {
           maximumRuntimeMs: EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
           maximumSessionInputTokens: EARNINGS_CALL_POLICY.semanticEnvelope.maximumAggregateInputTokens,
           maximumSessionOutputTokens: EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
-        }
-      : {},
+        },
   );
   const shared = {
     environment: input.environment,

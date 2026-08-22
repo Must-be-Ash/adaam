@@ -24,6 +24,7 @@ import {
   type ClaimedWorkspaceMonitor,
   type WorkspaceMonitor,
 } from "../lib/workspace-monitor-store";
+import { resolveManagedMonitorLifecycleContract } from "../lib/workspace-monitor-lifecycle-contract";
 import { nextWorkspaceMonitorOccurrence } from "../lib/workspace-monitor-schedule";
 import { resolveWorkspaceRuntimeFlags } from "../lib/workspace-runtime-flags";
 import {
@@ -146,8 +147,14 @@ function leaseInspectionInput(job: ClaimedWorkspaceMonitor) {
   };
 }
 
-function isEarningsCallJob(job: ClaimedWorkspaceMonitor): boolean {
-  return job.monitor.managedBy?.packId === "earnings-call-changes";
+/*
+ * Only a monitor whose declared lifecycle contract carries an occurrence-scoped
+ * source retry may defer a failed attempt instead of terminalizing it. The
+ * scheduler reads that declaration; it does not know which strategy needs it.
+ */
+function usesDeferredSourceRetry(job: ClaimedWorkspaceMonitor): boolean {
+  return resolveManagedMonitorLifecycleContract(job.monitor)?.deferredSourceRetry ===
+    "occurrence_scoped";
 }
 
 async function monitorWasSuperseded(
@@ -311,7 +318,7 @@ async function executeWorkspaceJob(
     if (deliverAlerts) {
       await dependencies.deliverWorkspaceOutcome({ job, outcome });
     }
-    if (isEarningsCallJob(job)) {
+    if (usesDeferredSourceRetry(job)) {
       await dependencies.clearWorkspaceSourceRetry({
         occurrenceKey: job.occurrence.occurrenceKey,
         scope: job.scope,
@@ -335,7 +342,7 @@ async function executeWorkspaceJob(
   } catch (error) {
     let retry = null;
     try {
-      retry = isEarningsCallJob(job) ? await dependencies.readWorkspaceSourceRetry({
+      retry = usesDeferredSourceRetry(job) ? await dependencies.readWorkspaceSourceRetry({
         occurrenceKey: job.occurrence.occurrenceKey,
         scope: job.scope,
       }) : null;
@@ -509,7 +516,7 @@ export function createEventTriggerSchedule(
         const repeatedJobs = workspaceJobs.filter(({ occurrence }) => occurrence.attempt > 1);
         const retries = await Promise.all(repeatedJobs.map(async (job) => {
           try {
-            return isEarningsCallJob(job) ? await dependencies.readWorkspaceSourceRetry({
+            return usesDeferredSourceRetry(job) ? await dependencies.readWorkspaceSourceRetry({
               occurrenceKey: job.occurrence.occurrenceKey,
               scope: job.scope,
             }) : null;

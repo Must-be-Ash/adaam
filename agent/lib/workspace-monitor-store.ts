@@ -20,7 +20,6 @@ import {
   workspaceMonitorSourcesSchema,
 } from "./workspace-monitor-input";
 import type { WorkspaceStrategyBindingValue } from "./workspace-state-store";
-import { EARNINGS_CALL_ISSUER_CATALOG } from "./earnings-call-issuer-catalog";
 import {
   publicSourceWorkspaceReferenceSchema,
   resolvePublicSourceWorkspaceReference,
@@ -36,15 +35,6 @@ const LEASE_PREFIX = `${KEY_PREFIX}lease:`;
 const OCCURRENCE_PREFIX = `${KEY_PREFIX}occurrence:`;
 const MAX_RECORD_BYTES = 32_768;
 const OCCURRENCE_TTL_SECONDS = 90 * 24 * 60 * 60;
-
-function hasReviewedEarningsCallSource(
-  sources: readonly { readonly sourceId: string }[],
-): boolean {
-  const reviewedSourceIds = new Set(EARNINGS_CALL_ISSUER_CATALOG.entries
-    .filter(({ coverage }) => coverage.state !== "coverage_unavailable")
-    .map(({ cik }) => `earnings-call-transcripts.${cik}`));
-  return sources.some(({ sourceId }) => reviewedSourceIds.has(sourceId));
-}
 
 const CREATE_SCRIPT = `
 if redis.call("EXISTS", KEYS[1]) == 1 then return 0 end
@@ -298,7 +288,8 @@ const monitorSchema = z
   .superRefine((monitor, context) => {
     if (
       monitor.sources.length === 0 &&
-      (monitor.lifecycleState === "enabled" || monitor.managedBy?.packId !== "earnings-call-changes")
+      (monitor.lifecycleState === "enabled" ||
+        resolveManagedMonitorLifecycleContract(monitor)?.sourcelessInstall !== "allowed")
     ) {
       context.addIssue({ code: "custom", message: "Monitor needs at least one runnable source." });
     }
@@ -358,8 +349,7 @@ export function requiresManagedMonitorActivationWatermark(
     managedBy?: WorkspaceMonitorManagedBy | null;
   }>,
 ): boolean {
-  return monitor.managedBy?.packId === "earnings-call-changes" ||
-    resolveManagedMonitorLifecycleContract(monitor)?.activationWatermark === "on_enable";
+  return resolveManagedMonitorLifecycleContract(monitor)?.activationWatermark === "on_enable";
 }
 
 export function isWorkspaceMonitorCheckpointOnlyBaseline(
@@ -966,10 +956,9 @@ export function prepareWorkspaceMonitorCreate(
       })()
     : randomUUID();
   const enabled = !input.managedBy || input.activateManagedMonitor === true;
-  if (enabled && input.managedBy?.packId === "earnings-call-changes") {
-    if (!hasReviewedEarningsCallSource(input.sources)) {
-      throw new WorkspaceMonitorError("monitor_invalid");
-    }
+  const lifecycle = resolveManagedMonitorLifecycleContract(input);
+  if (enabled && lifecycle && !lifecycle.admitsActivationSources(input.sources)) {
+    throw new WorkspaceMonitorError("monitor_invalid");
   }
   const publicSourceSubscriptions = input.publicSourceIds?.map((sourceId) =>
     resolvePublicSourceWorkspaceReference({
@@ -1278,14 +1267,13 @@ export async function updateWorkspaceMonitor(
   if (!allowedTransitions[current.lifecycleState].includes(targetLifecycle)) {
     throw new WorkspaceMonitorError("monitor_invalid");
   }
+  const lifecycle = resolveManagedMonitorLifecycleContract(current);
   if (
     targetLifecycle === "enabled" &&
     current.lifecycleState !== "enabled" &&
-    current.managedBy?.packId === "earnings-call-changes"
+    lifecycle && !lifecycle.admitsActivationSources(current.sources)
   ) {
-    if (!hasReviewedEarningsCallSource(current.sources)) {
-      throw new WorkspaceMonitorError("monitor_invalid");
-    }
+    throw new WorkspaceMonitorError("monitor_invalid");
   }
   const updatedAt = (input.now ?? new Date()).toISOString();
   const next = monitorSchema.safeParse({

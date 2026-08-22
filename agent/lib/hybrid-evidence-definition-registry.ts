@@ -23,6 +23,7 @@ import {
 } from "./public-commentary-semantics";
 import { secIpoResearchValidationContract } from "./sec-ipo-semantics";
 import { inverseCramerResearchValidationContract } from "./inverse-cramer-research";
+import { earningsCallResearchValidationContract } from "./earnings-call-research";
 
 export const HOUSE_DOCUMENT_ROW_DEFINITION_ID = "house-ptr-document-row-recovery";
 export const EARNINGS_CALL_TRANSCRIPT_LAYOUT_DEFINITION_ID =
@@ -343,6 +344,7 @@ export const earningsCallSynthesisSemanticValidationContract: WorkspaceSemanticV
 
 export const workspaceSemanticValidationRegistry = createWorkspaceSemanticValidationRegistry([
   semanticPublicTextValidationContract,
+  earningsCallResearchValidationContract,
   earningsCallSemanticValidationContract,
   earningsCallSectionSemanticValidationContract,
   earningsCallSynthesisSemanticValidationContract,

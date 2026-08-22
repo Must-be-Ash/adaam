@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 
@@ -39,6 +41,27 @@ import {
   createHybridEvidenceEphemeralArtifactStore,
   type HybridEvidenceArtifactStore,
 } from "./hybrid-evidence-artifact-store";
+import {
+  createEarningsCallResearchDefinition,
+  EARNINGS_CALL_RESEARCH_DEFINITION_ID,
+  EARNINGS_CALL_RESEARCH_DEFINITION_VERSIONS,
+  earningsCallResearchEvidenceContent,
+  isEarningsCallAgenticResearchPack,
+  type EarningsCallResearchDefinitionVersion,
+} from "./earnings-call-research";
+import {
+  buildEarningsCallSignalReport,
+  earningsCallAlertPresentationForBrief,
+  earningsCallReportArtifactId,
+} from "./earnings-call-signal-report";
+import { runWorkspaceSemanticEvidenceBundleJob } from "./hybrid-evidence-semantic";
+import {
+  shouldPublishWorkspaceExecutiveArtifact,
+  workspaceExecutiveBriefSchema,
+  type WorkspaceExecutiveBrief,
+} from "./workspace-executive-brief";
+import { publishReportArtifact } from "./artifact-store";
+import { artifactReferenceForId } from "./artifact-reference";
 import { startHybridEvidenceWorkerTask } from "./hybrid-evidence-worker";
 import { resolveHybridEvidenceFlags } from "./hybrid-evidence-flags";
 import {
@@ -87,7 +110,10 @@ import {
   reserveWorkspaceSourceAttempt,
 } from "./workspace-source-coverage";
 import { readWorkspaceDocument } from "./workspace-state-store";
-import { authorizeWorkspaceWorkerStore } from "./workspace-store-authorization";
+import {
+  authorizeWorkspaceWorkerStore,
+  type AuthorizedWorkspaceStoreScope,
+} from "./workspace-store-authorization";
 import { requireWorkspaceWorkerAuth } from "./workspace-worker-auth";
 import { resolveWorkspaceWorkerCapabilitySnapshot } from "./workspace-worker-capabilities";
 import {
@@ -131,6 +157,7 @@ export interface EarningsCallWorkspaceWorkerClients extends WorkspaceWorkerContr
   readonly fetchResponse?: (request: EarningsCallPublicSourceRequest) => Promise<EarningsCallPublicSourceResponse>;
   readonly hybridGlobalBudget?: WorkspaceGlobalBudgetClient;
   readonly semantic?: Omit<SemanticClients, "artifacts"> & { readonly artifacts?: HybridEvidenceArtifactStore };
+  readonly publishReport?: typeof publishReportArtifact;
   readonly sourceLifecycle?: EarningsCallSourceLifecycleStore;
   readonly subscription?: PublicSourceSubscriptionStoreClient;
 }
@@ -192,13 +219,16 @@ function hasMatchingSemanticDefinitions(
 ): boolean {
   return createEarningsCallComparisonDefinitions(
     [modelId],
-    pack.version === "1.0.1"
-      ? {
+    // 1.0.0 signed the comparison children at the policy envelope's own
+    // defaults. Every version after it signs the sized session, and this
+    // migration does not change that reviewed comparison contract.
+    pack.version === "1.0.0"
+      ? {}
+      : {
           maximumRuntimeMs: EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
           maximumSessionInputTokens: EARNINGS_CALL_POLICY.semanticEnvelope.maximumAggregateInputTokens,
           maximumSessionOutputTokens: EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
-        }
-      : {},
+        },
   ).every((definition) =>
     pack.evidenceContracts?.some((contract) =>
       contract.id === definition.definitionId &&
@@ -227,6 +257,256 @@ export function resolveEarningsCallSemanticRoute(input: {
   });
   assertHybridModelRouteAllowed(route, input.allowedModelIds);
   return route;
+}
+
+type EarningsCallResearchRuntime = Readonly<{
+  definition: ReturnType<typeof createEarningsCallResearchDefinition>;
+  modelId: string;
+  pack: StrategyPackCatalogEntry;
+  reasoning: ReturnType<typeof resolveHybridTaskModelRoute>["reasoning"];
+  workspaceGeneration: number;
+}>;
+
+/*
+ * The frontier research lane is selected only by what the bound pack declares.
+ * A pack version that does not declare the research contract keeps the reviewed
+ * comparison result exactly as it shipped, and no occurrence of it reaches
+ * frontier reasoning, paid research, or artifact publication.
+ */
+export function resolveEarningsCallResearchRuntime(input: {
+  readonly allowedModelIds: readonly string[];
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly pack: StrategyPackCatalogEntry;
+  readonly workspaceGeneration: number;
+}): EarningsCallResearchRuntime | null {
+  if (!isEarningsCallAgenticResearchPack(input.pack)) return null;
+  const configured = resolveHybridTaskModelRoute(
+    "semantic_interpretation",
+    input.environment,
+  );
+  const candidates = [...new Set(input.allowedModelIds)]
+    .flatMap((modelId) => (input.pack.evidenceContracts ?? []).flatMap((contract) =>
+      contract.id === EARNINGS_CALL_RESEARCH_DEFINITION_ID &&
+          EARNINGS_CALL_RESEARCH_DEFINITION_VERSIONS.includes(
+            contract.version as EarningsCallResearchDefinitionVersion,
+          )
+        ? [createEarningsCallResearchDefinition(
+            [modelId],
+            contract.version as EarningsCallResearchDefinitionVersion,
+          )]
+        : []
+    ))
+    .filter((definition) => input.pack.evidenceContracts?.some((contract) =>
+      contract.id === definition.definitionId &&
+      contract.version === definition.definitionVersion &&
+      contract.digest === definition.definitionDigest));
+  if (candidates.length !== 1) {
+    throw new EarningsCallWorkspaceWorkerError("earnings_call_strategy_invalid");
+  }
+  const route = Object.freeze({ ...configured, modelId: candidates[0]!.allowedModelIds[0]! });
+  assertHybridModelRouteAllowed(route, input.allowedModelIds);
+  return Object.freeze({
+    definition: candidates[0]!,
+    modelId: route.modelId,
+    pack: input.pack,
+    reasoning: route.reasoning,
+    workspaceGeneration: input.workspaceGeneration,
+  });
+}
+
+export async function materializeEarningsCallExecutiveOutput(input: {
+  asOf: string;
+  approvedSupplementaryUrls: readonly string[];
+  brief: WorkspaceExecutiveBrief;
+  clients?: EarningsCallWorkspaceWorkerClients;
+  factIdentities: readonly string[];
+  officialUrls: readonly string[];
+  scope: AuthorizedWorkspaceStoreScope;
+  signal?: AbortSignal;
+}): Promise<Readonly<{
+  artifactRefs: readonly string[];
+  presentation: { title: string; whyMatched: string };
+}>> {
+  const brief = workspaceExecutiveBriefSchema.parse(input.brief);
+  const officialUrls = new Set(input.officialUrls);
+  const briefOfficialUrls = new Set(
+    brief.sources.filter(({ role }) => role === "official").map(({ url }) => url),
+  );
+  const approvedSupplementaryUrls = new Set(input.approvedSupplementaryUrls);
+  if (
+    officialUrls.size !== briefOfficialUrls.size ||
+    [...officialUrls].some((url) => !briefOfficialUrls.has(url)) ||
+    brief.sources.some(({ role, url }) =>
+      role === "supplementary" && !approvedSupplementaryUrls.has(url)
+    ) ||
+    brief.materialFacts.some(({ sourceUrls }) =>
+      !sourceUrls.some((url) => officialUrls.has(url))
+    )
+  ) {
+    throw new EarningsCallWorkspaceWorkerError("earnings_call_strategy_invalid");
+  }
+  const presentation = earningsCallAlertPresentationForBrief(brief);
+  if (!shouldPublishWorkspaceExecutiveArtifact({
+    alertText: `${presentation.title}\n\n${presentation.whyMatched}`,
+    brief,
+  })) {
+    return Object.freeze({ artifactRefs: Object.freeze([]), presentation });
+  }
+  const artifactId = earningsCallReportArtifactId({
+    factIdentities: input.factIdentities,
+    ownerId: input.scope.ownerId,
+    workspaceId: input.scope.workspaceId,
+  });
+  const published = await (input.clients?.publishReport ?? publishReportArtifact)({
+    artifactId,
+    report: buildEarningsCallSignalReport({ asOf: input.asOf, brief }),
+    signal: input.signal,
+  });
+  if (published.artifactId !== artifactId || published.kind !== "report") {
+    throw new EarningsCallWorkspaceWorkerError("earnings_call_strategy_invalid");
+  }
+  return Object.freeze({
+    artifactRefs: Object.freeze([artifactReferenceForId(artifactId)]),
+    presentation,
+  });
+}
+
+type EarningsCallMaterialResult = NonNullable<
+  Awaited<ReturnType<typeof processIssuer>>["material"]
+>;
+
+/*
+ * One bounded frontier pass over the already-material findings of this
+ * occurrence. It never re-decides the reviewed comparison; it decides whether
+ * one supplementary research pass helps the owner understand it, then commits
+ * one executive brief. A no-new-facts occurrence never reaches this function,
+ * so it records no frontier, research, or artifact spend.
+ */
+async function runEarningsCallExecutiveResearch(input: {
+  readonly clients?: EarningsCallWorkspaceWorkerClients;
+  readonly environment: NodeJS.ProcessEnv;
+  readonly material: readonly EarningsCallMaterialResult[];
+  readonly now: Date;
+  readonly parentRunId: string;
+  readonly runtime: EarningsCallResearchRuntime;
+  readonly scope: ReturnType<typeof authorizeWorkspaceWorkerStore>;
+  readonly signal?: AbortSignal;
+}): Promise<Readonly<{
+  artifactRefs: readonly string[];
+  presentation: { title: string; whyMatched: string };
+}>> {
+  if (input.material.length === 0 || input.material.length > 8) {
+    throw new EarningsCallWorkspaceWorkerError("earnings_call_strategy_invalid");
+  }
+  const artifacts = input.clients?.artifacts ?? input.clients?.semantic?.artifacts ??
+    createHybridEvidenceEphemeralArtifactStore();
+  const persisted: Array<Readonly<{
+    artifact: Awaited<ReturnType<HybridEvidenceArtifactStore["persist"]>>;
+    content: string;
+    material: EarningsCallMaterialResult;
+  }>> = [];
+  try {
+    for (const material of input.material) {
+      const { finding } = material.record;
+      const content = earningsCallResearchEvidenceContent({
+        canonicalUrl: material.research.sourceUrl,
+        cik: material.record.cik,
+        companyName: material.record.companyName,
+        confidence: finding.confidence,
+        counterevidence: finding.counterevidence.map(({ statement }) => statement),
+        currentFiscalPeriod: material.current.event.fiscalPeriod,
+        findingId: finding.findingId,
+        inferences: finding.inferences.map(({ statement }) => statement),
+        materialFacts: finding.facts.map(({ statement }) => statement),
+        priorFiscalPeriod: material.research.priorFiscalPeriod,
+        ticker: material.record.ticker,
+        uncertainty: [...finding.unknowns],
+      });
+      const artifact = await artifacts.persist({
+        acquisitionId: material.research.acquisitionId,
+        authority: "ISSUER",
+        bytes: Buffer.from(content, "utf8"),
+        canonicalPublicUrl: material.research.sourceUrl,
+        mediaType: "text/plain",
+        now: input.now,
+        observedAt: material.research.observedAt,
+        parserEligibility: null,
+        sourceInstanceId: material.research.sourceInstanceId,
+        structure: {
+          characterCount: content.length,
+          columnCount: null,
+          pageCount: null,
+          rowCount: null,
+          sheetCount: null,
+        },
+      });
+      persisted.push(Object.freeze({ artifact, content, material }));
+    }
+    const semantic = await runWorkspaceSemanticEvidenceBundleJob({
+      definition: input.runtime.definition,
+      environment: input.environment,
+      members: persisted.map(({ artifact, content, material }) => ({
+        artifact,
+        locators: [{
+          factRevisionId: material.research.factRevisionId,
+          kind: "source_fact" as const,
+          payloadDigest: material.research.factPayloadDigest,
+        }, {
+          artifactDigest: artifact.contentDigest,
+          end: content.length,
+          kind: "text_span" as const,
+          spanDigest: createHash("sha256").update(content).digest("hex"),
+          start: 0,
+        }],
+        memberId: material.research.factRevisionId,
+        projectionReference: material.research.projectionReference,
+        role: "section" as const,
+        semanticContext: Object.freeze({ earningsCallFinding: true }),
+      })),
+      modelId: input.runtime.modelId,
+      now: input.now,
+      pack: {
+        contentDigest: input.runtime.pack.contentDigest,
+        id: input.runtime.pack.id,
+        version: input.runtime.pack.version,
+      },
+      parentBudgetRunId: input.parentRunId,
+      reasoning: input.runtime.reasoning,
+      scope: input.scope,
+      workspaceGeneration: input.runtime.workspaceGeneration,
+    }, {
+      acquisition: input.clients?.acquisition,
+      artifacts,
+      budget: input.clients?.semantic?.budget,
+      catalog: input.clients?.semantic?.catalog,
+      execute: input.clients?.semantic?.execute ??
+        (async (prepared) => drainHybridWorker(prepared.request)),
+      jobs: input.clients?.semantic?.jobs,
+      lineage: input.clients?.semantic?.lineage,
+      monitor: input.clients?.monitor,
+      semantic: input.clients?.semantic?.semantic,
+      state: input.clients?.state,
+      subscription: input.clients?.subscription,
+    });
+    const accepted = semantic.record.acceptedResult;
+    if (!accepted) {
+      throw new EarningsCallWorkspaceWorkerError("earnings_call_strategy_invalid");
+    }
+    return materializeEarningsCallExecutiveOutput({
+      approvedSupplementaryUrls: semantic.record.researchUrlGrants,
+      asOf: input.material.map(({ current }) => current.event.publishedAt).sort().at(-1)!,
+      brief: workspaceExecutiveBriefSchema.parse(accepted.payload),
+      clients: input.clients,
+      factIdentities: input.material.map(({ record }) => record.finding.findingId),
+      officialUrls: input.material.map(({ research }) => research.sourceUrl),
+      scope: input.scope,
+      ...(input.signal ? { signal: input.signal } : {}),
+    });
+  } finally {
+    for (const { artifact } of persisted) {
+      await artifacts.deleteUnreferenced(artifact.contentDigest);
+    }
+  }
 }
 
 const defaultFetchResponse = createEarningsCallPublicSourceFetch();
@@ -732,7 +1012,25 @@ async function processIssuer(input: {
     checkpoint,
     material: (sourceCorrection
       ? sourceCorrection.correctiveAlertEligible
-      : finding.materiality.alertEligible) ? { current: current.record, record } : null,
+      : finding.materiality.alertEligible)
+      ? {
+          current: current.record,
+          record,
+          // Everything the bounded research child needs to read this already
+          // material finding as one signed member, without re-acquiring the
+          // transcript or widening the monitor's authorized sources.
+          research: Object.freeze({
+            acquisitionId: coordinated.acquisition.acquisitionId,
+            factPayloadDigest: current.evidence.sourceFactLocator.payloadDigest,
+            factRevisionId: current.evidence.sourceFactLocator.factRevisionId,
+            observedAt: current.record.event.observedAt,
+            priorFiscalPeriod: prior.record.event.fiscalPeriod,
+            projectionReference: current.evidence.projectionReference,
+            sourceInstanceId: current.record.event.sourceInstanceId,
+            sourceUrl: current.sourceUrl,
+          }),
+        }
+      : null,
     persisted: record,
   });
   } finally {
@@ -909,7 +1207,30 @@ export async function evaluateEarningsCallChangesForWorker(input: {
     }
   }
   const material = issuerResults.flatMap((result) => result.material ? [result.material] : []);
-  const presentation = alertPresentation(issuerResults);
+  let presentation: Readonly<{ title: string; whyMatched: string }> | undefined =
+    alertPresentation(issuerResults);
+  let researchArtifactRefs: readonly string[] = Object.freeze([]);
+  const researchRuntime = material.length === 0
+    ? null
+    : resolveEarningsCallResearchRuntime({
+        allowedModelIds: capabilities.resolved.workerModelIds,
+        environment,
+        pack,
+        workspaceGeneration: envelope.strategyPack!.workspaceGeneration,
+      });
+  if (researchRuntime) {
+    const research = await runEarningsCallExecutiveResearch({
+      clients: input.clients,
+      environment,
+      material,
+      now,
+      parentRunId: envelope.runId,
+      runtime: researchRuntime,
+      scope,
+    });
+    presentation = research.presentation;
+    researchArtifactRefs = research.artifactRefs;
+  }
   const provenance = material.map(({ record }) => {
     const source = monitor.sources.find(({ sourceId }) => sourceId === `earnings-call-transcripts.${record.cik}`)!;
     return {
@@ -933,11 +1254,14 @@ export async function evaluateEarningsCallChangesForWorker(input: {
   }));
   const finding: WorkspaceFindingCandidate | null = facts.length === 0 ? null : {
     accessClassification: "public",
-    artifactRefs: material.flatMap(({ current, record }) => [
-      record.finding.findingId,
-      record.finding.comparisonId,
-      current.event.revisionId,
-    ]).slice(0, 8),
+    artifactRefs: [
+      ...researchArtifactRefs,
+      ...material.flatMap(({ current, record }) => [
+        record.finding.findingId,
+        record.finding.comparisonId,
+        current.event.revisionId,
+      ]),
+    ].slice(0, 8),
     asOf: material.map(({ current }) => current.event.publishedAt).sort().at(-1)!,
     factIdentities: facts.map(({ filingIdentity }) => filingIdentity),
     facts,

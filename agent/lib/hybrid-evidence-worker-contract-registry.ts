@@ -23,8 +23,27 @@ import {
   INVERSE_CRAMER_RESEARCH_DEFINITION_ID,
   inverseCramerResearchWorkerCandidateSchema,
 } from "./inverse-cramer-research";
+import {
+  EARNINGS_CALL_AGENTIC_RESEARCH_BUDGET,
+  EARNINGS_CALL_RESEARCH_DEFINITION_ID,
+  earningsCallResearchWorkerCandidateSchema,
+} from "./earnings-call-research";
 
 const contracts = Object.freeze([
+  Object.freeze({
+    capabilityRevisions: Object.freeze([2]),
+    completion: Object.freeze({
+      description:
+        "Commit one Earnings Call Changes executive brief using the exact registered research contract.",
+      inputSchema: earningsCallResearchWorkerCandidateSchema,
+    }),
+    definitionId: EARNINGS_CALL_RESEARCH_DEFINITION_ID,
+    research: Object.freeze({
+      approvedUrlPolicy: "evidence_sources" as const,
+      budget: EARNINGS_CALL_AGENTIC_RESEARCH_BUDGET,
+      requiresParentRunId: true as const,
+    }),
+  }),
   Object.freeze({
     capabilityRevisions: Object.freeze([2]),
     completion: Object.freeze({
