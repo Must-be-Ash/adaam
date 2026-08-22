@@ -35,6 +35,7 @@ import {
   createInverseCramerSemanticDefinition,
   createPublicCommentaryImpactDefinition,
   PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
+  PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS,
   extractCommentaryMetadata,
   commentarySemanticPayloadSchema,
   INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
@@ -178,9 +179,12 @@ export function readAttestedCommentarySemanticResult(input: {
   const legacyDirectModel = result.definition.definitionId === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID;
   const directModel = compactDirectModel || legacyDirectModel;
   const definition = configuredImpact
-    ? createPublicCommentaryImpactDefinition([result.model.modelId], {
-        allowedAdapterIds: input.allowedAdapterIds,
-      })
+    ? createPublicCommentaryImpactDefinition(
+        [result.model.modelId],
+        { allowedAdapterIds: input.allowedAdapterIds },
+        z.enum(PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS)
+          .parse(result.definition.definitionVersion),
+      )
     : compactDirectModel
     ? createInverseCramerActionabilityDefinition([result.model.modelId], {
         allowedAdapterIds: input.allowedAdapterIds,

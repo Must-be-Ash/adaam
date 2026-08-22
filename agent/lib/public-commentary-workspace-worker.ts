@@ -69,6 +69,7 @@ import {
   PUBLIC_COMMENTARY_COMPACT_EVALUATION_DEFINITION_IDS,
   PUBLIC_COMMENTARY_DIRECT_MODEL_DEFINITION_IDS,
   PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
+  PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS,
   recoverNamedAssetCommentaryMetadata,
 } from "./public-commentary-semantics";
 import {
@@ -412,9 +413,11 @@ export function createProductionPublicCommentaryPipeline(input: {
     throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
   }
   const definition = configuredImpactEvaluation
-    ? createPublicCommentaryImpactDefinition([semanticRoute.modelId], {
-        allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
-      })
+    ? createPublicCommentaryImpactDefinition(
+        [semanticRoute.modelId],
+        { allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId] },
+        publicCommentaryImpactDefinitionVersion(managedPack),
+      )
     : compactActionability
     ? createInverseCramerActionabilityDefinition([semanticRoute.modelId], {
         allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
@@ -1038,6 +1041,20 @@ type InverseCramerResearchRuntime = Readonly<{
   reasoning: ReturnType<typeof resolveHybridTaskModelRoute>["reasoning"];
   workspaceGeneration: number;
 }>;
+
+// The pack pins which immutable version of the classification contract it runs.
+export function publicCommentaryImpactDefinitionVersion(
+  pack: Pick<StrategyPackCatalogEntry, "evidenceContracts">,
+): (typeof PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS)[number] {
+  const declared = pack.evidenceContracts?.find(
+    ({ id }) => id === PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
+  )?.version;
+  return PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS.includes(
+    declared as (typeof PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS)[number],
+  )
+    ? declared as (typeof PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS)[number]
+    : "1.0.0";
+}
 
 export function resolvePublicCommentarySemanticReasoning(
   pack: Pick<StrategyPackCatalogEntry, "evidenceContracts">,

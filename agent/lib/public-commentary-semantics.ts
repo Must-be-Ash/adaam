@@ -454,9 +454,12 @@ export const inverseCramerSemanticValidationContract: WorkspaceSemanticValidatio
     },
   });
 
+export const PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS = ["1.0.0", "1.0.1"] as const;
+
 export function createPublicCommentaryImpactDefinition(
   modelIds: readonly string[],
   options: Readonly<{ allowedAdapterIds?: readonly string[] }> = {},
+  definitionVersion: (typeof PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS)[number] = "1.0.0",
 ) {
   const allowedModelIds = [...new Set(modelIds)].sort();
   const allowedAdapterIds = [...new Set(
@@ -470,18 +473,18 @@ export function createPublicCommentaryImpactDefinition(
     allowedMediaTypes: ["text/plain"],
     allowedModelIds,
     definitionId: PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
-    definitionVersion: "1.0.0",
+    definitionVersion,
     inputProjection: { schemaId: "workspace-semantic-role-bound-projection", schemaVersion: "2.0.0" },
     instructionTemplate: {
       content: PUBLIC_COMMENTARY_IMPACT_INSTRUCTION,
       delimiterPolicy: "untrusted_evidence_xml/v1",
       digest: digestHybridEvidenceValue([
         PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
-        "1.0.0",
+        definitionVersion,
         PUBLIC_COMMENTARY_IMPACT_INSTRUCTION,
       ]),
       templateId: PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
-      version: "1.0.0",
+      version: definitionVersion,
     },
     limits: {
       maximumAttempts: 1,
@@ -489,7 +492,18 @@ export function createPublicCommentaryImpactDefinition(
       maximumInputTokens: 24_000,
       maximumOutputTokens: 4_000,
       maximumPages: 0,
-      maximumPaidCostUsd: "0.2500",
+      /*
+       * This job classifies one statement from evidence already in its
+       * projection. It declares no pages and no rows, and its worker contract
+       * declares no research lane, so it has no paid tool surface at all.
+       * Version 1.0.0 nonetheless reserved $0.25 per attempt against the
+       * occurrence's paid envelope, which the source read had already consumed
+       * - the fan-out was refused as budget_exhausted before it could commit.
+       * A zero ceiling is the accurate declaration and is strictly more
+       * fail-closed: reconciliation refuses any actual paid cost above the
+       * reservation, so a paid call would still be rejected.
+       */
+      maximumPaidCostUsd: definitionVersion === "1.0.0" ? "0.2500" : "0",
       maximumRows: 0,
       maximumRuntimeMs: 180_000,
     },

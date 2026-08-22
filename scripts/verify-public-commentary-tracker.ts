@@ -13,7 +13,16 @@ import {
   PUBLIC_COMMENTARY_DIRECT_MODEL_DEFINITION_IDS,
   PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
 } from "../agent/lib/public-commentary-semantics";
-import { resolvePublicCommentarySemanticReasoning } from "../agent/lib/public-commentary-workspace-worker";
+import {
+  publicCommentaryImpactDefinitionVersion,
+  resolvePublicCommentarySemanticReasoning,
+} from "../agent/lib/public-commentary-workspace-worker";
+import {
+  reconcileWorkspaceRunBudget,
+  reserveWorkspaceRunBudget,
+  WorkspaceBudgetError,
+  type WorkspaceBudgetLedgerClient,
+} from "../agent/lib/workspace-budget-ledger";
 import { resolveHybridEvidenceWorkerContract } from "../agent/lib/hybrid-evidence-worker-contract-registry";
 import { workspaceSemanticValidationRegistry } from "../agent/lib/hybrid-evidence-definition-registry";
 import {
@@ -319,18 +328,31 @@ assert.equal(
 
 const directModelPack = strategyPackCatalog.resolve({
   id: "public-commentary-tracker",
-  version: "1.3.0",
+  version: "1.3.1",
 });
 assert.ok(directModelPack);
-// 1.3.0 declares the compact evaluation contract, so the shared worker sends
-// every statement to the model instead of pre-filtering by keyword.
+// The current version declares the compact evaluation contract, so the shared
+// worker sends every statement to the model instead of pre-filtering by
+// keyword, and pins the classification contract version it runs.
 assert.deepEqual(
   directModelPack.evidenceContracts?.find(({ id }) => id === PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID),
   {
-    digest: createPublicCommentaryImpactDefinition(["openai/gpt-5.4"]).definitionDigest,
+    digest: createPublicCommentaryImpactDefinition(["openai/gpt-5.4"], {}, "1.0.1").definitionDigest,
     id: PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
-    version: "1.0.0",
+    version: "1.0.1",
   },
+);
+assert.equal(publicCommentaryImpactDefinitionVersion(directModelPack), "1.0.1");
+// The superseded version keeps the contract it shipped with.
+const supersededPack = strategyPackCatalog.resolve({
+  id: "public-commentary-tracker",
+  version: "1.3.0",
+})!;
+assert.equal(publicCommentaryImpactDefinitionVersion(supersededPack), "1.0.0");
+assert.equal(
+  supersededPack.evidenceContracts?.find(({ id }) => id === PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID)
+    ?.version,
+  "1.0.0",
 );
 assert.equal(
   PUBLIC_COMMENTARY_DIRECT_MODEL_DEFINITION_IDS.includes(PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID),
@@ -493,6 +515,125 @@ assert.equal(
 );
 assert.ok(
   currentPack.monitors[0]!.suggestedBudget.maximumOutputTokensPerRun >= declaredSessionOutput,
+);
+
+/*
+ * The failure this version exists to fix, reproduced at the ledger. An
+ * occurrence reserves a paid envelope, the source read consumes it, and each
+ * statement's classification then reserves its own ceiling as a child of that
+ * envelope. At $0.25 per attempt the four-statement fan-out is refused before
+ * it can commit; at a zero ceiling every attempt fits.
+ */
+class MemoryCas implements WorkspaceBudgetLedgerClient {
+  readonly values = new Map<string, string>();
+  async compareAndSet(key: string, expected: string | null, next: string) {
+    if ((this.values.get(key) ?? null) !== expected) return false;
+    this.values.set(key, next);
+    return true;
+  }
+  async get(key: string) { return this.values.get(key) ?? null; }
+}
+
+async function fanOutAttempts(perAttemptCeiling: string): Promise<number> {
+  const ledger = new MemoryCas();
+  const scope = authorizeDeploymentWorkspaceStore(
+    { ownerId: "owner_fixture", workspaceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
+    { EVE_DEPLOYMENT_OWNER_ID: "owner_fixture" },
+  );
+  const policy = marketBudget;
+  const shared = { now: new Date("2026-08-22T22:00:00.000Z"), policy, policyRevision: 1, scope };
+  await reserveWorkspaceRunBudget({
+    ...shared,
+    inputTokens: policy.maximumInputTokensPerRun,
+    outputTokens: policy.maximumOutputTokensPerRun,
+    ...(policy.maximumPaidPerCall === null
+      ? {}
+      : { paidCostCeiling: { amount: policy.maximumPaidPerCall, kind: "known" as const } }),
+    runId: "run.occurrence",
+  }, ledger);
+  // The paid timeline read, reserved exactly as the commentary worker does.
+  await reserveWorkspaceRunBudget({
+    ...shared,
+    inputTokens: 0,
+    kind: "paid_source_attempt",
+    outputTokens: 0,
+    paidCostCeiling: { amount: "1.000000", kind: "known" },
+    parentRunId: "run.occurrence",
+    runId: "run.timeline",
+  }, ledger);
+  let committed = 0;
+  for (let index = 0; index < 4; index += 1) {
+    try {
+      await reserveWorkspaceRunBudget({
+        ...shared,
+        inputTokens: 24_000,
+        kind: "hybrid_model_attempt",
+        outputTokens: 4_000,
+        paidCostCeiling: { amount: perAttemptCeiling, kind: "known" },
+        parentRunId: "run.occurrence",
+        runId: `run.attempt.${index}`,
+      }, ledger);
+      committed += 1;
+    } catch (error) {
+      if (error instanceof WorkspaceBudgetError && error.code === "budget_exhausted") break;
+      throw error;
+    }
+  }
+  return committed;
+}
+
+assert.equal(
+  await fanOutAttempts("0.2500"),
+  0,
+  "at the 1.0.0 ceiling the source read consumes the envelope and no classification can commit",
+);
+assert.equal(
+  await fanOutAttempts("0"),
+  4,
+  "at the 1.0.1 ceiling every statement in the four-statement window is classified",
+);
+// A zero ceiling is a real ceiling, not an absent one: it is recorded on the
+// reservation, and reconciliation refuses any actual paid cost above it.
+const fanOutLedger = new MemoryCas();
+const fanOutScope = authorizeDeploymentWorkspaceStore(
+  { ownerId: "owner_fixture", workspaceId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" },
+  { EVE_DEPLOYMENT_OWNER_ID: "owner_fixture" },
+);
+const zeroReservation = await reserveWorkspaceRunBudget({
+  inputTokens: 24_000,
+  kind: "hybrid_model_attempt",
+  now: new Date("2026-08-22T22:00:00.000Z"),
+  outputTokens: 4_000,
+  paidCostCeiling: { amount: "0", kind: "known" },
+  policy: marketBudget,
+  policyRevision: 1,
+  runId: "run.zero",
+  scope: fanOutScope,
+}, fanOutLedger);
+assert.equal(zeroReservation.paidMicros, "0");
+await assert.rejects(
+  reconcileWorkspaceRunBudget({
+    actualPaidCost: "0.000001",
+    now: new Date("2026-08-22T22:05:00.000Z"),
+    outcome: "reconciled",
+    runId: "run.zero",
+    scope: fanOutScope,
+  }, fanOutLedger),
+  (error) => error instanceof WorkspaceBudgetError &&
+    error.code === "budget_reservation_conflict",
+  "a paid call under a zero ceiling must still be refused",
+);
+// The classification contract has no paid tool surface to begin with: it
+// declares no research lane, no pages and no rows.
+assert.equal(resolveHybridEvidenceWorkerContract(PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID)?.research, null);
+const pinned = createPublicCommentaryImpactDefinition(["openai/gpt-5.4"], {}, "1.0.1");
+assert.equal(pinned.limits.maximumPaidCostUsd, "0");
+assert.equal(pinned.limits.maximumPages, 0);
+assert.equal(pinned.limits.maximumRows, 0);
+// The published 1.0.0 contract is immutable.
+assert.equal(
+  createPublicCommentaryImpactDefinition(["openai/gpt-5.4"]).limits.maximumPaidCostUsd,
+  "0.2500",
 );
 
 console.info("Configurable Public Commentary Tracker verification passed.");
