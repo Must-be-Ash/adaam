@@ -34,8 +34,6 @@ import { workspaceMonitorManagerSourcesSchema } from "../lib/workspace-monitor-i
 import {
   formatWorkspacePaidMicros,
   readWorkspaceBudgetLedger,
-  reconcileWorkspaceRunBudget,
-  reserveWorkspaceRunBudget,
   summarizeWorkspaceBudgetUsage,
 } from "../lib/workspace-budget-ledger";
 import { nextWorkspaceMonitorOccurrence } from "../lib/workspace-monitor-schedule";
@@ -2201,43 +2199,12 @@ export default defineChannel({
           ? xIdentityCache.get(cacheKey)!.identity
           : null;
         if (!identity) {
-          const state = await getPhotonWorkspaceManagerState(body.managerToken);
-          if (!state) return json({ error: "This session manager link expired." }, 410);
-          const active = state.activeWorkspace;
-          const scope = authorizePhotonWorkspaceControlPlaneStore({
-            principalId: managerScope.principalId,
-            resource: "manager",
-            workspaceId: active.id,
-          });
-          const budget = await readWorkspaceDocument("budget", scope);
-          if (!budget) throw new Error("public_commentary_budget_policy_unresolved");
-          const runId = `x-identity.${body.requestId}`;
-          await reserveWorkspaceRunBudget({
-            inputTokens: 0,
-            kind: "paid_source_attempt",
-            now,
-            outputTokens: 0,
-            paidCostCeiling: { amount: "0.005000", kind: "known" },
-            policy: budget.value,
-            policyRevision: budget.revision,
-            runId,
-            scope,
-          });
-          try {
-            identity = await resolveXPublicIdentity({ profile: body.profile });
-            await reconcileWorkspaceRunBudget({
-              actualInputTokens: 0,
-              actualOutputTokens: 0,
-              actualPaidCost: "0.005000",
-              now,
-              outcome: "reconciled",
-              runId,
-              scope,
-            });
-          } catch (error) {
-            await reconcileWorkspaceRunBudget({ now, outcome: "uncertain", runId, scope });
-            throw error;
-          }
+          // Resolving a pinned identity is a one-time setup lookup an owner
+          // triggers by hand while installing a pack, not autonomous monitor
+          // spend, and the workspace that would own it does not exist yet. It
+          // runs untracked; owner access and the single-use request claim above
+          // already bound how often it can happen.
+          identity = await resolveXPublicIdentity({ profile: body.profile });
           xIdentityCache.set(cacheKey, Object.freeze({ expiresAt: now.getTime() + 15 * 60_000, identity }));
           while (xIdentityCache.size > 64) xIdentityCache.delete(xIdentityCache.keys().next().value!);
         }
