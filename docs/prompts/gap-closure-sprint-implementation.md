@@ -133,10 +133,9 @@ plan a change from it. If you need a fact it mentions, confirm it in code first.
   Definition `1.0.2`'s 12,000-token research session has therefore still never
   executed. It needs an occurrence whose window contains a genuinely new S-1.
   Until then, do not describe IPO research as proven.
-- `IPO Live` is temporarily on a dense same-day schedule (10:45 through 16:00
-  Vancouver) purely to iterate on that proof. Once one occurrence terminalizes
-  cleanly, restore its normal `["10:00", "16:00"]` cadence through the
-  `monitor-schedule` runtime action so it stops consuming runs.
+- `IPO Live` now runs every six hours (`["00:00", "06:00", "12:00", "18:00"]`
+  America/Vancouver) as the owner's standing background monitor. Leave that
+  cadence alone.
 - Three stale active sessions carry `paused_failure` monitors and are not part
   of any sprint: `IPO Overnight Test` (bound to the superseded
   `ipo-filings@1.0.0`), `Congressional Overnight Test`, and
