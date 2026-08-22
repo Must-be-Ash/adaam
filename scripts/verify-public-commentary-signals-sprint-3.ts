@@ -648,6 +648,68 @@ const directModelResult = await directModelPipeline.run({
 assert.deepEqual(directModelSelectedSymbols, ["MU"], "the signed semantic input must receive the owner watchlist");
 assert.equal(directModelResult.finding?.facts[0]?.finding.policyDecision.researchDirection, "bearish");
 
+// Production reproduction: a verbose model rationale pushed the composed alert
+// text past the shared alert store's 1,000-character `whyMatched` cap. Staging
+// threw after the finding had already been persisted, the retry deduplicated
+// that finding, and the occurrence committed as a clean no-signal result, which
+// silently dropped a material signal.
+{
+  const verboseSemantic = {
+    ...compactSemantic,
+    counterevidence: Array.from({ length: 4 }, (_, index) =>
+      `${`Counterevidence ${index} detail. `.repeat(10)}`.trim().slice(0, 300)),
+    rationale: `${"Cramer argues that Micron execution keeps improving. ".repeat(12)}`.trim().slice(0, 500),
+    uncertainty: Array.from({ length: 4 }, (_, index) =>
+      `${`Uncertainty ${index} detail. `.repeat(10)}`.trim().slice(0, 300)),
+  };
+  const verboseResult = hybridAcceptedResultSchema.parse({
+    ...compactSemanticResult,
+    model: { ...compactSemanticResult.model, modelOutputDigest: digestHybridEvidenceValue(verboseSemantic) },
+    outputDigest: digestHybridEvidenceValue(verboseSemantic),
+    payload: verboseSemantic,
+    resultId: `hybrid-result.${digestHybridEvidenceValue(verboseSemantic)}`,
+  });
+  const verbose = await materializePublicCommentarySignal({
+    ...base,
+    configuration: { ...configuration, selectedSymbols: ["MU"] },
+    configurationGeneration: 5,
+    extraction: {
+      attribution: "direct" as const,
+      confidence: "medium" as const,
+      evidence: [naturalLanguageEvidenceSpan],
+      extractionId: "commentary-extraction.verbose-alert-fixture",
+      horizon: "weeks" as const,
+      recordType: "commentary_extraction" as const,
+      schemaVersion: 1 as const,
+      stance: "bullish" as const,
+      targets: [{ displayName: "Micron Technology", symbol: "MU", type: "equity" as const }],
+      topic: "investment_view" as const,
+      voiceOwnership: "speaker" as const,
+    },
+    pack: compactPack,
+    plaintext: naturalLanguageText,
+    scope: scopeA,
+    semanticResult: verboseResult,
+    statement: naturalLanguageStatement,
+    statementRevisionId: "statement.x.200.verbose.1",
+  }, new MemoryStore());
+  assert.ok(verbose.alertPresentation, "a material verbose signal must still produce an alert");
+  assert.ok(
+    verbose.alertPresentation.whyMatched.length <= 1_000,
+    "the composed alert text must fit the shared alert store bound",
+  );
+  assert.ok(
+    verbose.alertPresentation.whyMatched.includes("Exact cited statement:"),
+    "the exact citation must survive truncation",
+  );
+  assert.ok(
+    verbose.alertPresentation.whyMatched.endsWith(
+      `This direction is produced by the ${INVERSE_CRAMER_POLICY.displayName} policy.`,
+    ),
+    "the registered direction disclosure must survive truncation",
+  );
+}
+
 const compactMaterializationInput = {
   ...base,
   configuration: { ...configuration, selectedSymbols: ["MU"] },

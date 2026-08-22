@@ -71,6 +71,9 @@ import type { WebCorroborationProvider } from "./web-corroboration-search";
 import { compileWebCorroborationQuery } from "./web-corroboration-search";
 import { marketSymbolSchema } from "./strategy-pack-schema";
 
+// Mirrors the `whyMatched` bound enforced by the shared workspace alert store.
+export const PUBLIC_COMMENTARY_ALERT_WHY_MATCHED_MAXIMUM = 1_000;
+
 export const INVERSE_CRAMER_POLICY = createCommentaryPolicyDefinition({
   displayName: "Inverse Cramer",
   policyId: "commentary-direction-inversion",
@@ -448,7 +451,7 @@ export async function materializePublicCommentarySignal(input: {
   const direction = policy.decision.researchDirection!;
   const exactCitation = finding.citations[0]!;
   const exactLocator = statement.textLocators[0]!;
-  const whyMatched = [
+  const whyMatchedSegments = [
     `Exact cited statement: ${exactCitation.canonicalUrl} revision ${exactCitation.contentRevision}, span ${exactLocator.start}-${exactLocator.end}, digest ${exactLocator.spanDigest}.`,
     `Why it matched: ${semantic.rationale}`,
     `Classification: ${input.impactClassification ?? extraction.stance}. Possible ${extraction.targets[0]?.symbol ?? "asset"} implication: ${direction} pressure.`,
@@ -462,8 +465,30 @@ export async function materializePublicCommentarySignal(input: {
       : semantic.counterevidence.map(({ statement }) => statement).join("; ") || "None cited."}`,
     `Related coverage: ${corroboration.status}. Corroboration status: ${corroboration.status}.${corroboration.status === "candidates_found" ? "" : " Warning: corroboration is weak or unavailable; the source remains visible."}`,
     `Primary citation: ${statement.canonicalUrl} revision ${statement.revision}. The revocable source text is not copied into permanent findings or alerts.`,
-    policy.directionDisclosure,
-  ].join(" ");
+  ];
+  // `stageWorkspaceAlert` caps `whyMatched` at PUBLIC_COMMENTARY_ALERT_WHY_MATCHED_MAXIMUM
+  // characters. This text is assembled from an unbounded model rationale, so an
+  // otherwise material signal could exceed the cap and throw at alert staging,
+  // after its finding had already been persisted. The retry then deduplicated
+  // that finding and the occurrence committed as a clean no-signal result, which
+  // silently dropped a real signal. Keep the exact citation and the registered
+  // direction disclosure, then fit as much interpretation as the cap allows.
+  const whyMatched = ((): string => {
+    const disclosure = policy.directionDisclosure;
+    const budget = PUBLIC_COMMENTARY_ALERT_WHY_MATCHED_MAXIMUM - disclosure.length - 1;
+    const kept: string[] = [];
+    let used = 0;
+    for (const segment of whyMatchedSegments) {
+      const cost = used === 0 ? segment.length : segment.length + 1;
+      if (used + cost > budget) break;
+      kept.push(segment);
+      used += cost;
+    }
+    if (kept.length === 0) {
+      kept.push(whyMatchedSegments[0]!.slice(0, Math.max(0, budget)).trimEnd());
+    }
+    return [...kept, disclosure].join(" ").slice(0, PUBLIC_COMMENTARY_ALERT_WHY_MATCHED_MAXIMUM);
+  })();
   const source = {
     accessClassification: input.source.accessClassification,
     canonicalUrl: input.source.canonicalUrl,
