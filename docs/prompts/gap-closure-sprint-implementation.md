@@ -77,6 +77,24 @@ plan a change from it. If you need a fact it mentions, confirm it in code first.
   URL.** When you need one, stop and ask the owner. They will text Eve "manage
   sessions" and paste the URL back to you. Do not attempt to work around this by
   reading secrets, signing your own capability, or adding a temporary route.
+- A manager URL looks like
+  `https://adaam.vercel.app/eve/v1/photon-workspaces#<token>`; the part after `#`
+  is the capability token. **It is valid for two hours.** Reuse the owner's
+  current token for as long as it works, and when it returns HTTP 410 or an
+  expired-link error, simply ask the owner for a fresh one. Never write a token
+  into a file, commit, log, or command that gets recorded — this repository is
+  public.
+- Driving the manager over HTTP with that token is supported and preferred over
+  asking the owner to click through the UI:
+  `POST /eve/v1/photon-workspaces/state` with `{"managerToken": "<token>"}`
+  returns the registry `revision`, `activeWorkspaceId`, `workspaces` (with
+  monitors and budgets), `strategyPackCatalog`, and a server-minted
+  `packMutationIdentity`. Pass that identity straight through to
+  `POST /eve/v1/photon-workspaces/pack-action` for `strategy-pack-create`,
+  `-configure`, or `-remove`, and use `POST /eve/v1/photon-workspaces/action`
+  for `select`, `archive`, `restore`, `rename`, and `start-fresh`. Creating a
+  pack session selects it, so restore the owner's intended active session
+  afterward.
 - Do not add temporary Production endpoints, edit Redis directly, or invoke
   workers manually. Use the existing owner-authorized backend services.
 
@@ -107,6 +125,11 @@ plan a change from it. If you need a fact it mentions, confirm it in code first.
   repair: raise only that output ceiling through a new immutable IPO pack version
   (input is already 40,000), keep paid ceilings unchanged, preserve historical
   versions, and capture the Production trace before choosing the number.
+- Three stale active sessions carry `paused_failure` monitors and are not part
+  of any sprint: `IPO Overnight Test` (bound to the superseded
+  `ipo-filings@1.0.0`), `Congressional Overnight Test`, and
+  `Inverse Cramer 1.3.0 retrying`. Leave them alone unless the owner asks for
+  cleanup; they hold durable evidence and none of them can dispatch.
 - Before arming Sprint 2's disposable acceptance workspace, pause the
   `Inverse Cramer Live` monitor if its alert has not yet fired, run and clean up
   the U2 acceptance, then re-enable it. One acceptance in flight at a time.
