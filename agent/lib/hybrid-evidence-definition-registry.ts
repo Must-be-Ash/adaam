@@ -19,6 +19,7 @@ import {
   commentarySemanticValidationContract,
   inverseCramerActionabilityValidationContract,
   inverseCramerSemanticValidationContract,
+  publicCommentaryImpactValidationContract,
 } from "./public-commentary-semantics";
 import { secIpoResearchValidationContract } from "./sec-ipo-semantics";
 import { inverseCramerResearchValidationContract } from "./inverse-cramer-research";
@@ -349,6 +350,7 @@ export const workspaceSemanticValidationRegistry = createWorkspaceSemanticValida
   inverseCramerActionabilityValidationContract,
   inverseCramerSemanticValidationContract,
   inverseCramerResearchValidationContract,
+  publicCommentaryImpactValidationContract,
   secIpoResearchValidationContract,
 ]);
 

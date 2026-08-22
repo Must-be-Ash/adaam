@@ -33,11 +33,14 @@ import {
   createInverseCramerActionabilityDefinition,
   createCommentarySemanticDefinition,
   createInverseCramerSemanticDefinition,
+  createPublicCommentaryImpactDefinition,
+  PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
   extractCommentaryMetadata,
   commentarySemanticPayloadSchema,
   INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
   INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
   inverseCramerSemanticPayloadSchema,
+  PUBLIC_COMMENTARY_DIRECT_MODEL_DEFINITION_IDS,
   type CommentarySemanticPayload,
   type InverseCramerSemanticPayload,
 } from "./public-commentary-semantics";
@@ -168,11 +171,17 @@ export function readAttestedCommentarySemanticResult(input: {
   readonly scope: AuthorizedWorkspaceStoreScope;
 }): CommentarySemanticPayload | InverseCramerSemanticPayload {
   const result = hybridAcceptedResultSchema.parse(input.result);
-  const compactDirectModel =
+  const configuredImpact =
+    result.definition.definitionId === PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID;
+  const compactDirectModel = configuredImpact ||
     result.definition.definitionId === INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID;
   const legacyDirectModel = result.definition.definitionId === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID;
   const directModel = compactDirectModel || legacyDirectModel;
-  const definition = compactDirectModel
+  const definition = configuredImpact
+    ? createPublicCommentaryImpactDefinition([result.model.modelId], {
+        allowedAdapterIds: input.allowedAdapterIds,
+      })
+    : compactDirectModel
     ? createInverseCramerActionabilityDefinition([result.model.modelId], {
         allowedAdapterIds: input.allowedAdapterIds,
       })
@@ -895,6 +904,11 @@ export function createPublicCommentaryPipeline(input: {
     selectedSymbols: readonly string[];
     statement: PublicStatement;
     statementRevisionId: string;
+    strategyGuidance?: Readonly<{
+      impactHypotheses: readonly string[];
+      monitoringObjective: string;
+      topics: readonly string[];
+    }>;
   }>) => Promise<PublicCommentarySemanticRun>;
 }) {
   return Object.freeze({
@@ -945,7 +959,27 @@ export function createPublicCommentaryPipeline(input: {
         await quarantineOverflow("statements_overflow");
         throw new Error("public_commentary_occurrence_statements_overflow");
       }
-      const configuredHypotheses = interpretation.actionability === "configured_impact_hypothesis"
+      const boundedStrings = (value: unknown) => Array.isArray(value)
+        ? Object.freeze(value.filter((entry): entry is string => typeof entry === "string"))
+        : Object.freeze([] as readonly string[]);
+      /*
+       * A hypothesis-driven strategy tells the model which outcomes the owner
+       * cares about and which assets they plausibly move. When the pack
+       * declares a direct-model evaluation contract this is guidance the model
+       * weighs against the statement, never a filter applied before it.
+       */
+      const strategyGuidance = interpretation.actionability === "configured_impact_hypothesis"
+        ? Object.freeze({
+            impactHypotheses: boundedStrings(configuration.impactHypotheses),
+            monitoringObjective: typeof configuration.monitoringObjective === "string"
+              ? configuration.monitoringObjective
+              : "",
+            topics: boundedStrings(configuration.topics),
+          })
+        : null;
+      const configuredHypotheses =
+        interpretation.actionability === "configured_impact_hypothesis" &&
+          !input.directModelActionability
         ? parsePublicCommentaryImpactHypotheses(configuration.impactHypotheses)
         : null;
       const configuredTopics = configuredHypotheses && Array.isArray(configuration.topics)
@@ -981,6 +1015,7 @@ export function createPublicCommentaryPipeline(input: {
               selectedSymbols: configuration.selectedSymbols,
               statement,
               statementRevisionId: projected.statementRevisionId,
+              ...(strategyGuidance ? { strategyGuidance } : {}),
             });
             if (semanticRun.record.job.state === "quarantined" || semanticRun.evidence === null) {
               return null;
@@ -1072,6 +1107,7 @@ export function createPublicCommentaryPipeline(input: {
             selectedSymbols: configuration.selectedSymbols,
             statement,
             statementRevisionId: projected.statementRevisionId,
+            ...(strategyGuidance ? { strategyGuidance } : {}),
           });
           if (semanticRun.record.job.state === "quarantined" || semanticRun.evidence === null) {
             return null;
@@ -1130,9 +1166,8 @@ export function createPublicCommentaryPipeline(input: {
             statement,
             statementRevisionId: projected.statementRevisionId,
           }, input.findings);
-          const semantic = (
-            semanticResult.definition.definitionId === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID ||
-            semanticResult.definition.definitionId === INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID
+          const semantic = PUBLIC_COMMENTARY_DIRECT_MODEL_DEFINITION_IDS.includes(
+            semanticResult.definition.definitionId,
           )
             ? inverseCramerSemanticPayloadSchema.parse(semanticResult.payload)
             : commentarySemanticPayloadSchema.parse(semanticResult.payload);

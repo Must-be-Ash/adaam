@@ -7,6 +7,17 @@ import {
   resolvePublicCommentaryTrackerSourcePolicy,
 } from "../agent/lib/public-commentary-tracker";
 import {
+  createPublicCommentaryImpactDefinition,
+  INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
+  PUBLIC_COMMENTARY_COMPACT_EVALUATION_DEFINITION_IDS,
+  PUBLIC_COMMENTARY_DIRECT_MODEL_DEFINITION_IDS,
+  PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
+} from "../agent/lib/public-commentary-semantics";
+import { resolvePublicCommentarySemanticReasoning } from "../agent/lib/public-commentary-workspace-worker";
+import { resolveHybridEvidenceWorkerContract } from "../agent/lib/hybrid-evidence-worker-contract-registry";
+import { workspaceSemanticValidationRegistry } from "../agent/lib/hybrid-evidence-definition-registry";
+import { resolveStrategyPackInitialBudgetPolicy } from "../agent/lib/strategy-pack-service";
+import {
   COMMENTARY_CONFIGURED_IMPACT_CONTRACT_ID,
   COMMENTARY_DIRECTION_INVERSION_CONTRACT_ID,
   INVERSE_CRAMER_POLICY,
@@ -270,5 +281,124 @@ const declaredSessionInput = Number(
 assert.ok(declaredSessionOutput > 0 && declaredSessionInput > 0);
 assert.ok(currentPack.monitors[0]!.suggestedBudget.maximumOutputTokensPerRun >= declaredSessionOutput);
 assert.ok(currentPack.monitors[0]!.suggestedBudget.maximumInputTokensPerRun >= declaredSessionInput);
+
+// The keyword classifier is exactly why 1.3.0 exists. These cases are the ones
+// it silently drops or misattributes, and they must stay dropped only for the
+// historical versions that shipped that behavior.
+const missedByKeywords = [
+  "Oil just ripped on the Strait headlines. Positioning is getting violent.",
+  "Tehran signalled it wants the talks restarted. Crude should feel that.",
+];
+for (const text of missedByKeywords) {
+  assert.equal(
+    classifyPublicCommentaryImpact(text, hypotheses, ["Iran"]).classification,
+    "unclear",
+    "the literal matcher drops plain-language signals, which is the defect 1.3.0 removes",
+  );
+}
+// The matcher also attributes any match to the configured asset, whatever the
+// statement is actually about.
+const goldHypotheses = parsePublicCommentaryImpactHypotheses([
+  "escalation or worsening conflict|GOLD|up",
+]);
+assert.equal(
+  classifyPublicCommentaryImpact(
+    "Escalation in the region; copper and shipping rates are the story here.",
+    goldHypotheses,
+  ).asset,
+  "GOLD",
+  "the literal matcher pins the configured asset regardless of the statement",
+);
+
+const directModelPack = strategyPackCatalog.resolve({
+  id: "public-commentary-tracker",
+  version: "1.3.0",
+});
+assert.ok(directModelPack);
+// 1.3.0 declares the compact evaluation contract, so the shared worker sends
+// every statement to the model instead of pre-filtering by keyword.
+assert.deepEqual(
+  directModelPack.evidenceContracts?.find(({ id }) => id === PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID),
+  {
+    digest: createPublicCommentaryImpactDefinition(["openai/gpt-5.4"]).definitionDigest,
+    id: PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
+    version: "1.0.0",
+  },
+);
+assert.equal(
+  PUBLIC_COMMENTARY_DIRECT_MODEL_DEFINITION_IDS.includes(PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID),
+  true,
+);
+assert.equal(
+  PUBLIC_COMMENTARY_COMPACT_EVALUATION_DEFINITION_IDS.includes(PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID),
+  true,
+);
+assert.equal(resolvePublicCommentarySemanticReasoning(directModelPack, { reasoning: "high" }), "low");
+// Published versions keep the deterministic path they shipped with.
+for (const version of ["1.0.0", "1.1.0", "1.2.0"]) {
+  const historical = strategyPackCatalog.resolve({ id: "public-commentary-tracker", version })!;
+  assert.equal(
+    historical.evidenceContracts?.some(({ id }) =>
+      PUBLIC_COMMENTARY_DIRECT_MODEL_DEFINITION_IDS.includes(id)),
+    false,
+  );
+  assert.equal(resolvePublicCommentarySemanticReasoning(historical, { reasoning: "high" }), "high");
+}
+// The direction policy is unchanged: the tracker preserves what the model read,
+// where Inverse Cramer inverts it.
+assert.equal(
+  resolvePublicCommentaryInterpretationContract(directModelPack)?.id,
+  COMMENTARY_CONFIGURED_IMPACT_CONTRACT_ID,
+);
+// The compact contract is registered for the worker's completion tool and for
+// validation, or an accepted classification could never commit.
+assert.equal(
+  resolveHybridEvidenceWorkerContract(PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID)?.research,
+  null,
+);
+assert.ok(resolveHybridEvidenceWorkerContract(PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID));
+const impactDefinition = createPublicCommentaryImpactDefinition(["openai/gpt-5.4"]);
+assert.equal(
+  workspaceSemanticValidationRegistry.resolve(impactDefinition)?.outputSchema.schemaId,
+  "public-commentary-impact-result",
+);
+// The instruction must forbid the keyword gate in the model's own contract.
+assert.match(impactDefinition.instructionTemplate.content, /do not require a cashtag/iu);
+assert.match(impactDefinition.instructionTemplate.content, /read from the statement/iu);
+assert.match(impactDefinition.instructionTemplate.content, /never override the statement/iu);
+assert.match(impactDefinition.instructionTemplate.content, /abstained when/iu);
+assert.equal(impactDefinition.definitionId !== INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID, true);
+
+// The sensitive-event gate is untouched by the new version.
+const trackerConfiguration = resolveStrategyPackConfiguration(directModelPack, {}).configuration;
+assert.equal(
+  resolvePublicCommentaryTrackerSourcePolicy(trackerConfiguration).sourceKind,
+  "official_white_house",
+);
+assert.throws(() => resolvePublicCommentaryTrackerSourcePolicy({
+  ...trackerConfiguration,
+  trackerName: "Custom Iran tracker",
+}), /sensitive_source_unavailable/u);
+// A non-sensitive tracker resolves to a paid X timeline, and its initial budget
+// must carry paid ceilings or the first timeline read cannot be reserved.
+const marketConfiguration = {
+  ...trackerConfiguration,
+  monitoringObjective: "Detect posts reporting material moves across crypto, equities, rates, and commodities.",
+  topics: ["commodities", "crypto", "equities", "rates"],
+};
+assert.equal(
+  resolveStrategyPackSourceInstances(directModelPack, marketConfiguration)[0]?.allowedOrigins.includes(
+    "https://api.x.com"),
+  true,
+);
+const marketBudget = resolveStrategyPackInitialBudgetPolicy(
+  directModelPack,
+  marketConfiguration as Record<string, string | string[]>,
+  "2026-08-22T00:00:00.000Z",
+);
+assert.notEqual(marketBudget.maximumPaidPerCall, null);
+assert.notEqual(marketBudget.maximumPaidPerDay, null);
+assert.equal(marketBudget.maximumInputTokensPerRun, 160_000);
+assert.equal(marketBudget.maximumOutputTokensPerRun, 32_000);
 
 console.info("Configurable Public Commentary Tracker verification passed.");

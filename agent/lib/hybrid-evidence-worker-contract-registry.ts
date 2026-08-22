@@ -5,6 +5,8 @@ import {
   inverseCramerActionabilityWorkerCandidateSchema,
   INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
   inverseCramerSemanticWorkerCandidateSchema,
+  PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
+  publicCommentaryImpactWorkerCandidateSchema,
 } from "./public-commentary-semantics";
 import {
   SEC_IPO_RESEARCH_DEFINITION_ID,
@@ -65,6 +67,16 @@ const contracts = Object.freeze([
       inputSchema: commentarySemanticWorkerCandidateSchema,
     }),
     definitionId: COMMENTARY_SEMANTIC_DEFINITION_ID,
+    research: null,
+  }),
+  Object.freeze({
+    capabilityRevisions: Object.freeze([2]),
+    completion: Object.freeze({
+      description:
+        "Commit one configured public-commentary impact classification using the exact registered contract.",
+      inputSchema: publicCommentaryImpactWorkerCandidateSchema,
+    }),
+    definitionId: PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
     research: null,
   }),
   Object.freeze({

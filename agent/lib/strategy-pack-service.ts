@@ -995,7 +995,22 @@ export function resolveStrategyPackInitialBudgetPolicy(
   now: string,
   ceilings: typeof DEFAULT_BUDGET_CEILINGS = DEFAULT_BUDGET_CEILINGS,
 ): WorkspaceBudgetPolicyValue {
-  const usesPaidXTimeline = pack.sources.some((source) =>
+  /*
+   * A pack's declared source can be a placeholder that configuration resolves
+   * elsewhere: the commentary tracker declares a first-party feed but resolves
+   * to a paid X timeline whenever the sensitive-event gate does not divert it.
+   * Size the paid ceilings from the sources this configuration actually
+   * resolves, or the first occurrence reserves a paid timeline read against a
+   * policy with no paid ceiling and fails as budget_policy_unresolved.
+   */
+  const resolvedSources = (() => {
+    try {
+      return resolveStrategyPackSourceInstances(pack, configuration);
+    } catch {
+      return pack.sources;
+    }
+  })();
+  const usesPaidXTimeline = resolvedSources.some((source) =>
     source.allowedOrigins.includes("https://api.x.com")
   );
   const researchBudget = resolveStrategyPackResearchWorkerContract(pack)?.research?.budget ?? null;

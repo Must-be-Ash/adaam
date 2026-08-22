@@ -63,8 +63,12 @@ import {
   createCommentarySemanticDefinition,
   createInverseCramerActionabilityDefinition,
   createInverseCramerSemanticDefinition,
+  createPublicCommentaryImpactDefinition,
   INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
   INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
+  PUBLIC_COMMENTARY_COMPACT_EVALUATION_DEFINITION_IDS,
+  PUBLIC_COMMENTARY_DIRECT_MODEL_DEFINITION_IDS,
+  PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
   recoverNamedAssetCommentaryMetadata,
 } from "./public-commentary-semantics";
 import {
@@ -395,19 +399,23 @@ export function createProductionPublicCommentaryPipeline(input: {
   if (!managedPack || managedPack.availability !== "available") {
     throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
   }
-  const directModelActionability = managedPack.evidenceContracts?.some(
-    ({ id }) =>
-      id === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID ||
-      id === INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
-  ) ?? false;
-  const compactActionability = managedPack.evidenceContracts?.some(
-    ({ id }) => id === INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
-  ) ?? false;
+  // Which declared evaluation contract a pack carries decides whether the model
+  // sees every statement or a deterministic rule pre-filters them. No pack
+  // identifier is consulted.
+  const declares = (ids: readonly string[]) =>
+    managedPack.evidenceContracts?.some(({ id }) => ids.includes(id)) ?? false;
+  const directModelActionability = declares(PUBLIC_COMMENTARY_DIRECT_MODEL_DEFINITION_IDS);
+  const compactActionability = declares(PUBLIC_COMMENTARY_COMPACT_EVALUATION_DEFINITION_IDS);
+  const configuredImpactEvaluation = declares([PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID]);
   const interpretation = resolvePublicCommentaryInterpretationContract(managedPack);
   if (!interpretation) {
     throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
   }
-  const definition = compactActionability
+  const definition = configuredImpactEvaluation
+    ? createPublicCommentaryImpactDefinition([semanticRoute.modelId], {
+        allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
+      })
+    : compactActionability
     ? createInverseCramerActionabilityDefinition([semanticRoute.modelId], {
         allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
       })
@@ -863,7 +871,7 @@ export function createProductionPublicCommentaryPipeline(input: {
     state: clients?.state,
     directModelActionability,
     interpretation,
-    interpret: async ({ plaintext, selectedSymbols, statement, statementRevisionId }) => {
+    interpret: async ({ plaintext, selectedSymbols, statement, statementRevisionId, strategyGuidance }) => {
       const subject = semanticSubjects.get(statementRevisionId);
       if (!subject) {
         throw new PublicCommentaryWorkspaceWorkerError("public_commentary_source_unavailable");
@@ -916,6 +924,7 @@ export function createProductionPublicCommentaryPipeline(input: {
               metadataOnly: false,
               selectedSymbols: Object.freeze([...selectedSymbols]),
               watchlistMode: selectedSymbols.length === 0 ? "all_resolved_assets" : "selected_symbols",
+              ...(strategyGuidance ? { strategyGuidance } : {}),
             }),
           }],
           modelId: semanticRoute.modelId,
@@ -1034,8 +1043,11 @@ export function resolvePublicCommentarySemanticReasoning(
   pack: Pick<StrategyPackCatalogEntry, "evidenceContracts">,
   configured: Readonly<{ reasoning: "high" }>,
 ) {
-  return pack.evidenceContracts?.some(
-    ({ id }) => id === INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
+  // A compact classification contract asks for one bounded judgement, not an
+  // executive analysis, so it runs at low reasoning whichever strategy declares
+  // it.
+  return pack.evidenceContracts?.some(({ id }) =>
+    PUBLIC_COMMENTARY_COMPACT_EVALUATION_DEFINITION_IDS.includes(id),
   ) === true ? "low" as const : configured.reasoning;
 }
 
