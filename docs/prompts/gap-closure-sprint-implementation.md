@@ -114,17 +114,17 @@ plan a change from it. If you need a fact it mentions, confirm it in code first.
   and unarchived so real signals exercise the alert path. Every other monitor,
   including all Congressional ones, is retired, paused, or archived with no next
   occurrence.
-- **Known risk on `IPO Live`.** Its research definition in
-  `agent/lib/sec-ipo-semantics.ts` caps the whole frontier research session at
-  `maximumOutputTokens: 2_000`, while that route is hard-bound to high reasoning.
-  This is the exact shape that failed repeatedly on Inverse Cramer, whose
-  equivalent session needed 12,000 output tokens once reasoning was counted.
-  IPO's Production acceptance was a natural `no_change`, so its research step has
-  never run against a real filing. When a real S-1 arrives, expect
-  `SESSION_TOKEN_LIMIT_REACHED`. If that happens, treat it as a known focused
-  repair: raise only that output ceiling through a new immutable IPO pack version
-  (input is already 40,000), keep paid ceilings unchanged, preserve historical
-  versions, and capture the Production trace before choosing the number.
+- **`IPO Live` runs on `ipo-filings@1.1.2`, which is not yet proven.** The
+  earlier 1.1.1 session sized its whole frontier research session at 2,000 output
+  tokens against a route hard-bound to high reasoning, and its per-occurrence
+  envelope was 2,000 output as well; its single Production occurrence on
+  2026-08-22 terminalized as `worker_recovery_outcome_missing`. Commit `44d83c6`
+  added research definition `1.0.2` (12,000 output) and `ipo-filings@1.1.2`
+  (160,000 input / 40,000 output per run, paid ceilings unchanged), and the
+  session was recreated on it. Its first occurrence is still pending, so if it
+  fails again, capture the Production trace before changing another number — the
+  outcome-missing error may have a cause beyond token sizing, since the
+  superseded `ipo-filings@1.0.0` monitor failed the same way.
 - Three stale active sessions carry `paused_failure` monitors and are not part
   of any sprint: `IPO Overnight Test` (bound to the superseded
   `ipo-filings@1.0.0`), `Congressional Overnight Test`, and
