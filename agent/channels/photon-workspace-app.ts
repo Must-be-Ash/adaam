@@ -48,11 +48,13 @@ import {
   getWorkspaceMonitor,
   listWorkspaceMonitors,
   pauseWorkspaceMonitorsAfterRestore,
+  purgeWorkspaceMonitors,
   suspendWorkspaceMonitorsForArchive,
   updateWorkspaceMonitor,
   workspaceMonitorScheduleSchema,
 } from "../lib/workspace-monitor-store";
 import {
+  deleteWorkspaceDocuments,
   readWorkspaceDocument,
   writeWorkspaceDocument,
 } from "../lib/workspace-state-store";
@@ -162,6 +164,14 @@ const actionRequestSchema = z.discriminatedUnion("action", [
     managerToken: tokenSchema,
     requestId: requestIdSchema,
     replacementWorkspaceId: workspaceIdSchema.optional(),
+    workspaceId: workspaceIdSchema,
+  }),
+  z.object({
+    action: z.literal("delete"),
+    confirmedConsequences: z.literal(true),
+    expectedRevision: z.number().int().nonnegative(),
+    managerToken: tokenSchema,
+    requestId: requestIdSchema,
     workspaceId: workspaceIdSchema,
   }),
   z.object({
@@ -909,13 +919,17 @@ export function workspaceHtml(nonce: string, origin: string): string {
         const message = document.createElement("p");
         message.textContent = action === "start-fresh"
           ? "Start fresh in “" + workspace.name + "”? This clears its model history and keeps the session name."
+          : action === "delete"
+          ? "Permanently delete “" + workspace.name + "”? Its task, configuration and monitors are removed and it cannot be restored. Its budget ledger is kept."
           : "Archive “" + workspace.name + "”? You can restore it later.";
         const controls = document.createElement("div");
         controls.className = "actions";
         const confirmButton = document.createElement("button");
         confirmButton.type = "button";
-        confirmButton.className = action === "archive" ? "danger" : "primary";
-        confirmButton.textContent = action === "start-fresh" ? "Confirm start fresh" : "Confirm archive";
+        confirmButton.className = action === "archive" || action === "delete" ? "danger" : "primary";
+        confirmButton.textContent = action === "start-fresh"
+          ? "Confirm start fresh"
+          : action === "delete" ? "Confirm permanent delete" : "Confirm archive";
         confirmButton.addEventListener("click", () => void confirmAction(action, workspace));
         requestAnimationFrame(() => confirmButton.focus());
         const cancelButton = document.createElement("button");
@@ -1658,6 +1672,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
           if (workspace.status === "archived") {
             actions.append(
               button("Restore session", "restore", workspace, { primary: true }),
+              button("Delete permanently", "delete", workspace, { danger: true }),
             );
           } else {
             if (!isActive) {
@@ -1745,6 +1760,8 @@ export function workspaceHtml(nonce: string, origin: string): string {
             };
           } else if (action.action === "archive") {
             status.textContent = "Archived “" + targetName + "”.";
+          } else if (action.action === "delete") {
+            status.textContent = "Deleted “" + targetName + "” permanently.";
           } else if (action.action === "restore") {
             status.textContent = "Restored “" + targetName + "”.";
           } else {
@@ -1900,7 +1917,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
           await mutate({ action, name, workspaceId: workspace.id });
           return;
         }
-        if (action === "start-fresh" || action === "archive") {
+        if (action === "start-fresh" || action === "archive" || action === "delete") {
           pendingConfirmation = { action, workspaceId: workspace.id };
           actionFeedback = null;
           render();
@@ -1911,7 +1928,11 @@ export function workspaceHtml(nonce: string, origin: string): string {
 
       const confirmAction = async (action, workspace) => {
         pendingConfirmation = null;
-        await mutate({ action, workspaceId: workspace.id });
+        await mutate({
+          action,
+          ...(action === "delete" ? { confirmedConsequences: true } : {}),
+          workspaceId: workspace.id,
+        });
       };
 
       form.addEventListener("submit", async (event) => {
@@ -2134,6 +2155,29 @@ export default defineChannel({
             : null;
           if (action.action === "archive" && lifecycleScope) {
             await suspendWorkspaceMonitorsForArchive({ scope: lifecycleScope });
+          }
+          if (action.action === "delete" && lifecycleScope) {
+            // The registry refuses to delete anything but an archived session,
+            // but that check runs inside the mutation below and this purge is
+            // irreversible, so prove the target is archived first. Purging
+            // before the record is removed also means a failure here leaves the
+            // archived session intact and retryable, rather than orphaning its
+            // state behind a registry entry that no longer exists.
+            const routing = await getPhotonWorkspaceManagerState(body.managerToken);
+            if (!routing) {
+              return json({ error: "This session manager link expired." }, 410);
+            }
+            const target = routing.workspaces.find(
+              (workspace) => workspace.id === action.workspaceId,
+            );
+            if (!target || target.status !== "archived" ||
+              target.id === routing.activeWorkspace.id) {
+              return json({
+                error: "Only an archived session can be deleted. Archive it first.",
+              }, 400);
+            }
+            await purgeWorkspaceMonitors(lifecycleScope);
+            await deleteWorkspaceDocuments(lifecycleScope);
           }
           const result = await applyPhotonWorkspaceManagerAction(
             body.managerToken,

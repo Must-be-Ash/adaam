@@ -131,6 +131,12 @@ export interface PhotonWorkspaceState {
 
 export type PhotonWorkspaceAction =
   | {
+      action: "delete";
+      expectedRevision: number;
+      requestId?: string;
+      workspaceId: string;
+    }
+  | {
       action: "archive";
       expectedRevision: number;
       requestId?: string;
@@ -980,6 +986,57 @@ export async function archivePhotonWorkspace(
   return toState(result.registry);
 }
 
+/*
+ * Archiving frees active-selection capacity but never retained capacity, so a
+ * conversation that has accumulated PHOTON_WORKSPACE_RETAINED_LIMIT records can
+ * no longer create any session at all. Deletion is the only way back, and it is
+ * deliberately narrow: an archived session only, never the active one, never
+ * the last one, and always through an owner-authorized mutation.
+ */
+export async function deletePhotonWorkspace(
+  input: {
+    approvalGuardKey?: string;
+    expectedRevision?: number;
+    principalId: string;
+    threadId: string;
+    workspaceId: string;
+  },
+  client: PhotonWorkspaceStoreClient = store(),
+): Promise<PhotonWorkspaceState> {
+  const result = await mutateRegistry(
+    input,
+    (registry) => {
+      const target = registry.workspaces.find(
+        (workspace) => workspace.id === input.workspaceId,
+      );
+      if (!target || target.status !== "archived") {
+        throw new PhotonWorkspaceValidationError(
+          "Only an archived session can be deleted. Archive it first.",
+        );
+      }
+      if (target.id === registry.activeWorkspaceId) {
+        throw new PhotonWorkspaceValidationError(
+          "The selected session cannot be deleted.",
+        );
+      }
+      const remaining = registry.workspaces.filter(
+        (workspace) => workspace.id !== target.id,
+      );
+      if (remaining.length === 0) {
+        throw new PhotonWorkspaceValidationError(
+          "A conversation must retain at least one session.",
+        );
+      }
+      return {
+        registry: updatedRegistry(registry, remaining, registry.activeWorkspaceId),
+        value: undefined,
+      };
+    },
+    client,
+  );
+  return toState(result.registry);
+}
+
 export async function restorePhotonWorkspace(
   input: {
     approvalGuardKey?: string;
@@ -1212,6 +1269,13 @@ export async function applyPhotonWorkspaceManagerAction(
               : {}),
             workspaceId: action.workspaceId,
           },
+          client,
+        ),
+      };
+    case "delete":
+      return {
+        state: await deletePhotonWorkspace(
+          { ...common, workspaceId: action.workspaceId },
           client,
         ),
       };

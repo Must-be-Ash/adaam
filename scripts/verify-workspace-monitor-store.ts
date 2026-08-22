@@ -11,6 +11,7 @@ import {
   inspectWorkspaceMonitorOccurrenceLease,
   isWorkspaceMonitorCheckpointOnlyBaseline,
   listWorkspaceMonitors,
+  purgeWorkspaceMonitors,
   pauseWorkspaceMonitorsAfterRestore,
   recordWorkspaceMonitorFailure,
   releaseWorkspaceMonitorLease,
@@ -125,6 +126,16 @@ class MemoryStore implements WorkspaceMonitorStoreClient {
       return JSON.stringify(this.occurrences.get(key));
     }
     return this.values.get(key) ?? null;
+  }
+
+  async purge(input: { dueKey: string; workspaceIndexKey: string }) {
+    const members = [...(this.indexes.get(input.workspaceIndexKey) ?? [])];
+    for (const key of members) {
+      this.due.delete(key);
+      this.values.delete(key);
+    }
+    this.indexes.delete(input.workspaceIndexKey);
+    return members.length;
   }
 
   async list(indexKey: string) {
@@ -1044,5 +1055,55 @@ const workspaceClaim = minuteSchedule.indexOf(
   "dependencies.claimWorkspaceMonitors({",
 );
 assert.ok(flagCheck >= 0 && flagCheck < workspaceClaim);
+
+// Deleting a session removes its monitor records, but only once nothing can
+// dispatch: purging while a monitor is still armed would race the scheduler.
+const purgeClient = new MemoryStore();
+const purgeScope = authorizePhotonWorkspaceControlPlaneStore(
+  { principalId: "imessage:fixture-owner", resource: "manager", workspaceId: "77777777-7777-4777-8777-777777777777" },
+  environment,
+);
+const armedMonitor = await createWorkspaceMonitor({
+  deliverySubscriptionId: "delivery.purge",
+  instruction: "Check every configured source for a new matching filing.",
+  name: "Armed monitor",
+  nextOccurrenceAt: "2026-08-22T01:00:00.000Z",
+  now: new Date("2026-08-22T00:00:00.000Z"),
+  requiredCapabilityIds: ["sec.get_filing"],
+  schedule: {
+    anchor: "2026-08-22T01:00:00.000Z",
+    everyMinutes: 60,
+    kind: "interval",
+  },
+  scope: purgeScope,
+  sources: [source(0)],
+}, purgeClient);
+await assert.rejects(
+  purgeWorkspaceMonitors(purgeScope, purgeClient),
+  (error) => error instanceof WorkspaceMonitorError && error.code === "monitor_invalid",
+  "purging must refuse while a monitor can still dispatch",
+);
+assert.equal((await listWorkspaceMonitors(purgeScope, purgeClient)).length, 1);
+// Archiving is the only way into a deletable state, and it is what the manager
+// route runs before deletion.
+await suspendWorkspaceMonitorsForArchive(
+  { now: new Date("2026-08-22T00:01:00.000Z"), scope: purgeScope },
+  purgeClient,
+);
+assert.equal(
+  (await listWorkspaceMonitors(purgeScope, purgeClient))[0]?.nextOccurrenceAt,
+  null,
+);
+assert.ok(armedMonitor.monitorId);
+assert.equal(await purgeWorkspaceMonitors(purgeScope, purgeClient), 1);
+assert.deepEqual(await listWorkspaceMonitors(purgeScope, purgeClient), []);
+await assert.rejects(
+  purgeWorkspaceMonitors(purgeScope, {
+    ...purgeClient,
+    purge: undefined,
+  } as unknown as WorkspaceMonitorStoreClient),
+  /workspace_monitor_purge_unsupported/u,
+  "a store that cannot purge must fail loudly rather than silently retain monitors",
+);
 
 console.log("Workspace monitor store verification passed.");

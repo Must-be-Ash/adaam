@@ -53,6 +53,19 @@ redis.call("SADD", KEYS[2], KEYS[1])
 if ARGV[2] ~= "" then redis.call("ZADD", KEYS[3], ARGV[2], KEYS[1]) end
 return 1
 `;
+// Removes one archived workspace's monitor records and its index. The due set
+// is passed so a record can never be left behind in the scheduler, but the
+// caller must already have proven every monitor is non-dispatchable, so in
+// practice ZREM removes nothing.
+const PURGE_SCRIPT = `
+local members = redis.call("SMEMBERS", KEYS[1])
+for _, key in ipairs(members) do
+  redis.call("ZREM", KEYS[2], key)
+  redis.call("DEL", key)
+end
+redis.call("DEL", KEYS[1])
+return #members
+`;
 const UPDATE_SCRIPT = `
 if redis.call("GET", KEYS[1]) ~= ARGV[1] then return 0 end
 redis.call("SET", KEYS[1], ARGV[2])
@@ -423,6 +436,9 @@ export interface WorkspaceMonitorStoreClient {
     leaseToken: string;
     recordKey: string;
   }): Promise<boolean>;
+  // Only the owner-authorized session deletion path purges. Test doubles that
+  // never delete may omit it.
+  purge?(input: { dueKey: string; workspaceIndexKey: string }): Promise<number>;
   update(input: {
     dueAtMs: number | null;
     dueKey: string;
@@ -527,6 +543,13 @@ function store(): WorkspaceMonitorStoreClient {
       );
     },
     get: (key) => redisClient!.get(key),
+    async purge(input) {
+      return redisClient!.eval<[], number>(
+        PURGE_SCRIPT,
+        [input.workspaceIndexKey, input.dueKey],
+        [],
+      );
+    },
     async list(indexKey) {
       const keys = await redisClient!.smembers<string[]>(indexKey);
       return keys.length === 0 ? [] : redisClient!.mget(...keys);
@@ -1199,6 +1222,27 @@ export async function listWorkspaceMonitors(
       return raw === null ? [] : [parseMonitor(raw, scope)];
     })
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+/*
+ * Removes every monitor record belonging to one workspace. Refuses while any
+ * monitor could still dispatch, so deleting a session can never race the
+ * scheduler or strand a lease held by a running occurrence.
+ */
+export async function purgeWorkspaceMonitors(
+  scope: AuthorizedWorkspaceStoreScope,
+  client: WorkspaceMonitorStoreClient = store(),
+): Promise<number> {
+  assertAuthorizedWorkspaceStoreScope(scope);
+  if (!client.purge) throw new Error("workspace_monitor_purge_unsupported");
+  const monitors = await listWorkspaceMonitors(scope, client);
+  if (monitors.some((monitor) =>
+    monitor.nextOccurrenceAt !== null || monitor.lifecycleState === "enabled")
+  ) throw new WorkspaceMonitorError("monitor_invalid");
+  return client.purge({
+    dueKey: DUE_KEY,
+    workspaceIndexKey: workspaceMonitorIndexStorageKey(scope),
+  });
 }
 
 export async function updateWorkspaceMonitor(

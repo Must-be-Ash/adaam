@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 
 import {
+  deleteWorkspaceDocuments,
   migrateWorkspaceStrategyDocument,
   readWorkspaceDocument,
+  workspaceDocumentStorageKey,
   validateWorkspaceCapabilitySourceContract,
   workspaceStrategyBindingValueSchema,
   WORKSPACE_DOCUMENT_BYTE_LIMITS,
@@ -13,6 +15,7 @@ import {
   type WorkspaceStateStoreClient,
 } from "../agent/lib/workspace-state-store";
 import {
+  authorizeDeploymentWorkspaceStore,
   authorizePhotonWorkspaceControlPlaneStore,
   authorizePhotonWorkspaceToolStore,
   WorkspaceStoreAuthorizationError,
@@ -36,6 +39,10 @@ class MemoryStore implements WorkspaceStateStoreClient {
     if (current !== expected) return false;
     this.values.set(key, next);
     return true;
+  }
+
+  async delete(key: string) {
+    this.values.delete(key);
   }
 
   async get(key: string) {
@@ -689,6 +696,69 @@ assert.equal(
 assert.equal(
   (await readWorkspaceDocument("strategy", interruptedScope, interruptedClient))?.schemaVersion,
   2,
+);
+
+// Deleting a session removes the documents holding its own task and
+// configuration, and deliberately keeps the budget policy so the retained
+// budget ledger stays auditable after the session is gone.
+const deletionClient = new MemoryStore();
+const deletionScope = authorizeDeploymentWorkspaceStore(
+  { ownerId: "owner_fixture", workspaceId: "66666666-6666-4666-8666-666666666666" },
+  environment,
+);
+for (const kind of ["brief", "budget", "capabilities", "strategy"] as const) {
+  assert.equal(
+    typeof workspaceDocumentStorageKey(kind, deletionScope),
+    "string",
+  );
+}
+await writeWorkspaceDocument("budget", {
+  expectedRevision: 0,
+  now: new Date("2026-08-22T00:00:00.000Z"),
+  scope: deletionScope,
+  value: {
+    effectiveAt: "2026-08-22T00:00:00.000Z",
+    maximumConcurrentWorkers: 1,
+    maximumInputTokensPerDay: 1_000,
+    maximumInputTokensPerRun: 1_000,
+    maximumOutputTokensPerDay: 1_000,
+    maximumOutputTokensPerRun: 1_000,
+    maximumPaidPerCall: null,
+    maximumPaidPerDay: null,
+    maximumPaidPerMonth: null,
+    maximumScheduledRunsPerDay: 1,
+    ownerTimezone: "UTC",
+    unknownPriceFallbackCeiling: "0.250000",
+  },
+}, deletionClient);
+await writeWorkspaceDocument("brief", {
+  expectedRevision: 0,
+  now: new Date("2026-08-22T00:00:00.000Z"),
+  scope: deletionScope,
+  value: {
+    currentFindingsSummary: "",
+    goal: "Durable task that must not survive deletion.",
+    lastMaterialChange: "",
+    openQuestions: [],
+    promotedFacts: [],
+    sourcePolicy: { allowedSourceIds: [], maximumAccessClassification: "public" },
+    strategyConfigurationRevision: 1,
+    thesis: "",
+    watchlist: [],
+  },
+}, deletionClient);
+assert.ok(await readWorkspaceDocument("brief", deletionScope, deletionClient));
+const deleted = await deleteWorkspaceDocuments(deletionScope, deletionClient);
+assert.deepEqual([...deleted], ["brief", "capabilities", "strategy"]);
+assert.equal(await readWorkspaceDocument("brief", deletionScope, deletionClient), null);
+assert.ok(
+  await readWorkspaceDocument("budget", deletionScope, deletionClient),
+  "the budget policy is retained for financial audit",
+);
+await assert.rejects(
+  deleteWorkspaceDocuments(deletionScope, { compareAndSet: async () => true, get: async () => null }),
+  /workspace_state_delete_unsupported/u,
+  "a store that cannot delete must fail loudly rather than silently retain state",
 );
 
 console.log("Bounded workspace state store verification passed.");

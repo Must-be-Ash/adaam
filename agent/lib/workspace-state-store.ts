@@ -466,6 +466,9 @@ export interface WorkspaceStateStoreClient {
     expected: string | null,
     next: string,
   ): Promise<boolean>;
+  // Only the owner-authorized session deletion path removes documents. Test
+  // doubles that never delete may omit it.
+  delete?(key: string): Promise<void>;
   get(key: string): Promise<unknown>;
 }
 
@@ -523,9 +526,36 @@ function store(): WorkspaceStateStoreClient {
         return (await execute(sha)) === 1;
       }
     },
+    delete: async (key) => {
+      await redisClient!.del(key);
+    },
     get: (key) => redisClient!.get(key),
   };
   return defaultClient;
+}
+
+/*
+ * Deleting a session removes the documents that hold its own task and
+ * configuration. The budget policy is deliberately retained: the workspace
+ * budget ledger keeps the spend record, and the policy it was reserved against
+ * is what makes that record auditable after the session is gone.
+ */
+export const WORKSPACE_DELETABLE_DOCUMENT_KINDS = Object.freeze(
+  ["brief", "capabilities", "strategy"] as const satisfies readonly WorkspaceDocumentKind[],
+);
+
+export async function deleteWorkspaceDocuments(
+  scope: AuthorizedWorkspaceStoreScope,
+  client: WorkspaceStateStoreClient = store(),
+): Promise<readonly WorkspaceDocumentKind[]> {
+  assertAuthorizedWorkspaceStoreScope(scope);
+  if (!client.delete) throw new Error("workspace_state_delete_unsupported");
+  const deleted: WorkspaceDocumentKind[] = [];
+  for (const kind of WORKSPACE_DELETABLE_DOCUMENT_KINDS) {
+    await client.delete(workspaceDocumentStorageKey(kind, scope));
+    deleted.push(kind);
+  }
+  return Object.freeze(deleted);
 }
 
 export function workspaceDocumentStorageKey(

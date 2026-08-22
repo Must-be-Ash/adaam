@@ -18,6 +18,7 @@ import {
   PhotonWorkspaceValidationError,
   photonWorkspaceRegistryStorageKey,
   renamePhotonWorkspace,
+  deletePhotonWorkspace,
   restorePhotonWorkspace,
   savePhotonWorkspaceSession,
   selectPhotonWorkspace,
@@ -605,6 +606,57 @@ assert.equal(
   retainedCapacityState.workspaces.filter(({ status }) => status === "archived").length,
   PHOTON_WORKSPACE_RETAINED_LIMIT - 4,
   "rejecting creation at the retained-history bound must not delete archived records",
+);
+
+// Archiving frees active-selection capacity but never retained capacity, so a
+// full registry can no longer create any session. Deletion is the only way back.
+await assert.rejects(
+  deletePhotonWorkspace(
+    {
+      ...retainedCapacityScope,
+      workspaceId: retainedCapacityState.workspaces.find(({ status }) => status === "active").id,
+    },
+    retainedCapacityClient,
+  ),
+  (error) =>
+    error instanceof PhotonWorkspaceValidationError &&
+    /Only an archived session can be deleted/u.test(error.message),
+  "an active session must never be deletable",
+);
+const deletableId = retainedCapacityState.workspaces.find(
+  ({ status }) => status === "archived",
+).id;
+const afterDelete = await deletePhotonWorkspace(
+  { ...retainedCapacityScope, workspaceId: deletableId },
+  retainedCapacityClient,
+);
+assert.equal(afterDelete.workspaces.length, PHOTON_WORKSPACE_RETAINED_LIMIT - 1);
+assert.equal(
+  afterDelete.workspaces.some(({ id }) => id === deletableId),
+  false,
+  "deleting an archived session must remove its registry record",
+);
+await assert.rejects(
+  deletePhotonWorkspace(
+    { ...retainedCapacityScope, workspaceId: deletableId },
+    retainedCapacityClient,
+  ),
+  (error) => error instanceof PhotonWorkspaceValidationError,
+  "a deleted session is gone; deleting it again must fail",
+);
+const reclaimed = await createPhotonWorkspace(
+  { ...retainedCapacityScope, name: "Reclaimed capacity" },
+  retainedCapacityClient,
+);
+assert.equal(
+  reclaimed.workspaces.some(({ name }) => name === "Reclaimed capacity"),
+  true,
+  "deleting an archived session must free retained capacity for a new one",
+);
+assert.equal(
+  reclaimed.activeWorkspace.id,
+  afterDelete.activeWorkspace.id,
+  "deleting an archived session must not change which session is selected",
 );
 
 const isolatedScope = {
