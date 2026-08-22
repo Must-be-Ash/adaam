@@ -207,7 +207,7 @@ The initial `origin/main` audit identified the following candidates. Each active
 - [x] Baseline A — Shared durable-research U1–U4 implemented; `ipo-filings@1.1.1` passed one zero-usage Production acceptance and was cleaned up. Receipt is in `docs/plans/2026-08-20-1154-feat-agentic-durable-research-plan.md`.
 - [x] Baseline B — Shared hybrid-evidence worker contract dispatch landed in commit `58901f8`; Production deploy trigger `f88d7c3` is healthy.
 - [ ] U1 — Migrate and accept Inverse Cramer. Reopened for the focused direct-model actionability correction below.
-- [ ] U2 — Migrate and accept Public Commentary Tracker.
+- [x] U2 — Migrate and accept Public Commentary Tracker. Landed on `main` @ `e35ae74`; receipt `U2 Tracker Acceptance 0822` recorded under §U2.
 - [ ] U3 — Migrate and accept Earnings Call Changes.
 - [ ] U4 — Repair, migrate, and accept Congressional Signals.
 - [ ] U5 — Complete the final catalog boundary and cross-workspace isolation audit.
@@ -375,10 +375,60 @@ historical pack.
 - [x] Tracker-specific characterization captured without duplicating U1 plumbing. Commit `76f398d`: `scripts/verify-public-commentary-tracker.ts` characterizes contract resolution from the declaration (including an unrelated pack ID that declares the tracker's contract), opposite policy directions for one normalized extraction, the declared lifecycle contract, and the per-run envelope against the shared worker session's own declared limits; `scripts/verify-strategy-pack-configuration-kinds.ts` characterizes the pinned-identity install rule.
 - [x] Pack/contract migration implemented with no new named generic branch. Commit `76f398d`: `agent/lib/public-commentary-interpretation-contract.ts` (declared contract + immutable-version legacy bindings) replaces four `pack.id` branches in `agent/lib/public-commentary-vertical.ts`; the install-time identity rule in `agent/lib/strategy-pack-service.ts` and the `explain_public_commentary_signal` gate are now selected by declared configuration kind and declared capability; `public-commentary-tracker@1.2.0` declares the interpretation and monitor lifecycle contracts.
 - [x] Focused verification and concise diff review green. Green: `verify:strategy-packs`, `:strategy-pack-runtime`, `:strategy-pack-owner-surfaces`, `:strategy-pack-mutations`, `:strategy-pack-configuration-kinds`, `:public-commentary-tracker`, `:public-commentary-signals:sprint-0/1/2/3/4-reuse/follow-up/boundary`, `:agentic-durable-research:u1/u2/u3`, `verify-workspace-isolation`, `verify-workspace-worker-isolation`, `verify-shared-research-contract-dispatch`, `tsc`, `eve build`, `next build`, `git diff --check`. `verify:strategy-packs:acceptance` fails identically on unmodified `main` (`sec_ipo_monitor_invalid`) and is already recorded as a Sprint 8 item.
-- [ ] Commit pushed to `main`; Production health and bounded logs green.
-- [ ] One zero-usage Production occurrence terminal and reported.
-- [ ] Disposable monitor paused/archived and non-dispatchable.
-- [ ] U2 and Progress Tracker marked complete before U3 begins.
+- [x] Commit pushed to `main`; Production health and bounded logs green. `main` @ `e35ae74`, deployment `dpl_HzGpPuertindUerKyPXQoXqw77to` (`earnings-call-analyser-9hr4nlf7h.vercel.app`, aliased to `adaam.vercel.app`). `/` and `/skill` returned HTTP 200 before and after. Bounded logs across the occurrence: 35 rows, zero non-info levels, zero responses >= 400.
+- [x] One zero-usage Production occurrence terminal and reported. Receipt `U2 Tracker Acceptance 0822` below.
+- [x] Disposable monitor paused/archived and non-dispatchable. Monitor `2b85ab4e-f146-502c-9c58-ba9555decf52` paused on the first terminal result, then the workspace was archived: `status: archived`, `lifecycleState: suspended_archived`, `nextOccurrenceAt: null`. A full registry sweep at revision 133 shows the owner's `Inverse Cramer Live` and `IPO Live` as the only dispatchable monitors.
+- [x] U2 and Progress Tracker marked complete before U3 begins.
+
+**Receipt — `U2 Tracker Acceptance 0822` (2026-08-22).** Workspace
+`9787bafe-5817-484c-adfa-4952b02c2cd4`, monitor
+`2b85ab4e-f146-502c-9c58-ba9555decf52`, bound to
+`public-commentary-tracker@1.2.0` (digest `7a007c605994b5c1...`), created from
+`Main` and initially paused.
+
+- Zero-usage baseline before arming: 0 runs, 0 input tokens, 0 output tokens,
+  0 active workers, $0 paid.
+- One occurrence armed at `2026-08-22T19:31:47.079Z`, terminal at
+  `2026-08-22T19:32:35.867Z` with `lastErrorCode: null` and 0 active workers.
+- Source: the pack's first-party White House feed via `official-web-statements`
+  (the sensitive-event gate correctly kept the Trump-Iran preset off paid X).
+  30 statements acquired, extraction `complete`, source health `healthy`,
+  no correction and no failure stage.
+- Result: a correct no-signal outcome. None of the 30 statements matched the
+  configured impact hypotheses, so the strategy-owned actionability rule
+  abstained before frontier interpretation: outcomes accepted 0, abstained 0,
+  corrected 0, noView 0, quarantined 0, and every hybrid-evidence count 0.
+  No finding, no artifact, no alert, and therefore nothing to leak into `Main`
+  or `Inverse Cramer Live`.
+- Cost: reserved 160,000 input / 32,000 output for the run; actual 5,945 input
+  / 773 output. Paid spend $0 - the source is first-party and the pack resolves
+  no paid ceiling. Install-time X identity resolution ran untracked by owner
+  decision (see `0990fa2`).
+- Honest limit of this receipt: because no statement was actionable there was
+  no per-statement fan-out, so actual usage would also have fit the old
+  12,000 / 2,000 envelope. The resize is justified by the shared worker
+  session's own declared 64,000 / 16,000 limits, which cap an occurrence that
+  does evaluate statements; this occurrence did not by itself prove the resize
+  necessary.
+
+**Two install-path defects found and fixed during the U2 acceptance
+(2026-08-22).** Neither was introduced by the migration; together they meant no
+pack declaring a pinned public X identity could ever be installed, which is why
+no Public Commentary Tracker workspace had ever existed in Production.
+
+- `0990fa2`: `POST /resolve-x-identity` reserved its $0.005 lookup against the
+  active workspace's budget document. `Main` has none, so installing from the
+  owner's normal active session failed with
+  `public_commentary_budget_policy_unresolved`. Owner decision: treat the
+  install-time lookup as an untracked one-time setup cost and remove the
+  reserve/reconcile from that path. Autonomous monitor spend is unchanged and
+  still fully reserved and reconciled.
+- `e35ae74`: the manager `pack-action` route accepted
+  `xIdentityResolutionReceipt` in its schema and the session-manager UI sent
+  it, but never forwarded it to `createStrategyPackWorkspaceFromSelection`, so
+  the service saw no receipt and rejected the install with
+  `strategy_pack_invalid_request`. The wiring is now asserted in
+  `verify:strategy-pack-configuration-kinds`.
 
 **U2 boundary classification (2026-08-22).** Remaining occurrences of the two
 commentary pack IDs after this migration, classified per KTD2:

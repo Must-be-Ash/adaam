@@ -77,7 +77,7 @@ Fresh continuity, fleet activation, and one end-of-line regression/E2E pass.
 
 - [ ] Sprint 1 — Close U1: Inverse Cramer live alert proof *(no code work left;
       waiting on a live Cramer statement — does not block Sprints 2–5)*
-- [ ] Sprint 2 — U2: Public Commentary Tracker migration *(start here)*
+- [x] Sprint 2 — U2: Public Commentary Tracker migration *(complete 2026-08-22, `main` @ `e35ae74`, receipt `U2 Tracker Acceptance 0822`)*
 - [ ] Sprint 3 — U3: Earnings Call Changes migration
 - [ ] Sprint 4 — U4: Congressional repair + migration
 - [ ] Sprint 5 — U5: Final boundary and isolation audit
@@ -97,6 +97,18 @@ pack-identity/research-sizing/replay/alert-bound repairs, and the
 multi-statement session sizing all landed and passed their gates. Two
 Production occurrences terminalized cleanly, and one real iMessage alert with a
 working Discuss control was delivered and confirmed by owner screenshot.
+
+**Blocker found and repaired during Sprint 2 (2026-08-22, `e6c3dc5`).** Commit
+`aec122c` added research contract version `1.0.1` and taught the worker's
+candidate selection to accept it, but left the gate that decides whether a pack
+has an agentic research runtime pinned to `1.0.0`. `inverse-cramer@1.4.7` — the
+pack bound to `Inverse Cramer Live` — declares `1.0.1`, so
+`resolveInverseCramerResearchRuntime` returned `null` and the live monitor
+skipped the executive brief and artifact entirely. The proof below could not
+have passed as deployed. The gate and the candidate filter now share one
+supported-version list, characterized across the 1.4.x lineage in
+`scripts/verify-inverse-cramer-strategy-boundary.ts`, and the repair is live in
+deployment `dpl_HzGpPuertindUerKyPXQoXqw77to`.
 
 The single open item is **observational, not implementation**: one occurrence
 must fire whose window contains a genuinely material Jim Cramer statement, so
@@ -172,7 +184,22 @@ thresholds, and abstention policy; own local corpus plus one zero-usage
 Production acceptance (the Inverse Cramer receipt does not count for this
 pack).
 
-- [ ] §U2 checklist complete in the migration plan (marked there).
+- [x] §U2 checklist complete in the migration plan (marked there).
+
+Landed 2026-08-22. The four remaining `pack.id` branches in the shared
+commentary vertical, the install-time pinned-identity rule, and the shared
+explain tool's gate are now selected by declared contract, configuration kind,
+and declared capability. `public-commentary-tracker@1.2.0` declares the
+interpretation and monitor lifecycle contracts and resizes its per-run envelope
+above the shared worker session's own limits. One zero-usage Production
+occurrence terminalized green with a correct no-signal result over 30 real
+White House statements, $0 paid, and was archived non-dispatchable.
+
+Two pre-existing defects surfaced and were repaired along the way, both
+recorded in the migration plan: the install-time X identity lookup could not be
+funded from `Main` (`0990fa2`), and the manager route dropped the identity
+receipt before the create service saw it (`e35ae74`). A third, found during U2
+characterization, was blocking Sprint 1 rather than Sprint 2 — see below.
 
 ## Sprint 3 — U3: Earnings Call Changes migration
 
