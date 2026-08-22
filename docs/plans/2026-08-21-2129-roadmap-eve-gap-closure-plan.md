@@ -287,6 +287,15 @@ write path for explicit mission/watchlist/open-question changes.
 Turning the migrated platform into the running fleet — the owner's end-state
 moment. Owner participates in the sign-offs.
 
+- [ ] **Blocker: the session registry is full** (48/48 retained records,
+  2026-08-22) and nothing can be created. Archived sessions are retained
+  forever and there is no delete path, so U1's disposable acceptance
+  workspaces exhausted it. Add owner-authorized hard deletion of archived
+  sessions (see `BACKLOG.md`) before this sprint, and expect Sprints 3–5 to
+  consume more records. Restoring and renaming an archived session does not
+  help when the pack pins an immutable field: `xIdentity` is
+  `mutableAfterInstall: false`, so a tracker cannot be repointed at a
+  different account.
 - [ ] Owner reviews per-strategy budgets using each acceptance's
   reserved-vs-actual numbers; set the real ceilings.
 - [ ] Enable Exa-backed research for background monitors in Production

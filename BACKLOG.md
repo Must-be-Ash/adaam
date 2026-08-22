@@ -315,6 +315,15 @@ Current state: Telegram maps a private chat directly to one Eve continuation.
 - [x] Define recoverable retirement semantics.
 - [ ] Offer hard deletion only after product-owned retained data can actually be
   deleted and external safety records are correctly excluded.
+- [ ] **Release blocker as of 2026-08-22: sessions cannot be deleted, and the
+  registry is now full at 48/48 retained records.** Creation fails with
+  `retained_capacity_exhausted`, so no new strategy session can be installed at
+  all. Archiving frees active-selection capacity but never retained capacity,
+  and each disposable acceptance workspace consumes one record permanently —
+  U1 alone spent roughly forty. Add owner-authorized deletion of archived
+  sessions that removes the registry record and its workspace-scoped state,
+  while preserving anything required for safety or financial audit. Needed
+  before fleet activation and before Sprints 3–5 create more acceptances.
 - [ ] Broaden and evaluate natural-language session-manager intent detection
   without adding channel shortcuts for ordinary domain requests.
 
