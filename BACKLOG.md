@@ -688,3 +688,23 @@ source-contract review, sensitive-event classification, policy registration,
 eval generation, and provenance-safe upgrade semantics. Do not turn the
 current template into a free-form arbitrary-person/arbitrary-policy execution
 surface.
+
+# Proposed: Widen the commentary worker's family binding (found during U2, 2026-08-22)
+
+`agent/lib/public-commentary-workspace-worker.ts` validates that a claimed
+monitor is managed by one of `["inverse-cramer", "public-commentary-tracker"]`,
+and types the pipeline's pack reference as that same union. This is binding
+validation, not behavioral selection, so U2 retained it. It does mean a third
+commentary strategy cannot be added by pack alone: the family list has to be
+widened first. Replacing the list with "the managed pack resolves a public
+commentary interpretation contract" would close that gap. Not blocking, no
+current strategy needs it, and it touches the live monitor's hot path.
+
+# Proposed: Move workspace-presentation selection behind a contract (found during U2, 2026-08-22)
+
+`agent/channels/photon-workspace-app.ts` picks which workspace presentation to
+read by enumerating pack IDs (`earnings-call-changes`, then `inverse-cramer` or
+`public-commentary-tracker`). That is behavioral selection a presentation
+contract could own, but the site spans the earnings pack too, so U2 left it for
+the U5 boundary audit to classify alongside U3's migration rather than editing
+one half of a shared switch.

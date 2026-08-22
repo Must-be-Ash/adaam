@@ -372,13 +372,44 @@ historical pack.
 
 **Completion checklist:**
 
-- [ ] Tracker-specific characterization captured without duplicating U1 plumbing.
-- [ ] Pack/contract migration implemented with no new named generic branch.
-- [ ] Focused verification and concise diff review green.
+- [x] Tracker-specific characterization captured without duplicating U1 plumbing. Commit `76f398d`: `scripts/verify-public-commentary-tracker.ts` characterizes contract resolution from the declaration (including an unrelated pack ID that declares the tracker's contract), opposite policy directions for one normalized extraction, the declared lifecycle contract, and the per-run envelope against the shared worker session's own declared limits; `scripts/verify-strategy-pack-configuration-kinds.ts` characterizes the pinned-identity install rule.
+- [x] Pack/contract migration implemented with no new named generic branch. Commit `76f398d`: `agent/lib/public-commentary-interpretation-contract.ts` (declared contract + immutable-version legacy bindings) replaces four `pack.id` branches in `agent/lib/public-commentary-vertical.ts`; the install-time identity rule in `agent/lib/strategy-pack-service.ts` and the `explain_public_commentary_signal` gate are now selected by declared configuration kind and declared capability; `public-commentary-tracker@1.2.0` declares the interpretation and monitor lifecycle contracts.
+- [x] Focused verification and concise diff review green. Green: `verify:strategy-packs`, `:strategy-pack-runtime`, `:strategy-pack-owner-surfaces`, `:strategy-pack-mutations`, `:strategy-pack-configuration-kinds`, `:public-commentary-tracker`, `:public-commentary-signals:sprint-0/1/2/3/4-reuse/follow-up/boundary`, `:agentic-durable-research:u1/u2/u3`, `verify-workspace-isolation`, `verify-workspace-worker-isolation`, `verify-shared-research-contract-dispatch`, `tsc`, `eve build`, `next build`, `git diff --check`. `verify:strategy-packs:acceptance` fails identically on unmodified `main` (`sec_ipo_monitor_invalid`) and is already recorded as a Sprint 8 item.
 - [ ] Commit pushed to `main`; Production health and bounded logs green.
 - [ ] One zero-usage Production occurrence terminal and reported.
 - [ ] Disposable monitor paused/archived and non-dispatchable.
 - [ ] U2 and Progress Tracker marked complete before U3 begins.
+
+**U2 boundary classification (2026-08-22).** Remaining occurrences of the two
+commentary pack IDs after this migration, classified per KTD2:
+
+- `agent/lib/public-commentary-workspace-worker.ts` family binding guard and its
+  pack-ID type union: binding validation in a strategy-owned worker. Retained.
+  A third commentary pack would need this family list widened; noted in
+  `BACKLOG.md`.
+- `agent/lib/workspace-monitor-lifecycle-contract.ts` and
+  `agent/lib/public-commentary-interpretation-contract.ts` legacy bindings:
+  registry keys for immutable published versions. Retained by design.
+- `agent/lib/inverse-cramer-research.ts` `isInverseCramerAgenticResearchPack`:
+  strategy-owned research runtime selection, additionally gated on the declared
+  research evidence contract. Retained.
+- `agent/lib/strategy-pack-source-resolution.ts`: branches on the pack's
+  declared `sourceId`, not a pack ID. Retained.
+- `agent/channels/photon-workspace-app.ts` workspace-presentation selection
+  still enumerates commentary and earnings pack IDs. Behavioral selection that a
+  presentation contract could own, but it spans U3's pack as well; left for the
+  U5 audit to classify with the earnings site.
+
+**U1 blocker found during U2 characterization (2026-08-22).** Commit `e6c3dc5`
+repairs a regression introduced by `aec122c`: that commit added research
+contract version `1.0.1` and taught the worker's candidate selection to accept
+it, but left `isInverseCramerAgenticResearchPack` pinned to `1.0.0`.
+`inverse-cramer@1.4.7` — the pack bound to `Inverse Cramer Live` — declares
+`1.0.1`, so `resolveInverseCramerResearchRuntime` returned `null` and the live
+monitor skipped the executive brief and artifact entirely. The U1 alert proof
+could not have passed as deployed. The gate and the candidate filter now share
+one supported-version list, characterized across the 1.4.x lineage in
+`scripts/verify-inverse-cramer-strategy-boundary.ts`.
 
 ### U3. Migrate and accept Earnings Call Changes
 
