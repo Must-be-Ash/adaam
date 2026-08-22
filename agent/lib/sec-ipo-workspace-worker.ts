@@ -240,7 +240,8 @@ async function resolveSecIpoResearchRuntime(input: {
   const candidates = input.capabilities.resolved.workerModelIds
     .flatMap((modelId) => (pack.evidenceContracts ?? []).flatMap((contract) =>
       contract.id === SEC_IPO_RESEARCH_DEFINITION_ID &&
-          (contract.version === "1.0.0" || contract.version === "1.0.1")
+          (contract.version === "1.0.0" || contract.version === "1.0.1" ||
+            contract.version === "1.0.2")
         ? [createSecIpoResearchDefinition([modelId], contract.version)]
         : []
     ))

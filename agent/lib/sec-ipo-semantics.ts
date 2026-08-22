@@ -10,7 +10,8 @@ import { workspaceExecutiveBriefSchema } from "./workspace-executive-brief";
 
 export const SEC_IPO_RESEARCH_DEFINITION_ID = "sec-ipo-frontier-research";
 export const SEC_IPO_AGENTIC_PACK_VERSION = "1.1.1";
-export type SecIpoResearchDefinitionVersion = "1.0.0" | "1.0.1";
+export const SEC_IPO_FUNDED_RESEARCH_PACK_VERSION = "1.1.2";
+export type SecIpoResearchDefinitionVersion = "1.0.0" | "1.0.1" | "1.0.2";
 export const SEC_IPO_AGENTIC_RESEARCH_BUDGET = Object.freeze({
   maximumPaidPerCall: "0.250000",
   maximumPaidPerDay: "1.000000",
@@ -140,7 +141,11 @@ export function createSecIpoResearchDefinition(
       maximumAttempts: 1,
       maximumEvidenceBytes: 64 * 1_024,
       maximumInputTokens: definitionVersion === "1.0.0" ? 10_000 : 40_000,
-      maximumOutputTokens: 2_000,
+      // 1.0.0/1.0.1 sized the whole session at 2,000 output tokens. This route is
+      // bound to high reasoning, whose reasoning tokens count as output, so the
+      // equivalent Inverse Cramer session measured 9,137 before its completion
+      // call. 1.0.2 funds that plus the brief.
+      maximumOutputTokens: definitionVersion === "1.0.2" ? 12_000 : 2_000,
       maximumPages: 0,
       maximumPaidCostUsd: "0.2500",
       maximumRows: 0,
@@ -175,6 +180,8 @@ export function isSecIpoAgenticResearchPack(pack: Readonly<{
     ? "1.0.0"
     : pack.version === SEC_IPO_AGENTIC_PACK_VERSION
     ? "1.0.1"
+    : pack.version === SEC_IPO_FUNDED_RESEARCH_PACK_VERSION
+    ? "1.0.2"
     : null;
   return pack.id === "ipo-filings" && definitionVersion !== null &&
     pack.evidenceContracts?.some(({ id, version }) =>
