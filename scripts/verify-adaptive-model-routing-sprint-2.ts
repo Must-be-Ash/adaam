@@ -11,6 +11,7 @@ import {
   resolveStrategyPackConfiguration,
   resolveStrategyPackInitialBudgetPolicy,
   resolveStrategyPackWorkerModelPolicy,
+  WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS,
 } from "../agent/lib/strategy-pack-service";
 import { resolveEarningsCallSemanticRoute } from "../agent/lib/earnings-call-workspace-worker";
 
@@ -88,7 +89,7 @@ assert.deepEqual(resolveStrategyPackWorkerModelPolicy({
   pack: commentaryPack,
 }), {
   allowedModelIds: ["google/gemini-3.6-flash", frontierRoute.modelId],
-  maximumOutputTokens: 12_000,
+  maximumOutputTokens: WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS,
 });
 const commentaryBudget = resolveStrategyPackInitialBudgetPolicy(
   commentaryPack,
