@@ -114,4 +114,11 @@ const managerRoute = readFileSync(
 );
 assert.match(managerRoute, /xIdentityResolutionReceipt: body\.xIdentityResolutionReceipt/u);
 
+// Installing fails closed when alert delivery cannot be set up. The owner must
+// be told why, not handed an unexplained storage failure.
+assert.match(
+  managerRoute,
+  /PhotonAlertDeliverySubscriptionError[\s\S]{0,400}could not set up alert delivery/u,
+);
+
 console.info("Strategy-pack bounded enum and canonical-ID list verification passed.");

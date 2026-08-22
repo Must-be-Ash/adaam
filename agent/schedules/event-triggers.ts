@@ -313,11 +313,29 @@ async function executeWorkspaceJob(
         terminalFailure = true;
       }
     }
-    if (terminalFailure) throw new Error("workspace_worker_session_failed");
-    const outcome = await dependencies.requireWorkspaceOutcome(prepared);
-    if (deliverAlerts) {
-      await dependencies.deliverWorkspaceOutcome({ job, outcome });
+    /*
+     * The worker commits its outcome inside its own tool, before this tick sees
+     * the end of the session. A session that then reports a terminal failure -
+     * including one the harness already retried - must not cost the owner the
+     * alert for a finding that is already durable: the finding stays persisted,
+     * the checkpoint has advanced, and nothing downstream would ever mention
+     * it. Attempt delivery first, then surface the session failure unchanged.
+     */
+    let committedOutcome: Awaited<
+      ReturnType<EventTriggerScheduleDependencies["requireWorkspaceOutcome"]>
+    > | null = null;
+    try {
+      committedOutcome = await dependencies.requireWorkspaceOutcome(prepared);
+    } catch (error) {
+      // A session that failed without committing keeps its existing missing
+      // outcome taxonomy; only a committed outcome changes behavior here.
+      if (!terminalFailure) throw error;
     }
+    if (committedOutcome && deliverAlerts) {
+      await dependencies.deliverWorkspaceOutcome({ job, outcome: committedOutcome });
+    }
+    if (terminalFailure) throw new Error("workspace_worker_session_failed");
+    const outcome = committedOutcome!;
     if (usesDeferredSourceRetry(job)) {
       await dependencies.clearWorkspaceSourceRetry({
         occurrenceKey: job.occurrence.occurrenceKey,

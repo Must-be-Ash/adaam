@@ -6,6 +6,7 @@ import { resolveManagedMonitorLifecycleContract } from "./workspace-monitor-life
 
 import { photonApprovalGuardKey } from "./photon-approval-store";
 import { resolvePhotonOwnerConversationIdentity } from "./owner-identity";
+import { savePhotonAlertDeliverySubscription } from "./photon-alert-subscription-store";
 import {
   activePhotonWorkspaceCount,
   normalizePhotonWorkspaceName,
@@ -212,6 +213,7 @@ export interface StrategyPackCapabilityInventoryEntry {
 }
 
 export interface StrategyPackServiceDependencies {
+  readonly alertDeliverySubscription?: typeof savePhotonAlertDeliverySubscription;
   readonly budgetCeilings?: typeof DEFAULT_BUDGET_CEILINGS;
   readonly capabilityInventory: readonly StrategyPackCapabilityInventoryEntry[];
   readonly catalog?: typeof strategyPackCatalog;
@@ -1550,14 +1552,33 @@ async function executeCreateStrategyPackWorkspace(
     nowIso,
     dependencies.budgetCeilings ?? DEFAULT_BUDGET_CEILINGS,
   );
+  /*
+   * A managed monitor names the subscription its alerts are delivered through,
+   * but naming one does not create it: only the interactive monitor tools ever
+   * wrote that record. A pack installed from the session manager therefore
+   * produced monitors that commit findings and then fail delivery with no
+   * subscription to resolve - invisible on a fresh fork, where no interactive
+   * tool has ever run. Ensure the record here, next to the identity the monitor
+   * is about to be bound to. The write is idempotent and refuses a record that
+   * does not match this owner and thread.
+   */
+  const deliveryIdentity = resolvePhotonOwnerConversationIdentity({
+    principalId: input.principalId,
+    threadId: input.threadId,
+  }, environment);
+  await (dependencies.alertDeliverySubscription ?? savePhotonAlertDeliverySubscription)({
+    conversationId: deliveryIdentity.conversationId,
+    now,
+    ownerId: deliveryIdentity.ownerId,
+    principalId: input.principalId,
+    subscriptionId: deliveryIdentity.conversationId,
+    threadId: input.threadId,
+  });
   const monitors = monitorPreparations({
     activate: new Set(requestedActivation),
     budget,
     configuration: configuration.configuration,
-    deliverySubscriptionId: resolvePhotonOwnerConversationIdentity({
-      principalId: input.principalId,
-      threadId: input.threadId,
-    }, environment).conversationId,
+    deliverySubscriptionId: deliveryIdentity.conversationId,
     now,
     pack,
     scope: targetScope,

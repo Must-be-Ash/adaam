@@ -284,7 +284,18 @@ try {
       version: alpha.version,
     },
   };
+  /*
+   * A managed monitor names its delivery subscription, but naming one does not
+   * create it. Only the interactive monitor tools ever wrote that record, so a
+   * pack installed from the session manager produced monitors that commit
+   * findings and then cannot resolve a subscription to deliver them - fatal on
+   * a fresh fork where no interactive tool has run. Installing must ensure it.
+   */
+  const alertSubscriptions = [];
   const dependencies = {
+    alertDeliverySubscription: async (input) => {
+      alertSubscriptions.push(input);
+    },
     budgetCeilings: {
       maximumInputTokensPerDay: 15_000,
       maximumInputTokensPerRun: 9_000,
@@ -317,6 +328,18 @@ try {
   }, dependencies);
   assert.equal(first.replayed, false);
   assert.equal(first.receipt.outcome, "created");
+  assert.equal(
+    alertSubscriptions.length,
+    1,
+    "installing a pack must ensure the delivery subscription its monitors name",
+  );
+  assert.equal(
+    alertSubscriptions[0].subscriptionId,
+    alertSubscriptions[0].conversationId,
+    "the subscription is the owner conversation the monitor is bound to",
+  );
+  assert.equal(alertSubscriptions[0].principalId, routing.principalId);
+  assert.equal(alertSubscriptions[0].threadId, routing.threadId);
   assert.equal(first.receipt.targetWorkspaceId, "123e4567-e89b-42d3-a456-426614174000");
   const afterCreate = await getPhotonWorkspaceState(routing, client);
   assert.equal(afterCreate.activeWorkspace.id, first.receipt.targetWorkspaceId);
@@ -1083,7 +1106,11 @@ try {
     stepId: "call_create_ipo_session",
     turnId: "turn_create_ipo_session",
   });
+  const ipoAlertSubscriptions = [];
   const ipoDependencies = {
+    alertDeliverySubscription: async (input) => {
+      ipoAlertSubscriptions.push(input);
+    },
     capabilityInventory: STRATEGY_PACK_CAPABILITY_INVENTORY,
     catalog: strategyPackCatalog,
     environment,

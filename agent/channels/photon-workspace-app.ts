@@ -44,6 +44,7 @@ import {
 import { readCongressionalWorkspacePresentation } from "../lib/congressional-signal-presentation";
 import { readEarningsCallWorkspacePresentation } from "../lib/earnings-call-presentation";
 import { readPublicCommentaryWorkspacePresentation } from "../lib/public-commentary-presentation";
+import { PhotonAlertDeliverySubscriptionError } from "../lib/photon-alert-subscription-store";
 import {
   getWorkspaceMonitor,
   listWorkspaceMonitors,
@@ -2373,6 +2374,14 @@ export default defineChannel({
         }
         if (error instanceof PhotonIngressRolloutError) {
           return json({ error: "Eve's iMessage rollout configuration is incomplete." }, 503);
+        }
+        // Installing fails closed when alert delivery cannot be set up, so say
+        // that plainly instead of reporting an unexplained storage failure: the
+        // session was not created and retrying is the correct next step.
+        if (error instanceof PhotonAlertDeliverySubscriptionError) {
+          return json({
+            error: "Eve could not set up alert delivery for this session, so the strategy pack was not installed. Try again.",
+          }, 503);
         }
         if (error instanceof StrategyPackServiceError) {
           const status = error.code === "strategy_pack_mutation_conflict" ||

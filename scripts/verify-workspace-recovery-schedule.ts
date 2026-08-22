@@ -846,6 +846,70 @@ assert.equal(
   "a completed production workspace run must enter the Photon alert delivery path",
 );
 
+/*
+ * The worker commits its outcome inside its own tool, before this tick reaches
+ * the end of the session. Production dropped an owner alert for a committed
+ * finding because the session then reported a terminal failure - one the
+ * harness had already retried - and the throw sat above delivery. A committed
+ * outcome must still be delivered, and the session failure must still surface.
+ */
+let deliveredAfterSessionFailure = 0;
+let recordedSessionFailureCode: string | null = null;
+let sessionFailureClaimed = false;
+const sessionFailureDependencies = {
+  ...deliveryDependencies,
+  claimWorkspaceMonitors: async () => {
+    if (sessionFailureClaimed) return [];
+    sessionFailureClaimed = true;
+    return [firstAttemptJob];
+  },
+  deliverWorkspaceOutcome: async (input: {
+    job: ClaimedWorkspaceMonitor;
+    outcome: WorkspaceRunOutcome;
+  }) => {
+    assert.equal(input.outcome.runId, firstAttemptOutcome.runId);
+    deliveredAfterSessionFailure += 1;
+  },
+  emitRuntimeObservation: () => undefined,
+  recordWorkspaceFailure: async (input: { errorCode: string }) => {
+    recordedSessionFailureCode = input.errorCode;
+  },
+  releaseWorkspaceLease: async () => true,
+  startWorkspaceWorker: async () => ({
+    events: (async function* () {
+      yield { data: {}, type: "turn.failed" };
+    })(),
+  }) as Awaited<ReturnType<EventTriggerScheduleDependencies["startWorkspaceWorker"]>>,
+} as unknown as EventTriggerScheduleDependencies;
+const sessionFailureSchedule = createEventTriggerSchedule(sessionFailureDependencies);
+assert.ok("run" in sessionFailureSchedule && sessionFailureSchedule.run);
+const sessionFailureWaiters: Promise<unknown>[] = [];
+sessionFailureSchedule.run({
+  appAuth: {
+    attributes: {},
+    authenticator: "app",
+    principalId: "eve:app",
+    principalType: "runtime",
+  },
+  to: (() => {
+    throw new Error("legacy_to_not_expected");
+  }) as ScheduleToFn,
+  waitUntil(task) {
+    sessionFailureWaiters.push(task);
+  },
+});
+await Promise.all(sessionFailureWaiters);
+assert.equal(
+  deliveredAfterSessionFailure,
+  1,
+  "a committed outcome must still be delivered when the session then reports a terminal failure",
+);
+assert.equal(
+  recordedSessionFailureCode,
+  "workspace_worker_failed",
+  "the session failure must still surface after delivery, with its existing code",
+);
+
 const mismatchedClaims: ClaimedWorkspaceMonitor[] = [
   { ...job, monitor: { ...monitor, ownerId: "other_owner" } },
   {
