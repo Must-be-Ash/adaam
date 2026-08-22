@@ -19,6 +19,8 @@ import { workspaceSemanticValidationRegistry } from "../agent/lib/hybrid-evidenc
 import {
   monitorPreparations,
   resolveStrategyPackInitialBudgetPolicy,
+  resolveStrategyPackWorkerModelPolicy,
+  WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS,
 } from "../agent/lib/strategy-pack-service";
 
 import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization";
@@ -472,5 +474,25 @@ const cramerMonitors = monitorPreparations({
   ),
 });
 assert.equal(cramerMonitors[0]?.monitor.tighteningLimits.paidPerRun, "3.500000");
+
+// The runner caps a worker session at the lower of the run's reserved output
+// and the pack's worker model policy, so the policy must never be tighter than
+// the session the worker agent declares for itself.
+assert.equal(WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS, declaredSessionOutput);
+assert.equal(
+  resolveStrategyPackWorkerModelPolicy({
+    environment: {
+      EVE_HYBRID_FAST_MODEL_ID: "anthropic/claude-haiku-4.5",
+      EVE_HYBRID_FAST_MODEL_REASONING: "provider-default",
+      EVE_HYBRID_FRONTIER_MODEL_ID: "openai/gpt-5.4",
+      EVE_HYBRID_FRONTIER_MODEL_REASONING: "high",
+    },
+    pack: directModelPack,
+  }).maximumOutputTokens,
+  declaredSessionOutput,
+);
+assert.ok(
+  currentPack.monitors[0]!.suggestedBudget.maximumOutputTokensPerRun >= declaredSessionOutput,
+);
 
 console.info("Configurable Public Commentary Tracker verification passed.");

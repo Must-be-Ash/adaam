@@ -108,6 +108,17 @@ const SHARED_HARD_DENIALS = Object.freeze([
 // paid-per-day, and paid-per-month ceilings; the daily token ceilings are
 // coupled to the per-run ceiling because a run whose reservation exceeds the
 // daily allowance can never dispatch.
+/*
+ * The workspace worker's own session limit, mirrored from
+ * `agent/subagents/workspace-worker/agent.ts`. The runner caps a session at the
+ * lower of the run's reserved output and this policy, so a policy tighter than
+ * the agent's declaration silently shrinks every session: an occurrence that
+ * evaluated four statements exhausted 12,000 output tokens on reasoning before
+ * reaching its commit tool and terminalized as worker_outcome_missing. Keep the
+ * two in step; verify:public-commentary-tracker asserts they agree.
+ */
+export const WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS = 16_000;
+
 // Public sources that bill per read. A monitor bound to one needs its run's
 // paid envelope to cover that read.
 const PAID_PUBLIC_SOURCE_ORIGINS = Object.freeze(["https://api.x.com"]);
@@ -969,7 +980,8 @@ export function resolveStrategyPackWorkerModelPolicy(input: {
     ).modelId;
     return {
       allowedModelIds: [...new Set([workerModelId, semanticModelId])],
-      maximumOutputTokens: input.fallback?.maximumOutputTokens ?? 12_000,
+      maximumOutputTokens: input.fallback?.maximumOutputTokens ??
+        WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS,
     };
   }
   return input.fallback ?? {
