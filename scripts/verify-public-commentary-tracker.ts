@@ -16,7 +16,12 @@ import {
 import { resolvePublicCommentarySemanticReasoning } from "../agent/lib/public-commentary-workspace-worker";
 import { resolveHybridEvidenceWorkerContract } from "../agent/lib/hybrid-evidence-worker-contract-registry";
 import { workspaceSemanticValidationRegistry } from "../agent/lib/hybrid-evidence-definition-registry";
-import { resolveStrategyPackInitialBudgetPolicy } from "../agent/lib/strategy-pack-service";
+import {
+  monitorPreparations,
+  resolveStrategyPackInitialBudgetPolicy,
+} from "../agent/lib/strategy-pack-service";
+
+import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization";
 import {
   COMMENTARY_CONFIGURED_IMPACT_CONTRACT_ID,
   COMMENTARY_DIRECTION_INVERSION_CONTRACT_ID,
@@ -400,5 +405,72 @@ assert.notEqual(marketBudget.maximumPaidPerCall, null);
 assert.notEqual(marketBudget.maximumPaidPerDay, null);
 assert.equal(marketBudget.maximumInputTokensPerRun, 160_000);
 assert.equal(marketBudget.maximumOutputTokensPerRun, 32_000);
+
+// A monitor reading a paid source reserves that read as a child of the run's
+// paid envelope. Production terminalized the first Tracker Live occurrence as
+// budget_exhausted because that envelope was derived only from a research
+// contract, which this pack does not declare, leaving the parent ceiling at
+// zero. The run envelope must cover the per-call allowance the worker reserves.
+const marketMonitors = monitorPreparations({
+  activate: new Set<string>(),
+  budget: marketBudget,
+  configuration: marketConfiguration as Record<string, string | string[]>,
+  deliverySubscriptionId: "delivery.tracker-live",
+  now: new Date("2026-08-22T21:00:00.000Z"),
+  pack: directModelPack,
+  scope: authorizeDeploymentWorkspaceStore(
+    { ownerId: "owner_fixture", workspaceId: "88888888-8888-4888-8888-888888888888" },
+    { EVE_DEPLOYMENT_OWNER_ID: "owner_fixture" },
+  ),
+});
+assert.equal(marketMonitors.length, 1);
+assert.equal(
+  marketMonitors[0]?.monitor.sources.some(({ origin }) => origin === "https://api.x.com"),
+  true,
+);
+assert.equal(
+  marketMonitors[0]?.monitor.tighteningLimits.paidPerRun,
+  marketBudget.maximumPaidPerCall,
+  "a paid-source monitor's run envelope must cover the read the worker reserves",
+);
+// The first-party preset reads a free source and needs no paid envelope.
+const firstPartyMonitors = monitorPreparations({
+  activate: new Set<string>(),
+  budget: resolveStrategyPackInitialBudgetPolicy(
+    directModelPack,
+    trackerConfiguration as Record<string, string | string[]>,
+    "2026-08-22T00:00:00.000Z",
+  ),
+  configuration: trackerConfiguration as Record<string, string | string[]>,
+  deliverySubscriptionId: "delivery.first-party",
+  now: new Date("2026-08-22T21:00:00.000Z"),
+  pack: directModelPack,
+  scope: authorizeDeploymentWorkspaceStore(
+    { ownerId: "owner_fixture", workspaceId: "99999999-9999-4999-8999-999999999999" },
+    { EVE_DEPLOYMENT_OWNER_ID: "owner_fixture" },
+  ),
+});
+assert.equal(firstPartyMonitors[0]?.monitor.tighteningLimits.paidPerRun, null);
+// A research-backed pack keeps the envelope its research lane declares.
+const cramerPack = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.7" })!;
+const cramerConfiguration = resolveStrategyPackConfiguration(cramerPack, {})
+  .configuration as Record<string, string | string[]>;
+const cramerMonitors = monitorPreparations({
+  activate: new Set<string>(),
+  budget: resolveStrategyPackInitialBudgetPolicy(
+    cramerPack,
+    cramerConfiguration,
+    "2026-08-22T00:00:00.000Z",
+  ),
+  configuration: cramerConfiguration,
+  deliverySubscriptionId: "delivery.cramer",
+  now: new Date("2026-08-22T21:00:00.000Z"),
+  pack: cramerPack,
+  scope: authorizeDeploymentWorkspaceStore(
+    { ownerId: "owner_fixture", workspaceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+    { EVE_DEPLOYMENT_OWNER_ID: "owner_fixture" },
+  ),
+});
+assert.equal(cramerMonitors[0]?.monitor.tighteningLimits.paidPerRun, "3.500000");
 
 console.info("Configurable Public Commentary Tracker verification passed.");

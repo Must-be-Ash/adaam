@@ -108,6 +108,10 @@ const SHARED_HARD_DENIALS = Object.freeze([
 // paid-per-day, and paid-per-month ceilings; the daily token ceilings are
 // coupled to the per-run ceiling because a run whose reservation exceeds the
 // daily allowance can never dispatch.
+// Public sources that bill per read. A monitor bound to one needs its run's
+// paid envelope to cover that read.
+const PAID_PUBLIC_SOURCE_ORIGINS = Object.freeze(["https://api.x.com"]);
+
 const DEFAULT_BUDGET_CEILINGS = Object.freeze({
   maximumInputTokensPerDay: 1_400_000,
   maximumInputTokensPerRun: 280_000,
@@ -1011,7 +1015,7 @@ export function resolveStrategyPackInitialBudgetPolicy(
     }
   })();
   const usesPaidXTimeline = resolvedSources.some((source) =>
-    source.allowedOrigins.includes("https://api.x.com")
+    source.allowedOrigins.some((origin) => PAID_PUBLIC_SOURCE_ORIGINS.includes(origin))
   );
   const researchBudget = resolveStrategyPackResearchWorkerContract(pack)?.research?.budget ?? null;
   const requestedRunsPerDay = Math.min(
@@ -1209,7 +1213,7 @@ export function resolveStrategyPackInitialMonitorDueAt(input: Readonly<{
     : input.scheduledAt;
 }
 
-function monitorPreparations(input: {
+export function monitorPreparations(input: {
   activate: Set<string>;
   budget: WorkspaceBudgetPolicyValue;
   configuration: Record<string, string | string[]>;
@@ -1289,7 +1293,19 @@ function monitorPreparations(input: {
           monitor.suggestedBudget.maximumOutputTokensPerRun,
           input.budget.maximumOutputTokensPerRun,
         ),
-        paidPerRun: resolveStrategyPackResearchWorkerContract(input.pack)?.research?.budget.paidPerRun ?? null,
+        /*
+         * A run's paid envelope is the parent of every nested paid reservation
+         * the occurrence makes, including its source reads. Deriving it only
+         * from a research contract left a strategy with a paid source but no
+         * paid research with a parent ceiling of zero, so its very first
+         * timeline read terminalized the occurrence as budget_exhausted. A
+         * research budget already covers the source read inside it, so only
+         * fall back to the per-call allowance when there is no research lane.
+         */
+        paidPerRun: resolveStrategyPackResearchWorkerContract(input.pack)?.research?.budget.paidPerRun ??
+          (sources.some(({ origin }) => PAID_PUBLIC_SOURCE_ORIGINS.includes(origin))
+            ? input.budget.maximumPaidPerCall
+            : null),
       },
     });
   });
