@@ -255,8 +255,22 @@ class WorkspaceMissingOutcomeFailure extends Error {
   }
 }
 
+/*
+ * Production logs have repeatedly rolled or been truncated before a failure
+ * could be read, so the recorded code carries the cause itself. The monitor
+ * record is durable and readable from the manager, which makes a failing
+ * occurrence diagnosable without racing a log window.
+ */
 export function workspaceOccurrenceFailureCode(error: unknown): string {
-  if (error instanceof WorkspaceAlertDeliveryFailure) return "workspace_alert_delivery_failed";
+  if (error instanceof WorkspaceAlertDeliveryFailure) {
+    const cause = error.cause;
+    const causeCode = cause instanceof Error && /^[a-z][a-z0-9_]{2,40}$/u.test(cause.message)
+      ? cause.message
+      : cause instanceof Error
+        ? cause.name.replace(/[^A-Za-z0-9]/gu, "").slice(0, 40)
+        : null;
+    return causeCode ? `alert_delivery.${causeCode}`.slice(0, 64) : "workspace_alert_delivery_failed";
+  }
   return error instanceof Error &&
     error.message === "workspace_worker_required_outcome_missing"
     ? "worker_outcome_missing"
@@ -428,7 +442,11 @@ async function executeWorkspaceJob(
      * identifiers, so untrusted source content can never reach the log.
      */
     const failureMessage = error instanceof Error ? error.message : "";
+    const failureCause = error instanceof WorkspaceAlertDeliveryFailure ? error.cause : null;
     console.error("[workspace.runtime] workspace occurrence failed", {
+      cause_message: failureCause instanceof Error &&
+        /^[a-z][a-z0-9_]{2,63}$/u.test(failureCause.message) ? failureCause.message : null,
+      cause_type: failureCause instanceof Error ? failureCause.name : null,
       error_message: /^[a-z][a-z0-9_]{2,63}$/u.test(failureMessage) ? failureMessage : null,
       error_type: error instanceof Error ? error.name : typeof error,
       failureCode: workspaceOccurrenceFailureCode(error),

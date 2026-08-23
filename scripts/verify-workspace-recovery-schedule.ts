@@ -958,9 +958,13 @@ deliveryFailureSchedule.run({
 await Promise.all(deliveryFailureWaiters);
 assert.equal(
   deliveryFailureCode,
-  "workspace_alert_delivery_failed",
-  "a failure while delivering a committed outcome must be recorded as a delivery failure",
+  "alert_delivery.photon_alert_workspace_unavailable",
+  "the recorded code must name why delivery failed, not merely that it did",
 );
+// Production logs have rolled before a failure could be read more than once, so
+// the durable monitor record has to carry the cause on its own, bounded to what
+// the record accepts.
+assert.ok(deliveryFailureCode !== null && deliveryFailureCode.length <= 64);
 assert.equal(
   workspaceOccurrenceFailureCode(new Error("workspace_worker_required_outcome_missing")),
   "worker_outcome_missing",
