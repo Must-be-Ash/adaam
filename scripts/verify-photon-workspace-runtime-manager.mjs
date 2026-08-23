@@ -13,6 +13,14 @@ for (const required of [
   'action: z.enum(["monitor-pause", "monitor-resume"])',
   'action: z.literal("monitor-schedule")',
   'action: z.literal("workspace-budget")',
+  // The paid ceilings are what an owner means by a budget for a background
+  // agent. They were set once at install with no way to change them, so a
+  // surprise bill could not be capped after the fact.
+  "maximumPaidPerDay: paidCeilingSchema.optional()",
+  "maximumPaidPerMonth: paidCeilingSchema.optional()",
+  "Maximum paid spend per day, in USD",
+  "Maximum paid spend per month, in USD",
+  "The monthly limit must be at least the daily limit.",
   "expectedMonitorRevision",
   "expectedBudgetRevision",
   "expectedRoutingRevision",

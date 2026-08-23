@@ -213,6 +213,11 @@ const actionRequestSchema = z.discriminatedUnion("action", [
     workspaceId: workspaceIdSchema,
   }),
 ]);
+// Matches the stored budget document's decimal shape, bounded so a typo cannot
+// authorize an unbounded month.
+const paidCeilingSchema = z.string().regex(/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/u)
+  .refine((value) => Number(value) > 0 && Number(value) <= 1_000);
+
 const runtimeActionRequestSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.enum(["monitor-pause", "monitor-resume"]),
@@ -240,6 +245,16 @@ const runtimeActionRequestSchema = z.discriminatedUnion("action", [
     managerToken: tokenSchema,
     requestId: requestIdSchema,
     maximumConcurrentWorkers: z.number().int().positive().max(32),
+    /*
+     * The paid ceilings are what an owner means by "a budget for this agent",
+     * and until now they were set once at install with no way to change them.
+     * The per-call ceiling stays unexposed: it bounds a single provider call
+     * rather than the agent's spend, and it is sized to one worst-case poll, so
+     * lowering it would refuse calls before they happen and cost results
+     * without saving anything.
+     */
+    maximumPaidPerDay: paidCeilingSchema.optional(),
+    maximumPaidPerMonth: paidCeilingSchema.optional(),
     maximumScheduledRunsPerDay: z.number().int().positive().max(32),
     workspaceId: workspaceIdSchema,
   }),
@@ -1890,8 +1905,21 @@ export function workspaceHtml(nonce: string, origin: string): string {
           const runs = Number(prompt("Maximum scheduled runs per day", workspace.budget.value.maximumScheduledRunsPerDay));
           const workers = Number(prompt("Maximum concurrent workers", workspace.budget.value.maximumConcurrentWorkers));
           if (!Number.isInteger(runs) || !Number.isInteger(workers)) return;
+          // Paid ceilings only apply to a session whose sources or research
+          // actually cost money; a first-party feed has none to set.
+          const paid = workspace.budget.value.maximumPaidPerDay !== null
+            ? {
+                perDay: prompt("Maximum paid spend per day, in USD",
+                  workspace.budget.value.maximumPaidPerDay),
+                perMonth: prompt("Maximum paid spend per month, in USD",
+                  workspace.budget.value.maximumPaidPerMonth),
+              }
+            : null;
+          if (paid && (paid.perDay === null || paid.perMonth === null)) return;
           await runtimeMutate({ action, expectedBudgetRevision: workspace.budget.revision,
-            maximumConcurrentWorkers: workers, maximumScheduledRunsPerDay: runs, workspaceId: workspace.id });
+            maximumConcurrentWorkers: workers,
+            ...(paid ? { maximumPaidPerDay: paid.perDay, maximumPaidPerMonth: paid.perMonth } : {}),
+            maximumScheduledRunsPerDay: runs, workspaceId: workspace.id });
           return;
         }
         if (action === "monitor-schedule") {
@@ -2455,6 +2483,16 @@ export default defineChannel({
           if (!budget || budget.revision !== body.expectedBudgetRevision) {
             return json({ error: "The workspace budget changed. Refresh and try again." }, 409);
           }
+          const paidPerDay = body.maximumPaidPerDay ?? budget.value.maximumPaidPerDay;
+          const paidPerMonth = body.maximumPaidPerMonth ?? budget.value.maximumPaidPerMonth;
+          // A month that cannot hold a day is the real limit and starves the
+          // agent long before the day ceiling ever binds. Refuse rather than
+          // store a pair that contradicts itself.
+          if (paidPerDay && paidPerMonth && Number(paidPerMonth) < Number(paidPerDay)) {
+            return json({
+              error: "The monthly limit must be at least the daily limit.",
+            }, 400);
+          }
           await writeWorkspaceDocument("budget", {
             expectedRevision: budget.revision,
             now,
@@ -2463,6 +2501,8 @@ export default defineChannel({
               ...budget.value,
               effectiveAt: now.toISOString(),
               maximumConcurrentWorkers: body.maximumConcurrentWorkers,
+              ...(paidPerDay === null ? {} : { maximumPaidPerDay: paidPerDay }),
+              ...(paidPerMonth === null ? {} : { maximumPaidPerMonth: paidPerMonth }),
               maximumScheduledRunsPerDay: body.maximumScheduledRunsPerDay,
             },
           });
