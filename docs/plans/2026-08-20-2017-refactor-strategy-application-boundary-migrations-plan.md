@@ -736,12 +736,83 @@ missing the `definitionId` that `0656ff0` added to the envelope schema on
   `verify:strategy-pack-runtime`, `verify:workspace-runtime:monitors`,
   `verify:workspace-runtime:recovery-schedule`, `typecheck`, `build:agent`,
   `build`, `git diff --check`.
-- [ ] Congressional contract migration implemented without changing policy.
-- [ ] Focused verification and concise diff review green.
-- [ ] Commit pushed to `main`; Production health and bounded logs green.
+- [x] Congressional contract migration implemented without changing policy
+  (2026-08-23). `congressional-signals@1.4.0` declares
+  `monitor.congressional-house-disclosures/v1`
+  (`activationWatermark: "none"`, `deferredSourceRetry: "none"`,
+  `initialEvaluationWindow: "created_at"`, `initialOccurrence: "scheduled"`,
+  `sourceAdmission: "any_declared_source"`, `sourcelessInstall: "forbidden"`),
+  each value verified against its one real consumer to reproduce Congressional's
+  prior "no contract resolves" default exactly. Evidence contracts, catalogs,
+  and policy are byte-identical to 1.3.0. `scripts/verify-congressional-signals-sprint-5.ts`
+  gained a fifth workspace on 1.4.0 proving, via an order-independent
+  content-fingerprint comparison (identity-scoped fields stripped), that 1.4.0
+  reaches the same eligibility/band/committee/cluster/pattern conclusions as
+  1.3.0 for the same facts. The one remaining generic-module
+  `congressional-signals` reference (`photon-workspace-app.ts`'s
+  presentation-selection switch) is left alone, per its existing U2-recorded
+  deferral to U5 (it spans multiple packs in one shared switch).
+- [x] Focused verification and concise diff review green (2026-08-23). All six
+  congressional sprints, the retry-defect verifier, `verify:strategy-packs`,
+  `verify:strategy-pack-runtime`, `verify:strategy-pack-owner-surfaces`,
+  `verify:workspace-runtime:monitors`, `verify:workspace-runtime:recovery-schedule`,
+  workspace isolation, `typecheck`, `build:agent`, `build`, `git diff --check`.
+- [x] Commit pushed to `main`; Production health and bounded logs green
+  (2026-08-23). Commits `14c7626` (retry-defect repair) and `899cba1`
+  (1.4.0 contract migration) pushed; deployed via `vercel deploy --prod --yes`
+  to `dpl_287xqrBVfFaBPzdbugsjaktsqkUu`, aliased at `adaam.vercel.app`. `/` and
+  `/skill` returned 200. A read-only pre-deploy scan of every workspace-monitor
+  record confirmed `Inverse Cramer Live` and `IPO Live` enabled with
+  `nextOccurrenceAt` hours away (not in flight); `Tracker Live` was found
+  already `paused_failure` (4 consecutive failures, unrelated to this unit) -
+  recorded as a discovery, not investigated further here.
 - [ ] One zero-usage Production occurrence terminal and reported.
-- [ ] Disposable monitor paused/archived and non-dispatchable.
-- [ ] U4 and Progress Tracker marked complete before U5 begins.
+  **Attempted once on 2026-08-23; recorded, not retried, pending owner
+  direction on whether it satisfies this item.** Through the owner's Manage
+  Sessions capability, workspace `Congressional U4 Acceptance`
+  (`634306b8-032b-4004-b189-766fd2eb6f43`, `congressional-signals@1.4.0`,
+  monitor `0a33180a-e78f-53a0-909c-4b239b2e2427`, `lifecycleContractId:
+  monitor.congressional-house-disclosures/v1`) was created paused at registry
+  revision 230 with zero runs, zero tokens, zero paid spend, and zero active
+  workers; its budget, capabilities, and strategy binding all installed
+  correctly. Armed with a fresh 10-minute interval schedule (not the reused
+  stale-anchor pattern `docs/workspace-runtime-pitfalls.md` warns about) and
+  resumed at revision 3; Main was restored active before arming and stayed
+  active throughout. The occurrence fired on schedule and acquired against the
+  live House disclosures endpoint, which returned a genuine transport-level
+  ambiguity (`public_source_acquisition_total outcome: "uncertain"`,
+  `errorCode: "acquisition_uncertain"`, `stage: "transport"` - confirmed from
+  Production logs, not inferred). Per the repaired classification this
+  correctly did **not** trigger the new immediate-pause path (that path is
+  `terminal_failure`-only); it fell through unchanged to the pre-existing
+  default path, recording `consecutiveFailures: 1` with the monitor left
+  `enabled` - proving the "genuine infrastructure interruption keeps bounded
+  recovery" half of the repair holds against a real external failure, not
+  just the verifier's fixture. No outcome was ever committed, so ~15 seconds
+  later the scheduler's own pre-existing (unmodified) recovery-quarantine path
+  found the settled reservation still missing an outcome and paused the
+  monitor immediately as `worker_recovery_outcome_missing` -
+  `quarantineWorkspaceRecoveryFailure`'s existing `failureThreshold: 1`
+  behavior, not the new congressional-specific branch, which never fired.
+  Actual spend: 3,959 input tokens, 1,996 output tokens, $0 paid (House
+  disclosures is an unpaid public source); zero active workers at the end.
+  Contract-migration wiring (install, capability grant, lifecycle-contract
+  binding, schedule/resume, delivery-subscription creation) all completed
+  without any defect; the only failure was the live source's own transport
+  ambiguity. No finding, artifact, or alert was produced or expected to be.
+  Per the stop condition the occurrence was not retried and no second
+  acceptance began in the same session.
+- [x] Disposable monitor paused/archived and non-dispatchable (2026-08-23).
+  Workspace `634306b8-032b-4004-b189-766fd2eb6f43` archived at registry
+  revision 232 (Main restored/confirmed active throughout); monitor
+  `0a33180a-e78f-53a0-909c-4b239b2e2427` is `suspended_archived`,
+  `nextOccurrenceAt: null`, confirmed by direct read-only store query (not the
+  manager API's own report).
+- [ ] U4 and Progress Tracker marked complete before U5 begins. **Blocked on
+  the item above:** the code changes, local proof, deploy, and cleanup are all
+  done, but whether the one Production occurrence's external-transport-caused
+  failure satisfies "one zero-usage Production occurrence terminal" is an
+  owner decision, not the implementing agent's to make unilaterally.
 
 ### U5. Complete the final catalog boundary and isolation audit
 
