@@ -306,6 +306,17 @@ async function executeWorkspaceRecovery(
     failureCode = recoveryFailureCode(error);
   }
   await quarantineWorkspaceRecoveryFailure(job, failureCode, dependencies);
+  /*
+   * The recovery path terminalizes an occurrence and quarantines the monitor,
+   * but logged nothing beyond a counter that carries no identity at all - so a
+   * `worker_recovery_not_applicable` was undiagnosable and unattributable. It
+   * is a terminal failure like any other and owes the same bounded summary.
+   */
+  console.error("[workspace.runtime] workspace recovery failed", {
+    failureCode,
+    monitorId: job.monitor.monitorId,
+    packId: job.monitor.managedBy?.packId ?? null,
+  });
   dependencies.emitRuntimeObservation({
     counter: "workspace_monitor_terminal_failure_total",
     errorCode: failureCode === "worker_recovery_stale"
@@ -451,6 +462,14 @@ async function executeWorkspaceJob(
       error_type: error instanceof Error ? error.name : typeof error,
       failureCode: workspaceOccurrenceFailureCode(error),
       monitorId: job.monitor.monitorId,
+      /*
+       * The pack id is registry identity, not owner data, so it is safe here
+       * where a workspace or owner id would not be - and without it a failure
+       * is only a UUID, readable solely by cross-referencing manager state.
+       * Skipping that cross-reference is how a Congressional occurrence was
+       * read as a commentary one while both were live.
+       */
+      packId: job.monitor.managedBy?.packId ?? null,
       started,
     });
     dependencies.emitRuntimeObservation({

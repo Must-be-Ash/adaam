@@ -114,3 +114,38 @@ AND every pack that pins it. It is never a one-line change.
 `scheduled_monitor` hold stays charged against the day. Enough failures
 exhaust a daily ceiling with almost no actual spend, so always report reserved
 separately from actual.
+
+## Cross-strategy safety
+
+**Five strategies share one set of generic modules.** `workspace-worker-control-plane.ts`,
+`workspace-alert-dispatch.ts`, `workspace-alert-store.ts`, and
+`agent/schedules/event-triggers.ts` are used by Inverse Cramer, the Public
+Commentary Tracker, SEC IPO, Earnings Call Changes, and Congressional alike. A
+repair made while looking at one strategy lands for all five.
+
+**If you touch a shared module, run `npm run verify:strategies`.** It runs all
+38 per-strategy suites across the five verticals in about 90 seconds. Running
+only your own sprint's gates proves nothing about the other four - the alert
+keying defect lived in shared plumbing and every commentary alert was
+undeliverable for months while Inverse Cramer worked perfectly, purely because
+Cramer stages no presentations and so never took the broken branch. The
+per-strategy suites are the thing that would have caught it.
+
+**Watch for strategy-shaped asymmetry when reading a shared code path.** If one
+vertical passes an optional argument and the others do not, that argument's
+branch is effectively untested by four fifths of the suite. `alertPresentations`
+was passed only by the commentary vertical; that is exactly where the bug was.
+
+## Attributing a failure to a strategy
+
+**Runtime counters carry no identity by design.** `workspaceRuntimeObservationSchema`
+is `.strict()` and holds only `counter`, `errorCode`, `outcome`, and `value`, and
+`verify:workspace-runtime:observability` asserts that owner, workspace, monitor,
+conversation, alert, prompt, credential, and provider values never reach an
+observation. Do not add identity to a counter.
+
+**Attribution belongs in the bounded `console.error` summary instead**, which
+carries `monitorId` and `packId`. A pack id is registry identity, not owner
+data. Without it a failure line is a bare UUID: during a period when a
+Congressional acceptance and a commentary monitor were both live, a
+Congressional failure was misread as the tracker's for exactly this reason.
