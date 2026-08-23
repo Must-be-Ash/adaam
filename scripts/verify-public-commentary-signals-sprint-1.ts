@@ -74,25 +74,63 @@ const authenticatedFetch = createXPublicStatementFetch({
     return new Response(JSON.stringify({ data: [] }), { headers: { "content-type": "application/json", "x-rate-limit-limit": "10000", "x-rate-limit-remaining": "9999", "x-rate-limit-reset": "1787031000" }, status: 200 });
   }) as typeof fetch,
 });
-const authenticatedResponse = await authenticatedFetch(createXTimelineRequest({ sourceInstance: source.sourceInstance }));
+const authenticatedResponse = await authenticatedFetch(createXTimelineRequest({ fallbackStartAt: "2026-08-18T06:10:00.000Z", sourceInstance: source.sourceInstance }));
 assert.equal(observedAuthorization, "Bearer fixture-secret");
 assert.ok(!JSON.stringify(authenticatedResponse).includes("fixture-secret"));
 assert.equal(
-  new URL((createXTimelineRequest as (input: {
-    excludeReplies: boolean;
-    sourceInstance: typeof source.sourceInstance;
-  }) => XPublicStatementRequest)({
+  new URL(createXTimelineRequest({
     excludeReplies: true,
+    fallbackStartAt: "2026-08-18T06:10:00.000Z",
     sourceInstance: source.sourceInstance,
   }).url).searchParams.get("exclude"),
   "retweets,replies",
   "the provider request must omit replies when the strategy excludes them",
 );
 assert.equal(
-  new URL(createXTimelineRequest({ sourceInstance: source.sourceInstance }).url).searchParams.get("exclude"),
+  new URL(createXTimelineRequest({
+    excludeReplies: false,
+    fallbackStartAt: "2026-08-18T06:10:00.000Z",
+    sourceInstance: source.sourceInstance,
+  }).url).searchParams.get("exclude"),
   "retweets",
   "reply-including strategies must not ask the provider to exclude replies",
 );
+/*
+ * Every read is billed per post the API returns, and with no lower bound this
+ * endpoint answers with the newest page of the whole timeline regardless of the
+ * window: one such request billed 102 posts for a 12-hour window holding a
+ * handful. A request that cannot be bounded is refused rather than sent.
+ */
+assert.throws(
+  () => createXTimelineRequest({ sourceInstance: source.sourceInstance }),
+  /x_timeline_request_unbounded/u,
+);
+{
+  const bounded = new URL(createXTimelineRequest({
+    fallbackStartAt: "2026-08-18T06:10:00.000Z",
+    sourceInstance: source.sourceInstance,
+  }).url);
+  assert.equal(bounded.searchParams.get("start_time"), "2026-08-18T06:10:00.000Z");
+  // A caller that says nothing gets replies excluded: a reply is billed the
+  // same as the statement being monitored and is rarely the one watched for.
+  assert.equal(bounded.searchParams.get("exclude"), "retweets,replies");
+  // The page ceiling stays at the API maximum. The bound decides how many posts
+  // come back, so a lower ceiling saves nothing and only splits a busy window
+  // into extra pages.
+  assert.equal(bounded.searchParams.get("max_results"), "100");
+}
+{
+  // An advanced cursor still bounds by since_id and ignores the fallback.
+  const cursored = new URL(createXTimelineRequest({
+    fallbackStartAt: "2026-08-18T06:10:00.000Z",
+    sourceInstance: {
+      ...source.sourceInstance,
+      cursor: { contentDigest: "a".repeat(64), revision: 3, watermark: "1750" },
+    },
+  }).url);
+  assert.equal(cursored.searchParams.get("since_id"), "1750");
+  assert.equal(cursored.searchParams.get("start_time"), null);
+}
 
 const observedAt = "2026-08-18T06:10:00.000Z";
 const window = { endAt: "2026-08-18T06:20:00.000Z", startAt: "2026-08-18T06:10:00.000Z" };
@@ -139,7 +177,11 @@ assert.equal(acquired.receipt.amountUsd, "0.025000");
 assert.equal(acquired.receipt.completeness, "complete");
 assert.equal(externalReads, 2);
 assert.equal(new URL(fetchedRequests[0]!.url).searchParams.get("since_id"), null);
-assert.equal(new URL(fetchedRequests[0]!.url).searchParams.get("exclude"), "retweets");
+// A caller that says nothing gets replies excluded.
+assert.equal(new URL(fetchedRequests[0]!.url).searchParams.get("exclude"), "retweets,replies");
+// A first acquisition has no cursor to bound by, so the evaluation window
+// bounds the request instead of it pulling the newest page of the timeline.
+assert.equal(new URL(fetchedRequests[0]!.url).searchParams.get("start_time"), window.startAt);
 assert.equal(new URL(fetchedRequests[1]!.url).searchParams.get("pagination_token"), "fixture-next");
 // The registered locator and the signed evidence slice use different digest
 // functions, so materialization resolves both through the verified text itself.
@@ -191,7 +233,7 @@ const leaseEvidence = { ...evidence, client: leaseStore };
 const leaseAcquisition = await acquireXPublicStatements({
   client: leaseStore,
   evidence: leaseEvidence,
-  responses: [response(createXTimelineRequest({ sourceInstance: source.sourceInstance }), { data: [fixturePosts.original], meta: { newest_id: "100" } })],
+  responses: [response(createXTimelineRequest({ fallbackStartAt: window.startAt, sourceInstance: source.sourceInstance }), { data: [fixturePosts.original], meta: { newest_id: "100" } })],
   sourceInstance: source.sourceInstance,
   window,
 });
@@ -202,7 +244,7 @@ const leaseEditedPost = { ...fixturePosts.original, edit_history_tweet_ids: ["10
 await acquireXPublicStatements({
   client: leaseStore,
   evidence: leaseEvidence,
-  responses: [response(createXTimelineRequest({ sourceInstance: source.sourceInstance }), { data: [leaseEditedPost], meta: { newest_id: "105" } }, 200, "2026-08-18T06:36:00.000Z")],
+  responses: [response(createXTimelineRequest({ fallbackStartAt: window.startAt, sourceInstance: source.sourceInstance }), { data: [leaseEditedPost], meta: { newest_id: "105" } }, 200, "2026-08-18T06:36:00.000Z")],
   sourceInstance: source.sourceInstance,
   window: { endAt: "2026-08-18T06:37:00.000Z", startAt: "2026-08-18T06:36:00.000Z" },
 });
@@ -246,7 +288,7 @@ for (let index = 0; index < 512; index += 1) {
   }, capacityStore);
 }
 const capacityPostId = String(32_000 + 512 * 32);
-const capacityRequest = createXTimelineRequest({ sourceInstance: source.sourceInstance });
+const capacityRequest = createXTimelineRequest({ fallbackStartAt: window.startAt, sourceInstance: source.sourceInstance });
 await assert.rejects(acquireXPublicStatements({
   client: capacityStore,
   evidence: { ...evidence, client: capacityStore },
@@ -270,7 +312,7 @@ assert.equal(capacityEnvelope?.payloadDeletion?.state, "confirmed");
 assert.equal(capacityEnvelope?.payloadDeletion?.receipt.reason, "capacity_exceeded");
 
 const gapStore = new MemoryStore();
-const baselineRequest = createXTimelineRequest({ sourceInstance: source.sourceInstance });
+const baselineRequest = createXTimelineRequest({ fallbackStartAt: window.startAt, sourceInstance: source.sourceInstance });
 const gap = await acquireXPublicStatements({
   client: gapStore,
   evidence: { ...evidence, client: gapStore },

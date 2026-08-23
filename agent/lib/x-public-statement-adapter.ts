@@ -200,8 +200,20 @@ export function createXPublicStatementFetch(options: {
   };
 }
 
+/*
+ * Every timeline read is billed per post the API returns, so what controls cost
+ * is the bound, not the page size. `max_results` is a per-page ceiling: with a
+ * lower bound and retweets and replies excluded, a window in which the account
+ * posted five times returns five posts whether the ceiling is 25 or 100. Asking
+ * for less than the ceiling cannot save anything and can only truncate a busier
+ * window into extra pages, so keep it at the maximum and let the bound do the
+ * work. An unbounded request is what cost real money: it answers with the
+ * newest page of the whole timeline regardless of the window, which billed 102
+ * posts for a 12-hour window holding a handful.
+ */
 export function createXTimelineRequest(input: {
   readonly excludeReplies?: boolean;
+  readonly fallbackStartAt?: string | null;
   readonly firstRunStartAt?: string | null;
   readonly paginationToken?: string;
   readonly sourceInstance: PublicSourceInstance;
@@ -209,7 +221,7 @@ export function createXTimelineRequest(input: {
   const source = publicSourceInstanceSchema.parse(input.sourceInstance);
   const configuration = xConfiguration(source);
   const url = new URL(configuration.canonicalUrl);
-  url.searchParams.set("exclude", input.excludeReplies ? "retweets,replies" : "retweets");
+  url.searchParams.set("exclude", input.excludeReplies === false ? "retweets" : "retweets,replies");
   url.searchParams.set("expansions", "author_id,edit_history_tweet_ids,in_reply_to_user_id,referenced_tweets.id");
   url.searchParams.set("max_results", "100");
   url.searchParams.set("tweet.fields", "author_id,conversation_id,created_at,edit_controls,edit_history_tweet_ids,entities,in_reply_to_user_id,referenced_tweets,text,withheld");
@@ -222,6 +234,18 @@ export function createXTimelineRequest(input: {
   } else if (source.cursor.revision > 0) {
     if (source.cursor.watermark === null) throw new Error("x_since_id_missing");
     url.searchParams.set("since_id", source.cursor.watermark);
+  } else if (input.fallbackStartAt) {
+    /*
+     * Neither an owner-configured backfill nor an advanced cursor, which is the
+     * state an occurrence that failed before committing leaves behind. Bound the
+     * request to the evaluation window anyway. This is deliberately only a
+     * request bound: it does not enter the request variant digest, and it does
+     * not make this a lookback or suppress baseline establishment, because those
+     * describe what the occurrence is doing, not how the URL is limited.
+     */
+    url.searchParams.set("start_time", input.fallbackStartAt);
+  } else {
+    throw new Error("x_timeline_request_unbounded");
   }
   if (input.paginationToken) url.searchParams.set("pagination_token", input.paginationToken);
   return Object.freeze({ kind: "timeline", url: url.toString() });
@@ -600,7 +624,7 @@ export async function acquireXPublicStatements(input: {
 }): Promise<XPublicStatementAcquisition> {
   const sourceInstance = publicSourceInstanceSchema.parse(input.sourceInstance);
   const requestVariantDigest = xTimelineRequestVariantDigest({
-    excludeReplies: input.excludeReplies ?? false,
+    excludeReplies: input.excludeReplies ?? true,
     firstRunStartAt: input.firstRunStartAt ?? null,
   });
   const configuration = xConfiguration(sourceInstance);
@@ -824,8 +848,8 @@ export async function runSharedXPublicStatementAcquisition(input: {
     await clearXPublicStatementPaginationContinuation(continuation, input.evidence.client);
     continuation = null;
   }
-  const excludeReplies = input.excludeReplies ?? false;
-  if (continuation && (continuation.excludeReplies ?? false) !== excludeReplies) {
+  const excludeReplies = input.excludeReplies ?? true;
+  if (continuation && (continuation.excludeReplies ?? true) !== excludeReplies) {
     await clearXPublicStatementPaginationContinuation(continuation, input.evidence.client);
     continuation = null;
   }
@@ -883,6 +907,7 @@ export async function runSharedXPublicStatementAcquisition(input: {
       for (let page = 0; page < xConfiguration(sourceInstance).maximumPagesPerPoll; page += 1) {
         const response = await input.fetchResponse(createXTimelineRequest({
           excludeReplies,
+          fallbackStartAt: input.window.startAt,
           firstRunStartAt,
           paginationToken,
           sourceInstance,
