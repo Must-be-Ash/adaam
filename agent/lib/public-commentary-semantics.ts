@@ -800,9 +800,12 @@ export function createInverseCramerSemanticDefinition(
   });
 }
 
+export const INVERSE_CRAMER_ACTIONABILITY_DEFINITION_VERSIONS = ["1.0.0", "1.0.1"] as const;
+
 export function createInverseCramerActionabilityDefinition(
   modelIds: readonly string[],
   options: Readonly<{ allowedAdapterIds?: readonly string[] }> = {},
+  definitionVersion: (typeof INVERSE_CRAMER_ACTIONABILITY_DEFINITION_VERSIONS)[number] = "1.0.0",
 ) {
   const allowedModelIds = [...new Set(modelIds)].sort();
   const allowedAdapterIds = [...new Set(options.allowedAdapterIds ?? ["x-public-statements"])].sort();
@@ -814,18 +817,18 @@ export function createInverseCramerActionabilityDefinition(
     allowedMediaTypes: ["text/plain"],
     allowedModelIds,
     definitionId: INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
-    definitionVersion: "1.0.0",
+    definitionVersion,
     inputProjection: { schemaId: "workspace-semantic-role-bound-projection", schemaVersion: "2.0.0" },
     instructionTemplate: {
       content: INVERSE_CRAMER_ACTIONABILITY_INSTRUCTION,
       delimiterPolicy: "untrusted_evidence_xml/v1",
       digest: digestHybridEvidenceValue([
         INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
-        "1.0.0",
+        definitionVersion,
         INVERSE_CRAMER_ACTIONABILITY_INSTRUCTION,
       ]),
       templateId: INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
-      version: "1.0.0",
+      version: definitionVersion,
     },
     limits: {
       maximumAttempts: 1,
@@ -833,7 +836,17 @@ export function createInverseCramerActionabilityDefinition(
       maximumInputTokens: 24_000,
       maximumOutputTokens: 4_000,
       maximumPages: 0,
-      maximumPaidCostUsd: "0.2500",
+      /*
+       * This job classifies one statement from evidence already in its
+       * projection: no pages, no rows, and no research lane in the worker
+       * contract registry, so it has no paid tool surface at all. Version 1.0.0
+       * nonetheless reserved $0.25 per attempt from the occurrence's paid
+       * envelope, which the source read had already consumed - the fan-out was
+       * refused before it could commit. A zero ceiling is the accurate
+       * declaration and is stricter: reconciliation refuses any actual paid
+       * cost above a reservation.
+       */
+      maximumPaidCostUsd: definitionVersion === "1.0.0" ? "0.2500" : "0",
       maximumRows: 0,
       maximumRuntimeMs: 180_000,
     },

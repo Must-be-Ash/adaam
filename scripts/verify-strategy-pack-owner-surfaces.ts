@@ -16,7 +16,7 @@ const environment = {
 };
 
 const listed = listStrategyPacks({ environment });
-assert.equal(listed.count, 28);
+assert.equal(listed.count, 29);
 assert.deepEqual(
   listed.packs.map(({ id, version }) => `${id}@${version}`),
   [
@@ -39,6 +39,7 @@ assert.deepEqual(
     "inverse-cramer@1.4.5",
     "inverse-cramer@1.4.6",
     "inverse-cramer@1.4.7",
+    "inverse-cramer@1.4.8",
     "ipo-filings@1.0.0",
     "ipo-filings@1.1.0",
     "ipo-filings@1.1.1",
@@ -53,7 +54,7 @@ assert.deepEqual(
 assert.deepEqual(
   listLatestStrategyPacks({ environment }).packs.filter(({ id }) =>
     id === "inverse-cramer" || id === "public-commentary-tracker").map(({ id, version }) => `${id}@${version}`),
-  ["inverse-cramer@1.4.7", "public-commentary-tracker@1.3.1"],
+  ["inverse-cramer@1.4.8", "public-commentary-tracker@1.3.1"],
 );
 assert.equal(JSON.stringify(listed).includes("Detect only newly"), false);
 

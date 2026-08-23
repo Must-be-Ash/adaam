@@ -69,6 +69,7 @@ import {
   PUBLIC_COMMENTARY_COMPACT_EVALUATION_DEFINITION_IDS,
   PUBLIC_COMMENTARY_DIRECT_MODEL_DEFINITION_IDS,
   PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
+  INVERSE_CRAMER_ACTIONABILITY_DEFINITION_VERSIONS,
   PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS,
   recoverNamedAssetCommentaryMetadata,
 } from "./public-commentary-semantics";
@@ -419,9 +420,15 @@ export function createProductionPublicCommentaryPipeline(input: {
         publicCommentaryImpactDefinitionVersion(managedPack),
       )
     : compactActionability
-    ? createInverseCramerActionabilityDefinition([semanticRoute.modelId], {
-        allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
-      })
+    ? createInverseCramerActionabilityDefinition(
+        [semanticRoute.modelId],
+        { allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId] },
+        declaredCommentaryContractVersion(
+          managedPack,
+          INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
+          INVERSE_CRAMER_ACTIONABILITY_DEFINITION_VERSIONS,
+        ),
+      )
     : directModelActionability
     ? createInverseCramerSemanticDefinition([semanticRoute.modelId], {
         allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
@@ -1042,18 +1049,26 @@ type InverseCramerResearchRuntime = Readonly<{
   workspaceGeneration: number;
 }>;
 
-// The pack pins which immutable version of the classification contract it runs.
+// The pack pins which immutable version of a classification contract it runs.
+// An unrecognized or absent declaration keeps the version that shipped first,
+// so a historical pack never silently changes contract.
+export function declaredCommentaryContractVersion<Version extends string>(
+  pack: Pick<StrategyPackCatalogEntry, "evidenceContracts">,
+  definitionId: string,
+  supported: readonly Version[],
+): Version {
+  const declared = pack.evidenceContracts?.find(({ id }) => id === definitionId)?.version;
+  return supported.includes(declared as Version) ? declared as Version : supported[0]!;
+}
+
 export function publicCommentaryImpactDefinitionVersion(
   pack: Pick<StrategyPackCatalogEntry, "evidenceContracts">,
 ): (typeof PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS)[number] {
-  const declared = pack.evidenceContracts?.find(
-    ({ id }) => id === PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
-  )?.version;
-  return PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS.includes(
-    declared as (typeof PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS)[number],
-  )
-    ? declared as (typeof PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS)[number]
-    : "1.0.0";
+  return declaredCommentaryContractVersion(
+    pack,
+    PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
+    PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS,
+  );
 }
 
 export function resolvePublicCommentarySemanticReasoning(

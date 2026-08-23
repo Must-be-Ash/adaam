@@ -26,8 +26,11 @@ import { buildPublicCommentarySignalReport } from "../agent/lib/public-commentar
 import {
   createInverseCramerActionabilityDefinition,
   createInverseCramerSemanticDefinition,
+  INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
+  INVERSE_CRAMER_ACTIONABILITY_DEFINITION_VERSIONS,
   INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
 } from "../agent/lib/public-commentary-semantics";
+import { declaredCommentaryContractVersion } from "../agent/lib/public-commentary-workspace-worker";
 import { PUBLIC_COMMENTARY_OCCURRENCE_LIMITS } from "../agent/lib/public-commentary-vertical";
 import {
   reserveWorkspaceRunBudget,
@@ -343,6 +346,56 @@ for (const path of [
     readFileSync(new URL(`../${path}`, import.meta.url), "utf8"),
     /inverse-cramer/u,
     `${path} must select lifecycle behavior from a declared contract, not the strategy name`,
+  );
+}
+
+/*
+ * The market-view classification has no paid tool surface: no pages, no rows,
+ * and no research lane in the worker contract registry. Version 1.0.0 still
+ * reserved $0.25 per attempt from the occurrence's paid envelope, competing
+ * with the timeline read for the same budget and starving the fan-out. 1.0.1
+ * declares the truth, and is stricter rather than looser: reconciliation
+ * refuses any actual paid cost above a reservation.
+ */
+assert.equal(
+  createInverseCramerActionabilityDefinition(["openai/gpt-5.4"], {}, "1.0.0").limits.maximumPaidCostUsd,
+  "0.2500",
+);
+assert.equal(
+  createInverseCramerActionabilityDefinition(["openai/gpt-5.4"], {}, "1.0.1").limits.maximumPaidCostUsd,
+  "0",
+);
+assert.equal(
+  resolveHybridEvidenceWorkerContract(INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID)?.research,
+  null,
+  "a classification with a research lane would still need a real paid ceiling",
+);
+{
+  const current = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.8" });
+  assert.ok(current);
+  assert.deepEqual(
+    current.evidenceContracts?.find(({ id }) => id === INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID),
+    {
+      digest: createInverseCramerActionabilityDefinition(["openai/gpt-5.4"], {}, "1.0.1").definitionDigest,
+      id: INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
+      version: "1.0.1",
+    },
+  );
+  assert.equal(
+    declaredCommentaryContractVersion(current, INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
+      INVERSE_CRAMER_ACTIONABILITY_DEFINITION_VERSIONS),
+    "1.0.1",
+  );
+  const previous = strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.4.7" })!;
+  assert.equal(
+    declaredCommentaryContractVersion(previous, INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
+      INVERSE_CRAMER_ACTIONABILITY_DEFINITION_VERSIONS),
+    "1.0.0",
+    "a published pack keeps the contract it shipped with",
+  );
+  assert.equal(
+    previous.evidenceContracts?.find(({ id }) => id === INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID)?.digest,
+    createInverseCramerActionabilityDefinition(["openai/gpt-5.4"], {}, "1.0.0").definitionDigest,
   );
 }
 

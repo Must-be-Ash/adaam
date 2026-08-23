@@ -39,6 +39,7 @@ import {
   extractCommentaryMetadata,
   commentarySemanticPayloadSchema,
   INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
+  INVERSE_CRAMER_ACTIONABILITY_DEFINITION_VERSIONS,
   INVERSE_CRAMER_SEMANTIC_DEFINITION_ID,
   inverseCramerSemanticPayloadSchema,
   PUBLIC_COMMENTARY_DIRECT_MODEL_DEFINITION_IDS,
@@ -186,9 +187,12 @@ export function readAttestedCommentarySemanticResult(input: {
           .parse(result.definition.definitionVersion),
       )
     : compactDirectModel
-    ? createInverseCramerActionabilityDefinition([result.model.modelId], {
-        allowedAdapterIds: input.allowedAdapterIds,
-      })
+    ? createInverseCramerActionabilityDefinition(
+        [result.model.modelId],
+        { allowedAdapterIds: input.allowedAdapterIds },
+        z.enum(INVERSE_CRAMER_ACTIONABILITY_DEFINITION_VERSIONS)
+          .parse(result.definition.definitionVersion),
+      )
     : legacyDirectModel
     ? createInverseCramerSemanticDefinition([result.model.modelId], {
         allowedAdapterIds: input.allowedAdapterIds,
