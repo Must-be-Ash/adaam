@@ -1219,7 +1219,15 @@ export function createPublicCommentaryPipeline(input: {
       const aggregateSummary = allMaterial.length === 0 ? null : [
         `${allMaterial.length} material public statement${allMaterial.length === 1 ? "" : "s"}.`,
         leadAlert?.whyMatched ?? "",
-      ].join(" ").trim().slice(0, PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumSummaryCharacters);
+        /*
+         * Bound by the ALERT cap, not the summary cap. This text is the alert's
+         * fallback `whyMatched`, and `alertSchema` caps that at 1,000 - so a
+         * summary sized to `maximumSummaryCharacters` (2,000) parses fine as a
+         * finding and then throws at alert staging, leaving a committed finding
+         * with no alert and an occurrence that dies as
+         * `alert_delivery.workspace_alert_unavailable`.
+         */
+      ].join(" ").trim().slice(0, PUBLIC_COMMENTARY_ALERT_WHY_MATCHED_MAXIMUM);
       if (aggregateSummary && aggregateSummary.length > PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumSummaryCharacters) {
         await quarantineOverflow("summary_overflow");
         throw new Error("public_commentary_occurrence_summary_overflow");

@@ -170,6 +170,24 @@ assert.deepEqual(
 );
 
 /*
+ * A finding's summary doubles as the alert's fallback `whyMatched`, and
+ * `alertSchema` caps that at 1,000 characters. A summary sized to the finding's
+ * own 2,000-character limit therefore commits happily and then throws at alert
+ * staging - a committed finding with no alert, surfacing as
+ * `alert_delivery.workspace_alert_unavailable`. Anything producing a summary
+ * must bound it by the ALERT cap, not the summary cap.
+ */
+await assert.rejects(
+  stageWorkspaceAlert({
+    finding: { ...finding, summary: "x".repeat(1_001) },
+    monitor,
+    now,
+    scope,
+  }, new MemoryStore()),
+  "a summary longer than the alert cap cannot be staged, so it must be bounded upstream",
+);
+
+/*
  * An eligible finding with an EMPTY presentation list must still get an alert.
  * `input.alertPresentations ?? [null]` lets `[]` through untouched, so the
  * staging loop never ran and the occurrence committed a finding with no alert
