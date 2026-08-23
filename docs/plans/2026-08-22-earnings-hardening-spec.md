@@ -14,6 +14,19 @@ supported issuer; anyone who wants another company adds its listing contract.
 **Run this after U3 completes.** It builds on U3's contract migration and edits
 the same files, so do not run both at once.
 
+> **Parked 2026-08-23, not withdrawn.** U3's contract migration landed on `main`
+> @ `3b63fd3`, but Earnings Call Changes is parked: two Production acceptances
+> both failed with `earnings_call_execution_disabled`, so earnings execution is
+> off in Production and the strategy has never run there. Reviving it needs an
+> owner-controlled flag change, not code.
+>
+> Defect 1 below is partly addressed. `earnings-call-changes@1.2.0` sizes the
+> comparison session to 96,000 input tokens, so a real reviewed pair (measured
+> at ~50,000 estimated input tokens for JPM FY2026-Q2 vs Q1) now plans a single
+> job instead of overflowing to `abstained`. The section-and-synthesis path for
+> pairs larger than one job is untouched and still open. Defects 2 and 3 are
+> untouched.
+
 ## What this is not
 
 Not a new data provider, not FMP, not automatic multi-company coverage, not a

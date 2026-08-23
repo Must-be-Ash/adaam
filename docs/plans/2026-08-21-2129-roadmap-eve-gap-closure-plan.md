@@ -78,7 +78,7 @@ Fresh continuity, fleet activation, and one end-of-line regression/E2E pass.
 - [ ] Sprint 1 — Close U1: Inverse Cramer live alert proof *(no code work left;
       waiting on a live Cramer statement — does not block Sprints 2–5)*
 - [x] Sprint 2 — U2: Public Commentary Tracker migration *(complete 2026-08-22, `main` @ `e35ae74`, receipt `U2 Tracker Acceptance 0822`)*
-- [ ] Sprint 3 — U3: Earnings Call Changes migration
+- [x] Sprint 3 — U3: Earnings Call Changes migration *(migration complete and landed 2026-08-23, `main` @ `3b63fd3`; strategy parked behind a disabled Production flag)*
 - [ ] Sprint 4 — U4: Congressional repair + migration
 - [ ] Sprint 5 — U5: Final boundary and isolation audit
 - [ ] Sprint 6 — Durable Start Fresh continuity
@@ -215,41 +215,48 @@ no-change live source is acceptable per the plan).
 
 - [ ] §U3 checklist complete in the migration plan (marked there).
 
-**Local work complete 2026-08-22, not landed.** Implementation, characterization,
-and every U3 local gate are green on branch `codex/u3-earnings-boundary`
-(worktree `../adaam-u3`), rebased onto `main` @ `bce7215`. Not pushed, not
-merged, not deployed: another agent has a Production occurrence in flight with
-the owner's live monitors paused mid-deploy. This branch does not touch
-`public-commentary-*`, `photon-workspace-store.ts`, or
-`photon-workspace-app.ts`. Its one edit to
-`agent/lib/hybrid-evidence-worker-contract-registry.ts` is a single additive
-contract entry, which merged cleanly alongside that agent's new
-`PUBLIC_COMMENTARY_IMPACT` entry.
+**Migration complete and landed; strategy parked (2026-08-23).** The U3
+contract migration is on `main` @ `3b63fd3` and deployed
+(`dpl_84qpebFTbMat2SaWzN5fLS6mNAWy`). All five confirmed generic branches are
+gone: `workspace-monitor-store.ts` (empty-source eligibility, activation
+watermark, and reviewed-source admission on both create and enable) and
+`event-triggers.ts` (deferred source retry) now resolve the declared
+`monitor.earnings-call-transcripts/v1` lifecycle contract, and
+`explain_earnings_call_change` admits by declared capability. The monitor store
+no longer imports the earnings issuer catalog at all. Issuer discovery,
+source-family selection, and the transcript comparison contract are unchanged.
+Local gates are green: `verify:earnings-call-changes:sprint-5` at 49 gates
+including typecheck, `eve build`, and `next build`, plus the new
+`:boundary` gate.
 
-The rebase over `9baafc1..bce7215` produced one conflict, in the generated
-`agent/lib/strategy-pack-catalog.generated.ts`, resolved by regenerating it:
-the catalog now carries 27 entries including both
-`earnings-call-changes@1.1.0` and `public-commentary-tracker@1.3.0`. The
-`listed.count` assertion in `verify:strategy-pack-owner-surfaces` needed 27
-because both branches had independently bumped it to 26. `bce7215`'s paid
-source-read fallback leaves this pack unchanged by its own terms: a pack that
-declares a research contract keeps the envelope that contract declares.
+Two pack versions shipped. `1.1.0` declares the lifecycle and research
+contracts and resizes the per-run envelope above the shared worker session's own
+limits. `1.2.0` sizes the comparison session to hold a real transcript pair: a
+reviewed JPM pair measures about 50,000 estimated input tokens against the
+frozen policy envelope's 24,000, so every earlier version overflowed the planner
+and abstained without analyzing anything. The policy envelope stays frozen
+because its literals feed the comparison digests published packs declare; the
+session size and planner limits are version-scoped instead, so `1.0.1` and
+`1.1.0` keep exactly what they shipped with.
 
-All five confirmed generic branches are gone: `workspace-monitor-store.ts`
-(~288, 348, 946, 1240) and `event-triggers.ts` (~150) now resolve the declared
-`monitor.earnings-call-transcripts/v1` lifecycle contract. Issuer discovery,
-source-family selection, and the transcript comparison contract are unchanged -
-`earnings-call-changes@1.1.0` carries the same three comparison digests as
-`1.0.1`. The new version declares the research contract, so a material
-occurrence now runs one bounded frontier child and stages an executive brief,
-and it resizes the per-run envelope from 24,000/12,000 to 160,000/32,000 above
-the shared worker session's own 64,000/16,000. See the migration plan's U3
-boundary classification for the full inventory and the two deferrals.
+**The strategy is parked, not complete.** Two Production acceptances were
+attempted and both failed for the same reason:
+`EarningsCallWorkspaceWorkerError: earnings_call_execution_disabled`. Earnings
+execution is disabled in Production, so the worker throws before doing any work.
+This is a configuration gap, not a code defect, and it means Earnings Call
+Changes has never executed in Production. Actual spend across both attempts was
+10,962 input tokens, 2,654 output tokens, and $0.00 paid; every disposable
+workspace was archived and left non-dispatchable. Full receipts and the flag
+chain are in the migration plan under §U3.
 
-Remaining for this sprint, in order, once `main` is free: rebase onto `main`,
-re-run the U3 gates, push, verify Production health and bounded logs, then the
-zero-usage acceptance. **The acceptance is blocked by the Sprint 7 session
-registry blocker** (48/48 retained records), so it was not attempted.
+Reviving the strategy needs a Production flag change the owner controls, then
+one occurrence. Nothing in the code is known to be blocking.
+
+`docs/plans/2026-08-22-earnings-hardening-spec.md` is **parked with this
+strategy, not deleted.** Its defect 1 (long calls abstain) is what `1.2.0`
+addresses for a single-job pair; its defects 2 and 3 (the hardcoded hedging
+phrase list gating `alertEligible`, and coverage-unavailable issuers appearing
+selectable) remain open and unaddressed.
 
 ## Sprint 4 — U4: Congressional repair + migration
 
