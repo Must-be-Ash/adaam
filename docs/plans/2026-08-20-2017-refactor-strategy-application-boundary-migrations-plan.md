@@ -810,6 +810,39 @@ missing the `definitionId` that `0656ff0` added to the envelope schema on
   manager API's own report).
 - [x] U4 and Progress Tracker marked complete before U5 begins (2026-08-23).
 
+**Follow-up investigation, 2026-08-23, `main@4881b18`/`2601607`/`a631998`.**
+The owner asked whether the acceptance's transport failure was diagnosed or
+just accepted as external. It was not fully diagnosed - fixed the gap
+instead. `house-public-source-adapter.ts` and `x-public-statement-adapter.ts`
+both collapsed "a non-200 HTTP response" and "the fetch itself threw" into an
+identical `acquisition_uncertain`/`transport` log line with no distinguishing
+detail (`4881b18`, `2601607`). A second live disposable acceptance
+(`Congressional U4 Acceptance 2`, same procedure as the first) reproduced the
+identical failure independently, and the new logging showed
+`detail: 'exception_Error'` - not a status, not a timeout name. Traced this to
+the real cause: `fetchOfficialPublicSourceBytes` (the actual `fetchIndex`/
+`fetchDocument` implementation, not a hypothetical one) validates the response
+status itself and threw a bare `Error` with the status only interpolated into
+a message string, before `house-public-source-adapter.ts`'s own status check
+ever saw a response object - so that check was unreachable dead code from the
+real fetch path. Fixed by throwing a typed `PublicSourceHttpStatusError`
+carrying the status as a real field (`a631998`). The actual status code for
+both live occurrences remains unrecoverable (Vercel's log retention had
+rolled past the first by the time this was investigated, and the second's was
+destroyed by this exact discard before being logged) - the mechanism is fixed
+and proven with a test reproducing `fetchOfficialPublicSourceBytes`'s exact
+shape, so the next occurrence will show the real number. Second disposable
+workspace (`Congressional U4 Acceptance 2`,
+`e76e93c9-8574-4f4e-9bfa-1dcb3e6ab597`, monitor
+`d14131f6-9f83-535c-8ff4-3e4c40db52ce`) reached `paused_failure`,
+`nextOccurrenceAt: null` (non-dispatchable, confirmed by direct store read);
+archiving the workspace itself is deferred - the manager token expired
+mid-investigation and a fresh one is needed. $0 paid, actual model spend not
+separately queried for this occurrence. Whether House.gov itself is having a
+sustained problem, versus a determinate response this fix will now surface
+plainly, remains open until the next occurrence - live or a third acceptance -
+runs with the fix in place.
+
 ### U5. Complete the final catalog boundary and isolation audit
 
 **Goal:** Prove the catalog now composes isolated strategy applications on shared contracts and no test state or named generic behavior remains.

@@ -51,6 +51,32 @@ cadence - twelve hours, silently. Always set a fresh future anchor, then assert
 armed. Reporting "armed for 10:02" from a resume response without re-reading
 the record cost a full night's test window.
 
+## Diagnosability
+
+**A "bare `Error` with the real fact only interpolated into a message
+string" throw destroys that fact for every caller.** `fetch_public_source.ts`
+validated the response status itself and threw `new Error(\`...HTTP
+${status}.\`)` before `house-public-source-adapter.ts`'s own status check ever
+saw a response object - so that adapter's status check was live code that was
+never actually reachable from the real fetch implementation. Every catch site
+downstream only had `error.name` to go on ("Error" - the least informative
+name possible), and two live occurrences an hour apart were indistinguishable
+from a genuine network failure until this was traced by hand. Fixed by
+throwing a small typed error (`PublicSourceHttpStatusError`) carrying the
+status as a real field. The general form: if a fact is only recoverable by
+parsing prose out of an `Error.message`, it is not recoverable at all once the
+message text drifts or a wrapper discards it - give it a field.
+
+**A manager token's 2-hour TTL runs out mid-investigation, not just
+mid-debugging-session.** A root-cause chase that spans creating a test
+workspace, waiting ~10 minutes for a scheduled occurrence, reading logs,
+writing and deploying a fix, and creating a *second* test workspace can burn
+most of a 2-hour window before the final cleanup (archiving) step. Archiving
+is not safety-critical if the monitor itself is already `paused_failure` /
+`nextOccurrenceAt: null` (confirmed independently via a store read), but a
+fresh token is needed to actually free the registry slot - ask the owner
+rather than treating it as urgent.
+
 ## Sources and cursors
 
 **The public-source cursor is owner-scoped by `sourceId` and survives workspace
