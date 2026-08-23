@@ -1,182 +1,185 @@
-# Focused unit — transport root cause, per-strategy attribution, and a fully armed fleet
+# Focused unit — finish the transport story and arm the full fleet
 
 You are taking on **one focused unit**, not a roadmap sprint. Do not start
-Sprint 5, 6, 8, or 9. Sprint 4 (U4 Congressional) is closed and accepted; this
-unit follows up on what that acceptance did *not* prove and finishes arming the
-owner's background fleet.
+Sprint 5, 6, 8, or 9. Sprint 4 (U4 Congressional) is closed and accepted, and a
+follow-up diagnosability pass has already landed. This unit finishes what those
+left open.
 
 Repository: `/Users/ashnouruzi/dev/adaam`
 
-## Read first, in this order, before touching anything
+## Todo list
+
+1. Decide whether a determinate HTTP status should still classify as
+   `acquisition_uncertain`, and act on the answer.
+2. Capture the actual status code from the next real acquisition failure.
+3. Decide how `verify:strategies` is enforced, and record the rule.
+4. Get Congressional to one successful committing occurrence, then arm it.
+5. Get Earnings (U3) to one successful committing occurrence, then arm it.
+6. Confirm the three already-armed monitors are still healthy.
+7. Archive the leftover acceptance workspace and the three stale ones.
+
+Work them in order. One at a time; finish and verify each before the next.
+
+## Read first, in this order
 
 1. **`GOAL.md`** — the owner's product target. Read it before planning any
    change; understand what they are building toward before acting.
 2. **`AGENTS.md`** — project instructions; they override default behavior.
 3. **`docs/workspace-runtime-pitfalls.md`** — failure modes that have already
-   cost this project real money and debugging time, including the
-   "Cross-strategy safety" and "Attributing a failure to a strategy" sections
-   that bear directly on this unit.
-4. **`docs/plans/2026-08-21-2129-roadmap-eve-gap-closure-plan.md`** — read the
-   "Ground rules for the implementing agent" section in full; it is binding.
-   Sprint 7 ("Fleet activation") is the home of the arming work below.
-5. The U4 acceptance receipt in
-   `docs/plans/2026-08-20-2017-refactor-strategy-application-boundary-migrations-plan.md`.
+   cost this project real money and debugging time. The "Cross-strategy
+   safety" and "Attributing a failure to a strategy" sections bear directly on
+   this unit.
+4. **`docs/plans/2026-08-21-2129-roadmap-eve-gap-closure-plan.md`** — read
+   "Ground rules for the implementing agent" in full; it is binding. Sprint 7
+   ("Fleet activation") is the home of the arming work.
 
 **The code is the only source of truth for how the system currently behaves.**
 `HANDOFF.md` is stale; do not plan from it.
 
-## The situation, stated precisely
+## Verified starting state (checked 2026-08-23, `main` @ `c9f4e9d`)
 
-Three background monitors are armed and healthy: `Inverse Cramer Live`,
-`IPO Live`, `Tracker Live`. **Earnings (U3) and Congressional (U4) are not
-armed, and neither has ever completed an occurrence.** Every acceptance
-workspace for both shows `lastCompletedAt: null`:
+**No regressions.** All 38 per-strategy suites were run individually against
+the U4 follow-up work: **37 pass**. The single failure,
+`verify:workspace-runtime:sec-ipo-scheduled-compiled`, is a pre-existing red
+gate (unhandled fetch rejection on `fixture.invalid`) recorded in `BACKLOG.md`
+*before* that work — not caused by it. Typecheck clean, `npm run build` clean.
+Production is deployed and on latest `main`. **Do not re-litigate this**; it has
+been checked.
 
-- `Congressional U4 Acceptance` — the occurrence fired and acquired against the
-  live House endpoint, which returned `public_source_acquisition_total
-  outcome: "uncertain"`, `errorCode: "acquisition_uncertain"`, `stage:
-  "transport"`. No outcome was ever committed; the monitor paused as
-  `worker_recovery_outcome_missing`. $0 paid.
-- `Earnings U3 Acceptance 0823` and `0823b` — both terminal with
-  `worker_recovery_outcome_missing`, no completion.
+Already landed, do not redo:
+- `a631998` — `fetchOfficialPublicSourceBytes` threw a bare `Error` with the
+  HTTP status interpolated into a sentence, so every caller's status-checking
+  branch was unreachable and the status was destroyed. It now throws a typed
+  `PublicSourceHttpStatusError` carrying `status` as a field.
+- `2601607` — the X adapter distinguishes an HTTP status from a thrown
+  exception, bounded to a safe charset. This covers the Tracker.
+- `0ceeafa` — occurrence-failure logs carry `packId` beside `monitorId`; the
+  previously silent recovery path emits the same bounded summary; and
+  `npm run verify:strategies` runs all 38 suites in ~90s.
 
-So U4's acceptance proved **the retry repair** — a deterministic acquisition
-failure terminalizes once instead of redispatching five times. That was the
-sprint's actual deliverable and it is genuinely done. It did **not** prove that
-Congressional can acquire, classify, commit a finding, and deliver an alert.
-Same for Earnings. That end-to-end path is what this unit closes.
+## 1. Determinate status vs `acquisition_uncertain`
 
-## Task 1 — root-cause the transport failure (do this first)
+`a631998`'s own comment states the case plainly: *"A non-2xx response is a
+determinate fact — the exact status code — not an ambiguous transport
+condition."* But the code still maps it to `acquisition_uncertain` /
+`"uncertain"`. Only the diagnostics changed; the classification did not.
 
-The U4 agent concluded the transport failure "wasn't our code" but could not
-name the cause. Do not accept or reject that conclusion; determine it.
+That matters because an uncertain acquisition cannot be safely retried, so it
+terminalizes the occurrence — and a failed occurrence can still leave the
+source cursor advanced, permanently consuming the window. A determinate 503 or
+429 may deserve different handling from a genuinely ambiguous transport state.
 
-**A strong lead they did not have:** `Tracker Live` hit the *identical*
-classification — `acquisition_uncertain`, `stage: "transport"` — at
-2026-08-23 11:26 PT against the **X API**, roughly forty minutes before the
-Congressional failure against the **House disclosures endpoint** at 12:07 PT.
-Two unrelated third-party endpoints, two different source adapters, the same
-stage and the same error code within the hour. That correlation points at the
-**shared transport/acquisition layer**, not at either endpoint. Start there:
-find where `acquisition_uncertain` is raised, what conditions produce it, and
-whether an ordinary upstream timeout, TLS reset, abort-signal expiry, or
-non-2xx response is being collapsed into "uncertain" when it is in fact
-determinate.
+Decide this deliberately and prove it red-first. **It is a legitimate outcome
+to conclude the current behavior is correct** — uncertain-by-default is
+safe-by-default — but say why in the code, not just in a commit message. If you
+do change it, `verify:strategies` before and after: the acquisition layer is
+shared by all five strategies.
 
-An `uncertain` acquisition is expensive by design: it cannot be safely retried,
-so it terminalizes the occurrence. If determinate failures are being
-misclassified as uncertain, every strategy loses occurrences it should have
-survived.
+## 2. Capture the actual status
 
-- Reproduce or characterize red-first before changing behavior.
-- If it truly is upstream flakiness, prove that with evidence and say so — then
-  make the system degrade well (bounded, attributable, and recorded) rather
-  than silently burning an occurrence.
+The status code for both original failures is unrecoverable — it was destroyed
+before the fix and the log window has rolled. Nothing to recover; do not spend
+occurrences hunting it.
 
-## Task 2 — attribution in the acquisition layer
+What is needed: when the next acquisition failure happens, confirm the log
+actually carries the number, and record it. Prefer the durable health records
+over `vercel logs` (bounded window; `--json` duplicates rows; bare
+`vercel logs <url> --json` only tails forward — use `--since`/`--until`).
 
-Recent work (`0ceeafa`) made occurrence failures name their strategy: the
-bounded `console.error` summary now carries `packId` alongside `monitorId`, and
-the previously silent recovery path emits the same summary. Extend that
-principle to the source-acquisition layer so a `public_source_failure_total`
-can be attributed and diagnosed.
+Note for context: the X failure and the House failure landed about an hour
+apart while SEC succeeded cleanly in between on the same infrastructure. That
+argues against a broad platform outage and toward two independent upstream
+hiccups. Treat it as the current best reading, not as settled.
 
-**Respect the existing privacy design — do not weaken it.**
-`workspaceRuntimeObservationSchema` is `.strict()` and carries only `counter`,
-`errorCode`, `outcome`, `value`, and
-`verify:workspace-runtime:observability` asserts that owner, workspace,
-monitor, conversation, alert, prompt, credential, and provider values never
-reach an observation. **Do not add identity to a counter.** Attribution belongs
-in the bounded `console.error` summary, where a pack id is acceptable because
-it is registry identity rather than owner data. Never log a source URL that
-carries credentials, or raw upstream response text.
+## 3. Cross-strategy guard
 
-The goal: when the owner asks "which agent failed and why," a log window
-answers it without cross-referencing manager state. During a period when a
-Congressional acceptance and a commentary monitor were both live, a
-Congressional failure was misread as the tracker's for exactly this reason.
-
-## Task 3 — cross-strategy guard
-
-`npm run verify:strategies` already exists (`0ceeafa`): 38 per-strategy suites
-across all five verticals, about 90 seconds. **Run it before and after any
-change to a shared module** — `workspace-worker-control-plane.ts`,
-`workspace-alert-dispatch.ts`, `workspace-alert-store.ts`,
-`agent/schedules/event-triggers.ts`, and the public-source adapter layer you
-will be touching in Task 1.
-
-Judgement call for you: decide whether it should be wired into `prebuild` or
-stay an explicit gate, and say why. It costs ~90s per build if wired in.
+`npm run verify:strategies` exists. Decide whether it belongs in `prebuild` or
+stays an explicit gate — it costs ~90s per build — and record the decision plus
+the rule ("touch a shared module, run it") where the next agent will find it.
 
 Watch for **strategy-shaped asymmetry**: where one vertical passes an optional
 argument and the others do not, that branch is untested by four-fifths of the
-suite. That is exactly where the alert-keying defect lived.
+suite. That is exactly where the alert-keying defect lived, undetected for
+months, while another strategy using the same code worked perfectly.
 
-## Task 4 — arm the full fleet
+## 4-6. Arm the fleet
 
-The owner wants all background agents running so they receive real texts, and
-wants their logs distinguishable afterward.
+The owner wants every background agent running so they receive real texts.
 
-- Confirm `Inverse Cramer Live`, `IPO Live`, and `Tracker Live` are enabled and
-  healthy. **Do not reconfigure or archive them** beyond re-arming if a run has
-  paused one; re-enable anything you pause.
-- Get **Congressional** to one successful committing occurrence, then arm it on
-  a sensible cadence with alerts enabled.
-- Get **Earnings** to one successful committing occurrence, then arm it with
-  owner-selected issuers. Note it is gated behind
-  `EVE_EARNINGS_CALL_CHANGES_EXECUTION_ENABLED` /
-  `EVE_EARNINGS_CALL_SOURCE_ADAPTER_ENABLED` — confirm flag state with the
-  owner before enabling anything in Production.
-- Cadence discipline: hours, not minutes. Six or twelve hours is right; nothing
-  should run every fifteen minutes.
-- Three stale workspaces hold active-registry slots and can be archived
-  (Sprint 7 has this item): `Inverse Cramer 1.3.0 retrying`,
-  `IPO Overnight Test`, `Congressional Overnight Test`. Archive only —
-  findings, alerts, and receipts are retained, never deleted.
+Currently armed and healthy: `Inverse Cramer Live`, `IPO Live`, `Tracker Live`.
+Confirm each is still enabled; re-arm any that a failed run has paused.
+**Do not otherwise reconfigure or archive them.**
+
+**Neither Congressional nor Earnings has ever completed an occurrence** — every
+acceptance workspace for both shows `lastCompletedAt: null`. U4's acceptance
+proved the retry repair, which was its actual deliverable; it did not prove
+Congressional can acquire, classify, commit, and alert. Get each to one
+successful committing occurrence, then arm it with alerts enabled.
+
+Earnings is gated behind `EVE_EARNINGS_CALL_CHANGES_EXECUTION_ENABLED` and
+`EVE_EARNINGS_CALL_SOURCE_ADAPTER_ENABLED` — **confirm flag state with the
+owner before enabling anything in Production.**
+
+Cadence discipline: hours, not minutes. Six or twelve hours is right.
+
+## 7. Cleanup
+
+`Congressional U4 Acceptance 2` is non-dispatchable but not archived — the
+previous agent's Manage Sessions token expired mid-investigation. Archive it.
+
+These three hold active-registry slots and can also be archived (Sprint 7 has
+the item): `Inverse Cramer 1.3.0 retrying`, `IPO Overnight Test`,
+`Congressional Overnight Test`. Archive only — findings, alerts, and receipts
+are retained, never deleted.
 
 ## Standing rules you must not break
 
 - **Never mint, forge, derive, or engineer a Manage Sessions capability token
   or URL.** Stop and ask the owner; they will text Eve "manage sessions" and
-  paste the URL back. Do not work around this by reading secrets, signing your
-  own capability, or adding a temporary route.
+  paste the URL back. Tokens expire mid-task — when yours does, ask for a new
+  one. Do not work around this by reading secrets, signing your own capability,
+  or adding a temporary route.
 - **This repository is public.** Never write a token into a file, commit, log,
   or command that gets recorded.
-- Do not add temporary Production endpoints or edit Redis for writes. Read-only
-  store queries for diagnosis are fine and encouraged.
+- Do not add temporary Production endpoints or write to Redis directly.
+  Read-only store queries for diagnosis are fine and encouraged.
 - **Non-negotiable invariants:** absolute workspace isolation; background
   alerts never become an inbound turn in Main or another workspace; monitor
   research authority is never trading authority; approval-gated Coinbase
   behavior unchanged.
+- **Do not weaken the observability privacy design.**
+  `workspaceRuntimeObservationSchema` is `.strict()` and
+  `verify:workspace-runtime:observability` asserts owner, workspace, monitor,
+  conversation, alert, prompt, credential, and provider values never reach an
+  observation. Attribution belongs in the bounded `console.error` summary,
+  where a pack id is acceptable as registry identity. Never log a credentialed
+  URL or raw upstream response text.
 - Never attempt a git history rewrite. Never deploy while an occurrence is in
-  flight. Deploys are manual (`vercel deploy --prod --yes`; the GitHub webhook
-  is unreliable) — confirm the alias with `vercel inspect` afterward.
+  flight. Deploys are manual (`vercel deploy --prod --yes`; the webhook is
+  unreliable) — confirm the alias with `vercel inspect` afterward.
 - Only one Production acceptance in flight at a time. A failed first occurrence
   stops that unit: record the first failing stage, make one focused repair, use
   the next natural occurrence, never retry the same one.
 - Always report reserved budget separately from actual spend.
-- Migration plan and roadmap receipts are append-only. Never delete, rewrite,
-  or reflow existing entries.
+- Roadmap and migration-plan receipts are append-only.
 
 ## Two habits learned expensively here
 
 - **Do not spend a paid Production occurrence to test a hypothesis formed by
   reading code.** Make the failure describe itself in durable state, then run
   once and read the fact.
-- **`vercel logs` is a weak channel.** ~50-row rolling window, `--json`
-  duplicates every row, and polling `/eve/v1/photon-workspaces/state` during a
-  run evicts the rows you need. Bare `vercel logs <url> --json` only tails
-  forward — use `--since`/`--until` for a historical window. Prefer the durable
-  monitor record and the Redis stores.
+- **Re-read the durable record before believing a monitor is armed.** Resuming
+  a paused monitor reuses its old interval anchor and can silently advance the
+  schedule a full cadence. Assert `nextOccurrenceAt > now`.
 
 ## Not yours
 
 - `verify:workspace-runtime:sec-ipo-scheduled-compiled` and
-  `verify:strategy-packs:acceptance` are pre-existing red gates recorded in
-  `BACKLOG.md` for Sprint 8.
+  `verify:strategy-packs:acceptance` — pre-existing red gates, `BACKLOG.md`,
+  Sprint 8.
 - The commentary classifier's `maximumInputTokens: 24_000`, too small for a
   large first-run backfill.
-- Giving the tracker a research lane and artifacts, and removing the hardcoded
+- The tracker's missing research lane and the hardcoded
   `packId !== "inverse-cramer"` gate in
   `agent/lib/public-commentary-workspace-worker.ts`.
 
@@ -184,5 +187,4 @@ wants their logs distinguishable afterward.
 
 Report what you completed, what you deferred and why, reserved-versus-actual
 spend, and the final armed state of every background monitor. Leave no test
-monitors dispatchable, no temporary routes, no stray worktrees. Defer-not-ignore
-items go to `BACKLOG.md`.
+monitor dispatchable, no temporary routes, no stray worktrees.
