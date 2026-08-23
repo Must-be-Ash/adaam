@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 
 import type { ScheduleToFn } from "eve/schedules";
@@ -1027,6 +1028,24 @@ assert.equal(
   "worker_outcome_missing",
   "a session that failed having committed nothing must report the missing outcome",
 );
+
+/*
+ * The commit path stages the first presentation unkeyed so delivery can find
+ * it. Keying all of them is what made every commentary alert undeliverable.
+ */
+{
+  const controlPlane = await readFile(
+    new URL("../agent/lib/workspace-worker-control-plane.ts", import.meta.url),
+    "utf8",
+  );
+  const keyedStagings = [...controlPlane.matchAll(
+    /\.\.\.\(presentation(?: && index > 0)? \? \{ presentationKey/gu,
+  )];
+  assert.equal(keyedStagings.length, 2, "both commit paths stage alerts");
+  for (const [staging] of keyedStagings) {
+    assert.match(staging, /index > 0/u, "the first presentation must stay unkeyed");
+  }
+}
 
 const mismatchedClaims: ClaimedWorkspaceMonitor[] = [
   { ...job, monitor: { ...monitor, ownerId: "other_owner" } },

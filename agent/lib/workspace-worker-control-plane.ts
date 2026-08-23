@@ -275,14 +275,28 @@ export async function commitDeterministicWorkspaceEvaluationForWorker(input: {
     if (!outcome.finding) {
       throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
     }
+    /*
+     * Delivery resolves an outcome's alert by finding, and a staged alert is
+     * addressable that way only when it carries no presentation key: a keyed
+     * alert is written under a digest of the finding and the key together.
+     * Keying every presentation therefore made every alert with more than a
+     * bare presentation undeliverable - the commentary vertical always supplies
+     * presentations, so no commentary alert could ever be read back and every
+     * occurrence that produced one failed as workspace_alert_unavailable after
+     * committing its finding.
+     *
+     * Stage the first presentation unkeyed so it is the one delivery finds, and
+     * key the rest so several presentations for one finding stay distinct in
+     * the record without colliding.
+     */
     const presentations = input.alertPresentations ?? [null];
-    for (const presentation of presentations) {
+    for (const [index, presentation] of presentations.entries()) {
       await stageWorkspaceAlert({
         finding: outcome.finding,
         monitor: prepared.monitor,
         now: input.now,
         presentation: presentation ?? input.alertPresentation,
-        ...(presentation ? { presentationKey: presentation.key } : {}),
+        ...(presentation && index > 0 ? { presentationKey: presentation.key } : {}),
         scope: prepared.scope,
       }, input.clients?.alert);
     }
@@ -325,14 +339,16 @@ export async function finalizeExistingWorkspaceRunOutcomeForWorker(input: {
     throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
   }
   if (input.outcome.finding) {
+    // Same rule as the deterministic commit path above: the first presentation
+    // stays unkeyed so delivery can resolve it by finding.
     const presentations = input.alertPresentations ?? [null];
-    for (const presentation of presentations) {
+    for (const [index, presentation] of presentations.entries()) {
       await stageWorkspaceAlert({
         finding: input.outcome.finding,
         monitor: prepared.monitor,
         now: input.now,
         presentation: presentation ?? input.alertPresentation,
-        ...(presentation ? { presentationKey: presentation.key } : {}),
+        ...(presentation && index > 0 ? { presentationKey: presentation.key } : {}),
         scope: prepared.scope,
       }, input.clients?.alert);
     }

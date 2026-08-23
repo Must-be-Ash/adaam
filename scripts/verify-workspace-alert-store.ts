@@ -160,4 +160,26 @@ const resolved = await resolveWorkspaceAlertDelivery({
 assert.equal(resolved.state, "resolved");
 assert.equal(resolved.resolutionCode, "confirmed_delivered");
 
+/*
+ * Delivery resolves an outcome's alert by finding, and a keyed alert is written
+ * under a digest of the finding and the key together, so it can never be read
+ * back that way. Keying every presentation therefore made every commentary
+ * alert undeliverable: the occurrence committed its finding and then failed as
+ * workspace_alert_unavailable, and no alert ever reached the owner.
+ */
+const keyedAlert = await stageWorkspaceAlert({
+  finding, monitor, now, presentationKey: "initial-summary", scope,
+}, client);
+assert.notEqual(keyedAlert.alertId, alert.alertId, "a keyed alert is a distinct record");
+assert.equal(
+  (await readWorkspaceAlert(scope, finding.findingId, client))?.alertId,
+  alert.alertId,
+  "delivery must still resolve the unkeyed alert for this finding",
+);
+assert.deepEqual(
+  await readWorkspaceAlertById(scope, keyedAlert.alertId, client),
+  keyedAlert,
+  "a keyed alert stays addressable by id for the record and for Discuss",
+);
+
 console.info("Workspace alert outbox verification passed.");
