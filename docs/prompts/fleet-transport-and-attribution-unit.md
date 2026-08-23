@@ -88,22 +88,32 @@ Do not silence a gate, and do not exclude one from the aggregate.
 
 ## 2. Release orphaned budget reservations
 
-A run reservation that is never reconciled — the occurrence died before the
-schedule tick finished it — stays in the workspace ledger as `reserved`
-forever. `prune()` in `agent/lib/workspace-budget-ledger.ts` keeps `reserved`
-and `uncertain` records regardless of calendar month, and
-`reconcileWorkspaceRunBudget` only accepts a caller still holding the run ID,
-which a dead worker does not.
+A parent run reservation whose paid figure is never reconciled keeps counting
+its **reserved** amount against the workspace's day and month, forever.
 
-Each orphan permanently consumes daily and monthly paid headroom on its
-workspace. That was tolerable when every workspace was disposable; the three
-live monitors are long-lived and accumulate them with every failed occurrence,
-so a monitor can eventually be starved of budget having spent almost nothing.
-Several failed runs during 2026-08-22/23 each left a $1.00 reservation.
+`workspace-budget-ledger.ts:240` returns
+`reconciledPaidMicros ?? paidMicros` — so when nothing set the reconciled
+figure, the full reservation is what the ceiling sees. A run that completes
+records paid child attempts and resolves to actual; a run that fails before
+recording any does not, and `finishWorkspaceBudget` is called from
+`event-triggers.ts` with actual token counts but **no `actualPaidCost`**.
+`prune()` then keeps `reserved` and `uncertain` records regardless of calendar
+month, and `reconcileWorkspaceRunBudget` only accepts a caller still holding the
+run ID — which a dead worker does not.
 
-Give unreconciled reservations a bounded lifetime or a sweep that releases them
-once their occurrence can no longer complete, without ever releasing one that a
-live run still holds. Prove both directions.
+Observed 2026-08-22/23: failed occurrences showed `$1.00` against the day while
+actual spend was about `$0.02`; successful ones showed the true `$0.025`. Each
+failure permanently consumes paid headroom. That was tolerable when every
+workspace was disposable, but the three live monitors are long-lived and
+accumulate them, so a monitor can eventually be starved of budget having spent
+almost nothing.
+
+Give an unreconciled reservation a bounded lifetime, or a sweep that releases it
+once its occurrence can no longer complete — without ever releasing one a live
+run still holds. Prove both directions. Note this is **not** the same as the
+budget work already landed (`2d6ab5b` defaults, `f1409f5` owner-settable
+ceilings, `1f3f9be`/`44cc54f` phantom classification ceilings); none of those
+release a stale reservation.
 
 ## 3. Determinate status vs `acquisition_uncertain`
 
