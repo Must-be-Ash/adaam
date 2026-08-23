@@ -22,6 +22,14 @@ Stay off `/state` during a run, or read the durable monitor record instead.
 counting anything. A claim of "two worker sessions ran" was wrong for exactly
 this reason.
 
+**Bare `vercel logs <url> --json` only tails live output going forward - it
+finds nothing for an event that already happened.** Pass `--since`/`--until`
+(ISO timestamps or relative, e.g. `1h`) without `--follow` to query a specific
+historical window instead; this reliably surfaced a live House-endpoint
+transport failure's exact classification (`acquisition_uncertain`, stage
+`transport`) and the originating tool's stack trace a few minutes after the
+fact, during the U4 Congressional acceptance.
+
 **Read the store, not the code, when the store knows.** Alert records,
 delivery records, and monitor records are queryable read-only with the
 `KV_REST_API_*` credentials. `alertId === alert_${sha256(findingId)}` tells you
