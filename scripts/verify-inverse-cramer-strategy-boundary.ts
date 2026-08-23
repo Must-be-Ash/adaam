@@ -21,6 +21,7 @@ import {
   isInverseCramerAgenticResearchPack,
 } from "../agent/lib/inverse-cramer-research";
 import { resolveHybridEvidenceWorkerContract } from "../agent/lib/hybrid-evidence-worker-contract-registry";
+import { DEFAULT_PAID_BUDGET } from "../agent/lib/strategy-pack-service";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import { buildPublicCommentarySignalReport } from "../agent/lib/public-commentary-signal-report";
 import {
@@ -149,7 +150,10 @@ assert.equal(resolveHybridEvidenceWorkerContract(INVERSE_CRAMER_RESEARCH_DEFINIT
 const budget = resolveStrategyPackInitialBudgetPolicy(pack, { timezone: "UTC" }, activatedAt);
 assert.equal(budget.maximumInputTokensPerRun, 40_000);
 assert.equal(budget.maximumPaidPerCall, "1.000000");
-assert.equal(budget.maximumPaidPerDay, "5.000000");
+// The research lane declares $5.00/day; the workspace default is higher, and a
+// monitor takes whichever leaves it more room to work.
+assert.equal(budget.maximumPaidPerDay, DEFAULT_PAID_BUDGET.perDay);
+assert.ok(Number(budget.maximumPaidPerDay) >= 5);
 
 // An occurrence reserves its whole per-run allowance as the parent envelope and
 // every nested compact semantic child draws from it, so the active envelope must

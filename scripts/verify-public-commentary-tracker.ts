@@ -26,6 +26,7 @@ import {
 import { resolveHybridEvidenceWorkerContract } from "../agent/lib/hybrid-evidence-worker-contract-registry";
 import { workspaceSemanticValidationRegistry } from "../agent/lib/hybrid-evidence-definition-registry";
 import {
+  DEFAULT_PAID_BUDGET,
   monitorPreparations,
   resolveStrategyPackInitialBudgetPolicy,
   resolveStrategyPackWorkerModelPolicy,
@@ -427,6 +428,22 @@ const marketBudget = resolveStrategyPackInitialBudgetPolicy(
 );
 assert.notEqual(marketBudget.maximumPaidPerCall, null);
 assert.notEqual(marketBudget.maximumPaidPerDay, null);
+/*
+ * The workspace budget is the only real spend control, so it has to leave room
+ * for the monitor to do its job. A month cap below its own day cap times a few
+ * days starves a monitor after a couple of busy days, which is what the old
+ * $10 month cap did against a $2 day cap.
+ */
+assert.equal(marketBudget.maximumPaidPerDay, DEFAULT_PAID_BUDGET.perDay);
+assert.equal(marketBudget.maximumPaidPerMonth, DEFAULT_PAID_BUDGET.perMonth);
+assert.ok(
+  Number(marketBudget.maximumPaidPerMonth) >= Number(marketBudget.maximumPaidPerDay) * 3,
+  "a month must hold several worst-case days or the month cap becomes the real limit",
+);
+assert.ok(
+  Number(marketBudget.maximumPaidPerDay) >= Number(marketBudget.maximumPaidPerCall) * 4,
+  "a day must hold several worst-case polls or one occurrence exhausts it",
+);
 assert.equal(marketBudget.maximumInputTokensPerRun, 160_000);
 assert.equal(marketBudget.maximumOutputTokensPerRun, 32_000);
 

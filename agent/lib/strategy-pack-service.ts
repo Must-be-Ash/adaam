@@ -120,6 +120,16 @@ const SHARED_HARD_DENIALS = Object.freeze([
  */
 export const WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS = 16_000;
 
+/*
+ * Default paid ceilings for a workspace whose monitor reads a paid source.
+ * Deliberately generous relative to observed steady-state spend so a monitor is
+ * never refused mid-occurrence, while still capping an unattended runaway.
+ */
+export const DEFAULT_PAID_BUDGET = Object.freeze({
+  perDay: "10.000000",
+  perMonth: "50.000000",
+});
+
 // Public sources that bill per read. A monitor bound to one needs its run's
 // paid envelope to cover that read.
 const PAID_PUBLIC_SOURCE_ORIGINS = Object.freeze(["https://api.x.com"]);
@@ -1064,17 +1074,32 @@ export function resolveStrategyPackInitialBudgetPolicy(
       : researchBudget
         ? researchBudget.maximumPaidPerCall
         : null,
+    /*
+     * The workspace budget is the only real spend control: a job's declared
+     * ceiling is a reservation against this envelope, not a licence to spend.
+     * These defaults are sized so a monitor is never blocked doing its job
+     * while a runaway still stops.
+     *
+     * A worst-case bounded poll is the per-poll post cap at the per-post rate,
+     * which is what `maximumPaidPerCall` already expresses. A day therefore
+     * needs room for several of those plus research, and a month needs room for
+     * several bad days - the old $10 month cap was $0.33 a day averaged, which
+     * silently contradicted its own $2 day cap and would starve a monitor after
+     * a couple of busy days. Steady-state observed spend is cents per day, so
+     * these are brakes, not budgets. The owner can edit any workspace's budget
+     * from the session manager.
+     */
     maximumPaidPerDay: usesPaidXTimeline
       ? researchBudget
-        ? (Number(researchBudget.maximumPaidPerDay) > 2
+        ? (Number(researchBudget.maximumPaidPerDay) > Number(DEFAULT_PAID_BUDGET.perDay)
             ? researchBudget.maximumPaidPerDay
-            : "2.000000")
-        : "2.000000"
+            : DEFAULT_PAID_BUDGET.perDay)
+        : DEFAULT_PAID_BUDGET.perDay
       : researchBudget
         ? researchBudget.maximumPaidPerDay
         : null,
     maximumPaidPerMonth: usesPaidXTimeline
-      ? "10.000000"
+      ? DEFAULT_PAID_BUDGET.perMonth
       : researchBudget
         ? researchBudget.maximumPaidPerMonth
         : null,
