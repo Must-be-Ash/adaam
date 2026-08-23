@@ -509,6 +509,40 @@ async function runEarningsCallExecutiveResearch(input: {
   }
 }
 
+/*
+ * Stage timing for an earnings occurrence.
+ *
+ * The first Production acceptance died mid-occurrence without committing an
+ * outcome, and the runtime logs had already aged out by the time it was
+ * diagnosed, so the stage that consumed the time could not be recovered. These
+ * lines make the next occurrence self-describing: every stage reports its own
+ * elapsed milliseconds and outcome, whether it succeeds or throws. The shared
+ * runtime observation schema is a fixed counter enum with a value ceiling of
+ * 1,000, so durations are emitted as their own structured line instead.
+ */
+async function timedEarningsStage<T>(
+  stage: string,
+  detail: Readonly<Record<string, unknown>>,
+  run: () => Promise<T>,
+): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    const result = await run();
+    console.info("[earnings.stage]", { ...detail, ms: Date.now() - startedAt, outcome: "ok", stage });
+    return result;
+  } catch (error) {
+    console.info("[earnings.stage]", {
+      ...detail,
+      errorName: error instanceof Error ? error.name : "unknown",
+      errorMessage: error instanceof Error ? error.message.slice(0, 200) : "",
+      ms: Date.now() - startedAt,
+      outcome: "threw",
+      stage,
+    });
+    throw error;
+  }
+}
+
 const defaultFetchResponse = createEarningsCallPublicSourceFetch();
 
 async function drainHybridWorker(
@@ -620,7 +654,10 @@ async function processIssuer(input: {
     scope: input.scope,
     sourceId: authorizedSource.sourceId,
   }, input.clients?.sourceCoverage);
-  const coordinated = await coordinatePublicSourceOccurrence({
+  const coordinated = await timedEarningsStage(
+    "acquisition",
+    { sourceId: input.source.sourceId },
+    () => coordinatePublicSourceOccurrence({
     clients: {
       acquisition: input.clients?.acquisition,
       subscription: input.clients?.subscription,
@@ -640,7 +677,8 @@ async function processIssuer(input: {
     scope: input.scope,
     sourceId: input.source.sourceId,
     window: input.envelope.window,
-  });
+  }),
+  );
   if (
     coordinated.acquisition.status === "retryable_failure" &&
     coordinated.acquisition.retryAfterSeconds !== null
@@ -729,13 +767,17 @@ async function processIssuer(input: {
   }> | null = null;
   for (const artifact of transientArtifacts) {
     const event = eventForArtifact(artifact);
-    const deterministic = await normalizeEarningsCallTranscript({
+    const deterministic = await timedEarningsStage(
+      "deterministic_parse",
+      { artifactBytes: artifact.artifactBytes.byteLength, fiscalPeriod: event.fiscalPeriod },
+      () => normalizeEarningsCallTranscript({
       artifactBytes: artifact.artifactBytes,
       artifactDigest: artifact.artifactDigest,
       artifactMediaType: artifact.artifactMediaType,
       eventRevisionId: event.revisionId,
       fiscalPeriod: event.fiscalPeriod,
-    });
+    }),
+    );
     let transcript = deterministic;
     if (deterministic.state === "recovery_required") {
       const flags = resolveHybridEvidenceFlags(input.environment);
@@ -888,7 +930,10 @@ async function processIssuer(input: {
     id: input.pack.id,
     version: input.pack.version,
   });
-  const semantic = await runEarningsCallSemanticComparison({
+  const semantic = await timedEarningsStage(
+    "semantic_comparison",
+    { cik: comparison.cik, evidenceCount: yearAgo ? 3 : 2 },
+    () => runEarningsCallSemanticComparison({
     comparison,
     environment: input.environment,
     evidence: [
@@ -917,7 +962,8 @@ async function processIssuer(input: {
     budget: input.clients?.semantic?.budget,
     catalog: input.clients?.semantic?.catalog,
     validationRegistry: input.clients?.semantic?.validationRegistry,
-  });
+  }),
+  );
   acceptedReferenceIdsByArtifact = resolveEarningsCallAcceptedArtifactReferences([
     ...semantic.sections,
     ...(semantic.final ? [semantic.final] : []),

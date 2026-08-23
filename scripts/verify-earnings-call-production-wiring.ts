@@ -61,6 +61,8 @@ import {
   claimDueWorkspaceMonitors,
   createWorkspaceMonitor,
   getWorkspaceMonitor,
+  requiresManagedMonitorActivationWatermark,
+  updateWorkspaceMonitor,
   inspectWorkspaceMonitorOccurrenceLease,
   workspaceMonitorOccurrenceKey,
   type ClaimedWorkspaceMonitor,
@@ -453,6 +455,7 @@ function capabilityManifest(input: {
 async function installWorkspace(
   workspaceId: string,
   options: {
+    readonly installPausedThenResume?: boolean;
     readonly pack: NonNullable<typeof pack>;
     readonly semanticModelId: string;
   } = { pack, semanticModelId },
@@ -461,7 +464,7 @@ async function installWorkspace(
   const boundResource = boundPack.monitors[0]!;
   const scope = authorizeDeploymentWorkspaceStore({ ownerId, workspaceId }, environment);
   const monitor = await createWorkspaceMonitor({
-    activateManagedMonitor: true,
+    activateManagedMonitor: !options.installPausedThenResume,
     deliverySubscriptionId: `delivery.${workspaceId}`,
     idempotencyKey: `earnings-production-${workspaceId}`,
     instruction: boundResource.instruction,
@@ -502,6 +505,42 @@ async function installWorkspace(
         resolveStrategyPackResearchWorkerContract(boundPack)?.research?.budget.paidPerRun ?? null,
     },
   }, monitors);
+  /*
+   * A real acceptance installs a managed monitor paused and resumes it, which
+   * is the only path that establishes the activation watermark on the resume
+   * rather than at create. Every fixture below used to install already-armed,
+   * so this leg was unverified: a pack whose declared lifecycle contract failed
+   * to resolve would reach the worker with no watermark and terminalize on
+   * assertMonitor without any gate noticing.
+   */
+  let armed = monitor;
+  if (options.installPausedThenResume) {
+    assert.equal(monitor.lifecycleState, "paused");
+    assert.equal(monitor.activationWatermark, undefined,
+      "a paused install must not establish an activation watermark");
+    assert.equal(
+      monitor.lifecycleContractId,
+      boundResource.lifecycleContractId,
+      "the install path must persist the pack's declared monitor lifecycle contract",
+    );
+    armed = await updateWorkspaceMonitor({
+      expectedRevision: monitor.configurationRevision,
+      monitorId: monitor.monitorId,
+      now: new Date(baselineNow.getTime() - 30_000),
+      patch: { lifecycleState: "enabled", pauseReason: null, pausedAt: null },
+      scope,
+    }, monitors);
+    assert.equal(armed.lifecycleState, "enabled");
+    assert.ok(
+      armed.activationWatermark,
+      "resuming a managed earnings monitor must establish its activation watermark",
+    );
+    assert.equal(
+      requiresManagedMonitorActivationWatermark(armed),
+      true,
+      "the resumed monitor must still resolve a watermark-bearing lifecycle contract",
+    );
+  }
   const snapshot = {
     bindingRevision: 1,
     capabilityManifestRevision: 1,
@@ -586,7 +625,7 @@ async function installWorkspace(
     prepareInitialWorkspaceStrategyBinding({ now: baselineNow, scope, value: strategy }),
   ]) state.values.set(prepared.key, prepared.raw);
   semanticRoutes.set(workspaceId, { modelId: options.semanticModelId, reasoning: "high" });
-  return { monitor, pack: boundPack, scope };
+  return { monitor: armed, pack: boundPack, scope };
 }
 
 const baselineListing = Buffer.from(JSON.stringify({
@@ -1002,6 +1041,9 @@ const workspaceD = await installWorkspace("123e4567-e89b-42d3-a456-426614176104"
   semanticModelId: frontierSemanticModelId,
 });
 const workspaceE = await installWorkspace("123e4567-e89b-42d3-a456-426614176105", {
+  // The version that a Production acceptance installs, driven exactly the way
+  // an acceptance drives it: paused first, then resumed.
+  installPausedThenResume: true,
   pack: researchPack,
   semanticModelId: frontierSemanticModelId,
 });
