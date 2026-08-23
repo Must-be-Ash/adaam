@@ -48,6 +48,7 @@ import {
   type HybridEvidenceLineageStoreClient,
 } from "./hybrid-evidence-lineage-store";
 import type { HybridPromotionRecord } from "./hybrid-evidence-schema";
+import { PublicSourceHttpStatusError } from "../tools/fetch_public_source";
 
 type HouseErrorCode = NonNullable<PublicSourceAcquisitionResult["errorCode"]>;
 
@@ -762,11 +763,28 @@ function mappedError(error: unknown): HouseAdapterError {
           : "archive";
     return new HouseAdapterError(error.code, stage);
   }
+  if (error instanceof PublicSourceHttpStatusError) {
+    /*
+     * fetchOfficialPublicSourceBytes (the real fetchIndex/fetchDocument
+     * implementation) validates the response status itself and throws before
+     * validateResponse below ever sees a response object - so in production,
+     * validateResponse's own status !== 200 branch is effectively unreachable
+     * for this failure mode. This is the actual determinate fact a non-2xx
+     * response carries; without it, two live "acquisition_uncertain"
+     * occurrences an hour apart were indistinguishable from a genuine network
+     * failure.
+     */
+    return new HouseAdapterError(
+      "acquisition_uncertain",
+      "transport",
+      "uncertain",
+      `http_${boundedAdapterDetail(String(error.status))}`,
+    );
+  }
   /*
-   * An unrecognized thrown value here is the fetch layer itself failing
-   * (DNS, connection refused/reset, timeout, TLS) rather than a parsed HTTP
-   * response - genuinely distinct from validateResponse's non-200 case, and
-   * previously indistinguishable from it in every log line.
+   * Anything else unrecognized here is the fetch layer itself failing (DNS,
+   * connection refused/reset, timeout, TLS) rather than a parsed HTTP
+   * response.
    */
   return new HouseAdapterError(
     "acquisition_uncertain",

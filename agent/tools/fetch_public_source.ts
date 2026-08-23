@@ -26,6 +26,23 @@ const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
 const FETCH_TIMEOUT_MS = 20_000;
 
+/*
+ * A non-2xx response is a determinate fact - the exact status code - not an
+ * ambiguous transport condition, but it was being thrown as a bare Error with
+ * the status only interpolated into a message string. Every caller's own
+ * error mapping (house-public-source-adapter.ts's mappedError() is one) can
+ * only see error.name on an unrecognized Error, so the status was discarded
+ * before any caller had a chance to log or classify it - confirmed the actual
+ * cause of two live "acquisition_uncertain" occurrences that were otherwise
+ * indistinguishable from a genuine network failure.
+ */
+export class PublicSourceHttpStatusError extends Error {
+  constructor(readonly status: number) {
+    super(`The public source returned HTTP ${status}.`);
+    this.name = "PublicSourceHttpStatusError";
+  }
+}
+
 interface NormalizedFeedItem {
   id: string | null;
   title: string;
@@ -100,7 +117,7 @@ async function fetchOfficialSource(
       response.status === 404 &&
       url.hostname.toLowerCase() === "api.fda.gov";
     if (!response.ok && !openFdaNoMatchCandidate) {
-      throw new Error(`The public source returned HTTP ${response.status}.`);
+      throw new PublicSourceHttpStatusError(response.status);
     }
     return { response, finalUrl: url };
   }

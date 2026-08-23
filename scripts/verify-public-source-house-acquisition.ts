@@ -20,7 +20,7 @@ import {
   runSharedHousePublicSourceAcquisition,
   type HousePublicSourceBinaryResponse,
 } from "../agent/lib/house-public-source-adapter";
-import { fetchOfficialPublicSourceBytes } from "../agent/tools/fetch_public_source";
+import { fetchOfficialPublicSourceBytes, PublicSourceHttpStatusError } from "../agent/tools/fetch_public_source";
 import {
   derivePublicSourceSubscriptionId,
   ensurePublicSourceSubscription,
@@ -614,6 +614,36 @@ function captureWarnings(): { readonly calls: unknown[][]; restore(): void } {
     "a thrown exception must be distinguishable from a non-200 HTTP status in the log");
   assert.equal(JSON.stringify(logged![1]).includes("fetch failed"), false,
     "the raw exception message must never reach the log, only its bounded classification");
+}
+
+{
+  // The actual production shape: fetchOfficialPublicSourceBytes (the real
+  // fetchIndex implementation) validates the response status itself and
+  // throws PublicSourceHttpStatusError before returning - it never reaches
+  // validateResponse's own status check above. Confirmed the real cause of
+  // two live "acquisition_uncertain" occurrences an hour apart, both
+  // indistinguishable from a network failure until this was traced.
+  const warnings = captureWarnings();
+  const client = new MemoryStore();
+  const observedAt = "2026-08-16T07:00:00.000Z";
+  let result;
+  try {
+    result = await runHousePublicSourceAcquisition({
+      client,
+      fetchDocument: async (url) => response({ body: singlePdf, contentType: "application/pdf", observedAt, url }),
+      fetchIndex: async () => { throw new PublicSourceHttpStatusError(503); },
+      sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+      window: window(observedAt),
+    });
+  } finally {
+    warnings.restore();
+  }
+  assert.equal(result.acquisition.result.status, "uncertain");
+  assert.equal(result.acquisition.result.errorCode, "acquisition_uncertain");
+  const logged = warnings.calls.find(([message]) => message === "[house-public-source] acquisition failed");
+  assert.ok(logged, "a real fetchOfficialPublicSourceBytes-shaped status error must log a bounded failure summary");
+  assert.equal((logged![1] as { detail: string }).detail, "http_503",
+    "the actual HTTP status must survive fetchOfficialPublicSourceBytes throwing, not just validateResponse's own check");
 }
 
 console.log("public-source House acquisition verification passed");
