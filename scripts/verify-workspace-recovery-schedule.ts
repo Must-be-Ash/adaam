@@ -969,6 +969,65 @@ assert.equal(
   "workspace_worker_failed",
 );
 
+/*
+ * A session that reports a terminal failure having committed nothing must say
+ * so. Reporting a generic session failure hid the more specific fact behind the
+ * less useful one, and an operator reading it could not tell whether the
+ * occurrence produced anything.
+ */
+let missingOutcomeCode: string | null = null;
+let missingOutcomeClaimed = false;
+const missingOutcomeSchedule = createEventTriggerSchedule({
+  ...deliveryDependencies,
+  claimWorkspaceMonitors: async () => {
+    if (missingOutcomeClaimed) return [];
+    missingOutcomeClaimed = true;
+    return [firstAttemptJob];
+  },
+  deliverWorkspaceOutcome: async () => {
+    throw new Error("delivery_must_not_run_without_an_outcome");
+  },
+  emitRuntimeObservation: () => undefined,
+  recordWorkspaceFailure: async (input: { errorCode: string; failureThreshold?: number }) => {
+    missingOutcomeCode = input.errorCode;
+    // Main-path failures share one threshold; immediate quarantine belongs to
+    // the recovery path, where the runtime cannot tell whether paid work
+    // already happened.
+    assert.equal(input.failureThreshold, undefined);
+  },
+  releaseWorkspaceLease: async () => true,
+  requireWorkspaceOutcome: async () => {
+    throw new Error("workspace_worker_required_outcome_missing");
+  },
+  startWorkspaceWorker: async () => ({
+    events: (async function* () {
+      yield { data: {}, type: "turn.failed" };
+    })(),
+  }) as Awaited<ReturnType<EventTriggerScheduleDependencies["startWorkspaceWorker"]>>,
+} as unknown as EventTriggerScheduleDependencies);
+assert.ok("run" in missingOutcomeSchedule && missingOutcomeSchedule.run);
+const missingOutcomeWaiters: Promise<unknown>[] = [];
+missingOutcomeSchedule.run({
+  appAuth: {
+    attributes: {},
+    authenticator: "app",
+    principalId: "eve:app",
+    principalType: "runtime",
+  },
+  to: (() => {
+    throw new Error("legacy_to_not_expected");
+  }) as ScheduleToFn,
+  waitUntil(task) {
+    missingOutcomeWaiters.push(task);
+  },
+});
+await Promise.all(missingOutcomeWaiters);
+assert.equal(
+  missingOutcomeCode,
+  "worker_outcome_missing",
+  "a session that failed having committed nothing must report the missing outcome",
+);
+
 const mismatchedClaims: ClaimedWorkspaceMonitor[] = [
   { ...job, monitor: { ...monitor, ownerId: "other_owner" } },
   {

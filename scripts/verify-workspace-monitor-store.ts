@@ -1106,4 +1106,95 @@ await assert.rejects(
   "a store that cannot purge must fail loudly rather than silently retain monitors",
 );
 
+/*
+ * Pause semantics, pinned so the three rules cannot drift apart:
+ *  - a successful occurrence clears the failure count and the last error, so a
+ *    monitor that works is never carried toward a pause by old failures;
+ *  - main-path failures share one threshold, whatever they are called;
+ *  - immediate quarantine belongs to the recovery path alone, which pauses at a
+ *    threshold of one because a lost outcome there means the runtime cannot
+ *    tell whether paid work already happened.
+ */
+const pauseClient = new MemoryStore();
+const pauseScope = authorizePhotonWorkspaceControlPlaneStore(
+  { principalId: "imessage:fixture-owner", resource: "manager", workspaceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+  environment,
+);
+let pauseMonitor = await createWorkspaceMonitor({
+  deliverySubscriptionId: "delivery.pause",
+  instruction: "Check every configured source for a new matching filing.",
+  name: "Pause semantics",
+  nextOccurrenceAt: "2026-08-22T01:00:00.000Z",
+  now: new Date("2026-08-22T00:00:00.000Z"),
+  requiredCapabilityIds: ["sec.get_filing"],
+  schedule: { anchor: "2026-08-22T01:00:00.000Z", everyMinutes: 60, kind: "interval" },
+  scope: pauseScope,
+  sources: [source(0)],
+}, pauseClient);
+for (const [index, errorCode] of [
+  "workspace_worker_failed",
+  "worker_outcome_missing",
+  "workspace_alert_delivery_failed",
+  "workspace_worker_failed",
+].entries()) {
+  pauseMonitor = await recordWorkspaceMonitorFailure({
+    errorCode,
+    expectedRevision: pauseMonitor.configurationRevision,
+    monitorId: pauseMonitor.monitorId,
+    now: new Date(`2026-08-22T0${index + 2}:00:00.000Z`),
+    scope: pauseScope,
+  }, pauseClient);
+  assert.equal(pauseMonitor.consecutiveFailures, index + 1);
+  assert.equal(
+    pauseMonitor.lifecycleState,
+    "enabled",
+    "no single main-path failure pauses a monitor, whatever it is called",
+  );
+}
+const pausedAfterFive = await recordWorkspaceMonitorFailure({
+  errorCode: "worker_outcome_missing",
+  expectedRevision: pauseMonitor.configurationRevision,
+  monitorId: pauseMonitor.monitorId,
+  now: new Date("2026-08-22T06:00:00.000Z"),
+  scope: pauseScope,
+}, pauseClient);
+assert.equal(pausedAfterFive.consecutiveFailures, 5);
+assert.equal(pausedAfterFive.lifecycleState, "paused_failure");
+assert.equal(pausedAfterFive.pauseReason, "auto_paused_after_repeated_failures");
+assert.equal(pausedAfterFive.nextOccurrenceAt, null);
+// The recovery path quarantines on the first failure instead.
+const quarantined = await recordWorkspaceMonitorFailure({
+  errorCode: "worker_recovery_outcome_missing",
+  expectedRevision: (await createWorkspaceMonitor({
+    deliverySubscriptionId: "delivery.quarantine",
+    instruction: "Check every configured source for a new matching filing.",
+    name: "Recovery quarantine",
+    nextOccurrenceAt: "2026-08-22T01:00:00.000Z",
+    now: new Date("2026-08-22T00:00:00.000Z"),
+    requiredCapabilityIds: ["sec.get_filing"],
+    schedule: { anchor: "2026-08-22T01:00:00.000Z", everyMinutes: 60, kind: "interval" },
+    scope: authorizePhotonWorkspaceControlPlaneStore(
+      { principalId: "imessage:fixture-owner", resource: "manager", workspaceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
+      environment,
+    ),
+    sources: [source(0)],
+  }, pauseClient)).configurationRevision,
+  failureThreshold: 1,
+  monitorId: (await listWorkspaceMonitors(
+    authorizePhotonWorkspaceControlPlaneStore(
+      { principalId: "imessage:fixture-owner", resource: "manager", workspaceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
+      environment,
+    ),
+    pauseClient,
+  ))[0]!.monitorId,
+  now: new Date("2026-08-22T02:00:00.000Z"),
+  scope: authorizePhotonWorkspaceControlPlaneStore(
+    { principalId: "imessage:fixture-owner", resource: "manager", workspaceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
+    environment,
+  ),
+}, pauseClient);
+assert.equal(quarantined.consecutiveFailures, 1);
+assert.equal(quarantined.lifecycleState, "paused_failure");
+assert.equal(quarantined.pauseReason, "worker_recovery_outcome_missing");
+
 console.log("Workspace monitor store verification passed.");

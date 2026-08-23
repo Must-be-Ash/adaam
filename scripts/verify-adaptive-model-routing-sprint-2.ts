@@ -6,6 +6,7 @@ import {
   EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
 } from "../agent/lib/hybrid-evidence-definition-registry";
 import { resolveHybridTaskModelRoute } from "../agent/lib/hybrid-evidence-model-routing";
+import { DEFAULT_PAID_BUDGET } from "../agent/lib/strategy-pack-service";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import {
   resolveStrategyPackConfiguration,
@@ -103,7 +104,12 @@ assert.deepEqual(
     day: commentaryBudget.maximumPaidPerDay,
     month: commentaryBudget.maximumPaidPerMonth,
   },
-  { call: "1.000000", concurrent: 2, day: "2.000000", month: "10.000000" },
+  {
+    call: "1.000000",
+    concurrent: 2,
+    day: DEFAULT_PAID_BUDGET.perDay,
+    month: DEFAULT_PAID_BUDGET.perMonth,
+  },
 );
 const ipoPack = strategyPackCatalog.resolve({ id: "ipo-filings", version: "1.0.0" });
 assert.ok(ipoPack);

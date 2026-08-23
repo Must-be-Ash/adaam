@@ -236,6 +236,25 @@ class WorkspaceAlertDeliveryFailure extends Error {
   }
 }
 
+/*
+ * The session reported a terminal failure and the worker committed nothing. The
+ * accurate statement is that the occurrence produced no outcome, which is what
+ * an operator needs to see; reporting a generic session failure hid the more
+ * specific fact behind the less useful one.
+ *
+ * This changes only the recorded code, not what happens next: main-path
+ * failures all advance the same consecutive-failure count and pause at the same
+ * threshold. Immediate pausing belongs to the recovery path, which quarantines
+ * at a threshold of one because a lost outcome there means the runtime cannot
+ * tell whether paid work already happened. Here it can: nothing was committed.
+ */
+class WorkspaceMissingOutcomeFailure extends Error {
+  constructor(readonly cause: unknown) {
+    super("workspace_worker_required_outcome_missing");
+    this.name = "WorkspaceMissingOutcomeFailure";
+  }
+}
+
 export function workspaceOccurrenceFailureCode(error: unknown): string {
   if (error instanceof WorkspaceAlertDeliveryFailure) return "workspace_alert_delivery_failed";
   return error instanceof Error &&
@@ -344,12 +363,12 @@ async function executeWorkspaceJob(
     let committedOutcome: Awaited<
       ReturnType<EventTriggerScheduleDependencies["requireWorkspaceOutcome"]>
     > | null = null;
+    let missingOutcome: unknown = null;
     try {
       committedOutcome = await dependencies.requireWorkspaceOutcome(prepared);
     } catch (error) {
-      // A session that failed without committing keeps its existing missing
-      // outcome taxonomy; only a committed outcome changes behavior here.
       if (!terminalFailure) throw error;
+      missingOutcome = error;
     }
     if (committedOutcome && deliverAlerts) {
       try {
@@ -362,7 +381,11 @@ async function executeWorkspaceJob(
         throw new WorkspaceAlertDeliveryFailure(error);
       }
     }
-    if (terminalFailure) throw new Error("workspace_worker_session_failed");
+    if (terminalFailure) {
+      throw missingOutcome
+        ? new WorkspaceMissingOutcomeFailure(missingOutcome)
+        : new Error("workspace_worker_session_failed");
+    }
     const outcome = committedOutcome!;
     if (usesDeferredSourceRetry(job)) {
       await dependencies.clearWorkspaceSourceRetry({
