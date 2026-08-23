@@ -791,3 +791,15 @@ still raises `workspace_worker_session_failed`, recorded as
 Left alone deliberately: `worker_outcome_missing` drives the immediate-pause
 recovery path, and changing which failures pause a monitor after five
 consecutive errors versus immediately does not belong inside a delivery fix.
+
+## Pre-existing red gate: `verify:workspace-runtime:sec-ipo-scheduled-compiled`
+
+Fails on unmodified `main` with an unhandled promise rejection:
+`TypeError: fetch failed` / `getaddrinfo ENOTFOUND fixture.invalid`. The suite
+reaches a deliberately unresolvable fixture host and does not catch the
+rejection, so the process aborts rather than the assertion reporting.
+
+Surfaced 2026-08-23 by the first run of the new `verify:strategies` aggregate
+gate; not caused by that change, which only adds a script entry. Belongs with
+the other recorded red gate (`verify:strategy-packs:acceptance`) in Sprint 8's
+"repair the pre-existing red gate" item.
