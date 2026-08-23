@@ -503,9 +503,83 @@ one supported-version list, characterized across the 1.4.x lineage in
 - [x] Contract migration implemented without changing comparison semantics. Commit `52c150b`. See the boundary classification below.
 - [x] Focused verification and concise diff review green. Green locally: `verify:earnings-call-changes:sprint-0/1/2/3/4/5` (49 gates, which include `typecheck`, `build:agent`, `build`), `:boundary`, `:production-wiring`, `:worker-recovery-corrections`, `:source-lifecycle`, `verify:strategy-packs`, `:strategy-pack-runtime`, `:strategy-pack-owner-surfaces`, `:strategy-pack-mutations`, `:strategy-pack-configuration-kinds`, `verify:agentic-durable-research:u1/u2/u3`, `verify:agentic-durable-research:contract-dispatch`, `verify:public-commentary-signals:sprint-0/1/2/3/4-reuse/follow-up/boundary`, `verify:public-commentary-tracker`, `verify:congressional-signals:sprint-5`, `verify:workspace-runtime:monitor-tools/sec-ipo-worker/start-fresh`, `verify:official-web-statement-source`, `verify:interactive-tool-capabilities`, `verify-workspace-isolation`, `git diff --check`. Not pushed or deployed: another agent holds `main`.
 - [ ] Commit pushed to `main`; Production health and bounded logs green.
-- [ ] One zero-usage Production occurrence terminal and reported. **Blocked, not attempted:** the session registry is full at 48/48 retained records, so no acceptance workspace can be created until session deletion ships (see the roadmap's Sprint 7 blocker).
-- [ ] Disposable monitor paused/archived and non-dispatchable.
+- [ ] One zero-usage Production occurrence terminal and reported. **Attempted 2026-08-23 and FAILED. Per R14 this stops the unit; no retry was run.** Receipt `U3 Earnings Acceptance FAILED 0823` below.
+- [x] Disposable monitor paused/archived and non-dispatchable. Workspace `06589d09-8b7f-41eb-acce-4e6ee66b397c` archived at registry revision 180; monitor `8ae3c03f-eabf-59b9-a37d-58574a9a08eb` is `suspended_archived` with `nextOccurrenceAt: null`. The owner's `Inverse Cramer Live`, `IPO Live`, and `Tracker Live` are the only dispatchable monitors. Creating the pack workspace had made it the active session, so the archive handed the active session back to `Main`.
 - [ ] U3 and Progress Tracker marked complete before U4 begins.
+
+**Receipt — `U3 Earnings Acceptance FAILED 0823` (2026-08-23).** Workspace
+`Earnings U3 Acceptance 0823` (`06589d09-8b7f-41eb-acce-4e6ee66b397c`), monitor
+`8ae3c03f-eabf-59b9-a37d-58574a9a08eb`, bound to `earnings-call-changes@1.1.0`
+(digest `78a8cdab1748ea2b...`), created from `Main` initially paused, source
+`earnings-call-transcripts.0000019617` (JPM - the only issuer whose reviewed
+source family declares a supported discovery policy).
+
+- Deployed commit under test: `d0b17bc`, later `9aa0ee0`; occurrence ran on
+  deployment `dpl_2J9cZaRva2GS5W2HrhooSzuFajW2`.
+- Zero-usage baseline before arming: 0 runs, 0 input tokens, 0 output tokens,
+  0 active workers, $0 paid.
+- One occurrence armed for `2026-08-23T02:00:00.000Z`.
+- **First failing stage: source acquisition.** The workspace's source cursor
+  stayed at revision 0 with a null watermark, `lastOutcome` null and extraction
+  count 0 - nothing was ever acquired, so the deterministic parse, the
+  comparison, and the research lane were never reached.
+- Terminal state: `lastRunAt 2026-08-23T02:03:51.687Z`, `lastCompletedAt: null`,
+  `lastErrorCode: worker_recovery_outcome_missing`, `lifecycleState:
+  paused_failure`. No outcome was committed, so no finding, artifact, or alert.
+- Cost: reserved 160,000 input / 32,000 output for the run, plus the declared
+  research ceilings ($0.25 per call, $2.00 per day, $8.00 per month). Actual
+  6,697 input and 1,056 output tokens and **$0.00 paid** - no paid call was ever
+  made. Model usage was well inside the envelope, so this was not a sizing or
+  budget failure.
+- Not a deploy-killed worker: the most recent deployment was 01:32:30Z, 31
+  minutes before the failure, and none landed during the occurrence.
+- Deviation recorded: the owner directed that `Inverse Cramer Live`, `IPO Live`,
+  and `Tracker Live` stay enabled, so this acceptance ran without the plan's
+  "pause both live monitors first" step. The occurrence was scheduled at 02:00Z
+  to avoid overlapping Inverse Cramer's 01:52Z run, because the runtime
+  observation counters carry no workspace id and concurrent occurrences would be
+  ambiguous in logs.
+
+**Diagnosis and what is still unproven.** `worker_recovery_outcome_missing` is
+produced only by the control-plane recovery path, which handles a repeat
+attempt (`occurrence.attempt > 1`) that carries no source-retry record. Attempt
+one therefore ended *without* running the worker's normal failure path - a
+thrown tool error would have recorded `workspace_worker_failed` or
+`worker_outcome_missing` against the default five-failure threshold and left the
+monitor enabled, not paused after a single occurrence. Combined with the ~231
+seconds between the 02:00:00 schedule and the 02:03:51 recovery record, the
+evidence points to the acquisition being terminated mid-flight rather than
+failing fast. Earnings is the heaviest acquisition path in the catalog: it reads
+a first-party JSON listing and then multi-megabyte transcript PDFs (up to 8 MB
+and 64 pages each by policy) and needs two events before it can compare.
+
+This is inferred, not observed: the 02:00-02:04 runtime logs had aged out
+(`vercel logs` caps at 50 rows and `--since` does not extend the window), so the
+proximate kill reason was not recovered. Settling it needs the invocation's own
+log line or acquisition-duration instrumentation.
+
+Two candidate causes were ruled out by test rather than assertion:
+
+- The contract migration dropping the activation watermark. Reproduced the exact
+  acceptance path locally - create paused, then resume - against `1.1.0`: the
+  record stores `lifecycleContractId: monitor.earnings-call-transcripts/v1` and
+  the resume sets `activationWatermark`. That failure would also have thrown
+  immediately with a different error code.
+- The per-run envelope. Reserved 160,000/32,000 against 6,697/1,056 actual.
+
+Honest limit on attribution: this is the first Earnings Call Changes occurrence
+ever executed in Production - no earnings workspace existed before this one - so
+there is no prior successful run against which to call the failure pre-existing.
+What can be said precisely is that the failing stage is acquisition, which this
+migration does not modify. `docs/plans/2026-08-22-earnings-hardening-spec.md`
+already records separate, unrelated defects in this strategy and is sequenced to
+run after U3.
+
+**Coverage gap this exposed.** `verify:earnings-call-changes:production-wiring`
+installs every fixture workspace with `activateManagedMonitor: true`. The real
+acceptance path is create-paused then resume, which no gate exercised. That path
+is correct (verified above), but it was unverified when the acceptance ran and
+should get a regression case before U3 is retried.
 
 **U3 boundary classification (2026-08-22).** Occurrences of
 `earnings-call-changes` in generic modules, classified per KTD2:
