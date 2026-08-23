@@ -66,7 +66,11 @@ import {
   type WorkspaceFindingCandidate,
   type WorkspaceRunOutcome,
 } from "./workspace-finding-store";
-import { getWorkspaceMonitor, type WorkspaceMonitor } from "./workspace-monitor-store";
+import {
+  getWorkspaceMonitor,
+  recordWorkspaceMonitorFailure,
+  type WorkspaceMonitor,
+} from "./workspace-monitor-store";
 import {
   authorizeWorkspaceSourceFetch,
   markWorkspaceSourceSuccess,
@@ -407,6 +411,31 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     coordinated.acquisition.status !== "complete" &&
     coordinated.acquisition.status !== "no_change"
   ) {
+    if (coordinated.acquisition.status === "terminal_failure") {
+      /*
+       * A deterministic House acquisition failure (malformed archive, forbidden
+       * origin, oversized response) will recur identically on retry, so letting
+       * the scheduler's default five-attempt bounded recovery run its course
+       * just repeats the same failure five times over
+       * (docs/congressional-monitor-retry-defect.md). Pause the monitor here,
+       * on this first attempt, so the occurrence terminalizes exactly once. An
+       * "uncertain" status (transport/network ambiguity, no HTTP response to
+       * classify) intentionally falls through unchanged below to the
+       * scheduler's existing bounded-recovery path.
+       */
+      await recordWorkspaceMonitorFailure({
+        errorCode: "congressional_source_unavailable",
+        expectedRevision: monitor.configurationRevision,
+        failureThreshold: 1,
+        monitorId: monitor.monitorId,
+        now,
+        scope,
+      }, input.clients?.monitor).catch(() => {
+        // A concurrent lifecycle/configuration edit is authoritative; the
+        // scheduler's own fallback failure accounting remains a safe backstop
+        // either way.
+      });
+    }
     throw new CongressionalWorkspaceWorkerError("congressional_source_unavailable");
   }
   if (!cursor || !coordinated.projection) {

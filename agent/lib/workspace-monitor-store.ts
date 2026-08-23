@@ -1513,7 +1513,15 @@ export async function recordWorkspaceMonitorFailure(
   const failures = current.consecutiveFailures + 1;
   const paused = failures >= threshold;
   const boundedErrorCode = boundedMonitorErrorCode(input.errorCode);
-  const pauseCode = paused && boundedErrorCode.startsWith("worker_recovery_")
+  /*
+   * A threshold of one is never an accumulation - the caller already decided
+   * this single occurrence's code is the whole diagnosis (recovery-quarantine
+   * failures and a strategy's own deterministic source-failure pause both pass
+   * failureThreshold: 1 for exactly this reason), so keep it instead of
+   * collapsing to the generic repeated-failure code that only makes sense once
+   * several distinct failures actually accumulated.
+   */
+  const pauseCode = paused && threshold === 1
     ? boundedErrorCode
     : "auto_paused_after_repeated_failures";
   if (!paused) {

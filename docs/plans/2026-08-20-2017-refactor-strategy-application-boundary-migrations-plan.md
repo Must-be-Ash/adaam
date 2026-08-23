@@ -709,8 +709,33 @@ missing the `definitionId` that `0656ff0` added to the envelope schema on
 
 **Completion checklist:**
 
-- [ ] Exact retry defect reproduced with focused red proof.
-- [ ] One-terminal-outcome repair green before migration begins.
+- [x] Exact retry defect reproduced with focused red proof (2026-08-23).
+  `scripts/verify-congressional-signals-retry-defect.ts` (`verify:congressional-signals:retry-defect`)
+  drives `evaluateCongressionalSignalsForWorker` directly with a House index
+  response classified `terminal_failure` (wrong archive content-type,
+  `archive_invalid`) and asserted red: the monitor stayed `enabled` with
+  `consecutiveFailures: 0` after the failure, i.e. eligible for the same
+  redispatch-until-threshold-five behavior the defect doc records.
+- [x] One-terminal-outcome repair green before migration begins (2026-08-23).
+  `congressional-workspace-worker.ts` now classifies the shared House
+  acquisition result: a deterministic `terminal_failure` status calls
+  `recordWorkspaceMonitorFailure` with `failureThreshold: 1` before throwing,
+  pausing the monitor on this first attempt instead of the scheduler's default
+  five-attempt threshold. An `uncertain` status (no HTTP response to classify,
+  e.g. a transport timeout) is deliberately left untouched, falling through to
+  the scheduler's existing bounded-recovery path unchanged - proven by a
+  second scenario in the same verifier asserting the monitor record is
+  byte-for-byte unchanged. `workspace-monitor-store.ts`'s
+  `recordWorkspaceMonitorFailure` was generalized in the same commit so a
+  `failureThreshold: 1` pause preserves the caller's specific error code
+  (previously only codes prefixed `worker_recovery_` survived pausing; the
+  condition is now `threshold === 1`, which is exactly the existing recovery-
+  quarantine caller plus this new one - no other caller passes threshold 1).
+  Green: all six `verify:congressional-signals:sprint-0..5`, the new
+  `verify:congressional-signals:retry-defect`, `verify:strategy-packs`,
+  `verify:strategy-pack-runtime`, `verify:workspace-runtime:monitors`,
+  `verify:workspace-runtime:recovery-schedule`, `typecheck`, `build:agent`,
+  `build`, `git diff --check`.
 - [ ] Congressional contract migration implemented without changing policy.
 - [ ] Focused verification and concise diff review green.
 - [ ] Commit pushed to `main`; Production health and bounded logs green.
