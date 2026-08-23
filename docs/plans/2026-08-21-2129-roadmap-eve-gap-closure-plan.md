@@ -389,6 +389,44 @@ arrived, which exposed two independent defects in the alert path:
 Both proven red-first. Note for Sprint 8: the alert path had no end-to-end
 coverage, which is how both survived.
 
+**Cost and failure-integrity unit, 2026-08-23, `main` @ `481a926`, deployed
+`dpl_HcqNbrvvSPgaDf3tmDobnLhZ13cV`.** Tracker Live failed every occurrence and
+could not be diagnosed, because nothing recorded what threw: the bounded runtime
+observation carries a counter and a fixed code, so any unrecognized error
+collapsed to `evaluation_failed`, and Vercel's retained window rolled before it
+could be caught by hand.
+
+- `0999238` - log a bounded failure summary beside the observation; distinguish
+  `workspace_alert_delivery_failed` from a session failure, which delivery
+  running inside the same try had made indistinguishable; and name
+  `evaluate_public_commentary_signals` in the worker instructions, which listed
+  the IPO, Congressional and Earnings evaluators but never the commentary one,
+  so that worker was never told its evaluator is the single completion path.
+- `95b970e` - never issue an unbounded timeline read. The request builder could
+  emit one with neither `start_time` nor `since_id` when a pack asks for no
+  backfill and the cursor has never advanced, which answers with the newest page
+  of the whole timeline: one poll billed 102 posts for a 12-hour window holding a
+  handful, and failures compounded it because an occurrence that dies before
+  committing leaves the cursor unadvanced. The bound is request-only and
+  deliberately carries no semantics - an earlier attempt threaded it through
+  `firstRunStartAt` and silently broke baseline establishment, which would have
+  left the cursor never anchoring and every occurrence re-acquiring forever.
+- `44cc54f` - `inverse-cramer-market-view-actionability@1.0.1` declares no paid
+  ceiling and `inverse-cramer@1.4.8` pins it. The job has no paid tool surface,
+  so its $0.25 reservation competed with the timeline read for one envelope.
+- `481a926` - a session that fails having committed nothing reports the missing
+  outcome rather than a generic failure. The stated reason this was deferred,
+  that the accurate code drags a monitor into immediate auto-pause, did not
+  hold: the threshold of one is passed explicitly by the recovery quarantine and
+  is not attached to the code. Pause semantics are now pinned in tests.
+
+First occurrences after recreation: Inverse Cramer $0.51 -> $0.01 (reserved
+$3.50), Tracker Live $0.77 -> $0.005 (reserved $1.00), both `lastErrorCode:
+null`. A tool-call/loop cap was considered and deliberately not built: these
+jobs are single-shot with a runtime cap, runaway protection already exists at
+three layers, and the limits schema is digest-covered so adding a field would
+re-version every contract and every pack that pins one.
+
 - [x] **Blocker: the session registry is full** (48/48 retained records,
   2026-08-22) and nothing can be created. Archived sessions are retained
   forever and there is no delete path, so U1's disposable acceptance
@@ -408,8 +446,20 @@ coverage, which is how both survived.
   route proves the target is archived before purging. The workspace budget
   policy and ledger are retained for financial audit. 28 disposable acceptance
   workspaces were deleted, taking the registry from 48/48 to 20/48.
-- [ ] Owner reviews per-strategy budgets using each acceptance's
+- [x] Owner reviews per-strategy budgets using each acceptance's
   reserved-vs-actual numbers; set the real ceilings.
+  **Done 2026-08-23.** Two defects had to be fixed before this was possible at
+  all. The paid ceilings were set once at install and no owner surface could
+  change them - the budget editor only ever wrote concurrency and runs per day
+  (`f1409f5` exposes the daily and monthly ceilings, refusing a month below its
+  own day). And the defaults contradicted themselves: $10 a month is $0.33 a day
+  averaged against a $2 a day cap, so the month cap was the real limit and would
+  have starved a monitor long before the day cap bound (`2d6ab5b` raises
+  paid-source defaults to $10 a day and $50 a month, asserted as relationships
+  rather than magic numbers). The per-call ceiling stays unexposed: it bounds one
+  provider call rather than the agent's spend, is already sized to one worst-case
+  poll, and a refused reservation never bills - lowering it costs results, not
+  money.
 - [ ] Enable Exa-backed research for background monitors in Production
   (owner decision 2026-08-21: enable at activation), staged in dependency
   order; verify one bounded research pass reconciles actual paid cost inside
@@ -418,6 +468,14 @@ coverage, which is how both survived.
   Live (already armed), an owner-configured Public Commentary Tracker
   instance, Earnings with owner-selected issuers, Congressional (post-Sprint
   4). Each with alerts enabled and its normal cadence.
+  **Three of five armed 2026-08-23**, all recreated on corrected packs with the
+  owner's authorization to lose their checkpoints: `Inverse Cramer Live`
+  (`inverse-cramer@1.4.8`, 12-hour cadence), `IPO Live` (`ipo-filings@1.1.2`,
+  00/06/12/18 America/Vancouver) and `Tracker Live`
+  (`public-commentary-tracker@1.3.1`, KobeissiLetter, 6-hour cadence) - the
+  owner-configured tracker instance this item asks for. Alerts enabled on both
+  commentary monitors, and both re-baselined cleanly with `lastErrorCode: null`.
+  Earnings and Congressional remain unarmed.
 - [ ] Archive superseded historical workspaces (e.g. the paused Inverse Cramer
   1.1/1.2/1.3 lineage) to free the 12-active-session cap. Archiving only —
   findings, alerts, and receipts are retained, never deleted.
