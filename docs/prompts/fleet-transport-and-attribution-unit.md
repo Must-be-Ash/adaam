@@ -9,7 +9,7 @@ Repository: `/Users/ashnouruzi/dev/adaam`
 
 ## Todo list
 
-1. Repair the red gate `verify:workspace-runtime:sec-ipo-scheduled-compiled`.
+1. Repair the three red verifier gates (two are wrongly filed in `BACKLOG.md`).
 2. Release orphaned budget reservations that permanently consume paid headroom.
 3. Decide whether a determinate HTTP status should still classify as
    `acquisition_uncertain`, and act on the answer.
@@ -59,18 +59,32 @@ Already landed, do not redo:
   previously silent recovery path emits the same bounded summary; and
   `npm run verify:strategies` runs all 38 suites in ~90s.
 
-## 1. Repair the red gate
+## 1. Repair the red gates
 
-`npm run verify:workspace-runtime:sec-ipo-scheduled-compiled` fails on
-unmodified `main`: `TypeError: fetch failed` /
-`getaddrinfo ENOTFOUND fixture.invalid`. The suite reaches a deliberately
-unresolvable fixture host and never catches the rejection, so the process
-aborts instead of the assertion reporting. It is one of the 38 suites in
-`verify:strategies`, so while it is red that gate can never go green and the
-cross-strategy guard is worth less than it looks.
+Three verifier suites are red on unmodified `main`. All three are active work,
+not backlog: a gate nobody can run proves nothing, and while
+`verify:workspace-runtime:sec-ipo-scheduled-compiled` is red the whole
+`verify:strategies` aggregate can never pass, which makes the cross-strategy
+guard worth less than it looks.
 
-Determine whether the suite's expectation or the code under test is wrong, then
-fix the right one. Do not silence it and do not exclude it from the aggregate.
+- **`verify:workspace-runtime:sec-ipo-scheduled-compiled`** —
+  `TypeError: fetch failed` / `getaddrinfo ENOTFOUND fixture.invalid`. The
+  fixture expects an unresolvable host to fail closed locally, but the check
+  reaches real DNS and the rejection is never caught, so the process aborts
+  instead of the assertion reporting. Decide whether it needs an injected fetch
+  or a network-free host assertion.
+- **`verify:agentic-durable-research:u4`** — asserts the latest `ipo-filings`
+  version is `1.1.1`, but `44d83c6` published `1.1.2` without updating it.
+  Decide whether the assertion should track the latest version or pin the
+  version the U4 receipt covered.
+- **`verify:strategy-packs:acceptance`** — recorded red since 2026-08-21 and
+  already owned by Sprint 8's "repair the pre-existing red gate" item. Fix it
+  here if it is cheap; otherwise leave it to Sprint 8 and say so.
+
+The first two are recorded in `BACKLOG.md` §7. **Remove them from that file as
+you fix them** — by the owner's rule below they never belonged there.
+
+Do not silence a gate, and do not exclude one from the aggregate.
 
 ## 2. Release orphaned budget reservations
 
@@ -208,8 +222,6 @@ are retained, never deleted.
 
 ## Not yours
 
-- `verify:strategy-packs:acceptance` — the other pre-existing red gate, already
-  owned by Sprint 8's "repair the pre-existing red gate" item.
 - The commentary classifier's `maximumInputTokens: 24_000`, too small for a
   large first-run backfill. Real and owned, not backlog — it is recorded for the
   commentary follow-up unit.
