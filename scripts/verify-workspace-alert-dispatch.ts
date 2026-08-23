@@ -170,6 +170,35 @@ assert.deepEqual(
 );
 
 /*
+ * An eligible finding with an EMPTY presentation list must still get an alert.
+ * `input.alertPresentations ?? [null]` lets `[]` through untouched, so the
+ * staging loop never ran and the occurrence committed a finding with no alert
+ * at all - inside a branch already guarded by `if (outcome.finding)`. The only
+ * reason the owner saw anything was the replay path staging a bare fallback
+ * afterwards, which is how a tracker alert arrived reading
+ * "3 validated public-commentary research candidates" plus raw digests instead
+ * of the rationale the vertical had already built.
+ */
+const emptyPresentations = new MemoryStore();
+await stageWorkspaceAlertPresentations({
+  alertPresentations: [],
+  finding,
+  monitor,
+  now,
+  scope,
+}, emptyPresentations);
+const fromEmpty = await readWorkspaceAlert(scope, finding.findingId, emptyPresentations);
+assert.ok(
+  fromEmpty,
+  "a finding with an empty presentation list must still stage a deliverable alert",
+);
+assert.deepEqual(
+  await deliver(emptyPresentations),
+  [fromEmpty.alertId],
+  "and that alert must deliver rather than be silently dropped",
+);
+
+/*
  * Red guard. This is the state production was in: every presentation keyed, so
  * `readWorkspaceAlert` - which digests the finding id alone - finds nothing and
  * the occurrence dies as workspace_alert_unavailable after having committed.

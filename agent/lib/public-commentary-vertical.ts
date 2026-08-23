@@ -1203,10 +1203,23 @@ export function createPublicCommentaryPipeline(input: {
         .slice(0, PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumFacts);
       const factIdentities = material.flatMap(({ materialized }) => materialized.genericFinding!.factIdentities)
         .slice(0, PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumFactIdentities);
+      /*
+       * This is the finding's durable summary AND the text an alert falls back
+       * to when no presentation reaches staging - `stageWorkspaceAlert` uses
+       * `input.presentation?.whyMatched ?? input.finding.summary`. It used to
+       * be a count plus a join of finding identities, so the one alert that
+       * did reach the owner read "3 validated public-commentary research
+       * candidates. Statement findings: <64 hex chars>, ..." and said nothing
+       * about what was posted or why it mattered. The identities are already
+       * carried structurally on `factIdentities` and `artifactRefs`, so the
+       * summary owes the reader meaning instead of repeating them.
+       */
+      const leadAlert = allMaterial.find(({ materialized }) => materialized.alertPresentation !== null)
+        ?.materialized.alertPresentation ?? null;
       const aggregateSummary = allMaterial.length === 0 ? null : [
-        `${allMaterial.length} validated public-commentary research candidate${allMaterial.length === 1 ? "" : "s"}.`,
-        `Statement findings: ${factIdentities.join(", ")}.`,
-      ].join(" ");
+        `${allMaterial.length} material public statement${allMaterial.length === 1 ? "" : "s"}.`,
+        leadAlert?.whyMatched ?? "",
+      ].join(" ").trim().slice(0, PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumSummaryCharacters);
       if (aggregateSummary && aggregateSummary.length > PUBLIC_COMMENTARY_OCCURRENCE_LIMITS.maximumSummaryCharacters) {
         await quarantineOverflow("summary_overflow");
         throw new Error("public_commentary_occurrence_summary_overflow");
@@ -1221,8 +1234,7 @@ export function createPublicCommentaryPipeline(input: {
           values.findIndex((candidate) => candidate.sourceId === source.sourceId && candidate.canonicalUrl === source.canonicalUrl) === index),
         summary: aggregateSummary,
       });
-      const firstAlert = allMaterial.find(({ materialized }) => materialized.alertPresentation !== null)
-        ?.materialized.alertPresentation ?? null;
+      const firstAlert = leadAlert;
       const alertPresentations = request.initialBackfill
         ? firstAlert ? [{
             key: "initial-summary",

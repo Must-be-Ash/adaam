@@ -244,7 +244,16 @@ export async function stageWorkspaceAlertPresentations(input: {
   now?: Date;
   scope: Parameters<typeof stageWorkspaceAlert>[0]["scope"];
 }, client?: WorkspaceAlertStoreClient): Promise<void> {
-  const presentations = input.alertPresentations ?? [null];
+  /*
+   * An empty list is not "no alert" - callers reach here only inside
+   * `if (outcome.finding)`, so a finding always warrants one. `?? [null]`
+   * let `[]` through and the loop staged nothing, committing a finding whose
+   * alert never existed; the only thing the owner then received was whatever
+   * a later replay staged with no presentation at all.
+   */
+  const presentations = input.alertPresentations?.length
+    ? input.alertPresentations
+    : [null];
   for (const [index, presentation] of presentations.entries()) {
     await stageWorkspaceAlert({
       finding: input.finding,
