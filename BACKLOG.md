@@ -718,6 +718,15 @@ When an item is completed:
 3. Remove stale claims from `README.md` or `NORTH_STAR.md`.
 4. Record the exact verification that passed.
 5. Do not add speculative work unless the owner explicitly parks or requests it.
+
+**What belongs in this file — owner's rule, 2026-08-23.** This file is for
+wishlist features and extra hardening: work that is genuinely optional for a
+first working version and that nobody is expected to pick up soon. Nothing that
+*should* be addressed goes here. A failing gate, a defect that consumes budget
+or loses data, a regression, or anything blocking a monitor from working is
+active work — put it in the roadmap or the current unit's todo list, never
+here. Filing a real problem as backlog hides it; that is the failure mode this
+rule exists to prevent.
 # Proposed: Public Commentary Strategy Builder
 
 The shipped `public-commentary-tracker@1.0.0` is deliberately structured and
@@ -768,38 +777,8 @@ classification reservations inside the run's paid envelope. Each fix needs its
 own immutable contract version plus a pack version that pins it, so this is
 bookkeeping rather than a one-line change.
 
-# Orphaned budget reservations are never released (found 2026-08-22)
+# RESOLVED: missing-outcome taxonomy after a failed session (found 2026-08-22)
 
-A run reservation that is never reconciled — the occurrence died before the
-schedule tick could finish it — stays in the workspace ledger in state
-`reserved` forever. `prune()` in `agent/lib/workspace-budget-ledger.ts` keeps
-`reserved` and `uncertain` records regardless of calendar month, and
-`reconcileWorkspaceRunBudget` only accepts a caller that still holds the run ID,
-which a dead worker does not. One such record ($1.00) exists on a workspace that
-has since been deleted, so it is unreachable through any owner surface.
-
-Harmless today: it only constrains the daily cap of its own workspace, and that
-workspace is gone. It would matter for a long-lived workspace that accumulates
-them, since each one permanently consumes daily and monthly paid headroom.
-
-# Deferred: missing-outcome taxonomy after a failed session (found 2026-08-22)
-
-`agent/schedules/event-triggers.ts` now delivers a committed outcome before
-surfacing a terminal session failure. A session that fails *without* committing
-still raises `workspace_worker_session_failed`, recorded as
-`workspace_worker_failed`, rather than the more accurate missing-outcome code.
-Left alone deliberately: `worker_outcome_missing` drives the immediate-pause
-recovery path, and changing which failures pause a monitor after five
-consecutive errors versus immediately does not belong inside a delivery fix.
-
-## Pre-existing red gate: `verify:workspace-runtime:sec-ipo-scheduled-compiled`
-
-Fails on unmodified `main` with an unhandled promise rejection:
-`TypeError: fetch failed` / `getaddrinfo ENOTFOUND fixture.invalid`. The suite
-reaches a deliberately unresolvable fixture host and does not catch the
-rejection, so the process aborts rather than the assertion reporting.
-
-Surfaced 2026-08-23 by the first run of the new `verify:strategies` aggregate
-gate; not caused by that change, which only adds a script entry. Belongs with
-the other recorded red gate (`verify:strategy-packs:acceptance`) in Sprint 8's
-"repair the pre-existing red gate" item.
+Fixed in `481a926` — a session that fails without committing now reports the
+accurate missing-outcome code. Kept here only as a pointer; it is not deferred
+work.

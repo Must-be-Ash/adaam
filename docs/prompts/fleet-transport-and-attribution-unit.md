@@ -9,14 +9,16 @@ Repository: `/Users/ashnouruzi/dev/adaam`
 
 ## Todo list
 
-1. Decide whether a determinate HTTP status should still classify as
+1. Repair the red gate `verify:workspace-runtime:sec-ipo-scheduled-compiled`.
+2. Release orphaned budget reservations that permanently consume paid headroom.
+3. Decide whether a determinate HTTP status should still classify as
    `acquisition_uncertain`, and act on the answer.
-2. Capture the actual status code from the next real acquisition failure.
-3. Decide how `verify:strategies` is enforced, and record the rule.
-4. Get Congressional to one successful committing occurrence, then arm it.
-5. Get Earnings (U3) to one successful committing occurrence, then arm it.
-6. Confirm the three already-armed monitors are still healthy.
-7. Archive the leftover acceptance workspace and the three stale ones.
+4. Capture the actual status code from the next real acquisition failure.
+5. Decide how `verify:strategies` is enforced, and record the rule.
+6. Get Congressional to one successful committing occurrence, then arm it.
+7. Get Earnings (U3) to one successful committing occurrence, then arm it.
+8. Confirm the three already-armed monitors are still healthy.
+9. Archive the leftover acceptance workspace and the three stale ones.
 
 Work them in order. One at a time; finish and verify each before the next.
 
@@ -57,7 +59,39 @@ Already landed, do not redo:
   previously silent recovery path emits the same bounded summary; and
   `npm run verify:strategies` runs all 38 suites in ~90s.
 
-## 1. Determinate status vs `acquisition_uncertain`
+## 1. Repair the red gate
+
+`npm run verify:workspace-runtime:sec-ipo-scheduled-compiled` fails on
+unmodified `main`: `TypeError: fetch failed` /
+`getaddrinfo ENOTFOUND fixture.invalid`. The suite reaches a deliberately
+unresolvable fixture host and never catches the rejection, so the process
+aborts instead of the assertion reporting. It is one of the 38 suites in
+`verify:strategies`, so while it is red that gate can never go green and the
+cross-strategy guard is worth less than it looks.
+
+Determine whether the suite's expectation or the code under test is wrong, then
+fix the right one. Do not silence it and do not exclude it from the aggregate.
+
+## 2. Release orphaned budget reservations
+
+A run reservation that is never reconciled — the occurrence died before the
+schedule tick finished it — stays in the workspace ledger as `reserved`
+forever. `prune()` in `agent/lib/workspace-budget-ledger.ts` keeps `reserved`
+and `uncertain` records regardless of calendar month, and
+`reconcileWorkspaceRunBudget` only accepts a caller still holding the run ID,
+which a dead worker does not.
+
+Each orphan permanently consumes daily and monthly paid headroom on its
+workspace. That was tolerable when every workspace was disposable; the three
+live monitors are long-lived and accumulate them with every failed occurrence,
+so a monitor can eventually be starved of budget having spent almost nothing.
+Several failed runs during 2026-08-22/23 each left a $1.00 reservation.
+
+Give unreconciled reservations a bounded lifetime or a sweep that releases them
+once their occurrence can no longer complete, without ever releasing one that a
+live run still holds. Prove both directions.
+
+## 3. Determinate status vs `acquisition_uncertain`
 
 `a631998`'s own comment states the case plainly: *"A non-2xx response is a
 determinate fact — the exact status code — not an ambiguous transport
@@ -75,7 +109,7 @@ safe-by-default — but say why in the code, not just in a commit message. If yo
 do change it, `verify:strategies` before and after: the acquisition layer is
 shared by all five strategies.
 
-## 2. Capture the actual status
+## 4. Capture the actual status
 
 The status code for both original failures is unrecoverable — it was destroyed
 before the fix and the log window has rolled. Nothing to recover; do not spend
@@ -91,7 +125,7 @@ apart while SEC succeeded cleanly in between on the same infrastructure. That
 argues against a broad platform outage and toward two independent upstream
 hiccups. Treat it as the current best reading, not as settled.
 
-## 3. Cross-strategy guard
+## 5. Cross-strategy guard
 
 `npm run verify:strategies` exists. Decide whether it belongs in `prebuild` or
 stays an explicit gate — it costs ~90s per build — and record the decision plus
@@ -102,7 +136,7 @@ argument and the others do not, that branch is untested by four-fifths of the
 suite. That is exactly where the alert-keying defect lived, undetected for
 months, while another strategy using the same code worked perfectly.
 
-## 4-6. Arm the fleet
+## 6-8. Arm the fleet
 
 The owner wants every background agent running so they receive real texts.
 
@@ -122,7 +156,7 @@ owner before enabling anything in Production.**
 
 Cadence discipline: hours, not minutes. Six or twelve hours is right.
 
-## 7. Cleanup
+## 9. Cleanup
 
 `Congressional U4 Acceptance 2` is non-dispatchable but not archived — the
 previous agent's Manage Sessions token expired mid-investigation. Archive it.
@@ -174,14 +208,25 @@ are retained, never deleted.
 
 ## Not yours
 
-- `verify:workspace-runtime:sec-ipo-scheduled-compiled` and
-  `verify:strategy-packs:acceptance` — pre-existing red gates, `BACKLOG.md`,
-  Sprint 8.
+- `verify:strategy-packs:acceptance` — the other pre-existing red gate, already
+  owned by Sprint 8's "repair the pre-existing red gate" item.
 - The commentary classifier's `maximumInputTokens: 24_000`, too small for a
-  large first-run backfill.
+  large first-run backfill. Real and owned, not backlog — it is recorded for the
+  commentary follow-up unit.
 - The tracker's missing research lane and the hardcoded
   `packId !== "inverse-cramer"` gate in
   `agent/lib/public-commentary-workspace-worker.ts`.
+
+## What `BACKLOG.md` is for
+
+Owner's rule, 2026-08-23: **wishlist features and extra hardening only** — work
+genuinely optional for a first working version. **Nothing that should be
+addressed goes there.** A failing gate, a defect that consumes budget or loses
+data, a regression, or anything stopping a monitor from working is active work
+and belongs in the roadmap or in this todo list. Two items in this unit
+(the red gate, the orphaned reservations) were wrongly filed as backlog and
+have been moved back out. If you find something real, give it an owner and a
+home — do not park it.
 
 ## Finish clean
 

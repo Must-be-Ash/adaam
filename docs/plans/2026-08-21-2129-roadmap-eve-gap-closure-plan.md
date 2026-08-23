@@ -43,6 +43,17 @@ Fresh continuity, fleet activation, and one end-of-line regression/E2E pass.
   gates, directly changed shared contracts, typecheck, Eve build, app build.
   The full battery and the end-to-end pass happen once, in Sprint 8, when code
   churn is over. Non-blocking discoveries go to `BACKLOG.md`, not into scope.
+- **What `BACKLOG.md` is for** (owner's rule, 2026-08-23). Wishlist features and
+  extra hardening only — work that is genuinely optional for a first working
+  version. **Nothing that should be addressed goes there.** A failing gate, a
+  defect that consumes budget or loses data, a regression, or anything stopping
+  a monitor from working is active work: it belongs in this roadmap or in the
+  current unit's todo list. If a discovery is non-blocking *and* optional, file
+  it; if it is non-blocking but real, it still needs an owner and a home. Filing
+  a real problem as backlog hides it.
+- **Shared plumbing is shared.** Five strategies use the same generic modules.
+  Run `npm run verify:strategies` (38 per-strategy suites, ~90s) before and
+  after any change to one, not just your own sprint's gates.
 - **Production is a test bed.** No users in prod. Push to `main` auto-deploys
   Production on Vercel. Prefer one real bounded Production acceptance over
   local workarounds. Vercel CLI is available for logs/observability; GitHub CLI
