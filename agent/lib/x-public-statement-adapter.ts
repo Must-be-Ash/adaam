@@ -562,14 +562,34 @@ export async function normalizeXPublicStatementResponsePage(input: {
   });
 }
 
+/* Bounds a diagnostic detail string to characters safe to log unquoted. */
+function boundedXAdapterDetail(value: string): string {
+  const trimmed = value.trim().slice(0, 40);
+  return /^[A-Za-z0-9_.-]+$/u.test(trimmed) ? trimmed : "unrecognized";
+}
+
 function errorAcquisition(input: {
   readonly code: "acquisition_uncertain" | "pagination_bounds_exceeded" | "parser_incomplete" | "rate_limit_exhausted" | "transport_timeout";
+  /*
+   * Diagnostic only, never durable: an HTTP status ("http_503") or a bounded
+   * exception classification ("exception_TypeError"). Without this, "the
+   * response wasn't a 200" and "the fetch itself threw" were indistinguishable
+   * in every log line - exactly the gap that made a real X-endpoint failure
+   * during the same hour as the U4 Congressional acceptance's House failure
+   * impossible to compare against it after the fact.
+   */
+  readonly detail?: string | null;
   readonly observedAt: string;
   readonly receipt: XAcquisitionReceipt;
   readonly sourceInstance: PublicSourceInstance;
   readonly window: { readonly endAt: string; readonly startAt: string };
 }): XPublicStatementAcquisition {
   const digest = digestPublicSourceValue([input.sourceInstance.sourceInstanceId, input.window, input.code]);
+  console.warn("[x-public-statement] acquisition failed", {
+    detail: input.detail ?? null,
+    errorCode: input.code,
+    sourceInstanceId: input.sourceInstance.sourceInstanceId,
+  });
   return Object.freeze({
     baselineEstablished: false,
     corrections: Object.freeze([]),
@@ -916,6 +936,7 @@ export async function runSharedXPublicStatementAcquisition(input: {
         if (response.status !== 200) {
           const failure = errorAcquisition({
             code: response.status === 429 ? "rate_limit_exhausted" : "acquisition_uncertain",
+            detail: `http_${boundedXAdapterDetail(String(response.status))}`,
             observedAt: response.observedAt,
             receipt: receipt(responses, postsRead, false),
             sourceInstance,
@@ -1020,6 +1041,9 @@ export async function runSharedXPublicStatementAcquisition(input: {
           : "acquisition_uncertain" as const;
       const failure = errorAcquisition({
         code: errorCode,
+        detail: errorCode === "acquisition_uncertain"
+          ? `exception_${boundedXAdapterDetail(error instanceof Error ? error.name : typeof error)}`
+          : null,
         observedAt: responses.at(-1)?.observedAt ?? input.window.endAt,
         receipt: receipt(responses, postsRead, false),
         sourceInstance,

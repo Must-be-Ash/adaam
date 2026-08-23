@@ -451,19 +451,62 @@ for (const [label, thrown, expectedCode] of [
   ["transport", new Error("fixture connection reset"), "acquisition_uncertain"],
 ] as const) {
   const failureStore = new MemoryStore();
-  const failed = await runSharedXPublicStatementAcquisition({
-    client: failureStore,
-    evidence: { ...evidence, client: failureStore },
-    fetchResponse: async () => { throw thrown; },
-    sourceId: X_PUBLIC_STATEMENTS_SOURCE_ID,
-    window: {
-      endAt: label === "timeout" ? "2026-08-18T06:25:00.000Z" : "2026-08-18T06:27:00.000Z",
-      startAt: label === "timeout" ? "2026-08-18T06:24:00.000Z" : "2026-08-18T06:26:00.000Z",
-    },
-  });
+  const originalWarn = console.warn;
+  const warnings: unknown[][] = [];
+  console.warn = (...args: unknown[]) => { warnings.push(args); };
+  let failed;
+  try {
+    failed = await runSharedXPublicStatementAcquisition({
+      client: failureStore,
+      evidence: { ...evidence, client: failureStore },
+      fetchResponse: async () => { throw thrown; },
+      sourceId: X_PUBLIC_STATEMENTS_SOURCE_ID,
+      window: {
+        endAt: label === "timeout" ? "2026-08-18T06:25:00.000Z" : "2026-08-18T06:27:00.000Z",
+        startAt: label === "timeout" ? "2026-08-18T06:24:00.000Z" : "2026-08-18T06:26:00.000Z",
+      },
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
   assert.equal(failed.acquisition.errorCode, expectedCode);
   assert.equal(failed.journal, null);
   assert.notEqual(await readPublicSourceAcquisitionResult(failed.acquisition.acquisitionId, failureStore), null);
+  // Only the ambiguous "acquisition_uncertain" bucket needs the extra detail -
+  // transport_timeout and parser_incomplete already are the diagnosis.
+  if (expectedCode === "acquisition_uncertain") {
+    const logged = warnings.find(([message]) => message === "[x-public-statement] acquisition failed");
+    assert.ok(logged, `${label}: a thrown transport exception must log a bounded failure summary`);
+    assert.equal((logged![1] as { detail: string }).detail, "exception_Error",
+      `${label}: a thrown exception must be distinguishable from a non-200 HTTP status in the log`);
+    assert.equal(JSON.stringify(logged![1]).includes("connection reset"), false,
+      "the raw exception message must never reach the log, only its bounded classification");
+  }
+}
+
+{
+  // The other half of the same ambiguity: a resolved response with a non-200,
+  // non-429 status must log a distinguishable detail from a thrown exception.
+  const statusFailureStore = new MemoryStore();
+  const originalWarn = console.warn;
+  const warnings: unknown[][] = [];
+  console.warn = (...args: unknown[]) => { warnings.push(args); };
+  let failed;
+  try {
+    failed = await runSharedXPublicStatementAcquisition({
+      client: statusFailureStore,
+      evidence: { ...evidence, client: statusFailureStore },
+      fetchResponse: async (request) => response(request, { data: [] }, 503),
+      sourceId: X_PUBLIC_STATEMENTS_SOURCE_ID,
+      window: { endAt: "2026-08-18T06:31:00.000Z", startAt: "2026-08-18T06:30:00.000Z" },
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.equal(failed.acquisition.errorCode, "acquisition_uncertain");
+  const logged = warnings.find(([message]) => message === "[x-public-statement] acquisition failed");
+  assert.ok(logged, "a non-200 response must log a bounded failure summary");
+  assert.equal((logged![1] as { detail: string }).detail, "http_503");
 }
 const parseFailureStore = new MemoryStore();
 const parseFailure = await runSharedXPublicStatementAcquisition({
