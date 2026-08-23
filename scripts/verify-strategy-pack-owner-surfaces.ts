@@ -16,7 +16,7 @@ const environment = {
 };
 
 const listed = listStrategyPacks({ environment });
-assert.equal(listed.count, 30);
+assert.equal(listed.count, 31);
 assert.deepEqual(
   listed.packs.map(({ id, version }) => `${id}@${version}`),
   [
@@ -24,6 +24,7 @@ assert.deepEqual(
     "congressional-signals@1.1.0",
     "congressional-signals@1.2.0",
     "congressional-signals@1.3.0",
+    "congressional-signals@1.4.0",
     "earnings-call-changes@1.0.0",
     "earnings-call-changes@1.0.1",
     "earnings-call-changes@1.1.0",

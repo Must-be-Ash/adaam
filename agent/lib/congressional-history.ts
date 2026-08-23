@@ -555,7 +555,8 @@ export function createCongressionalRetractionSignal(input: {
   if (
     !priorEvaluation ||
     (input.priorSignal.packBinding.packVersion !== "1.2.0" &&
-      input.priorSignal.packBinding.packVersion !== "1.3.0") ||
+      input.priorSignal.packBinding.packVersion !== "1.3.0" &&
+      input.priorSignal.packBinding.packVersion !== "1.4.0") ||
     input.retractedTransaction.lineage.retractionId === null
   ) {
     throw new Error("congressional_retraction_signal_invalid");

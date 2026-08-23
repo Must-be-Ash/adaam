@@ -92,13 +92,14 @@ import type { PreparedWorkspaceWorkerRecovery } from "./workspace-worker-runner"
 import { fetchOfficialPublicSourceBytes } from "../tools/fetch_public_source";
 
 type WorkerContext = Parameters<typeof requireWorkspaceWorkerAuth>[0];
-type CongressionalPackVersion = "1.0.0" | "1.1.0" | "1.2.0" | "1.3.0";
+type CongressionalPackVersion = "1.0.0" | "1.1.0" | "1.2.0" | "1.3.0" | "1.4.0";
 
 const CONGRESSIONAL_PACK_VERSIONS = new Set<CongressionalPackVersion>([
   "1.0.0",
   "1.1.0",
   "1.2.0",
   "1.3.0",
+  "1.4.0",
 ]);
 
 function congressionalRuntime(version: CongressionalPackVersion) {

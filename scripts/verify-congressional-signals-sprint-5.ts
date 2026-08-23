@@ -475,9 +475,28 @@ const workspaceE = installWorkspace({
   version: "1.3.0",
   workspaceId: "123e4567-e89b-42d3-a456-426614175505",
 });
+// U4: 1.4.0 declares monitor.congressional-house-disclosures/v1 (the strategy's
+// first lifecycle-contract binding) but keeps every catalog, policy, and
+// evidence contract identical to 1.3.0 - a pure plumbing migration, not a
+// policy change. workspaceF proves the two versions produce the same runtime
+// and the same evaluation output for the same document.
+const workspaceF = installWorkspace({
+  configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: [] },
+  version: "1.4.0",
+  workspaceId: "123e4567-e89b-42d3-a456-426614175506",
+});
 const packV1_3 = strategyPackCatalog.resolve({ id: "congressional-signals", version: "1.3.0" });
 assert.ok(packV1_3);
 assert.deepEqual(packV1_3.evidenceContracts, CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_3);
+const packV1_4 = strategyPackCatalog.resolve({ id: "congressional-signals", version: "1.4.0" });
+assert.ok(packV1_4);
+assert.deepEqual(packV1_4.evidenceContracts, CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_3);
+assert.equal(packV1_4.monitors[0]?.lifecycleContractId, "monitor.congressional-house-disclosures/v1");
+assert.notEqual(
+  packV1_4.contentDigest,
+  packV1_3.contentDigest,
+  "1.4.0 must still be a distinct immutable version despite sharing runtime catalogs",
+);
 assert.deepEqual(
   ["1.0.0", "1.1.0", "1.2.0"].map((version) =>
     strategyPackCatalog.resolve({ id: "congressional-signals", version })?.contentDigest),
@@ -521,6 +540,8 @@ const baselineC = await prepare(workspaceC.monitor, baseNow, workspaceC.scope);
 assert.equal((await execute({ document: baselineDocument, now: baseNow, prepared: baselineC, shouldFetch: false })).result.baselineEstablished, true);
 const baselineD = await prepare(workspaceD.monitor, baseNow, workspaceD.scope);
 assert.equal((await execute({ document: baselineDocument, now: baseNow, prepared: baselineD, shouldFetch: false })).result.baselineEstablished, true);
+const baselineF = await prepare(workspaceF.monitor, baseNow, workspaceF.scope);
+assert.equal((await execute({ document: baselineDocument, now: baseNow, prepared: baselineF, shouldFetch: false })).result.baselineEstablished, true);
 
 const liveNow = baseNow;
 const liveDocument = fixture("ptr-14.pdf");
@@ -553,27 +574,61 @@ const currentD = await getWorkspaceMonitor(workspaceD.scope, workspaceD.monitor.
 assert.ok(currentD);
 const liveD = await prepare(currentD, liveNow, workspaceD.scope);
 await execute({ document: liveDocument, now: liveNow, prepared: liveD, shouldFetch: false });
+const currentF = await getWorkspaceMonitor(workspaceF.scope, workspaceF.monitor.monitorId, monitorStore);
+assert.ok(currentF);
+const liveF = await prepare(currentF, liveNow, workspaceF.scope);
+await execute({ document: liveDocument, now: liveNow, prepared: liveF, shouldFetch: false });
 
-const [historyA, historyB, historyC, historyD] = await Promise.all([
+const [historyA, historyB, historyC, historyD, historyF] = await Promise.all([
   readCongressionalHistory(workspaceA.scope, signal),
   readCongressionalHistory(workspaceB.scope, signal),
   readCongressionalHistory(workspaceC.scope, signal),
   readCongressionalHistory(workspaceD.scope, signal),
+  readCongressionalHistory(workspaceF.scope, signal),
 ]);
 assert.ok(historyA?.activeEntries.length);
 assert.ok(historyB?.activeEntries.length);
 assert.ok(historyC?.activeEntries.length);
 assert.ok(historyD?.activeEntries.length);
+assert.ok(historyF?.activeEntries.length);
 assert.equal(historyA.activeEntries[0]!.transaction.policyReference.policyVersion, "1.0.0");
 assert.equal(historyB.activeEntries[0]!.transaction.policyReference.policyVersion, "1.2.0");
 assert.equal(historyC.activeEntries[0]!.transaction.policyReference.policyVersion, "1.1.0");
 assert.equal(historyD.activeEntries[0]!.transaction.policyReference.policyVersion, "1.2.0");
+assert.equal(historyF.activeEntries[0]!.transaction.policyReference.policyVersion, "1.2.0");
 assert.equal(historyB.activeEntries[0]!.transaction.catalogReferences.member.catalogVersion, "1.1.0");
 assert.equal(historyD.activeEntries[0]!.transaction.catalogReferences.member.catalogVersion, "1.2.0");
+assert.equal(historyF.activeEntries[0]!.transaction.catalogReferences.member.catalogVersion, "1.2.0");
+// The contract migration must not change the evaluation itself: given the
+// same two documents, 1.4.0 (declared contract) and 1.3.0 (no contract) must
+// reach the same set of eligibility/band/committee/cluster/pattern
+// conclusions - workspace- and pack-identity-scoped fields (ids, revision
+// ids, packBinding, lineage's revision references, source) aside. Compare as
+// an order-independent set: activeEntries is not guaranteed to enumerate in
+// the same order across two independently-scoped workspace histories.
+function contentFingerprint(entry: (typeof historyD.activeEntries)[number]): string {
+  const { transaction } = entry;
+  return JSON.stringify({
+    ...transaction,
+    lineage: transaction.lineage.state,
+    packBinding: undefined,
+    source: undefined,
+    transactionId: undefined,
+    transactionRevisionId: undefined,
+    workspaceId: undefined,
+  });
+}
+assert.equal(historyD.activeEntries.length, historyF.activeEntries.length);
+assert.deepEqual(
+  historyD.activeEntries.map(contentFingerprint).sort(),
+  historyF.activeEntries.map(contentFingerprint).sort(),
+  "1.4.0 must evaluate the same set of facts identically to 1.3.0",
+);
 assert.notEqual(historyA.historyRevisionId, historyB.historyRevisionId);
 assert.equal(historyA.workspaceId, workspaceA.scope.workspaceId);
 assert.equal(historyB.workspaceId, workspaceB.scope.workspaceId);
 assert.equal(historyD.workspaceId, workspaceD.scope.workspaceId);
+assert.equal(historyF.workspaceId, workspaceF.scope.workspaceId);
 assert.equal([...signal.values.values()].some((raw) => raw.includes(workspaceA.scope.workspaceId)), true);
 assert.equal([...signal.values.values()].some((raw) => raw.includes(workspaceB.scope.workspaceId)), true);
 assert.equal(countRecordType(finding.values, "workspace_run_outcome") >= 8, true);

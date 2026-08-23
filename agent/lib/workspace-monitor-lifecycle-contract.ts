@@ -8,6 +8,8 @@ export const PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID =
   "monitor.public-commentary-cadence/v1";
 export const EARNINGS_CALL_TRANSCRIPT_MONITOR_LIFECYCLE_CONTRACT_ID =
   "monitor.earnings-call-transcripts/v1";
+export const CONGRESSIONAL_HOUSE_DISCLOSURES_MONITOR_LIFECYCLE_CONTRACT_ID =
+  "monitor.congressional-house-disclosures/v1";
 
 /*
  * Generic monitor storage and dispatch decide four things a strategy must be
@@ -84,6 +86,26 @@ const contracts = new Map<string, WorkspaceMonitorLifecycleContract>([
     initialOccurrence: "scheduled",
     sourceAdmission: "reviewed_transcript_coverage",
     sourcelessInstall: "allowed",
+  }),
+  /*
+   * Reproduces exactly what Congressional already did with no declared
+   * contract at all (the "no contract resolves" default at every consumer:
+   * requiresManagedMonitorActivationWatermark, usesDeferredSourceRetry, and
+   * resolveWorkspaceWorkerEvaluationWindow's "preceding_interval" check are
+   * all false when the contract is null; admitsActivationSources is skipped
+   * entirely; sourceless install stays refused, which the pack's one fixed
+   * House source never exercises anyway). Only 1.4.0+ declares this
+   * contract - 1.0.0 through 1.3.0 remain immutable and unbound, matching
+   * their original acceptance exactly.
+   */
+  defineContract({
+    activationWatermark: "none",
+    deferredSourceRetry: "none",
+    id: CONGRESSIONAL_HOUSE_DISCLOSURES_MONITOR_LIFECYCLE_CONTRACT_ID,
+    initialEvaluationWindow: "created_at",
+    initialOccurrence: "scheduled",
+    sourceAdmission: "any_declared_source",
+    sourcelessInstall: "forbidden",
   }),
 ].map((contract) => [contract.id, contract]));
 
