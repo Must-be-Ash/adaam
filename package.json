@@ -102,6 +102,7 @@
     "verify:workspace-runtime:flags": "node scripts/verify-workspace-runtime-flags.mjs",
     "verify:workspace-runtime:owner": "node scripts/verify-owner-identity.mjs",
     "verify:workspace-runtime:photon-ingress": "jiti scripts/verify-photon-ingress-store.ts",
+    "verify:workspace-runtime:alert-dispatch": "jiti scripts/verify-workspace-alert-dispatch.ts",
     "verify:workspace-runtime:alerts": "jiti scripts/verify-workspace-alert-store.ts",
     "verify:workspace-runtime:alert-presentation": "jiti scripts/verify-workspace-alert-presentation.ts",
     "verify:workspace-runtime:alert-context": "jiti scripts/verify-photon-alert-context.ts",

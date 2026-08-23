@@ -1035,7 +1035,14 @@ assert.equal(
 
 /*
  * The commit path stages the first presentation unkeyed so delivery can find
- * it. Keying all of them is what made every commentary alert undeliverable.
+ * it. Keying all of them is what made every commentary alert undeliverable:
+ * production held three tracker alerts addressable only by a key that
+ * `readWorkspaceAlert` cannot reproduce, so every occurrence committed its
+ * finding and then died as workspace_alert_unavailable.
+ *
+ * The rule now lives in one helper both commit paths call, so guard that
+ * structure rather than counting copies of it: two callers, one definition,
+ * and no path staging a presentation loop of its own.
  */
 {
   const controlPlane = await readFile(
@@ -1045,10 +1052,21 @@ assert.equal(
   const keyedStagings = [...controlPlane.matchAll(
     /\.\.\.\(presentation(?: && index > 0)? \? \{ presentationKey/gu,
   )];
-  assert.equal(keyedStagings.length, 2, "both commit paths stage alerts");
-  for (const [staging] of keyedStagings) {
-    assert.match(staging, /index > 0/u, "the first presentation must stay unkeyed");
-  }
+  assert.equal(
+    keyedStagings.length,
+    1,
+    "the unkeyed-first rule must have exactly one definition",
+  );
+  assert.match(
+    keyedStagings[0]![0],
+    /index > 0/u,
+    "the first presentation must stay unkeyed or delivery cannot resolve it",
+  );
+  assert.equal(
+    [...controlPlane.matchAll(/await stageWorkspaceAlertPresentations\(/gu)].length,
+    2,
+    "both commit paths must stage through the shared helper",
+  );
 }
 
 const mismatchedClaims: ClaimedWorkspaceMonitor[] = [

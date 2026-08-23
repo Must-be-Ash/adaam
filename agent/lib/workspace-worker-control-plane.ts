@@ -224,6 +224,41 @@ async function completeMonitorCheckpoint(
   }, input.client);
 }
 
+/*
+ * Delivery resolves an outcome's alert by finding id, and `stageWorkspaceAlert`
+ * writes a keyed alert under a digest of the finding AND the key - a key
+ * `readWorkspaceAlert` cannot reproduce. The first presentation therefore has
+ * to stay unkeyed so it is the record delivery can find; the rest are keyed so
+ * several presentations for one finding stay distinct in the record and stay
+ * addressable by id for Discuss.
+ *
+ * Both commit paths shared this rule by copy, which is how one of them could
+ * have drifted silently. It lives here once so a seam test can exercise the
+ * same code the worker runs.
+ */
+export async function stageWorkspaceAlertPresentations(input: {
+  alertPresentation?: { title: string; whyMatched: string };
+  alertPresentations?: readonly { key: string; title: string; whyMatched: string }[];
+  finding: Parameters<typeof stageWorkspaceAlert>[0]["finding"];
+  monitor: WorkspaceMonitor;
+  now?: Date;
+  scope: Parameters<typeof stageWorkspaceAlert>[0]["scope"];
+}, client?: WorkspaceAlertStoreClient): Promise<void> {
+  const presentations = input.alertPresentations ?? [null];
+  for (const [index, presentation] of presentations.entries()) {
+    await stageWorkspaceAlert({
+      finding: input.finding,
+      monitor: input.monitor,
+      ...(input.now ? { now: input.now } : {}),
+      ...(presentation ?? input.alertPresentation
+        ? { presentation: presentation ?? input.alertPresentation }
+        : {}),
+      ...(presentation && index > 0 ? { presentationKey: presentation.key } : {}),
+      scope: input.scope,
+    }, client);
+  }
+}
+
 export async function commitDeterministicWorkspaceEvaluationForWorker(input: {
   alertPresentation?: { title: string; whyMatched: string };
   alertPresentations?: readonly { key: string; title: string; whyMatched: string }[];
@@ -289,17 +324,14 @@ export async function commitDeterministicWorkspaceEvaluationForWorker(input: {
      * key the rest so several presentations for one finding stay distinct in
      * the record without colliding.
      */
-    const presentations = input.alertPresentations ?? [null];
-    for (const [index, presentation] of presentations.entries()) {
-      await stageWorkspaceAlert({
-        finding: outcome.finding,
-        monitor: prepared.monitor,
-        now: input.now,
-        presentation: presentation ?? input.alertPresentation,
-        ...(presentation && index > 0 ? { presentationKey: presentation.key } : {}),
-        scope: prepared.scope,
-      }, input.clients?.alert);
-    }
+    await stageWorkspaceAlertPresentations({
+      ...(input.alertPresentation ? { alertPresentation: input.alertPresentation } : {}),
+      ...(input.alertPresentations ? { alertPresentations: input.alertPresentations } : {}),
+      finding: outcome.finding,
+      monitor: prepared.monitor,
+      ...(input.now ? { now: input.now } : {}),
+      scope: prepared.scope,
+    }, input.clients?.alert);
   }
   await completeMonitorCheckpoint(prepared, {
     client: input.clients?.monitor,
@@ -341,17 +373,14 @@ export async function finalizeExistingWorkspaceRunOutcomeForWorker(input: {
   if (input.outcome.finding) {
     // Same rule as the deterministic commit path above: the first presentation
     // stays unkeyed so delivery can resolve it by finding.
-    const presentations = input.alertPresentations ?? [null];
-    for (const [index, presentation] of presentations.entries()) {
-      await stageWorkspaceAlert({
-        finding: input.outcome.finding,
-        monitor: prepared.monitor,
-        now: input.now,
-        presentation: presentation ?? input.alertPresentation,
-        ...(presentation && index > 0 ? { presentationKey: presentation.key } : {}),
-        scope: prepared.scope,
-      }, input.clients?.alert);
-    }
+    await stageWorkspaceAlertPresentations({
+      ...(input.alertPresentation ? { alertPresentation: input.alertPresentation } : {}),
+      ...(input.alertPresentations ? { alertPresentations: input.alertPresentations } : {}),
+      finding: input.outcome.finding,
+      monitor: prepared.monitor,
+      ...(input.now ? { now: input.now } : {}),
+      scope: prepared.scope,
+    }, input.clients?.alert);
   }
   await completeMonitorCheckpoint(prepared, {
     client: input.clients?.monitor,
