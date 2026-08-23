@@ -3,7 +3,11 @@ import { createHash } from "node:crypto";
 
 import type { ScheduleToFn } from "eve/schedules";
 
-import { createEventTriggerSchedule, type EventTriggerScheduleDependencies } from "../agent/schedules/event-triggers";
+import {
+  createEventTriggerSchedule,
+  workspaceOccurrenceFailureCode,
+  type EventTriggerScheduleDependencies,
+} from "../agent/schedules/event-triggers";
 import type { ClaimedEventTrigger } from "../agent/lib/event-trigger-store";
 import type { WorkspaceDispatchReservation } from "../agent/lib/workspace-dispatch-budget";
 import type { WorkspaceRunOutcome } from "../agent/lib/workspace-finding-store";
@@ -908,6 +912,61 @@ assert.equal(
   recordedSessionFailureCode,
   "workspace_worker_failed",
   "the session failure must still surface after delivery, with its existing code",
+);
+
+/*
+ * Delivery runs inside the same try as the worker session, so a delivery
+ * failure would otherwise record the same code as the session failing. A live
+ * monitor failing every occurrence could not be told apart from one whose
+ * alerts were failing to send.
+ */
+let deliveryFailureCode: string | null = null;
+let deliveryFailureClaimed = false;
+const deliveryFailureSchedule = createEventTriggerSchedule({
+  ...deliveryDependencies,
+  claimWorkspaceMonitors: async () => {
+    if (deliveryFailureClaimed) return [];
+    deliveryFailureClaimed = true;
+    return [firstAttemptJob];
+  },
+  deliverWorkspaceOutcome: async () => {
+    throw new Error("photon_alert_workspace_unavailable");
+  },
+  emitRuntimeObservation: () => undefined,
+  recordWorkspaceFailure: async (input: { errorCode: string }) => {
+    deliveryFailureCode = input.errorCode;
+  },
+  releaseWorkspaceLease: async () => true,
+} as unknown as EventTriggerScheduleDependencies);
+assert.ok("run" in deliveryFailureSchedule && deliveryFailureSchedule.run);
+const deliveryFailureWaiters: Promise<unknown>[] = [];
+deliveryFailureSchedule.run({
+  appAuth: {
+    attributes: {},
+    authenticator: "app",
+    principalId: "eve:app",
+    principalType: "runtime",
+  },
+  to: (() => {
+    throw new Error("legacy_to_not_expected");
+  }) as ScheduleToFn,
+  waitUntil(task) {
+    deliveryFailureWaiters.push(task);
+  },
+});
+await Promise.all(deliveryFailureWaiters);
+assert.equal(
+  deliveryFailureCode,
+  "workspace_alert_delivery_failed",
+  "a failure while delivering a committed outcome must be recorded as a delivery failure",
+);
+assert.equal(
+  workspaceOccurrenceFailureCode(new Error("workspace_worker_required_outcome_missing")),
+  "worker_outcome_missing",
+);
+assert.equal(
+  workspaceOccurrenceFailureCode(new Error("workspace_worker_session_failed")),
+  "workspace_worker_failed",
 );
 
 const mismatchedClaims: ClaimedWorkspaceMonitor[] = [

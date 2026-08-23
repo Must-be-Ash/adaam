@@ -224,6 +224,26 @@ async function quarantineWorkspaceRecoveryFailure(
   if (releaseError) throw releaseError;
 }
 
+/*
+ * Marks a failure that happened while delivering an alert for an outcome the
+ * worker had already committed, so it is never conflated with the worker
+ * session failing.
+ */
+class WorkspaceAlertDeliveryFailure extends Error {
+  constructor(readonly cause: unknown) {
+    super("workspace_alert_delivery_failed");
+    this.name = "WorkspaceAlertDeliveryFailure";
+  }
+}
+
+export function workspaceOccurrenceFailureCode(error: unknown): string {
+  if (error instanceof WorkspaceAlertDeliveryFailure) return "workspace_alert_delivery_failed";
+  return error instanceof Error &&
+    error.message === "workspace_worker_required_outcome_missing"
+    ? "worker_outcome_missing"
+    : "workspace_worker_failed";
+}
+
 async function executeWorkspaceRecovery(
   job: ClaimedWorkspaceMonitor,
   dependencies: EventTriggerScheduleDependencies,
@@ -332,7 +352,15 @@ async function executeWorkspaceJob(
       if (!terminalFailure) throw error;
     }
     if (committedOutcome && deliverAlerts) {
-      await dependencies.deliverWorkspaceOutcome({ job, outcome: committedOutcome });
+      try {
+        await dependencies.deliverWorkspaceOutcome({ job, outcome: committedOutcome });
+      } catch (error) {
+        // Delivery runs inside this try so a committed outcome is always
+        // attempted, which means a delivery failure would otherwise be
+        // indistinguishable from the session failing. Mark it so the recorded
+        // code says which half broke.
+        throw new WorkspaceAlertDeliveryFailure(error);
+      }
     }
     if (terminalFailure) throw new Error("workspace_worker_session_failed");
     const outcome = committedOutcome!;
@@ -368,6 +396,22 @@ async function executeWorkspaceJob(
       // A corrupt or unavailable retry record must not turn a terminal failure
       // into a blind acquisition replay.
     }
+    /*
+     * The bounded observation carries only a counter and a fixed code, so an
+     * unrecognized error collapses to `evaluation_failed` and nothing records
+     * what actually threw. That is how a repeatedly failing live monitor stayed
+     * undiagnosable. Log a bounded summary alongside it: the error name always,
+     * and the message only when it is one of this system's code-shaped
+     * identifiers, so untrusted source content can never reach the log.
+     */
+    const failureMessage = error instanceof Error ? error.message : "";
+    console.error("[workspace.runtime] workspace occurrence failed", {
+      error_message: /^[a-z][a-z0-9_]{2,63}$/u.test(failureMessage) ? failureMessage : null,
+      error_type: error instanceof Error ? error.name : typeof error,
+      failureCode: workspaceOccurrenceFailureCode(error),
+      monitorId: job.monitor.monitorId,
+      started,
+    });
     dependencies.emitRuntimeObservation({
       counter: retry
         ? "workspace_monitor_retryable_failure_total"
@@ -381,11 +425,7 @@ async function executeWorkspaceJob(
       if (!retry) {
         try {
           await dependencies.recordWorkspaceFailure({
-          errorCode:
-            error instanceof Error &&
-            error.message === "workspace_worker_required_outcome_missing"
-              ? "worker_outcome_missing"
-              : "workspace_worker_failed",
+          errorCode: workspaceOccurrenceFailureCode(error),
           expectedRevision: job.monitor.configurationRevision,
           monitorId: job.monitor.monitorId,
           scope: job.scope,
