@@ -547,4 +547,73 @@ for (const [name, indexBody, documentBody, expectedError, expectedStatus] of [
   assert.equal((await readPublicSourceInstance(result.acquisition.result.sourceInstanceId, client))?.cursor.revision, 0, name);
 }
 
+// Both a non-200 HTTP response and the fetch call itself throwing collapse to
+// the identical "acquisition_uncertain"/"transport"/"uncertain" classification
+// - this is what made the U4 Congressional acceptance's real failure
+// undiagnosable from Production logs alone. Prove the logged detail actually
+// distinguishes them.
+function captureWarnings(): { readonly calls: unknown[][]; restore(): void } {
+  const original = console.warn;
+  const calls: unknown[][] = [];
+  console.warn = (...args: unknown[]) => { calls.push(args); };
+  return { calls, restore: () => { console.warn = original; } };
+}
+
+{
+  const warnings = captureWarnings();
+  const client = new MemoryStore();
+  const observedAt = "2026-08-16T07:00:00.000Z";
+  let result;
+  try {
+    result = await runHousePublicSourceAcquisition({
+      client,
+      fetchDocument: async (url) => response({ body: singlePdf, contentType: "application/pdf", observedAt, url }),
+      fetchIndex: async (url) => ({
+        body: representativeIndex,
+        contentType: "application/zip",
+        finalUrl: url,
+        observedAt,
+        requestedUrl: url,
+        status: 503,
+      }),
+      sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+      window: window(observedAt),
+    });
+  } finally {
+    warnings.restore();
+  }
+  assert.equal(result.acquisition.result.status, "uncertain");
+  assert.equal(result.acquisition.result.errorCode, "acquisition_uncertain");
+  const logged = warnings.calls.find(([message]) => message === "[house-public-source] acquisition failed");
+  assert.ok(logged, "a non-200 index response must log a bounded failure summary");
+  assert.equal((logged![1] as { detail: string }).detail, "http_503",
+    "a non-200 HTTP status must be distinguishable from a thrown transport exception in the log");
+}
+
+{
+  const warnings = captureWarnings();
+  const client = new MemoryStore();
+  const observedAt = "2026-08-16T07:00:00.000Z";
+  let result;
+  try {
+    result = await runHousePublicSourceAcquisition({
+      client,
+      fetchDocument: async (url) => response({ body: singlePdf, contentType: "application/pdf", observedAt, url }),
+      fetchIndex: async () => { throw new TypeError("fetch failed"); },
+      sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+      window: window(observedAt),
+    });
+  } finally {
+    warnings.restore();
+  }
+  assert.equal(result.acquisition.result.status, "uncertain");
+  assert.equal(result.acquisition.result.errorCode, "acquisition_uncertain");
+  const logged = warnings.calls.find(([message]) => message === "[house-public-source] acquisition failed");
+  assert.ok(logged, "a thrown transport exception must log a bounded failure summary");
+  assert.equal((logged![1] as { detail: string }).detail, "exception_TypeError",
+    "a thrown exception must be distinguishable from a non-200 HTTP status in the log");
+  assert.equal(JSON.stringify(logged![1]).includes("fetch failed"), false,
+    "the raw exception message must never reach the log, only its bounded classification");
+}
+
 console.log("public-source House acquisition verification passed");

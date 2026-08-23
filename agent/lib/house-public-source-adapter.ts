@@ -136,10 +136,25 @@ class HouseAdapterError extends Error {
     readonly code: HouseErrorCode,
     readonly stage: "archive" | "normalize" | "pdf" | "transport" | "xml",
     readonly status: "partial" | "terminal_failure" | "uncertain" = "terminal_failure",
+    /*
+     * Diagnostic only, never durable: an HTTP status ("503") or a bounded
+     * exception classification ("TypeError"). `code`/`stage`/`status` alone
+     * cannot distinguish "House returned a non-200 response" from "the fetch
+     * itself threw" - both collapsed to identical log lines with nothing to
+     * tell them apart, which is exactly what made a live transport failure
+     * during the U4 acceptance undiagnosable from Production logs alone.
+     */
+    readonly detail: string | null = null,
   ) {
     super(code);
     this.name = "HouseAdapterError";
   }
+}
+
+/* Bounds a diagnostic detail string to characters safe to log unquoted. */
+function boundedAdapterDetail(value: string): string {
+  const trimmed = value.trim().slice(0, 40);
+  return /^[A-Za-z0-9_.-]+$/u.test(trimmed) ? trimmed : "unrecognized";
 }
 
 const sharedAcquisitions = new Map<
@@ -299,7 +314,12 @@ function validateResponse(input: {
     throw new HouseAdapterError("transport_response_oversized", "transport");
   }
   if (input.response.status !== 200) {
-    throw new HouseAdapterError("acquisition_uncertain", "transport", "uncertain");
+    throw new HouseAdapterError(
+      "acquisition_uncertain",
+      "transport",
+      "uncertain",
+      `http_${boundedAdapterDetail(String(input.response.status))}`,
+    );
   }
   const contentType = input.response.contentType.split(";", 1)[0]!.trim().toLowerCase();
   const allowed = input.kind === "archive"
@@ -680,6 +700,20 @@ function failureAcquisition(input: {
   readonly window: { readonly endAt: string; readonly startAt: string };
 }): HousePublicSourceAcquisition {
   const id = acquisitionId({ contentDigest: digestPublicSourceValue([input.bodyDigest, input.error.code]), source: input.source, window: input.window });
+  /*
+   * The shared observability counters are identity-free by design and the
+   * durable result's errorCode is a bounded enum, so neither can carry an
+   * HTTP status or exception name. Log it here, once, at the single choke
+   * point every House acquisition failure passes through - a source instance
+   * id is registry identity, not owner data, so it is safe alongside it.
+   */
+  console.warn("[house-public-source] acquisition failed", {
+    detail: input.error.detail,
+    errorCode: input.error.code,
+    sourceInstanceId: input.source.sourceInstanceId,
+    stage: input.error.stage,
+    status: input.error.status,
+  });
   return Object.freeze({
     baselineEstablished: false,
     corrections: Object.freeze([]),
@@ -728,7 +762,18 @@ function mappedError(error: unknown): HouseAdapterError {
           : "archive";
     return new HouseAdapterError(error.code, stage);
   }
-  return new HouseAdapterError("acquisition_uncertain", "transport", "uncertain");
+  /*
+   * An unrecognized thrown value here is the fetch layer itself failing
+   * (DNS, connection refused/reset, timeout, TLS) rather than a parsed HTTP
+   * response - genuinely distinct from validateResponse's non-200 case, and
+   * previously indistinguishable from it in every log line.
+   */
+  return new HouseAdapterError(
+    "acquisition_uncertain",
+    "transport",
+    "uncertain",
+    `exception_${boundedAdapterDetail(error instanceof Error ? error.name : typeof error)}`,
+  );
 }
 
 async function candidateWithLineage(input: {
