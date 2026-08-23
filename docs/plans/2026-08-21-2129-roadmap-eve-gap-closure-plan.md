@@ -79,11 +79,11 @@ Fresh continuity, fleet activation, and one end-of-line regression/E2E pass.
       waiting on a live Cramer statement — does not block Sprints 2–5)*
 - [x] Sprint 2 — U2: Public Commentary Tracker migration *(complete 2026-08-22, `main` @ `e35ae74`, receipt `U2 Tracker Acceptance 0822`)*
 - [x] Sprint 3 — U3: Earnings Call Changes migration *(migration complete and landed 2026-08-23, `main` @ `3b63fd3`; strategy parked behind a disabled Production flag)*
-- [ ] Sprint 4 — U4: Congressional repair + migration *(code, local gates,
-      deploy, and cleanup complete 2026-08-23, `main` @ `899cba1`/`e3e9c36`;
-      the one Production occurrence hit a genuine external transport failure
-      rather than a clean terminal result — owner to decide if that closes
-      the unit or a second acceptance is warranted)*
+- [x] Sprint 4 — U4: Congressional repair + migration *(complete 2026-08-23,
+      `main` @ `899cba1`/`e3e9c36`; the one Production occurrence hit a
+      genuine external transport failure rather than a clean terminal
+      result — owner reviewed the receipt and accepted it in place of a
+      second acceptance)*
 - [ ] Sprint 5 — U5: Final boundary and isolation audit
 - [ ] Sprint 6 — Durable Start Fresh continuity
 - [ ] Sprint 7 — Fleet activation
@@ -275,12 +275,12 @@ acceptance.
 
 - [x] Retry-defect repair green before migration begins (marked in the plan,
       2026-08-23, `main@14c7626`).
-- [ ] §U4 checklist complete in the migration plan (marked there). Contract
-      migration, local gates, deploy, and cleanup are done
-      (`main@899cba1`/`e3e9c36`). The one Production occurrence terminalized
-      via a genuine live House-endpoint transport failure rather than a clean
-      committed outcome; it was not retried, and whether it satisfies the
-      checklist's Production-occurrence item is left for the owner.
+- [x] §U4 checklist complete in the migration plan (marked there,
+      2026-08-23). Contract migration, local gates, deploy, and cleanup are
+      done (`main@899cba1`/`e3e9c36`). The one Production occurrence
+      terminalized via a genuine live House-endpoint transport failure rather
+      than a clean committed outcome; it was not retried, and the owner
+      reviewed and accepted the receipt in place of a second acceptance.
 
 ## Sprint 5 — U5: Final boundary and isolation audit
 

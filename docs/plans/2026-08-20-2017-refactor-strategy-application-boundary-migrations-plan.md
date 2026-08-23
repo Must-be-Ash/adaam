@@ -766,9 +766,9 @@ missing the `definitionId` that `0656ff0` added to the envelope schema on
   `nextOccurrenceAt` hours away (not in flight); `Tracker Live` was found
   already `paused_failure` (4 consecutive failures, unrelated to this unit) -
   recorded as a discovery, not investigated further here.
-- [ ] One zero-usage Production occurrence terminal and reported.
-  **Attempted once on 2026-08-23; recorded, not retried, pending owner
-  direction on whether it satisfies this item.** Through the owner's Manage
+- [x] One zero-usage Production occurrence terminal and reported (2026-08-23;
+  owner accepted this as satisfying the item without a second attempt).
+  Through the owner's Manage
   Sessions capability, workspace `Congressional U4 Acceptance`
   (`634306b8-032b-4004-b189-766fd2eb6f43`, `congressional-signals@1.4.0`,
   monitor `0a33180a-e78f-53a0-909c-4b239b2e2427`, `lifecycleContractId:
@@ -808,11 +808,7 @@ missing the `definitionId` that `0656ff0` added to the envelope schema on
   `0a33180a-e78f-53a0-909c-4b239b2e2427` is `suspended_archived`,
   `nextOccurrenceAt: null`, confirmed by direct read-only store query (not the
   manager API's own report).
-- [ ] U4 and Progress Tracker marked complete before U5 begins. **Blocked on
-  the item above:** the code changes, local proof, deploy, and cleanup are all
-  done, but whether the one Production occurrence's external-transport-caused
-  failure satisfies "one zero-usage Production occurrence terminal" is an
-  owner decision, not the implementing agent's to make unilaterally.
+- [x] U4 and Progress Tracker marked complete before U5 begins (2026-08-23).
 
 ### U5. Complete the final catalog boundary and isolation audit
 
