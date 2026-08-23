@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 
 import {
+  earningsCallComparisonPlannerLimits,
+  earningsCallComparisonSessionOptions,
   EARNINGS_CALL_COMPARISON_DEFINITION_ID,
   EARNINGS_CALL_COMPARISON_SECTION_DEFINITION_ID,
   EARNINGS_CALL_COMPARISON_SYNTHESIS_DEFINITION_ID,
@@ -70,6 +72,15 @@ type PreparedCitationSpan = Readonly<{
   evidenceSpanDigest: string;
 }>;
 
+export type EarningsCallSemanticPlannerLimits = Readonly<{
+  maximumAggregateInputTokens: number;
+  maximumSectionInputTokens: number;
+  maximumSectionJobs: number;
+  maximumSingleJobInputTokens: number;
+  maximumSectionOutputTokens: number;
+  maximumSynthesisInputTokens: number;
+}>;
+
 export type EarningsCallSemanticPlan = Readonly<{
   aggregateInputTokens: number;
   jobs: readonly Readonly<{ inputTokens: number; spans: readonly PlannedSpan[] }>[];
@@ -102,9 +113,12 @@ function requiredSpans(evidence: readonly EarningsCallSemanticEvidenceInput[]): 
 
 export function planEarningsCallSemanticComparison(
   evidence: readonly EarningsCallSemanticEvidenceInput[],
+  // Defaults to the frozen policy envelope so every published version plans
+  // exactly as it shipped; a version whose signed session is larger passes its
+  // own limits so the planner and the definition agree on one job size.
+  limits: EarningsCallSemanticPlannerLimits = EARNINGS_CALL_POLICY.semanticEnvelope,
 ): EarningsCallSemanticPlan {
   const spans = requiredSpans(evidence);
-  const limits = EARNINGS_CALL_POLICY.semanticEnvelope;
   const totalTokens = spans.reduce((total, span) => total + estimateTokens(span.end - span.start), 0);
   if (totalTokens <= limits.maximumSingleJobInputTokens) {
     return Object.freeze({
@@ -304,7 +318,10 @@ export async function runEarningsCallSemanticComparison(input: {
   workspaceGeneration: number;
 }, clients: BundleClients): Promise<EarningsCallSemanticRunResult> {
   const validated = validateComparisonEvidence(input.comparison, input.evidence);
-  const plan = planEarningsCallSemanticComparison(validated.evidence);
+  const plan = planEarningsCallSemanticComparison(
+    validated.evidence,
+    earningsCallComparisonPlannerLimits(input.pack.version),
+  );
   if (plan.state === "overflow") {
     return Object.freeze({
       final: null,
@@ -318,16 +335,7 @@ export async function runEarningsCallSemanticComparison(input: {
   const citationSpansByKey = prepareCitationSpans(validated.evidence, allSpans);
   const definitions = createEarningsCallComparisonDefinitions(
     [input.modelId],
-    // 1.0.0 signed the comparison children at the policy envelope's own
-    // defaults. Every version after it signs the sized session, and the
-    // declared digest in each pack must keep matching what is built here.
-    input.pack.version === "1.0.0"
-      ? {}
-      : {
-          maximumRuntimeMs: EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
-          maximumSessionInputTokens: EARNINGS_CALL_POLICY.semanticEnvelope.maximumAggregateInputTokens,
-          maximumSessionOutputTokens: EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
-        },
+    earningsCallComparisonSessionOptions(input.pack.version),
   );
   const shared = {
     environment: input.environment,

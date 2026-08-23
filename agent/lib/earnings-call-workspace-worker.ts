@@ -23,8 +23,7 @@ import { EARNINGS_CALL_ISSUER_CATALOG } from "./earnings-call-issuer-catalog";
 import { createEarningsCallFinding } from "./earnings-call-materiality";
 import {
   createEarningsCallComparisonDefinitions,
-  EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
-  EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
+  earningsCallComparisonSessionOptions,
 } from "./hybrid-evidence-definition-registry";
 import { EARNINGS_CALL_POLICY, resolveEarningsCallFlags } from "./earnings-call-policy";
 import {
@@ -219,16 +218,7 @@ function hasMatchingSemanticDefinitions(
 ): boolean {
   return createEarningsCallComparisonDefinitions(
     [modelId],
-    // 1.0.0 signed the comparison children at the policy envelope's own
-    // defaults. Every version after it signs the sized session, and this
-    // migration does not change that reviewed comparison contract.
-    pack.version === "1.0.0"
-      ? {}
-      : {
-          maximumRuntimeMs: EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
-          maximumSessionInputTokens: EARNINGS_CALL_POLICY.semanticEnvelope.maximumAggregateInputTokens,
-          maximumSessionOutputTokens: EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
-        },
+    earningsCallComparisonSessionOptions(pack.version),
   ).every((definition) =>
     pack.evidenceContracts?.some((contract) =>
       contract.id === definition.definitionId &&

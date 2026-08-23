@@ -15,6 +15,12 @@ import {
   isEarningsCallAgenticResearchPack,
 } from "../agent/lib/earnings-call-research";
 import { EARNINGS_CALL_POLICY } from "../agent/lib/earnings-call-policy";
+import {
+  createEarningsCallComparisonDefinitions,
+  earningsCallComparisonPlannerLimits,
+  earningsCallComparisonSessionOptions,
+  EARNINGS_CALL_EXTENDED_SESSION_INPUT_TOKENS,
+} from "../agent/lib/hybrid-evidence-definition-registry";
 import { resolveStrategyPackResearchWorkerContract } from "../agent/lib/hybrid-evidence-worker-contract-registry";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
 import {
@@ -29,8 +35,9 @@ import {
 import { requiresManagedMonitorActivationWatermark } from "../agent/lib/workspace-monitor-store";
 
 const EARNINGS_MONITOR_RESOURCE_ID = "compare-earnings-calls";
-const PUBLISHED_VERSIONS = ["1.0.0", "1.0.1"] as const;
-const CURRENT_VERSION = "1.1.0";
+const PUBLISHED_VERSIONS = ["1.0.0", "1.0.1"] as const;   // predate the lifecycle contract
+const CONTRACT_DECLARING_VERSIONS = ["1.1.0", "1.2.0"] as const;
+const CURRENT_VERSION = "1.2.0";
 
 // ---------------------------------------------------------------------------
 // Strategy ownership: issuer discovery and source-family selection stay in the
@@ -78,11 +85,14 @@ assert.equal(EARNINGS_CALL_POLICY.semanticEnvelope.overflowOutcome, "abstained")
 // contract, not from the pack id.
 // ---------------------------------------------------------------------------
 
-assert.equal(
-  currentPack.monitors.find(({ resourceId }) => resourceId === EARNINGS_MONITOR_RESOURCE_ID)
-    ?.lifecycleContractId,
-  EARNINGS_CALL_TRANSCRIPT_MONITOR_LIFECYCLE_CONTRACT_ID,
-);
+for (const version of CONTRACT_DECLARING_VERSIONS) {
+  const entry = strategyPackCatalog.resolve({ id: "earnings-call-changes", version })!;
+  assert.equal(
+    entry.monitors.find(({ resourceId }) => resourceId === EARNINGS_MONITOR_RESOURCE_ID)
+      ?.lifecycleContractId,
+    EARNINGS_CALL_TRANSCRIPT_MONITOR_LIFECYCLE_CONTRACT_ID,
+  );
+}
 
 const earnings = resolveManagedMonitorLifecycleContract({
   lifecycleContractId: EARNINGS_CALL_TRANSCRIPT_MONITOR_LIFECYCLE_CONTRACT_ID,
@@ -300,7 +310,58 @@ for (const version of PUBLISHED_VERSIONS) {
   )!;
   assert.ok(
     published.suggestedBudget.maximumInputTokensPerRun < declaredSessionInput,
-    `${version} is the sizing defect this version repairs`,
+    `${version} is the sizing defect the migrated versions repair`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The comparison session is version-scoped. A real reviewed transcript pair
+// measures ~50,000 estimated input tokens, far above the frozen policy
+// envelope, so every version that signs the envelope's 24,000 overflows the
+// planner and abstains without analyzing anything. Only the current version
+// signs a session large enough to hold a real pair in one job - and raising it
+// must not disturb what published versions declared.
+// ---------------------------------------------------------------------------
+
+assert.equal(
+  earningsCallComparisonSessionOptions(CURRENT_VERSION).maximumSessionInputTokens,
+  EARNINGS_CALL_EXTENDED_SESSION_INPUT_TOKENS,
+);
+assert.equal(
+  earningsCallComparisonPlannerLimits(CURRENT_VERSION).maximumSingleJobInputTokens,
+  EARNINGS_CALL_EXTENDED_SESSION_INPUT_TOKENS,
+);
+for (const version of ["1.0.1", "1.1.0"]) {
+  assert.equal(
+    earningsCallComparisonSessionOptions(version).maximumSessionInputTokens,
+    EARNINGS_CALL_POLICY.semanticEnvelope.maximumAggregateInputTokens,
+    `${version} must keep the comparison session it shipped with`,
+  );
+  assert.equal(
+    earningsCallComparisonPlannerLimits(version).maximumSingleJobInputTokens,
+    EARNINGS_CALL_POLICY.semanticEnvelope.maximumSingleJobInputTokens,
+    `${version} must keep the planner limits it shipped with`,
+  );
+}
+assert.equal(earningsCallComparisonSessionOptions("1.0.0").maximumSessionInputTokens, undefined);
+
+// The policy envelope itself stays frozen: its literals feed the comparison
+// digests published packs declare, so a change there invalidates them rather
+// than leaving them unchanged.
+assert.equal(EARNINGS_CALL_POLICY.semanticEnvelope.maximumAggregateInputTokens, 24_000);
+assert.equal(EARNINGS_CALL_POLICY.semanticEnvelope.maximumSingleJobInputTokens, 12_000);
+for (const version of ["1.0.1", "1.1.0", CURRENT_VERSION]) {
+  const entry = strategyPackCatalog.resolve({ id: "earnings-call-changes", version })!;
+  const built = createEarningsCallComparisonDefinitions(
+    ["openai/gpt-5.4"],
+    earningsCallComparisonSessionOptions(version),
+  );
+  assert.ok(
+    built.every((definition) => entry.evidenceContracts?.some((contract) =>
+      contract.id === definition.definitionId &&
+      contract.version === definition.definitionVersion &&
+      contract.digest === definition.definitionDigest)),
+    `${version} must still resolve the comparison definitions it declares`,
   );
 }
 

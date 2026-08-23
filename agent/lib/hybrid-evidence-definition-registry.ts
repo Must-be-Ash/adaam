@@ -36,6 +36,54 @@ export const EARNINGS_CALL_COMPARISON_SYNTHESIS_DEFINITION_ID =
   "earnings-call-semantic-comparison-synthesis";
 export const EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS = 180_000;
 export const EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS = 12_000;
+/*
+ * A real reviewed transcript pair measures ~59,000 estimated input tokens
+ * (JPM FY2026-Q2 vs Q1: 99,855 and 101,512 normalized characters). The frozen
+ * policy envelope caps a single comparison job at 12,000 and the aggregate at
+ * 24,000, so every real pair overflowed the planner and abstained without ever
+ * being analyzed. This extended session sizes one job to fit a real pair with
+ * headroom for a longer call.
+ *
+ * The policy envelope itself stays frozen: its literals feed the comparison
+ * definition digests that published pack versions declare, so changing them
+ * would invalidate 1.0.1 and 1.1.0 rather than leave them unchanged. Versions
+ * that shipped with the smaller session keep it; only versions listed here
+ * receive the extended one.
+ */
+export const EARNINGS_CALL_EXTENDED_SESSION_INPUT_TOKENS = 96_000;
+const EARNINGS_CALL_EXTENDED_SESSION_VERSIONS: readonly string[] = ["1.2.0"];
+
+export function earningsCallComparisonSessionOptions(packVersion: string): {
+  readonly maximumRuntimeMs?: number;
+  readonly maximumSessionInputTokens?: number;
+  readonly maximumSessionOutputTokens?: number;
+} {
+  // 1.0.0 signed the comparison children at the policy envelope's own defaults.
+  if (packVersion === "1.0.0") return {};
+  return {
+    maximumRuntimeMs: EARNINGS_CALL_SEMANTIC_SIGNED_RUNTIME_MS,
+    maximumSessionInputTokens: EARNINGS_CALL_EXTENDED_SESSION_VERSIONS.includes(packVersion)
+      ? EARNINGS_CALL_EXTENDED_SESSION_INPUT_TOKENS
+      : EARNINGS_CALL_POLICY.semanticEnvelope.maximumAggregateInputTokens,
+    maximumSessionOutputTokens: EARNINGS_CALL_SEMANTIC_SESSION_OUTPUT_TOKENS,
+  };
+}
+
+/*
+ * The planner decides single-job versus sectioned from the same session size
+ * the definition is signed with, so a version whose job can hold a real pair
+ * plans one job instead of overflowing.
+ */
+export function earningsCallComparisonPlannerLimits(packVersion: string) {
+  const envelope = EARNINGS_CALL_POLICY.semanticEnvelope;
+  return EARNINGS_CALL_EXTENDED_SESSION_VERSIONS.includes(packVersion)
+    ? Object.freeze({
+        ...envelope,
+        maximumAggregateInputTokens: EARNINGS_CALL_EXTENDED_SESSION_INPUT_TOKENS,
+        maximumSingleJobInputTokens: EARNINGS_CALL_EXTENDED_SESSION_INPUT_TOKENS,
+      })
+    : envelope;
+}
 export const SPREADSHEET_ROLE_DEFINITION_ID = "reviewed-spreadsheet-role-mapping";
 export const SEMANTIC_PUBLIC_TEXT_DEFINITION_ID = "semantic-public-text-reference";
 
