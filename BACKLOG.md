@@ -747,3 +747,47 @@ read by enumerating pack IDs (`earnings-call-changes`, then `inverse-cramer` or
 contract could own, but the site spans the earnings pack too, so U2 left it for
 the U5 boundary audit to classify alongside U3's migration rather than editing
 one half of a shared switch.
+
+# Proposed: retire the three dead paid ceilings on classification contracts (found 2026-08-22)
+
+`public-commentary-impact-actionability@1.0.1` dropped its `maximumPaidCostUsd`
+to zero because the job has no paid tool surface: no research lane in the worker
+contract registry, `maximumPages: 0`, `maximumRows: 0`. Three sibling contracts
+still declare `"0.2500"` for the same structurally impossible call:
+
+- `createCommentarySemanticDefinition` (`public-commentary-semantics.ts`)
+- `createInverseCramerSemanticDefinition`
+- `createInverseCramerActionabilityDefinition`
+
+Real and must stay: `inverse-cramer-research.ts` and `sec-ipo-semantics.ts`,
+which do declare a research lane with an approved URL policy.
+
+None is failing today. The defect only bites a pack whose source is paid and
+which declares no research lane, because a research budget otherwise absorbs the
+classification reservations inside the run's paid envelope. Each fix needs its
+own immutable contract version plus a pack version that pins it, so this is
+bookkeeping rather than a one-line change.
+
+# Orphaned budget reservations are never released (found 2026-08-22)
+
+A run reservation that is never reconciled — the occurrence died before the
+schedule tick could finish it — stays in the workspace ledger in state
+`reserved` forever. `prune()` in `agent/lib/workspace-budget-ledger.ts` keeps
+`reserved` and `uncertain` records regardless of calendar month, and
+`reconcileWorkspaceRunBudget` only accepts a caller that still holds the run ID,
+which a dead worker does not. One such record ($1.00) exists on a workspace that
+has since been deleted, so it is unreachable through any owner surface.
+
+Harmless today: it only constrains the daily cap of its own workspace, and that
+workspace is gone. It would matter for a long-lived workspace that accumulates
+them, since each one permanently consumes daily and monthly paid headroom.
+
+# Deferred: missing-outcome taxonomy after a failed session (found 2026-08-22)
+
+`agent/schedules/event-triggers.ts` now delivers a committed outcome before
+surfacing a terminal session failure. A session that fails *without* committing
+still raises `workspace_worker_session_failed`, recorded as
+`workspace_worker_failed`, rather than the more accurate missing-outcome code.
+Left alone deliberately: `worker_outcome_missing` drives the immediate-pause
+recovery path, and changing which failures pause a monitor after five
+consecutive errors versus immediately does not belong inside a delivery fix.

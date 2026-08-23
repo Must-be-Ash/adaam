@@ -323,7 +323,73 @@ write path for explicit mission/watchlist/open-question changes.
 Turning the migrated platform into the running fleet — the owner's end-state
 moment. Owner participates in the sign-offs.
 
-- [ ] **Blocker: the session registry is full** (48/48 retained records,
+**Owner-directed unit landed 2026-08-22, ahead of this sprint.** The Public
+Commentary Tracker decided relevance by literal substring matching in
+`classifyPublicCommentaryImpact` before the model ever saw a statement, and
+attributed every match to a hard-coded hypothesis asset. That is the same defect
+U1 fixed for Inverse Cramer with direct-model actionability. Four commits:
+
+- `bbfcc83` — `public-commentary-tracker@1.3.0` declares
+  `public-commentary-impact-actionability`, a compact strategy-owned contract at
+  low reasoning. The model reads every statement, decides materiality, names the
+  market the statement is about, and returns the implied direction.
+  `monitoringObjective`, `topics`, and `impactHypotheses` travel to it as signed
+  `semanticContext` guidance instead of acting as a matcher; `selectedSymbols`
+  stays a deterministic post-hoc alert filter and the registered
+  preserve-direction policy is unchanged. Selection is by declared evaluation
+  contract, never a pack identifier. Versions 1.0.0–1.2.0 keep the deterministic
+  path they shipped with. Also sizes paid ceilings from the sources a
+  configuration actually resolves, since the tracker declares a first-party feed
+  but resolves to a paid X timeline whenever the sensitive-event gate does not
+  divert it.
+- `bce7215` — a run's paid envelope must cover the monitor's source read. It was
+  derived only from a declared research contract, so a strategy with a paid
+  source and no research lane got a parent ceiling of zero and its first
+  timeline read terminalized the occurrence as `budget_exhausted`.
+- `fbf7bf0` — the worker model policy capped sessions at 12,000 output tokens
+  while the workspace worker agent declares 16,000 for itself, making the
+  agent's own limit unreachable. A real inconsistency, though not the cause of
+  the failure it was first attributed to.
+- `1f3f9be` — `public-commentary-tracker@1.3.1` pins classification contract
+  `1.0.1`, which declares no paid allowance. The `1.0.0` contract reserved
+  $0.25 per attempt for a call it has no tool surface to make — no research
+  lane, `maximumPages: 0`, `maximumRows: 0` — and the source read consumed the
+  envelope first, so every classification after it was refused. Proven at the
+  ledger: with a $1.00 envelope and the timeline read taken, a four-statement
+  fan-out commits zero classifications at the old ceiling and all four at the
+  new one. A zero ceiling is stricter, not looser: reconciliation refuses any
+  actual paid cost above a reservation.
+
+`Tracker Live` (`public-commentary-tracker@1.3.1`, KobeissiLetter numeric ID
+3316376038) is enabled and unarchived on a six-hour cadence alongside
+`Inverse Cramer Live` and `IPO Live`. Its first committing occurrence classified
+four statements and persisted a finding on a post naming Visa, Berkshire,
+Mastercard and Cintas — carrying none of the configured topics or hypothesis
+phrases, which is precisely what the keyword matcher would have discarded
+unseen.
+
+**Alert delivery repair, `main` @ `9aa0ee0`, deployed
+`dpl_2J9cZaRva2GS5W2HrhooSzuFajW2`.** That occurrence committed and no iMessage
+arrived, which exposed two independent defects in the alert path:
+
+- The worker commits its outcome inside its own tool, before the schedule tick
+  sees the end of the session. `agent/schedules/event-triggers.ts` threw on a
+  terminal session failure directly above the delivery call, so a session that
+  failed after committing — including one the harness had already retried after
+  an empty model response — cost the owner the alert for a finding that was
+  already durable. Delivery is now attempted for a committed outcome first, and
+  the session failure surfaces afterwards with its existing code.
+- A managed monitor names the delivery subscription its alerts route through,
+  but naming one never created it: `savePhotonAlertDeliverySubscription` was
+  reachable only from the two interactive monitor tools. Pack installs now
+  ensure the record, failing closed with an explicit message. Latent on this
+  deployment, where the conversation-level subscription already existed, and
+  total on a fresh fork where no pack-installed monitor could ever alert.
+
+Both proven red-first. Note for Sprint 8: the alert path had no end-to-end
+coverage, which is how both survived.
+
+- [x] **Blocker: the session registry is full** (48/48 retained records,
   2026-08-22) and nothing can be created. Archived sessions are retained
   forever and there is no delete path, so U1's disposable acceptance
   workspaces exhausted it. Add owner-authorized hard deletion of archived
@@ -332,6 +398,16 @@ moment. Owner participates in the sign-offs.
   help when the pack pins an immutable field: `xIdentity` is
   `mutableAfterInstall: false`, so a tracker cannot be repointed at a
   different account.
+  **Cleared 2026-08-22, `main` @ `20230b3`.** Owner-authorized deletion of
+  archived sessions landed on the manager action surface and in the session
+  manager UI: archived only, never the selected session, never the last
+  record, behind the same owner check, approval guard, and single-use request
+  claim as every other manager mutation. It removes the registry record, the
+  brief, capability manifest, and strategy binding, and the monitor records and
+  index; the monitor purge refuses while anything could still dispatch, and the
+  route proves the target is archived before purging. The workspace budget
+  policy and ledger are retained for financial audit. 28 disposable acceptance
+  workspaces were deleted, taking the registry from 48/48 to 20/48.
 - [ ] Owner reviews per-strategy budgets using each acceptance's
   reserved-vs-actual numbers; set the real ceilings.
 - [ ] Enable Exa-backed research for background monitors in Production
