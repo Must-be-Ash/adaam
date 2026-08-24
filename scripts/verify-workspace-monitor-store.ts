@@ -1162,6 +1162,17 @@ assert.equal(pausedAfterFive.consecutiveFailures, 5);
 assert.equal(pausedAfterFive.lifecycleState, "paused_failure");
 assert.equal(pausedAfterFive.pauseReason, "auto_paused_after_repeated_failures");
 assert.equal(pausedAfterFive.nextOccurrenceAt, null);
+/*
+ * `pauseReason` says why the monitor stopped; `lastErrorCode` must still say
+ * what failed. Collapsing both into the generic repeated-failure code left a
+ * paused monitor reporting only that it had been paused, with the actual cause
+ * recoverable solely from a log window that had usually already rolled.
+ */
+assert.equal(
+  pausedAfterFive.lastErrorCode,
+  "worker_outcome_missing",
+  "the failure that caused the pause must survive the pause",
+);
 // The recovery path quarantines on the first failure instead.
 const quarantined = await recordWorkspaceMonitorFailure({
   errorCode: "worker_recovery_outcome_missing",

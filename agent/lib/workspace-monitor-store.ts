@@ -1541,9 +1541,16 @@ export async function recordWorkspaceMonitorFailure(
       now,
       patch: {
         consecutiveFailures: failures,
-        lastErrorCode: paused
-          ? pauseCode
-          : boundedErrorCode,
+        /*
+         * `pauseReason` already says why the monitor stopped; `lastErrorCode`
+         * must keep saying what actually failed. Overwriting it with the
+         * generic repeated-failure code destroyed the one fact needed to fix
+         * the monitor - a paused Tracker Live reported only
+         * `auto_paused_after_repeated_failures` while the real cause sat in a
+         * log window that had already rolled. The two fields answer different
+         * questions and should not collapse into one.
+         */
+        lastErrorCode: boundedErrorCode,
         lastRunAt: now.toISOString(),
         ...(paused
           ? {
