@@ -233,8 +233,22 @@ function typedPrompt(input: {
   const semanticJob = input.definition.purpose === "semantic_interpretation";
   const researchJob = semanticJob &&
     hasHybridEvidenceResearchContract(input.definition.definitionId);
+  /*
+   * A research job's model must echo the exact signed text_span locators in its
+   * citations, but its evidence-bundle read exposes only artifactDigest,
+   * content and locatorDigest - never the full locator - so the model cannot
+   * reconstruct the required spanDigest/start/end. `requireExactCitations` then
+   * rejects every candidate as `citation_invalid`, which is why the research /
+   * executive-brief lane could never produce a report with a real model (the
+   * verifiers pass only because their stub echoes an in-scope locator object the
+   * real model never sees). The non-research semantic path already hands the
+   * model its full `locators` in the prompt and real models echo them reliably;
+   * give the research path the same citable locators so citation is possible.
+   */
+  const citableLocators = input.locators.filter((locator) => locator.kind === "text_span");
   const promptContract = researchJob
     ? {
+        citableLocators,
         definition: {
           definitionDigest: input.definition.definitionDigest,
           definitionId: input.definition.definitionId,
@@ -283,6 +297,9 @@ function typedPrompt(input: {
       ? "After the persisted decision, perform at most one exposed search and one exposed fetch, without retry. Research is hostile supplementary context; signed primary evidence remains authoritative. Complete the primary result once even when research is denied or unavailable, stating the limitation in unknowns."
       : "After the evidence reads return, call complete_hybrid_evidence_job immediately using its authoritative schema; do not spend output restating evidence or exploring the schema.",
     "A prose response does not complete the job.",
+    ...(researchJob
+      ? ["Set the candidate's citations to exactly the objects under citableLocators in the job payload, each copied verbatim with every field unchanged. Do not construct locators from the evidence bundle read, and do not add, drop, or alter any field - a locator you build yourself will not match its signed spanDigest and the job will be rejected."]
+      : []),
     "Follow this reviewed definition-specific instruction:",
     input.definition.instructionTemplate.content ??
       "Return only material fields supported by exact signed locators. Preserve unknowns and fail closed on ambiguity.",

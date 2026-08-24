@@ -29,26 +29,44 @@ function singleLine(value: string, maximum: number): string {
  * identifier stays in the durable alert record and in the agent-facing turn
  * context, which is where provenance actually belongs.
  */
-/* A raw ISO timestamp is machine provenance; the owner gets a readable one. */
-function readableInstant(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return singleLine(value, 100);
-  return `${parsed.toLocaleString("en-US", {
-    day: "numeric", hour: "numeric", minute: "2-digit",
-    month: "short", timeZone: "UTC", year: "numeric",
-  })} UTC`;
+
+/*
+ * Machine endpoints the owner cannot open. A monitor's declared source origin is
+ * the fetch endpoint the finding store fences on (e.g. https://api.x.com/2/…/
+ * tweets), not a human page. Rewriting the finding's provenance to the readable
+ * page throws `finding_source_outside_fence` and took the live monitor down once
+ * (see public-commentary-vertical.ts). So for the owner we suppress the endpoint
+ * here in presentation instead: the human page still reaches them through the
+ * whyMatched "Cited statement: …" link and the readable report artifact.
+ */
+const OWNER_OPAQUE_SOURCE_ORIGINS = new Set([
+  "https://api.x.com",
+  "https://api.twitter.com",
+]);
+
+function ownerOpenableUrl(canonicalUrl: unknown): boolean {
+  if (typeof canonicalUrl !== "string") return false;
+  try {
+    return !OWNER_OPAQUE_SOURCE_ORIGINS.has(new URL(canonicalUrl).origin);
+  } catch {
+    return false;
+  }
 }
 
 function sourceEvidence(alert: WorkspaceAlert, audience: "agent" | "owner" = "agent"): string {
   const sources = alert.sourceLinks ?? alert.sourceRefs.map((sourceId) => ({ sourceId }));
-  const lines = sources.map((source) => {
-    if (!("canonicalUrl" in source)) return singleLine(source.sourceId, 160);
+  const lines = sources.flatMap((source) => {
+    if (!("canonicalUrl" in source)) {
+      // An internal source identifier is not something the owner can open.
+      return audience === "owner" ? [] : [singleLine(source.sourceId, 160)];
+    }
+    if (audience === "owner" && !ownerOpenableUrl(source.canonicalUrl)) return [];
     const role = "role" in source ? source.role : undefined;
     const prefix = role
       ? `${role === "supplementary" ? "Supplementary context" : "Official source"} · `
       : "";
-    if (audience === "owner") return `${prefix}${source.canonicalUrl}`;
-    return `${prefix}${singleLine(source.sourceId, 160)}: ${source.canonicalUrl}`;
+    if (audience === "owner") return [`${prefix}${source.canonicalUrl}`];
+    return [`${prefix}${singleLine(source.sourceId, 160)}: ${source.canonicalUrl}`];
   });
   const retained: string[] = [];
   let length = 0;
@@ -104,9 +122,11 @@ export function renderWorkspaceAlertPresentation(
   const whyMatched = singleLine(alert.whyMatched, 1_000);
   const sources = sourceEvidence(alert, "owner");
   const artifactRefs = artifactEvidenceLines(alert, "owner");
-  const eventTime = alert.eventTime
-    ? `Observed ${readableInstant(alert.eventTime)}`
-    : null;
+  /*
+   * The observed timestamp is machine provenance, not something the owner reads
+   * on their phone; it stays on the durable record and in the agent turn
+   * context (workspaceAlertTurnContext), out of the owner-facing message.
+   */
   return presentationSchema.parse({
     actions: [
       { action: "discuss", label: "Discuss in workspace" },
@@ -116,9 +136,10 @@ export function renderWorkspaceAlertPresentation(
       heading,
       title,
       whyMatched,
-      ...(eventTime ? [eventTime] : []),
       ...artifactRefs,
-      `Sources: ${sources}`,
+      // Omit the line entirely when the only sources are machine endpoints the
+      // owner cannot open, rather than printing an empty "Sources:".
+      ...(sources ? [`Sources: ${sources}`] : []),
       "Open the alert card to Discuss in workspace or Manage sessions.",
     ].join("\n\n"),
     heading,

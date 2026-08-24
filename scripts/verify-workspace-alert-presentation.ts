@@ -39,9 +39,14 @@ assert.equal(
   false,
   "the owner card must not carry the internal source identifier",
 );
-// A raw ISO timestamp is machine provenance; the owner card carries a
-// readable instant. The exact value stays on the alert record.
-assert.match(presentation.fallbackText, /Observed Aug 14, 2026, 4:58 PM UTC/u);
+// The observed timestamp is machine provenance and is not user-facing: it must
+// not appear on the owner card at all. It still reaches the agent turn context
+// (asserted below), where a Discuss turn can use it.
+assert.equal(
+  /Observed [A-Z][a-z]+ \d/u.test(presentation.fallbackText),
+  false,
+  "the owner card must not carry the observed timestamp",
+);
 assert.match(presentation.fallbackText, /https:\/\/www\.sec\.gov\/Archives\/fixture\.htm/u);
 assert.deepEqual(presentation.actions, [
   { action: "discuss", label: "Discuss in workspace" },
@@ -57,6 +62,45 @@ const sanitized = renderWorkspaceAlertPresentation({
 });
 assert.equal(sanitized.heading, "Workspace alert · IPO Filings");
 assert.ok(Buffer.byteLength(sanitized.fallbackText, "utf8") <= 4_000);
+
+/*
+ * A public-commentary alert's declared source is the X API polling endpoint,
+ * not a page the owner can open. The owner card must not show it (nor an empty
+ * "Sources:" line); the human post reaches them through whyMatched. The endpoint
+ * still reaches the agent turn context as fetch provenance.
+ */
+const commentaryAlert = {
+  ...alert,
+  sourceLinks: [{
+    canonicalUrl: "https://api.x.com/2/users/3316376038/tweets",
+    sourceId: "x-public-commentary-user.3316376038.KobeissiLetter",
+  }],
+  sourceRefs: ["x-public-commentary-user.3316376038.KobeissiLetter"],
+  title: "Treasury weighs tapping $950B account for bond buybacks",
+  whyMatched: "Per CNBC, the US Treasury is considering tapping its $950B General Account. Cited statement: https://x.com/KobeissiLetter/status/2091859386176090296",
+  workspaceName: "Tracker Live",
+} satisfies WorkspaceAlert;
+const commentaryPresentation = renderWorkspaceAlertPresentation(commentaryAlert);
+assert.equal(
+  commentaryPresentation.fallbackText.includes("api.x.com"),
+  false,
+  "the owner card must not show the X API polling endpoint",
+);
+assert.equal(
+  commentaryPresentation.fallbackText.includes("Sources:"),
+  false,
+  "the owner card must omit the Sources line when the only source is a machine endpoint",
+);
+assert.match(
+  commentaryPresentation.fallbackText,
+  /https:\/\/x\.com\/KobeissiLetter\/status\/2091859386176090296/u,
+  "the human post still reaches the owner through the cited statement",
+);
+assert.match(
+  workspaceAlertTurnContext(commentaryAlert),
+  /https:\/\/api\.x\.com\/2\/users\/3316376038\/tweets/u,
+  "the fetch endpoint still reaches the agent turn context as provenance",
+);
 
 const turnContext = workspaceAlertTurnContext(alert);
 assert.match(turnContext, new RegExp(alert.alertId, "u"));

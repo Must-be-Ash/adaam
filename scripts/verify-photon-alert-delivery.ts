@@ -112,7 +112,8 @@ const delivered = await deliverWorkspaceAlertToPhoton({
 assert.equal(delivered.state, "delivered");
 assert.equal(recorded, 1);
 assert.match(sentCard!.heading, /IPO Filings/u);
-assert.match(sentCard!.fallbackText, /Observed Aug 14, 2026, 7:58 PM UTC/u);
+// The observed timestamp is not user-facing; it stays off the owner card.
+assert.equal(/Observed [A-Z][a-z]+ \d/u.test(sentCard!.fallbackText), false);
 assert.match(sentCard!.fallbackText, /https:\/\/www\.sec\.gov\/Archives\/fixture\.htm/u);
 assert.match(
   sentCard!.discussUrl,

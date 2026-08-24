@@ -588,6 +588,24 @@ try {
     "the bounded research prompt must leave room for its required multi-step tool loop",
   );
   assert.match(reportWorker.request.input.message, new RegExp(reportWorker.record.job.inputDigest));
+  /*
+   * A research model must echo the exact signed text_span locators in its
+   * citations, but the evidence-bundle read exposes only content and digests,
+   * so it cannot reconstruct the required spanDigest. The prompt must therefore
+   * hand it the citable locators to copy verbatim; without this the executive
+   * brief lane rejected every real-model candidate as `citation_invalid` and
+   * could never publish a report. Prove the citable locator (its spanDigest)
+   * and the verbatim-citation instruction are present in the signed prompt.
+   */
+  assert.ok(
+    reportWorker.request.input.message.includes(locator.spanDigest),
+    "the research prompt must expose the citable text_span locator so the model can echo it",
+  );
+  assert.match(
+    reportWorker.request.input.message,
+    /citableLocators[\s\S]*copied verbatim/u,
+    "the research prompt must instruct the model to copy the citable locators verbatim",
+  );
   const reportCtx = {
     session: {
       auth: { current: reportWorker.request.auth, initiator: reportWorker.request.auth },
