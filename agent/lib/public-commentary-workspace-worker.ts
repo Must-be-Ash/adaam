@@ -318,11 +318,30 @@ export async function drainPublicCommentaryHybridWorker(
   const reader = handle.events.getReader();
   let completed = false;
   let terminalFailure: Readonly<{ code: string; message: string }> | null = null;
+  /*
+   * `completion_missing` means the child stream ended with no completion AND no
+   * failure event - the session simply stopped. On its own that names nothing
+   * actionable, and it cost a live occurrence to learn only that much. Track
+   * what the child actually did, bounded to our own tool identifiers, so the
+   * next failure says which tool it reached and whether that tool errored.
+   */
+  let toolCalls = 0;
+  let lastTool: string | null = null;
+  let lastToolErrored = false;
   try {
     for (;;) {
       const next = await reader.read();
       if (next.done) break;
       const event = next.value;
+      if (
+        event.type === "action.result" &&
+        event.data.result.kind === "tool-result" &&
+        typeof event.data.result.toolName === "string"
+      ) {
+        toolCalls += 1;
+        lastTool = event.data.result.toolName.slice(0, 60);
+        lastToolErrored = event.data.result.isError === true;
+      }
       if (
         event.type === "action.result" &&
         event.data.status === "completed" &&
@@ -349,9 +368,16 @@ export async function drainPublicCommentaryHybridWorker(
     reader.releaseLock();
   }
   if (!completed) {
+    if (!terminalFailure) {
+      console.error("[public-commentary] hybrid worker ended without completing", {
+        lastTool,
+        lastToolErrored,
+        toolCalls,
+      });
+    }
     const suffix = terminalFailure
       ? `${terminalFailure.code}:${terminalFailure.message}`
-      : "completion_missing";
+      : `completion_missing:tools=${toolCalls}:last=${lastTool ?? "none"}:err=${lastToolErrored}`;
     throw new Error(`hybrid_evidence_worker_failed:${suffix}`);
   }
 }
