@@ -83,6 +83,29 @@ import { marketSymbolSchema } from "./strategy-pack-schema";
 // Mirrors the `whyMatched` bound enforced by the shared workspace alert store.
 export const PUBLIC_COMMENTARY_ALERT_WHY_MATCHED_MAXIMUM = 1_000;
 
+/*
+ * A fact's `source` is the instance the data was polled from - for X that is
+ * "https://api.x.com/2/users/<id>/tweets", and its origin invariant is correct.
+ * A finding's `provenance` is what the finding CITES, which is the statement
+ * itself. Conflating them put the polling endpoint under "Sources:" in the
+ * owner's alert: not readable, not openable, and not the thing being cited.
+ * The brief path already treats statement.canonicalUrl as the official source
+ * URL, so this only makes the finding agree with it. `sourceId` is unchanged,
+ * so lineage back to the instance is intact.
+ */
+function citedProvenance(
+  source: Readonly<{ accessClassification: "public"; sourceId: string }>,
+  canonicalUrl: string,
+) {
+  return {
+    accessClassification: source.accessClassification,
+    canonicalUrl,
+    origin: new URL(canonicalUrl).origin,
+    role: "official" as const,
+    sourceId: source.sourceId,
+  };
+}
+
 export {
   COMMENTARY_CONFIGURED_IMPACT_CONTRACT,
   COMMENTARY_DIRECTION_INVERSION_CONTRACT,
@@ -522,7 +545,8 @@ export async function materializePublicCommentarySignal(input: {
     }
     return [...kept, disclosure].join(" ").slice(0, PUBLIC_COMMENTARY_ALERT_WHY_MATCHED_MAXIMUM);
   })();
-  const source = {
+
+const source = {
     accessClassification: input.source.accessClassification,
     canonicalUrl: input.source.canonicalUrl,
     origin: input.source.origin,
@@ -568,7 +592,7 @@ export async function materializePublicCommentarySignal(input: {
         schemaVersion: 1,
         source,
       }],
-      provenance: [source],
+      provenance: [citedProvenance(source, statement.canonicalUrl)],
       summary: whyMatched,
     },
     record,
@@ -705,7 +729,7 @@ export async function materializePublicCommentaryCorrection(input: {
         schemaVersion: 1,
         source,
       }],
-      provenance: [source],
+      provenance: [citedProvenance(source, statement.canonicalUrl)],
       summary: whyMatched,
     },
     record,
