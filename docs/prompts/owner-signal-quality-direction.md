@@ -524,15 +524,36 @@ committed on `feat/alert-shape-and-multisignal` (`77eb913`, `bb214ac`, `147acdb`
 `a2512da`, + the fallback commit), battery + typecheck + eve build green, NOT
 merged to main yet, NOT deployed.
 
-Next action: **Phase 4 — budget reconciliation.** The child hybrid-evidence job
-reconciles at its definition maximum rather than actual usage because the
-production drain (`drainPublicCommentaryHybridWorker`) returns no usage, so a
-busy window can still exhaust the per-run envelope (see
-`docs/workspace-runtime-pitfalls.md` "A fanned-out occurrence exhausts its per-run
-envelope"). Thread the child session's actual usage back through the drain so
-reconciliation frees the reservation. Then Phase 5 (research-only: point the live
-monitors at 1.5.0 / 1.4.9, retire the legacy non-research alert path, archive old
-packs), Phase 6 (live E2E), and the eve upgrade.
+Next action: **Phase 4 — budget reconciliation.** CAUSE CONFIRMED by code
+reading (2026-08-24): `drainPublicCommentaryHybridWorker`
+(`public-commentary-workspace-worker.ts`) returns `Promise<void>` — it never
+accumulates the child session's token usage from `step.completed` events. So
+`executionUsage` is `undefined`, and `accountedUsage(def, undefined)`
+(`hybrid-evidence-semantic.ts:692`) falls back to the definition MAXIMUM
+(24k in / 12k out / $0.25) as the reconciled "actual" for every child. The per-run
+token envelope (tracker 160k) therefore exhausts after ~6-7 children even though
+each really spends ~3k. A per-run floor (commit `0d1973c`) mitigates but does not
+fix it, so this is not blocking.
+
+Fix, in two parts (the second is the subtle one — do it carefully):
+  - TOKENS (safe, the binding constraint): make the drain accumulate
+    `event.data.usage.inputTokens/outputTokens` from `step.completed` and return a
+    `WorkspaceSemanticModelUsage`. `accountedUsage` then reconciles tokens at
+    actual (capped at max), freeing the over-reservation. Raises the effective
+    per-occurrence fan-out from ~6-7 to well beyond.
+  - PAID (`paidCostUsd`, required by `semanticUsageSchema`): the drain cannot see
+    the child's actual paid (Exa) cost from session events — it lives in the
+    child's research receipts / hybrid-evidence attempt budget. Returning 0 would
+    UNDER-report spend (a cost-honesty violation); returning the definition max
+    keeps today's conservative behavior. The correct fix threads the child's
+    actual paid cost from its research budget back through the drain — a separate,
+    more involved change. Interim: return actual tokens + conservative max paid
+    (no regression, fixes the token bottleneck). Prove with a ledger test that a
+    fan-out of N children reconciles tokens at actual, not N×max.
+
+Then Phase 5 (research-only: point the live monitors at 1.5.0 / 1.4.9, retire the
+legacy non-research alert path, archive old packs), Phase 6 (live E2E), and the
+eve upgrade.
 
 Reference: [[deterministic-worker-dispatch]] and [[research-lane-citation-visibility]]
 in auto-memory capture the architecture and the citation root cause.
