@@ -13,10 +13,13 @@ export default defineAgent({
   // top-level worker only orchestrates and calls its evaluation/commit tools;
   // the actual materiality and semantic judgement runs in nested hybrid-evidence
   // child jobs with their own frontier model and reasoning. So this session
-  // needs reliable tool-calling, not deep reasoning - "low" keeps the fan-out
-  // and commit turn well inside the budget. (Bumping the cap 8k -> 16k did not
-  // hold; constraining the reasoning does.)
-  reasoning: "low",
+  // needs reliable tool-calling, not deep reasoning. "low" still allowed enough
+  // thinking to intermittently exhaust turn 0 on the large worker prompt and
+  // return an empty response; "none" disables thinking entirely (verified
+  // against the live gateway: the model emits its tool call deterministically at
+  // zero thinking, vs. empty text under thinking). Its whole job is to call one
+  // evaluation tool that does the work internally, so no reasoning is needed.
+  reasoning: "none",
   // One occurrence may evaluate several statements, and each one adds a turn to
   // this session. These limits leave room for the declared fan-out plus the
   // commit turn while still fitting inside the occurrence budget envelope
