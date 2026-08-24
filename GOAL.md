@@ -119,3 +119,39 @@ Older non-research pack versions were iterations on the way here; they are not
 kept alive. All packages have access to research, and the app is research-only
 going forward. See `docs/prompts/owner-signal-quality-direction.md` for the
 alert-shape notes that go with this.
+
+### How the alert must be formatted (added 2026-08-24)
+
+The iMessage text is only the signal and what it means, written the way a person
+would say it. Everything else — the machinery — moves into the artifact or off
+the message entirely.
+
+- Lead with the attributed source, not a description of the post. If the post
+  says "per CNBC", the alert opens "Per CNBC, …" — never "The statement
+  discusses potential …".
+- Keep OUT of the user-facing text: the direction/confidence/horizon/
+  corroboration labels (e.g. "Market · bullish · medium confidence · weeks ·
+  uncorroborated"), the observed timestamp ("Observed Aug 24, 2026, 12:05 PM
+  UTC"), and any machine/API source such as https://api.x.com/2/users/…/tweets.
+- Those metadata labels (direction, confidence, horizon, corroboration) belong
+  in the artifact. Confidence in particular is the score that will later gate
+  autonomous trading, so it is a metric, not message text.
+- The only source shown to me is one I can open — the human page (e.g. the x.com
+  post), not the polling endpoint. If the post already names its source
+  ("per CNBC"), that attribution is enough on its own.
+- The artifact carries the supplementary picture I need to decide — for the
+  Treasury post, that the $950B General Account is far larger than what was
+  tapped in prior years, and how it compares — not a restatement of the post.
+
+Worked example. Tweet (Kobeissi Letter): "BREAKING: The US Treasury is
+considering using its $950 billion General Account to help fund its increased
+purchases of long-term government bonds, per CNBC." The alert should read:
+
+"Per CNBC, the US Treasury is considering tapping its $950B General Account to
+fund bigger long-term bond buybacks; per the Kobeissi Letter this means the
+price of long-term US Treasuries could go up. I'd watch the 10-year and 30-year
+yields (and TLT) in the coming days and be ready to go long long-duration
+Treasuries."
+
+— with the artifact holding the supplementary context and the metadata, and one
+human source link (the x.com post). Nothing else in the text.

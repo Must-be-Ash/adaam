@@ -54,6 +54,68 @@ not research at all.
 > need to be dealt with, such as hardcore hardening. I don't want anything that
 > should be addressed to be backlogged going forward."
 
+## Owner direction, 2026-08-24 morning
+
+The owner received a real Tracker alert overnight and it is "almost working."
+The remaining gaps are shape and language, stated concretely against that alert.
+
+The alert as delivered:
+
+    Workspace alert · Tracker Live
+
+    Market · bullish · medium confidence · weeks · uncorroborated
+
+    The statement discusses potential increased purchases of long-term US
+    government bonds by the Treasury, which would generally support bond prices
+    and implies a bullish read for long-duration Treasuries. Caveat: The post
+    says Treasury is 'considering' the action, so the policy step is not
+    confirmed. Cited statement: https://x.com/KobeissiLetter/status/2091859386176090296
+    This direction is produced by the Configured public-commentary impact
+    hypothesis policy.
+
+    Observed Aug 24, 2026, 12:05 PM UTC
+
+    Sources: https://api.x.com/2/users/3316376038/tweets
+
+What must change, in the owner's words:
+
+1. **Metadata out of the text.** "Market · bullish · medium confidence · weeks ·
+   uncorroborated" should be in the artifact only, not the message body.
+2. **No internal timestamp.** "Observed Aug 24, 2026, 12:05 PM UTC" is not
+   user-facing at all.
+3. **No API/machine source in the message.** "Sources:
+   https://api.x.com/2/users/3316376038/tweets" must go — it is a polling
+   endpoint, not a human page, and the post already named its source in-text.
+   The only source the owner wants shown is the human x.com post.
+4. **Lead with the attribution.** It opened "The statement discusses potential …"
+   when the tweet said "per CNBC". It should open "Per CNBC, …".
+5. **Supplementary picture in the artifact.** The owner wants to open an artifact
+   and see the context that helps a decision — e.g. that the $950B General
+   Account is a much larger pool than what was tapped in 2021/2022 post-COVID,
+   and how it compares — not a paraphrase of the tweet.
+
+The correct shape the owner wrote out:
+
+> "Per CNBC, the US Treasury is considering tapping its $950B General Account to
+> fund bigger long-term bond buybacks, according to the Kobeissi Letter this
+> means the price of long-term US Treasuries could be going up. I would keep my
+> eye on the 10-year and 30-year yields (and TLT) in the coming days and be
+> ready to long/buy long-duration Treasuries."
+>
+> sources: https://x.com/KobeissiLetter/status/2091859386176090296
+
+The template is illustrative, not literal: "[source] just reported [headline];
+per [supplementary source] this means the price of [asset] could go [up/down];
+watch [stats/sources] and be ready to [long/short]."
+
+Note on current state (2026-08-24): this delivered alert is the NON-research
+path — direction/confidence/horizon are jammed into the title because there is
+no artifact and nowhere else for them to go, and the body is the impact model's
+raw rationale. The owner's desired shape (natural attribution + supplementary
+artifact + a real headline title) is what the RESEARCH path is meant to produce.
+So the alert-shape fix and getting research to deliver a report are the same
+piece of work, not two.
+
 ## Where it stands, 2026-08-23 evening
 
 This is the most recent alert the owner actually received:
