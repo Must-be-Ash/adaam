@@ -1555,9 +1555,12 @@ assert.equal(paidTimelineReservation?.state, "reconciled");
 assert.equal(paidTimelineReservation?.reconciledPaidMicros, "10000");
 assert.equal((await readRevocableEvidenceEnvelope("revocable-evidence.x.900", productionRuntime))?.currentLifecycle, "withheld");
 
-const workerCapabilities = await readFile(new URL("../agent/subagents/workspace-worker/tools/capabilities.ts", import.meta.url), "utf8");
-assert.match(workerCapabilities, /evaluatePublicCommentarySignalsTool/u);
-assert.doesNotMatch(workerCapabilities, /broker|coinbase_create_order/u);
+// The scheduler dispatches the commentary evaluator deterministically now (no
+// LLM worker), so the wiring lives in the dispatch table. It must route the
+// commentary evaluator and never expose any financial mutation surface.
+const evaluatorDispatch = await readFile(new URL("../agent/lib/workspace-evaluator-dispatch.ts", import.meta.url), "utf8");
+assert.match(evaluatorDispatch, /evaluatePublicCommentarySignalsForWorker/u);
+assert.doesNotMatch(evaluatorDispatch, /broker|coinbase_create_order/u);
 const explanationTool = await readFile(new URL("../agent/tools/explain_public_commentary_signal.ts", import.meta.url), "utf8");
 assert.match(explanationTool, /authorizePhotonWorkspaceToolStore/u);
 // Both commentary strategies read their own findings through this tool. It is

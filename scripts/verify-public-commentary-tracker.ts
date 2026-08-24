@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
 import {
   classifyPublicCommentaryImpact,
@@ -285,19 +284,12 @@ assert.deepEqual(currentPack.monitors[0]?.suggestedBudget, {
   maximumOutputTokensPerRun: 32_000,
   maximumRunsPerDay: 144,
 });
-const workerAgent = readFileSync(
-  new URL("../agent/subagents/workspace-worker/agent.ts", import.meta.url),
-  "utf8",
-);
-const declaredSessionOutput = Number(
-  /maxOutputTokensPerSession:\s*([\d_]+)/u.exec(workerAgent)?.[1]?.replaceAll("_", "") ?? "0",
-);
-const declaredSessionInput = Number(
-  /maxInputTokensPerSession:\s*([\d_]+)/u.exec(workerAgent)?.[1]?.replaceAll("_", "") ?? "0",
-);
-assert.ok(declaredSessionOutput > 0 && declaredSessionInput > 0);
-assert.ok(currentPack.monitors[0]!.suggestedBudget.maximumOutputTokensPerRun >= declaredSessionOutput);
-assert.ok(currentPack.monitors[0]!.suggestedBudget.maximumInputTokensPerRun >= declaredSessionInput);
+// A scheduled occurrence no longer runs an outer LLM worker session (the
+// scheduler runs the evaluator deterministically), so the per-run envelope only
+// needs to fund the nested semantic/research children, not a worker session.
+// It must remain generous enough to fan out across a realistic cadence window.
+assert.ok(currentPack.monitors[0]!.suggestedBudget.maximumOutputTokensPerRun > 0);
+assert.ok(currentPack.monitors[0]!.suggestedBudget.maximumInputTokensPerRun > 0);
 
 // The keyword classifier is exactly why 1.3.0 exists. These cases are the ones
 // it silently drops or misattributes, and they must stay dropped only for the
@@ -516,10 +508,8 @@ const cramerMonitors = monitorPreparations({
 });
 assert.equal(cramerMonitors[0]?.monitor.tighteningLimits.paidPerRun, "3.500000");
 
-// The runner caps a worker session at the lower of the run's reserved output
-// and the pack's worker model policy, so the policy must never be tighter than
-// the session the worker agent declares for itself.
-assert.equal(WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS, declaredSessionOutput);
+// The pack's worker model policy still declares a bounded per-session output
+// ceiling in the capability manifest; it must match the shared constant.
 assert.equal(
   resolveStrategyPackWorkerModelPolicy({
     environment: {
@@ -530,10 +520,10 @@ assert.equal(
     },
     pack: directModelPack,
   }).maximumOutputTokens,
-  declaredSessionOutput,
+  WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS,
 );
 assert.ok(
-  currentPack.monitors[0]!.suggestedBudget.maximumOutputTokensPerRun >= declaredSessionOutput,
+  currentPack.monitors[0]!.suggestedBudget.maximumOutputTokensPerRun >= WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS,
 );
 
 /*

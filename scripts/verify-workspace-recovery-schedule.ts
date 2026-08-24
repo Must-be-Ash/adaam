@@ -190,7 +190,7 @@ async function runScenario(overrides: Partial<EventTriggerScheduleDependencies>)
       sourceEvents: false,
       state: true,
     }),
-    startWorkspaceWorker: async () => {
+    runWorkspaceEvaluator: async () => {
       starts += 1;
       throw new Error("retry_worker_start_not_expected");
     },
@@ -452,13 +452,8 @@ const mixedSchedule = createEventTriggerSchedule({
     sourceEvents: false,
     state: true,
   }),
-  startWorkspaceWorker: async () => {
+  runWorkspaceEvaluator: async () => {
     firstAttemptWorkerRuns += 1;
-    return {
-      events: (async function* () {
-        return;
-      })(),
-    } as Awaited<ReturnType<EventTriggerScheduleDependencies["startWorkspaceWorker"]>>;
   },
 });
 assert.ok("run" in mixedSchedule && mixedSchedule.run);
@@ -598,15 +593,11 @@ const delayedRetrySchedule = createEventTriggerSchedule({
     sourceEvents: false,
     state: true,
   }),
-  startWorkspaceWorker: async () => {
+  runWorkspaceEvaluator: async () => {
     delayedRetryStarts += 1;
-    return {
-      events: (async function* () {
-        if (delayedRetryStarts === 1) {
-          yield { type: "session.failed", data: {} };
-        }
-      })(),
-    } as Awaited<ReturnType<EventTriggerScheduleDependencies["startWorkspaceWorker"]>>;
+    if (delayedRetryStarts === 1) {
+      throw new Error("workspace_worker_session_failed");
+    }
   },
 });
 assert.ok("run" in delayedRetrySchedule && delayedRetrySchedule.run);
@@ -732,13 +723,8 @@ async function verifyClaimIsolation(
       sourceEvents: false,
       state: true,
     }),
-    startWorkspaceWorker: async () => {
+    runWorkspaceEvaluator: async () => {
       workspaceRuns += 1;
-      return {
-        events: (async function* () {
-          return;
-        })(),
-      } as Awaited<ReturnType<EventTriggerScheduleDependencies["startWorkspaceWorker"]>>;
     },
   });
   assert.ok("run" in claimSchedule && claimSchedule.run);
@@ -816,11 +802,7 @@ const deliveryDependencies = {
     sourceEvents: false,
     state: true,
   }),
-  startWorkspaceWorker: async () => ({
-    events: (async function* () {
-      return;
-    })(),
-  }) as Awaited<ReturnType<EventTriggerScheduleDependencies["startWorkspaceWorker"]>>,
+  runWorkspaceEvaluator: async () => undefined,
 } as Partial<EventTriggerScheduleDependencies> & {
   deliverWorkspaceOutcome(input: {
     job: ClaimedWorkspaceMonitor;
@@ -880,11 +862,9 @@ const sessionFailureDependencies = {
     recordedSessionFailureCode = input.errorCode;
   },
   releaseWorkspaceLease: async () => true,
-  startWorkspaceWorker: async () => ({
-    events: (async function* () {
-      yield { data: {}, type: "turn.failed" };
-    })(),
-  }) as Awaited<ReturnType<EventTriggerScheduleDependencies["startWorkspaceWorker"]>>,
+  runWorkspaceEvaluator: async () => {
+    throw new Error("workspace_worker_session_failed");
+  },
 } as unknown as EventTriggerScheduleDependencies;
 const sessionFailureSchedule = createEventTriggerSchedule(sessionFailureDependencies);
 assert.ok("run" in sessionFailureSchedule && sessionFailureSchedule.run);
@@ -1004,11 +984,9 @@ const missingOutcomeSchedule = createEventTriggerSchedule({
   requireWorkspaceOutcome: async () => {
     throw new Error("workspace_worker_required_outcome_missing");
   },
-  startWorkspaceWorker: async () => ({
-    events: (async function* () {
-      yield { data: {}, type: "turn.failed" };
-    })(),
-  }) as Awaited<ReturnType<EventTriggerScheduleDependencies["startWorkspaceWorker"]>>,
+  runWorkspaceEvaluator: async () => {
+    throw new Error("workspace_worker_session_failed");
+  },
 } as unknown as EventTriggerScheduleDependencies);
 assert.ok("run" in missingOutcomeSchedule && missingOutcomeSchedule.run);
 const missingOutcomeWaiters: Promise<unknown>[] = [];

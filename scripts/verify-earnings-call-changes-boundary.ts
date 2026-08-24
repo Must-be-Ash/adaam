@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
 import { researchReportSchema } from "../agent/lib/artifact-schema";
 
@@ -282,34 +281,28 @@ assert.equal(
 );
 
 // ---------------------------------------------------------------------------
-// Per-run envelope: one occurrence runs the shared worker session plus bounded
-// comparison and research children, so the reservation must at least cover the
-// session's own declared limits.
+// Per-run envelope: a scheduled occurrence no longer runs an outer LLM worker
+// session (the scheduler runs the evaluator deterministically). Its model spend
+// is the bounded comparison and research children, so the reservation must cover
+// the largest single job an occurrence runs - the comparison child session,
+// which the current version sizes to hold a real reviewed transcript pair.
 // ---------------------------------------------------------------------------
 
 const monitor = currentPack.monitors.find(
   ({ resourceId }) => resourceId === EARNINGS_MONITOR_RESOURCE_ID,
 )!;
-const workerAgent = readFileSync(
-  new URL("../agent/subagents/workspace-worker/agent.ts", import.meta.url),
-  "utf8",
+assert.ok(
+  monitor.suggestedBudget.maximumInputTokensPerRun >=
+    EARNINGS_CALL_EXTENDED_SESSION_INPUT_TOKENS,
 );
-const declaredSessionInput = Number(
-  /maxInputTokensPerSession:\s*([\d_]+)/u.exec(workerAgent)?.[1]?.replaceAll("_", "") ?? "0",
-);
-const declaredSessionOutput = Number(
-  /maxOutputTokensPerSession:\s*([\d_]+)/u.exec(workerAgent)?.[1]?.replaceAll("_", "") ?? "0",
-);
-assert.ok(declaredSessionInput > 0 && declaredSessionOutput > 0);
-assert.ok(monitor.suggestedBudget.maximumInputTokensPerRun >= declaredSessionInput);
-assert.ok(monitor.suggestedBudget.maximumOutputTokensPerRun >= declaredSessionOutput);
 for (const version of PUBLISHED_VERSIONS) {
   const historical = strategyPackCatalog.resolve({ id: "earnings-call-changes", version })!;
   const published = historical.monitors.find(
     ({ resourceId }) => resourceId === EARNINGS_MONITOR_RESOURCE_ID,
   )!;
   assert.ok(
-    published.suggestedBudget.maximumInputTokensPerRun < declaredSessionInput,
+    published.suggestedBudget.maximumInputTokensPerRun <
+      EARNINGS_CALL_EXTENDED_SESSION_INPUT_TOKENS,
     `${version} is the sizing defect the migrated versions repair`,
   );
 }

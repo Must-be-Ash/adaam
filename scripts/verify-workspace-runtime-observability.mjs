@@ -225,9 +225,7 @@ const completedNoMatch = await runProductionSchedule({
     runId: "run_private_fixture",
     workspace: { state: "reserved" },
   }),
-  startWorkspaceWorker: async () => ({
-    events: (async function* () {})(),
-  }),
+  runWorkspaceEvaluator: async () => undefined,
 });
 assert.deepEqual(completedNoMatch.observations, [
   { counter: "workspace_monitor_claimed_total", value: 1 },
@@ -246,14 +244,9 @@ const workerFailure = await runProductionSchedule({
     runId: "run_private_fixture",
     workspace: { state: "reserved" },
   }),
-  startWorkspaceWorker: async () => ({
-    events: (async function* () {
-      yield {
-        data: { error: "provider_private_fixture" },
-        type: "session.failed",
-      };
-    })(),
-  }),
+  runWorkspaceEvaluator: async () => {
+    throw new Error("provider_private_fixture");
+  },
 });
 assert.deepEqual(workerFailure.observations, [
   { counter: "workspace_monitor_claimed_total", value: 1 },

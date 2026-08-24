@@ -110,13 +110,11 @@ const SHARED_HARD_DENIALS = Object.freeze([
 // coupled to the per-run ceiling because a run whose reservation exceeds the
 // daily allowance can never dispatch.
 /*
- * The workspace worker's own session limit, mirrored from
- * `agent/subagents/workspace-worker/agent.ts`. The runner caps a session at the
- * lower of the run's reserved output and this policy, so a policy tighter than
- * the agent's declaration silently shrinks every session: an occurrence that
- * evaluated four statements exhausted 12,000 output tokens on reasoning before
- * reaching its commit tool and terminalized as worker_outcome_missing. Keep the
- * two in step; verify:public-commentary-tracker asserts they agree.
+ * The bounded per-session output ceiling declared in a pack's worker model
+ * policy (capability manifest). A scheduled occurrence no longer runs an LLM
+ * worker session - the scheduler invokes the evaluator deterministically - but
+ * the model policy still carries this ceiling for the capability/budget model,
+ * and the frontier child jobs are bounded by their own definition limits.
  */
 export const WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS = 16_000;
 

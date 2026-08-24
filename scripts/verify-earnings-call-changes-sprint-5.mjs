@@ -43,7 +43,6 @@ const gates = [
   "verify:workspace-runtime:alert-app",
   "verify:workspace-runtime:monitors",
   "verify:workspace-runtime:recovery-schedule",
-  "verify:workspace-runtime:worker-tools",
   "verify:workspace-runtime:manager",
   "verify:interactive-tool-capabilities",
   "verify:approvals",

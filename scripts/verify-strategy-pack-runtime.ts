@@ -472,9 +472,12 @@ try {
     environment,
     now,
   });
+  // The prepared envelope carries this workspace's own strategy-pack snapshot and
+  // no other's. A scheduled occurrence no longer builds an LLM worker prompt, so
+  // pack-instruction isolation is guaranteed at the signed envelope, not in
+  // prompt text: the evaluator reads its own pack from durable stores keyed off
+  // this envelope. Deep-equality against alpha's snapshot proves beta cannot leak.
   assert.deepEqual(prepared.envelope.strategyPack, alphaWorker?.snapshot);
-  assert.match(prepared.prompt, /detect-alpha/u);
-  assert.doesNotMatch(prepared.prompt, /Beta Pack|beta-playbook/u);
   for (const source of alpha.monitor.sources) {
     await reserveWorkspaceSourceAttempt({
       now,

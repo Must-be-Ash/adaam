@@ -13,7 +13,6 @@ import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-
 import {
   prepareWorkspaceWorkerRun,
   requireWorkspaceWorkerOutcome,
-  WORKSPACE_WORKER_NODE_ID,
   WorkspaceWorkerRunnerError,
 } from "../agent/lib/workspace-worker-runner";
 
@@ -206,26 +205,25 @@ const prepared = await Promise.all(jobs.map((job) =>
   }),
 ));
 
-for (const [index, run] of prepared.entries()) {
-  const other = index === 0 ? 1 : 0;
-  assert.equal(run.request.nodeId, WORKSPACE_WORKER_NODE_ID);
-  assert.equal(run.request.mode, "task");
-  assert.equal(run.request.requestInput, false);
-  assert.deepEqual(run.request.input.context, []);
-  assert.equal(run.request.continuationToken, run.envelope.runId);
+for (const run of prepared) {
+  // A scheduled occurrence no longer runs an LLM worker, so the prepared request
+  // carries no prompt, brief, strategy, or session config to leak across
+  // workspaces - only the signed runtime auth. The deterministic evaluator reads
+  // everything else from durable stores keyed off that envelope. Isolation now
+  // means the auth is scoped to exactly this workspace's run.
+  assert.deepEqual(Object.keys(run.request).sort(), ["auth"]);
   assert.equal(run.envelope.strategyPack, null);
-  assert.deepEqual(Object.keys(run.request).sort(), [
-    "auth", "continuationToken", "input", "limits", "mode", "nodeId", "requestInput",
-  ]);
-  assert.match(run.prompt, new RegExp(`isolated-goal-${index + 1}`, "u"));
-  assert.doesNotMatch(run.prompt, new RegExp(`isolated-goal-${other + 1}`, "u"));
+  assert.equal(run.request.auth.attributes.workspace_id, run.envelope.workspaceId);
+  assert.equal(run.request.auth.attributes.workspace_run_id, run.envelope.runId);
+  assert.equal(run.request.auth.principalId, `workspace-run:${run.envelope.runId}`);
+  assert.equal(run.request.auth.subject, run.envelope.runId);
   for (const forbidden of ["conversationId", "generation", "interactive history", "threadId"]) {
     assert.equal(JSON.stringify(run.request).includes(forbidden), false);
   }
-  assert.match(run.prompt, /Fetch each listed source exactly once/u);
-  assert.match(run.prompt, /prose final answer is not completion/iu);
 }
-assert.notEqual(prepared[0]!.request.continuationToken, prepared[1]!.request.continuationToken);
+// Two different workspaces must never share a run identity or a scoped principal.
+assert.notEqual(prepared[0]!.envelope.workspaceId, prepared[1]!.envelope.workspaceId);
+assert.notEqual(prepared[0]!.envelope.runId, prepared[1]!.envelope.runId);
 assert.notEqual(prepared[0]!.request.auth.principalId, prepared[1]!.request.auth.principalId);
 
 await assert.rejects(

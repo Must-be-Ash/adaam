@@ -2,7 +2,7 @@ import { defineSchedule, type ScheduleToFn } from "eve/schedules";
 import type { SessionAuthContext } from "eve/context";
 
 import eventTriggerRunner from "../channels/event-trigger-runner";
-import { startWorkspaceWorkerTask } from "../lib/eve-workspace-worker-runtime";
+import { runWorkspaceEvaluatorForMonitor } from "../lib/workspace-evaluator-dispatch";
 import {
   buildEventTriggerPrompt,
   type ClaimedEventTrigger,
@@ -66,7 +66,7 @@ export interface EventTriggerScheduleDependencies {
   readonly requireWorkspaceOutcome: typeof requireWorkspaceWorkerOutcome;
   readonly reserveWorkspaceBudget: typeof reserveWorkspaceMonitorDispatchBudget;
   readonly resolveRuntimeFlags: typeof resolveWorkspaceRuntimeFlags;
-  readonly startWorkspaceWorker: typeof startWorkspaceWorkerTask;
+  readonly runWorkspaceEvaluator: typeof runWorkspaceEvaluatorForMonitor;
 }
 
 const productionDependencies: EventTriggerScheduleDependencies = Object.freeze({
@@ -91,7 +91,7 @@ const productionDependencies: EventTriggerScheduleDependencies = Object.freeze({
   requireWorkspaceOutcome: requireWorkspaceWorkerOutcome,
   reserveWorkspaceBudget: reserveWorkspaceMonitorDispatchBudget,
   resolveRuntimeFlags: resolveWorkspaceRuntimeFlags,
-  startWorkspaceWorker: startWorkspaceWorkerTask,
+  runWorkspaceEvaluator: runWorkspaceEvaluatorForMonitor,
 });
 
 export async function deferWorkspaceMonitorForBudget(input: {
@@ -351,39 +351,40 @@ async function executeWorkspaceJob(
     return;
   }
   let started = false;
-  let inputTokens = 0;
-  let outputTokens = 0;
   try {
     const prepared = await dependencies.prepareWorkspaceWorker({
       claimed: job,
       dispatchBudget: budget,
     });
-    const session = await dependencies.startWorkspaceWorker(prepared.request);
     started = true;
     dependencies.emitRuntimeObservation({
       counter: "workspace_monitor_started_total",
       value: 1,
     });
-    let terminalFailure = false;
-    for await (const event of session.events) {
-      if (event.type === "step.completed") {
-        inputTokens += event.data.usage?.inputTokens ?? 0;
-        outputTokens += event.data.usage?.outputTokens ?? 0;
-      } else if (
-        event.type === "turn.failed" ||
-        event.type === "turn.cancelled" ||
-        event.type === "session.failed"
-      ) {
-        terminalFailure = true;
-      }
+    /*
+     * Run the occurrence deterministically. The evaluator is a plain function of
+     * the signed dispatch envelope; there is no LLM worker turn, so the
+     * intermittent empty-response failure that used to pause live monitors
+     * cannot happen. All materiality, research, and brief judgement still runs on
+     * the frontier model inside nested hybrid-evidence child jobs. The evaluator
+     * commits its durable outcome (finding, alert presentations, checkpoint)
+     * before returning; a throw here carries the occurrence's real cause.
+     */
+    let evaluatorError: unknown = null;
+    try {
+      await dependencies.runWorkspaceEvaluator({
+        prepared,
+        requiredCapabilityIds: job.monitor.requiredCapabilityIds,
+      });
+    } catch (error) {
+      evaluatorError = error;
     }
     /*
-     * The worker commits its outcome inside its own tool, before this tick sees
-     * the end of the session. A session that then reports a terminal failure -
-     * including one the harness already retried - must not cost the owner the
-     * alert for a finding that is already durable: the finding stays persisted,
-     * the checkpoint has advanced, and nothing downstream would ever mention
-     * it. Attempt delivery first, then surface the session failure unchanged.
+     * The evaluator may have committed its outcome before a later step threw, so
+     * deliver any committed outcome first - the finding is already durable and
+     * nothing downstream would ever mention it otherwise - then surface the
+     * failure. A committed-then-failed occurrence is still recorded as failed,
+     * exactly as before, but the owner keeps the alert for the durable finding.
      */
     let committedOutcome: Awaited<
       ReturnType<EventTriggerScheduleDependencies["requireWorkspaceOutcome"]>
@@ -392,7 +393,7 @@ async function executeWorkspaceJob(
     try {
       committedOutcome = await dependencies.requireWorkspaceOutcome(prepared);
     } catch (error) {
-      if (!terminalFailure) throw error;
+      if (!evaluatorError) throw error;
       missingOutcome = error;
     }
     if (committedOutcome && deliverAlerts) {
@@ -401,15 +402,17 @@ async function executeWorkspaceJob(
       } catch (error) {
         // Delivery runs inside this try so a committed outcome is always
         // attempted, which means a delivery failure would otherwise be
-        // indistinguishable from the session failing. Mark it so the recorded
+        // indistinguishable from the evaluator failing. Mark it so the recorded
         // code says which half broke.
         throw new WorkspaceAlertDeliveryFailure(error);
       }
     }
-    if (terminalFailure) {
+    if (evaluatorError) {
+      // Nothing committed: the accurate statement is the occurrence produced no
+      // outcome. Something committed then failed later: surface the real cause.
       throw missingOutcome
-        ? new WorkspaceMissingOutcomeFailure(missingOutcome)
-        : new Error("workspace_worker_session_failed");
+        ? new WorkspaceMissingOutcomeFailure(evaluatorError)
+        : evaluatorError;
     }
     const outcome = committedOutcome!;
     if (usesDeferredSourceRetry(job)) {
@@ -418,9 +421,13 @@ async function executeWorkspaceJob(
         scope: job.scope,
       });
     }
+    // No LLM worker turn runs any more, so the occurrence spends no worker-level
+    // model tokens; the frontier child jobs account their own usage through the
+    // workspace budget ledger, which `finishWorkspaceMonitorDispatchBudget` sums
+    // in independently. Reconcile the worker portion at zero.
     await dependencies.finishWorkspaceBudget(job, budget, {
-      actualInputTokens: inputTokens,
-      actualOutputTokens: outputTokens,
+      actualInputTokens: 0,
+      actualOutputTokens: 0,
       outcome: "reconciled",
     });
     /*
@@ -518,8 +525,8 @@ async function executeWorkspaceJob(
       }
     }
     await dependencies.finishWorkspaceBudget(job, budget, {
-      actualInputTokens: started ? inputTokens : undefined,
-      actualOutputTokens: started ? outputTokens : undefined,
+      actualInputTokens: started ? 0 : undefined,
+      actualOutputTokens: started ? 0 : undefined,
       outcome: started ? "reconciled" : "released",
     });
   }

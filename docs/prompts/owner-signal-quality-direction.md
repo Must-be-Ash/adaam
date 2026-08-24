@@ -232,3 +232,239 @@ running and healthy, and the Tracker completed a clean run at 8:25 PM after the
 revert. The Tracker runs the older configuration without research, because the
 newer one with research produces no alert at all, and a working alert beats a
 richer broken one.
+
+## Session update — changes, learnings, and what I think still blocks us (2026-08-24, afternoon)
+
+My own working note after a long debugging session. Where I name a cause or a
+blocker, treat it as my current belief, not a settled fact; I mark the ones I
+have not confirmed. I am recording what I changed, what I learned, and what I
+think still stands between us and the outcome — not recommending fixes.
+
+### What I changed (all deployed to Production)
+
+- **Research citation visibility.** The research / executive-brief lane could
+  never emit a report with a real model. The model has to echo the exact signed
+  `text_span` locators in its citations, but the evidence-bundle read only ever
+  showed it content and digests — never the full locator — so it could not
+  reproduce the required `spanDigest`, and `requireExactCitations` rejected every
+  candidate as `citation_invalid`. The research verifiers passed only because
+  their stub model echoes an in-scope locator object the real model never sees.
+  I changed `typedPrompt` in the hybrid-evidence worker to hand research jobs
+  their citable locators to copy verbatim.
+
+- **Owner-facing alert cleanup.** I dropped the "Observed …" timestamp and
+  suppressed machine/API source endpoints (e.g. `https://api.x.com/…/tweets`)
+  from the owner-facing message; both still reach the durable record and the
+  Discuss turn context. Presentation only, no provenance/fence change.
+
+- **A failed occurrence now records its own cause.** Before, a failing
+  occurrence stored only an opaque terminal code and the real error rolled off
+  Vercel's ~50-row log buffer within minutes, so a failing monitor was
+  undiagnosable without buying another occurrence. The commentary worker now
+  writes a durable, read-only-queryable record with the exact error, message,
+  stack, and the stage it reached. This is what surfaced the budget cause.
+
+- **Per-run budget floor.** With that durable record I could see occurrences
+  throwing `budget_exhausted`. I raised the default budget ceilings and floored
+  the derived per-run envelope.
+
+- **Worker reasoning.** I changed the scheduled worker agent from `"high"` to
+  `"low"` and then to `"none"`, trying to stop an intermittent empty response.
+  Production is currently on `"none"`. It did not fix the empty response. This is
+  only the *worker's* orchestration reasoning; the analysis reasoning
+  (materiality, the research decision, the brief) runs on the frontier model in
+  the child jobs and was never touched.
+
+### What I learned
+
+- **The worker does no reasoning, for any strategy.** All five strategies'
+  monitor instructions are the same shape: "call `evaluate_<strategy>` exactly
+  once; the capability owns everything." The worker LLM's whole job is to emit
+  one tool call; acquisition is deterministic and the reasoning runs in nested
+  child jobs on the frontier model.
+
+- **eve does not require an LLM for an occurrence.** eve schedules support a
+  deterministic `run` handler ("the handler is in full control"), not only the
+  agent/markdown form. Running each occurrence as an LLM agent is how the app was
+  wired, not an eve constraint (per the installed 0.33 docs).
+
+- **The research verifiers prove nothing about real-model behaviour** — their
+  stubs echo an in-scope locator, which hid the citation bug for a long time.
+
+- **The budget envelope is not funding the fan-out the way it was designed to.**
+  Each semantic child reserves its definition maximum (24k input) against the
+  occurrence's per-run envelope and is meant to reconcile down to actual on
+  completion; the boundary tests only require the envelope to fund the
+  *concurrent* fan-out on that assumption. On the production path the child
+  session reports no usage, so it reconciles at the maximum and the reservation
+  never shrinks.
+
+- **We are 11 eve versions behind:** installed 0.33.0, latest 0.44.3.
+
+### What I think still blocks the desired outcome
+
+- **I do not think the research lane has been proven end-to-end yet.** I fixed
+  the citation blocker, but no Production occurrence has completed far enough to
+  actually publish a brief + artifact, so I have not seen whether the brief
+  publishes, whether the language reads the way you want ("Per CNBC …"), or
+  whether the artifact carries the supplementary picture. Everything downstream
+  of the worker is still unproven for me.
+
+- **I think the worker intermittently returns an empty model completion, and I
+  have not found why.** It fails roughly one occurrence in two, at the worker's
+  first model turn, before any tool call. I could not reproduce it in isolated
+  gateway probes (25+ calls, never empty), and it happened regardless of the
+  reasoning setting, including `"none"`. So I think it is something in the eve
+  worker-session layer (streaming/concurrency), not the raw model, the reasoning,
+  or the budget. **I have not verified this.**
+
+- **I think the eve version gap may be relevant to that empty response, but I
+  have not verified it.** The 0.44 changelog adds model-call retries that our
+  0.33 lacks — "Retry model calls when undici terminates a response stream after
+  a headers or body timeout" and "Retry transient provider overload errors
+  delivered inside model streams … at most three fresh model-call attempts." Our
+  0.33 fails the run after a single reissue. The empty response could be one of
+  those transients a newer eve would retry; I do not know.
+
+- **I think the budget reconciliation is still wrong underneath the floor.** The
+  floor raises the ceiling on statements-per-occurrence but does not change that
+  a completed child reconciles at its maximum rather than actual usage, so a busy
+  enough window can still exhaust the envelope. I think the gap is that the child
+  session's actual usage never returns to the reconciliation, but I have not
+  confirmed that end to end.
+
+- **I think using an LLM for a deterministic single-tool call is itself a
+  fragility.** It adds a failure mode (the empty completion) to a step that needs
+  no intelligence. I am noting this as an observation of the current shape, not a
+  recommendation.
+
+### Current Production / test state
+
+- Deployed: the citation fix, the alert cleanup, the durable failure record, the
+  budget floor, and worker `reasoning: "none"`.
+- I created disposable test workspaces "Kobeissi Research Test 3–6" during this
+  session; 3 and 4 are archived, 5 and 6 are `paused_failure`/enabled and should
+  be cleaned up. The three live monitors were not reconfigured.
+
+### Owner direction on the above (2026-08-24)
+
+These are the owner's decisions on the two blockers above, recorded here so they
+are not lost:
+
+- **If the worker does not need reasoning, drop it.** The worker only calls one
+  tool and does no analysis, so there is no reason to keep reasoning on it.
+- **If it will not break things, update to the latest eve version.** The newer
+  eve's model-call retries may address the empty-response blocker, so upgrade to
+  the latest — provided the upgrade does not break the build, the strategy
+  battery, or the live monitors.
+
+---
+
+# SESSION PROGRESS TRACKER (live — keep this current so work is resumable)
+
+Started 2026-08-24. This is the running status of the signal-quality work. If a
+session is lost, resume from "Current position" below. The plan has six phases;
+each is locally verifiable before anything is armed in Production.
+
+## The plan (owner-approved)
+
+1. **Deterministic worker dispatch** — replace the Gemini worker LLM (which only
+   emitted one tool call and caused the ~50% empty-response failures) with a
+   direct evaluator call. Root-cause fix for "research never completes."
+2. **Prove the research/brief lane end-to-end** with an isolated real-model
+   script (no bought Production occurrences). Confirm the citation fix holds and
+   a brief actually publishes.
+3. **Alert language/shape** — lead with attribution ("Per CNBC …"), keep
+   direction/confidence/horizon/corroboration + timestamp + API source OUT of the
+   text and IN the artifact; multi-signal = newspaper model (strongest is the
+   headline, all signals live in the artifact); clean fallback alert if the
+   brief model call fails.
+4. **Budget reconciliation** real fix (child actual usage back through the drain,
+   so reservations shrink to actual instead of reconciling at max).
+5. **Research-only** — retire the legacy non-research alert path, point the live
+   monitors at the research packs (Tracker → `public-commentary-tracker@1.4.0`),
+   archive old non-research packs (kept, not deleted).
+6. **Live E2E** — owner arms a recreated monitor, one occurrence, confirm the
+   alert shape over real iMessage.
+
+Plus a standalone phase (owner wants it for general eve improvements, not just
+the empty-response): **upgrade eve 0.33 → 0.44.3**, done carefully in a worktree
+with the full battery, sequenced AFTER phase 2 so there is a known-good research
+baseline to bisect against.
+
+## Product decisions captured (owner, 2026-08-24)
+
+- **Multi-signal delivery:** newspaper model — the strongest signal is the
+  iMessage headline; ALL signals (incl. the "+N more") live in the artifact so
+  nothing is lost.
+- **On brief-model failure:** send a clean basic attribution-led alert built from
+  the tweet itself (metadata still in a minimal artifact), never the old
+  metadata-in-title shape; never silence.
+- **Delete the LLM worker fully** (not leave dormant).
+- **Isolation/Discuss/interactive chat must stay intact** — verified untouched.
+
+## Status by phase
+
+- **Phase 1 — DONE and fully verified (2026-08-24). Not yet committed/deployed.**
+  - New `agent/lib/workspace-evaluator-dispatch.ts`: scheduler invokes each
+    strategy's evaluator directly, keyed off the signed envelope, selected by the
+    monitor's declared evaluator capability (no pack-ID branching).
+  - `agent/schedules/event-triggers.ts` rewired off the LLM session; all
+    delivery/recovery/failure-code/budget semantics preserved and proven.
+  - Deleted `agent/subagents/workspace-worker/` (whole LLM agent),
+    `agent/lib/eve-workspace-worker-runtime.ts`, and the dead prompt-building in
+    `workspace-worker-runner.ts`. The `hybrid-evidence-worker` child (frontier
+    reasoning) and the `@adaam/eve-workspace-runtime-bridge` STAY (child jobs use
+    them).
+  - Reworked 10 test suites from model-event to deterministic-outcome
+    assertions, incl. the 1600-line compiled E2E (now also guards that the
+    subagent stays deleted). Removed the obsolete
+    `verify-workspace-worker-compiled-tools.ts` and its gate.
+  - **Gates all green:** `verify:strategies` (38 suites), typecheck, eve build
+    (`build:agent`), Next.js build. Interactive chat / Discuss / isolation
+    verified untouched (interactive path imports nothing that changed).
+  - Budget note: worker tokens are now 0; child frontier spend still reconciles
+    independently via `finishWorkspaceMonitorDispatchBudget`.
+
+- **Phase 2 — DONE and proven (2026-08-24).** New reusable acceptance:
+  `scripts/accept-public-commentary-research-real-model.ts`
+  (`npm run accept:public-commentary-research:real-model -- --model=<id>`). It
+  reconstructs the production research-lane prompt + the signed `citableLocators`,
+  completes via a real tool call (the mechanism production uses), and validates
+  against the REAL `publicCommentaryResearchValidationContract`
+  (`requireExactCitations`). Proven across `openai/gpt-5.4`,
+  `anthropic/claude-sonnet-5`, and `anthropic/claude-opus-4.8`:
+  - `citationExact: true` on all — the real model copies the signed locator
+    verbatim. **The citation blocker (commit 7b86e41) is confirmed fixed with a
+    real model, not just stubs.**
+  - `contractError: null` on all — the executive brief passes the real contract.
+  - Language is exactly the target shape on all: attribution-led title/body
+    ("Per CNBC, …"), metadata in the structured fields (→ artifact) not the text,
+    human x.com source only. This is the first real-model proof that this lane
+    produces the owner's desired shape.
+  - **Scope of the proof (honest):** this is the `report_now` path (brief from
+    primary evidence, the common case that was failing on citations), completed
+    via a single tool call. It does NOT yet exercise the `research_needed` Exa
+    search+fetch tool loop, nor the full production wiring (semantic job →
+    research job through the compiled hybrid-evidence worker) end to end — those
+    need a compiled-worker real-model run or one live occurrence. The two things
+    that were actually BLOCKING (exact citations, attribution-led language) are
+    proven.
+- **Phases 3–6 — not started.**
+- **eve upgrade — not started** (after phase 2).
+
+## Current position (resume here)
+
+Phases 1 and 2 are complete; everything is green in the working tree on branch
+`fix/research-citation-visibility-and-alert-shape`; NOTHING is committed or
+deployed. Next action: **Phase 3 — alert language/shape.** The real-model proof
+shows the research lane already emits the target shape, so Phase 3 is about the
+wiring around it: the brief→alert mapping keeps metadata/timestamp/API-source out
+of the iMessage text (mostly already true on the research path), the newspaper
+multi-signal model (strongest = headline, all signals in the artifact), and a
+clean attribution-led fallback when the brief model call fails. Verify the
+non-research legacy path is fully retired by Phase 5 so the bad
+metadata-in-title shape can never be produced.
+
+Reference: [[deterministic-worker-dispatch]] and [[research-lane-citation-visibility]]
+in auto-memory capture the architecture and the citation root cause.

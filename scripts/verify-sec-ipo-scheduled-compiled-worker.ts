@@ -39,7 +39,7 @@ import {
   reserveWorkspaceMonitorDispatchBudget,
   type WorkspaceGlobalBudgetClient,
 } from "../agent/lib/workspace-dispatch-budget";
-import { startWorkspaceWorkerTask } from "../agent/lib/eve-workspace-worker-runtime";
+import { runWorkspaceEvaluatorForMonitor } from "../agent/lib/workspace-evaluator-dispatch";
 import type { WorkspaceFindingStoreClient } from "../agent/lib/workspace-finding-store";
 import {
   claimDueWorkspaceMonitors,
@@ -601,11 +601,17 @@ function fetchResponse(
 }
 
 type DispatchEvidence = {
+  // A scheduled occurrence no longer runs an LLM worker, so there are no model
+  // events; this stays for the recovery scenarios that assert no worker ran
+  // (always []). `ranEvaluator` records whether the deterministic evaluator was
+  // invoked for this dispatch - the replacement for "the worker requested the
+  // evaluator tool".
   events: MessageStreamEvent[];
   fetches: number;
+  ranEvaluator: boolean;
 };
 let pendingClaim: ClaimedWorkspaceMonitor | null = null;
-let eventCapture: Promise<MessageStreamEvent[]> | null = null;
+let evaluatorRanThisDispatch = false;
 let workspaceWorkerStarts = 0;
 let workspaceBudgetReservations = 0;
 let workspaceBudgetEnvironment: NodeJS.ProcessEnv = environment;
@@ -666,16 +672,10 @@ const schedule = createEventTriggerSchedule({
     sourceEvents: false,
     state: true,
   }),
-  startWorkspaceWorker: async (request) => {
+  runWorkspaceEvaluator: async (input) => {
     workspaceWorkerStarts += 1;
-    const session = await startWorkspaceWorkerTask(request);
-    const [scheduleEvents, observedEvents] = session.events.tee();
-    eventCapture = (async () => {
-      const captured: MessageStreamEvent[] = [];
-      for await (const event of observedEvents) captured.push(event);
-      return captured;
-    })();
-    return { ...session, events: scheduleEvents };
+    evaluatorRanThisDispatch = true;
+    await runWorkspaceEvaluatorForMonitor(input);
   },
 });
 let verificationNow = new Date();
@@ -727,7 +727,7 @@ async function dispatch(
 ): Promise<DispatchEvidence> {
   pendingClaim = job;
   activeFetch = fetchSource;
-  eventCapture = null;
+  evaluatorRanThisDispatch = false;
   const fetchesBefore = fetchCount;
   const waiters: Promise<unknown>[] = [];
   if (!("run" in schedule) || !schedule.run) {
@@ -749,43 +749,43 @@ async function dispatch(
   });
   assert.equal(waiters.length, 1);
   await Promise.all(waiters);
-  const events = eventCapture ? await eventCapture : [];
-  return { events, fetches: fetchCount - fetchesBefore };
+  return { events: [], fetches: fetchCount - fetchesBefore, ranEvaluator: evaluatorRanThisDispatch };
 }
 
-async function runCompiledWorkspaceWorkerWithoutSchedulerTail(
-  request: Parameters<typeof startWorkspaceWorkerTask>[0],
+async function runEvaluatorDirectlyWithoutSchedulerTail(
+  prepared: Awaited<ReturnType<typeof prepareWorkspaceWorkerRun>>,
   fetchSource: (requestedUrl: string) => Promise<OfficialPublicSourceResponse>,
-): Promise<DispatchEvidence> {
+): Promise<{ fetches: number; threw: boolean }> {
+  // Simulate an occurrence that ran and committed but crashed before the
+  // scheduler could finalize it: run the evaluator directly, off the scheduler,
+  // so the scheduler-tail (delivery, checkpoint finalize, budget) never runs.
+  // This does not go through the injected runWorkspaceEvaluator, so it must not
+  // advance workspaceWorkerStarts.
   activeFetch = fetchSource;
   const fetchesBefore = fetchCount;
-  const session = await startWorkspaceWorkerTask(request);
-  const events: MessageStreamEvent[] = [];
-  for await (const event of session.events) events.push(event);
-  return { events, fetches: fetchCount - fetchesBefore };
+  let threw = false;
+  try {
+    await runWorkspaceEvaluatorForMonitor({
+      prepared,
+      requiredCapabilityIds: [EVALUATE_SEC_IPO_SOURCE_TOOL_ID],
+    });
+  } catch {
+    threw = true;
+  }
+  return { fetches: fetchCount - fetchesBefore, threw };
 }
 
 function assertCompiledEvaluatorEvents(evidence: DispatchEvidence): void {
-  const requestedToolNames = evidence.events.flatMap((event) =>
-    event.type === "actions.requested"
-      ? event.data.actions.flatMap((action) =>
-          action.kind === "tool-call" ? [action.toolName] : [],
-        )
-      : [],
-  );
-  assert.deepEqual(requestedToolNames, [EVALUATE_SEC_IPO_SOURCE_TOOL_ID]);
-  const evaluatorResult = evidence.events.find((event) =>
-    event.type === "action.result" &&
-    event.data.result.kind === "tool-result" &&
-    event.data.result.toolName === EVALUATE_SEC_IPO_SOURCE_TOOL_ID
-  );
-  assert.ok(evaluatorResult, "compiled evaluator result was not emitted");
-  assert.notEqual(
-    evaluatorResult.data.result.isError,
+  // The scheduler now invokes the strategy evaluator deterministically instead
+  // of driving a compiled LLM worker, so there are no model tool-call events to
+  // inspect. The equivalent guarantee is that the deterministic evaluator ran
+  // for this dispatch and committed its outcome (the caller asserts the
+  // resulting findings, alerts, checkpoint, and outcome records in detail).
+  assert.equal(
+    evidence.ranEvaluator,
     true,
-    JSON.stringify(evaluatorResult.data.result),
+    "the scheduler must run the SEC IPO evaluator deterministically for this occurrence",
   );
-  assert.ok(evidence.events.some((event) => event.type === "session.completed"));
 }
 
 function storedRecords(store: MemoryCreateStore, recordType: string) {
@@ -866,13 +866,22 @@ try {
   if (originalVercelEnvironment === undefined) delete process.env.VERCEL;
   else process.env.VERCEL = originalVercelEnvironment;
 }
-const hostedWorkspaceWorker = hostedCompilation.manifest.subagents.find(
-  (candidate) => candidate.name === "workspace-worker",
+// The LLM workspace-worker subagent was removed; the scheduler runs each
+// evaluator deterministically. It must no longer be compiled into the agent.
+assert.equal(
+  hostedCompilation.manifest.subagents.some(
+    (candidate) => candidate.name === "workspace-worker",
+  ),
+  false,
+  "The deterministic dispatch replaced the LLM workspace-worker; it must not be compiled.",
+);
+const hostedHybridWorker = hostedCompilation.manifest.subagents.find(
+  (candidate) => candidate.name === "hybrid-evidence-worker",
 );
 assert.equal(
-  hostedWorkspaceWorker?.agent.sandbox?.backendName,
+  hostedHybridWorker?.agent.sandbox?.backendName,
   "vercel",
-  "The hosted workspace worker must not use a local filesystem-backed sandbox.",
+  "The hosted hybrid-evidence worker must not use a local filesystem-backed sandbox.",
 );
 const compilation = await compileAgent({ startPath: appRoot });
 assert.deepEqual(
@@ -1275,19 +1284,17 @@ try {
     const completionsBeforeRecovery = monitors.completeCalls;
     const workerStartsBeforeRecovery = workspaceWorkerStarts;
     alerts.failNextRecordType = "workspace_alert";
-    const interrupted = await runCompiledWorkspaceWorkerWithoutSchedulerTail(
-      recoveryAttemptOnePrepared.request,
+    const interrupted = await runEvaluatorDirectlyWithoutSchedulerTail(
+      recoveryAttemptOnePrepared,
       fetchResponse(fixtureBodies.later),
     );
     assert.equal(interrupted.fetches, 1);
     assert.equal(workspaceWorkerStarts, workerStartsBeforeRecovery);
-    assert.ok(interrupted.events.some((event) =>
-      event.type === "action.result" &&
-      event.data.result.kind === "tool-result" &&
-      event.data.result.toolName === EVALUATE_SEC_IPO_SOURCE_TOOL_ID &&
-      event.data.result.isError === true
-    ));
-    assert.ok(interrupted.events.some((event) => event.type === "session.completed"));
+    // Alert staging fails inside the evaluator after the finding/outcome is
+    // durably committed, so the evaluator throws (the deterministic equivalent
+    // of the old compiled worker returning an isError tool result). The finding
+    // is committed; the alert, checkpoint, and monitor completion are not.
+    assert.equal(interrupted.threw, true);
     assert.equal(storedRecords(alerts, "workspace_alert").length, alertsBeforeRecovery);
     assert.equal(monitors.completeCalls, completionsBeforeRecovery);
     assert.equal(
@@ -1588,8 +1595,7 @@ try {
         response,
       );
       assert.equal(failed.fetches, 1, name);
-      assert.ok(failed.events.some((event) => event.type === "action.result"), name);
-      assert.ok(failed.events.some((event) => event.type === "session.completed"), name);
+      assertCompiledEvaluatorEvents(failed);
       monitorB = (await getWorkspaceMonitor(
         workspaceB.scope,
         workspaceB.monitor.monitorId,
