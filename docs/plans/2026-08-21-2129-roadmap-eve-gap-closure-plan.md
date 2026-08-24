@@ -520,7 +520,23 @@ re-version every contract and every pack that pins one.
 No new features. Code should be churn-free before this sprint starts.
 
 - [ ] Repair the pre-existing red gate: `verify:strategy-packs:acceptance`
-  fails on unmodified `main` (recorded 2026-08-21 during U1).
+  (recorded 2026-08-21 during U1). Diagnosed 2026-08-23 (fleet transport &
+  attribution unit): two layers. (1) It injected no `alertDeliverySubscription`,
+  so managed-workspace creation hit the KV-backed `store()` and threw
+  `photon_alert_subscription_unavailable` — **fixed** there (in-memory recorder +
+  a seam assertion that creation ensures the monitor's delivery subscription).
+  (2) The test installs the historical non-research `ipo-filings@1.0.0`, but the
+  worker now requires a research pack for any `ipo-filings` monitor
+  (`resolveSecIpoResearchRuntime` throws `sec_ipo_monitor_invalid`). Owner
+  confirmed **research-only** (2026-08-23; see `GOAL.md`), so the fix is not a
+  product question but a harness rebuild: a research pack also requires model
+  routing config and `publicSourcePath === "public_source_adapter"` (worker
+  ~line 569), so the injected `fetchSource` must become a full public-source
+  adapter + research-session harness. That duplicates the **passing** dedicated
+  `sec-ipo` suites and overlaps the signal-quality/research unit — deferred here
+  deliberately. Two clean paths: (A) build the research-acceptance harness, or
+  (B) re-scope this framework test to a fixture worker and let the `sec-ipo`
+  suites own real worker execution.
 - [ ] Triage the two failing Coinbase evals (`order-approval`, `order-denial`
   in `eval:coinbase`): determine stale eval vs. real approval-shape regression
   (financial path — release-relevant until proven eval-only; details in

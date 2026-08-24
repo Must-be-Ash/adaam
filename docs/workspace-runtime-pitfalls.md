@@ -157,6 +157,21 @@ undeliverable for months while Inverse Cramer worked perfectly, purely because
 Cramer stages no presentations and so never took the broken branch. The
 per-strategy suites are the thing that would have caught it.
 
+**`verify:strategies` is an explicit gate, deliberately NOT in `prebuild`
+(decided 2026-08-23).** It is the mandatory pre-deploy check: run it, green,
+before every `vercel deploy --prod`, and any time you touch a shared module. It
+stays out of `prebuild` because one of its 38 suites
+(`verify:workspace-runtime:sec-ipo-scheduled-compiled`) calls `compileAgent` and
+builds a workflow bundle, so folding it into `prebuild` would compile the agent
+twice on every production build and put a ~90s battery in the deploy pipeline's
+critical path, where a single environment-sensitive suite could block an
+otherwise-good deploy. `prebuild` keeps the fast self-contained battery
+(`verify:strategy-packs`, `:context`, `:transport`, `:approvals`, `:sessions`,
+`:workspaces`, `:artifacts`); the full per-strategy cross-check is run
+explicitly. The durable long-term home for it is CI (none exists yet; see
+`BACKLOG.md` §7), which would run it on every change without taxing local or
+deploy builds.
+
 **Watch for strategy-shaped asymmetry when reading a shared code path.** If one
 vertical passes an optional argument and the others do not, that argument's
 branch is effectively untested by four fifths of the suite. `alertPresentations`

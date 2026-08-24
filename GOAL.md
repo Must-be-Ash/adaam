@@ -77,3 +77,45 @@ Agents should be able to run in parallel and be durable and in the background so
 - Frontier model interprets meaning, patterns, implications, and forecasts
 - Frontier model reasons and goes to do further research (using tools and web search) if needed and helps the user make sense of signals or understand what they indicate and what are actionable items
 - The model presents the information in a presentable manner and without being redundant or verbose but more like executive summary that communicate the important details instead of a bloated report, that is too long to read
+
+## What a signal must become — the ultimate use case (added 2026-08-23)
+
+The whole app exists to be an assistant for traders: to find and identify
+signals, understand what they mean or indicate, and turn that into something
+actionable. It should be that simple to receive information, make sense of it,
+and act.
+
+The flow: an event or signal wakes an agent — detected either by the worker's
+deterministic parser or by the LLM's semantic understanding that something is
+material. From there the agent either (a) reasons about the signal and messages
+me over iMessage explaining what it means or indicates, or (b) decides the
+signal is only a starting point and it is worth researching to build the fuller
+picture, then researches within budget and reports back better intelligence.
+
+Whether research is needed depends on the strategy, and the strategy pack should
+already know its own answer:
+
+- Some strategies are the signal itself and need no research. Inverse Cramer:
+  Cramer is bullish → we are bearish, done. Trump/Iran oil: Trump signals peace
+  → bearish on oil, done. The pack knows the ask is clear and does not research.
+- Some strategies need research to know what the signal even means. An IPO
+  filing on its own does not tell me what to do; the agent should research the
+  filing's disclosures and supplementary sources to work out the implication.
+  Every pack has the research lane available; the agent decides per signal
+  whether to use it, based on the prompt and ask we gave it.
+
+The report is about the implication, not the raw event. The final output reads
+like: "[source] just reported [headline]; according to [supplementary source]
+this means the price of [asset] could go up. I would keep an eye on
+[stats/sources] in the coming days and be ready to [buy/sell or long/short]."
+It does not have to match that template exactly — it communicates the goal.
+
+For an IPO the report may not even restate the filing. It might say: "from
+[company]'s IPO registration I found their biggest capex is [commodity]; I
+looked up [supplementary sources] and they point to [commodity] outperforming
+this coming quarter, so keep an eye on [commodity] and be prepared to long it."
+
+Older non-research pack versions were iterations on the way here; they are not
+kept alive. All packages have access to research, and the app is research-only
+going forward. See `docs/prompts/owner-signal-quality-direction.md` for the
+alert-shape notes that go with this.
