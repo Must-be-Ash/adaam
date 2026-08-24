@@ -40,6 +40,7 @@ export const PUBLIC_SOURCE_ERROR_CODES = [
   "pdf_scanned_unsupported",
   "pdf_text_limit_exceeded",
   "rate_limit_exhausted",
+  "service_unavailable",
   "source_cursor_conflict",
   "source_identity_mismatch",
   "source_instance_inactive",

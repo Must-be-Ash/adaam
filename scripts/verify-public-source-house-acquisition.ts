@@ -547,11 +547,13 @@ for (const [name, indexBody, documentBody, expectedError, expectedStatus] of [
   assert.equal((await readPublicSourceInstance(result.acquisition.result.sourceInstanceId, client))?.cursor.revision, 0, name);
 }
 
-// Both a non-200 HTTP response and the fetch call itself throwing collapse to
-// the identical "acquisition_uncertain"/"transport"/"uncertain" classification
-// - this is what made the U4 Congressional acceptance's real failure
-// undiagnosable from Production logs alone. Prove the logged detail actually
-// distinguishes them.
+// A non-200 HTTP response and the fetch call itself throwing must classify a
+// given status identically (one shared houseHttpStatusError) while the logged
+// detail still distinguishes the two failure shapes - the ambiguity that made
+// the U4 Congressional acceptance's real failure undiagnosable from Production
+// logs alone. A determinate transient status (429, 502/503/504) is now a
+// bounded retryable_failure so a temporary upstream hiccup does not terminalize
+// the occurrence and wait a full cadence; other statuses stay uncertain.
 function captureWarnings(): { readonly calls: unknown[][]; restore(): void } {
   const original = console.warn;
   const calls: unknown[][] = [];
@@ -582,8 +584,10 @@ function captureWarnings(): { readonly calls: unknown[][]; restore(): void } {
   } finally {
     warnings.restore();
   }
-  assert.equal(result.acquisition.result.status, "uncertain");
-  assert.equal(result.acquisition.result.errorCode, "acquisition_uncertain");
+  assert.equal(result.acquisition.result.status, "retryable_failure");
+  assert.equal(result.acquisition.result.errorCode, "service_unavailable");
+  assert.equal(result.acquisition.result.retryAfterSeconds, 60,
+    "a retryable_failure must carry a bounded retry hint");
   const logged = warnings.calls.find(([message]) => message === "[house-public-source] acquisition failed");
   assert.ok(logged, "a non-200 index response must log a bounded failure summary");
   assert.equal((logged![1] as { detail: string }).detail, "http_503",
@@ -638,12 +642,43 @@ function captureWarnings(): { readonly calls: unknown[][]; restore(): void } {
   } finally {
     warnings.restore();
   }
-  assert.equal(result.acquisition.result.status, "uncertain");
-  assert.equal(result.acquisition.result.errorCode, "acquisition_uncertain");
+  // Identical classification to the response-object path above (one shared
+  // houseHttpStatusError), and the determinate status still reaches the log.
+  assert.equal(result.acquisition.result.status, "retryable_failure");
+  assert.equal(result.acquisition.result.errorCode, "service_unavailable");
+  assert.equal(result.acquisition.result.retryAfterSeconds, 60);
   const logged = warnings.calls.find(([message]) => message === "[house-public-source] acquisition failed");
   assert.ok(logged, "a real fetchOfficialPublicSourceBytes-shaped status error must log a bounded failure summary");
   assert.equal((logged![1] as { detail: string }).detail, "http_503",
     "the actual HTTP status must survive fetchOfficialPublicSourceBytes throwing, not just validateResponse's own check");
+}
+
+// A determinate rate-limit (429) is retryable and carries its own code, while a
+// determinate client error (404) is not transient and stays uncertain - proving
+// the classification distinguishes transient from non-transient status codes.
+{
+  const observedAt = "2026-08-16T07:00:00.000Z";
+  const rateLimited = await runHousePublicSourceAcquisition({
+    client: new MemoryStore(),
+    fetchDocument: async (url) => response({ body: singlePdf, contentType: "application/pdf", observedAt, url }),
+    fetchIndex: async () => { throw new PublicSourceHttpStatusError(429); },
+    sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+    window: window(observedAt),
+  });
+  assert.equal(rateLimited.acquisition.result.status, "retryable_failure");
+  assert.equal(rateLimited.acquisition.result.errorCode, "rate_limit_exhausted");
+  assert.equal(rateLimited.acquisition.result.retryAfterSeconds, 60);
+
+  const notFound = await runHousePublicSourceAcquisition({
+    client: new MemoryStore(),
+    fetchDocument: async (url) => response({ body: singlePdf, contentType: "application/pdf", observedAt, url }),
+    fetchIndex: async () => { throw new PublicSourceHttpStatusError(404); },
+    sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+    window: window(observedAt),
+  });
+  assert.equal(notFound.acquisition.result.status, "uncertain");
+  assert.equal(notFound.acquisition.result.errorCode, "acquisition_uncertain");
+  assert.equal(notFound.acquisition.result.retryAfterSeconds, null);
 }
 
 console.log("public-source House acquisition verification passed");

@@ -136,7 +136,11 @@ class HouseAdapterError extends Error {
   constructor(
     readonly code: HouseErrorCode,
     readonly stage: "archive" | "normalize" | "pdf" | "transport" | "xml",
-    readonly status: "partial" | "terminal_failure" | "uncertain" = "terminal_failure",
+    readonly status:
+      | "partial"
+      | "retryable_failure"
+      | "terminal_failure"
+      | "uncertain" = "terminal_failure",
     /*
      * Diagnostic only, never durable: an HTTP status ("503") or a bounded
      * exception classification ("TypeError"). `code`/`stage`/`status` alone
@@ -146,6 +150,13 @@ class HouseAdapterError extends Error {
      * during the U4 acceptance undiagnosable from Production logs alone.
      */
     readonly detail: string | null = null,
+    /*
+     * Non-null only for a `retryable_failure`; the acquisition result schema
+     * requires that pairing. A bounded seconds hint for the sweeper's next
+     * attempt, not the upstream `Retry-After` header (which the typed status
+     * error does not carry).
+     */
+    readonly retryAfterSeconds: number | null = null,
   ) {
     super(code);
     this.name = "HouseAdapterError";
@@ -315,12 +326,7 @@ function validateResponse(input: {
     throw new HouseAdapterError("transport_response_oversized", "transport");
   }
   if (input.response.status !== 200) {
-    throw new HouseAdapterError(
-      "acquisition_uncertain",
-      "transport",
-      "uncertain",
-      `http_${boundedAdapterDetail(String(input.response.status))}`,
-    );
+    throw houseHttpStatusError(input.response.status);
   }
   const contentType = input.response.contentType.split(";", 1)[0]!.trim().toLowerCase();
   const allowed = input.kind === "archive"
@@ -735,7 +741,7 @@ function failureAcquisition(input: {
       observedAt: input.observedAt,
       proposedNextCursor: null,
       recordType: "public_source_acquisition_result",
-      retryAfterSeconds: null,
+      retryAfterSeconds: input.error.retryAfterSeconds,
       schemaVersion: 1,
       sourceInstanceId: input.source.sourceInstanceId,
       stageReceipts: [{
@@ -749,6 +755,59 @@ function failureAcquisition(input: {
     }),
     window: input.window,
   });
+}
+
+const HOUSE_TRANSIENT_RETRY_AFTER_SECONDS = 60;
+
+/*
+ * The transient HTTP statuses the upstream itself signals as retryable. A
+ * bounded seconds hint (not the `Retry-After` header, which the typed status
+ * error does not carry) tells the sweeper to retry soon rather than terminalize
+ * and wait a full cadence.
+ */
+function houseRetryableHttpStatus(
+  status: number,
+): { readonly code: HouseErrorCode; readonly retryAfterSeconds: number } | null {
+  if (status === 429) {
+    return {
+      code: "rate_limit_exhausted",
+      retryAfterSeconds: HOUSE_TRANSIENT_RETRY_AFTER_SECONDS,
+    };
+  }
+  if (status === 502 || status === 503 || status === 504) {
+    return {
+      code: "service_unavailable",
+      retryAfterSeconds: HOUSE_TRANSIENT_RETRY_AFTER_SECONDS,
+    };
+  }
+  return null;
+}
+
+/*
+ * The one place a non-2xx HTTP status is classified, so the thrown-error path
+ * (fetchOfficialPublicSourceBytes, production) and the response-object path
+ * (validateResponse) can never drift on the same status. A non-2xx response is
+ * a determinate fact, not an ambiguous transport condition, and it never
+ * advances the source cursor (commit refuses a result without a proposed
+ * cursor), so the window is preserved for the next attempt no matter the
+ * classification. We use that determinacy to recover faster from the transient
+ * cases the server signals as retryable (429, 502/503/504) - a bounded
+ * `retryable_failure` instead of terminalizing as `uncertain` and waiting a
+ * full cadence, mirroring the X adapter. Every other status (4xx, 500) stays
+ * `uncertain`: safe when the outcome is ambiguous or unlikely to change soon.
+ */
+function houseHttpStatusError(status: number): HouseAdapterError {
+  const detail = `http_${boundedAdapterDetail(String(status))}`;
+  const retryable = houseRetryableHttpStatus(status);
+  return retryable
+    ? new HouseAdapterError(
+        retryable.code,
+        "transport",
+        "retryable_failure",
+        detail,
+        retryable.retryAfterSeconds,
+      )
+    : new HouseAdapterError("acquisition_uncertain", "transport", "uncertain", detail);
 }
 
 function mappedError(error: unknown): HouseAdapterError {
@@ -770,16 +829,11 @@ function mappedError(error: unknown): HouseAdapterError {
      * validateResponse below ever sees a response object - so in production,
      * validateResponse's own status !== 200 branch is effectively unreachable
      * for this failure mode. This is the actual determinate fact a non-2xx
-     * response carries; without it, two live "acquisition_uncertain"
-     * occurrences an hour apart were indistinguishable from a genuine network
-     * failure.
+     * response carries; without it, two live occurrences an hour apart were
+     * indistinguishable from a genuine network failure. `houseHttpStatusError`
+     * classifies it identically to validateResponse's own branch.
      */
-    return new HouseAdapterError(
-      "acquisition_uncertain",
-      "transport",
-      "uncertain",
-      `http_${boundedAdapterDetail(String(error.status))}`,
-    );
+    return houseHttpStatusError(error.status);
   }
   /*
    * Anything else unrecognized here is the fetch layer itself failing (DNS,
