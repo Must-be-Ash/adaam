@@ -423,6 +423,18 @@ async function executeWorkspaceJob(
       actualOutputTokens: outputTokens,
       outcome: "reconciled",
     });
+    /*
+     * A completed occurrence emitted only identity-free counters, so when two
+     * monitors ran in the same window - IPO Live and Tracker Live share a
+     * cadence - the log could not say which one succeeded, or with what.
+     * Failures already name their strategy; successes owe the same. Bounded to
+     * registry identity and a fixed outcome word, never owner or source data.
+     */
+    console.info("[workspace.runtime] workspace occurrence completed", {
+      monitorId: job.monitor.monitorId,
+      outcome: outcome.outcome,
+      packId: job.monitor.managedBy?.packId ?? null,
+    });
     dependencies.emitRuntimeObservation({
       counter: "workspace_monitor_completed_total",
       value: 1,
