@@ -84,27 +84,20 @@ import { marketSymbolSchema } from "./strategy-pack-schema";
 export const PUBLIC_COMMENTARY_ALERT_WHY_MATCHED_MAXIMUM = 1_000;
 
 /*
- * A fact's `source` is the instance the data was polled from - for X that is
- * "https://api.x.com/2/users/<id>/tweets", and its origin invariant is correct.
- * A finding's `provenance` is what the finding CITES, which is the statement
- * itself. Conflating them put the polling endpoint under "Sources:" in the
- * owner's alert: not readable, not openable, and not the thing being cited.
- * The brief path already treats statement.canonicalUrl as the official source
- * URL, so this only makes the finding agree with it. `sourceId` is unchanged,
- * so lineage back to the instance is intact.
+ * NOTE - do not point a finding's provenance at the statement URL.
+ *
+ * The owner's alert shows "Sources: https://api.x.com/2/users/<id>/tweets",
+ * which is not a link a person can use. Citing statement.canonicalUrl there
+ * looks like the fix and is NOT: `assertProvenance` in workspace-finding-store
+ * requires `allowed.origin === source.origin` against the monitor's declared
+ * sources, and the declared origin is https://api.x.com while a statement lives
+ * at https://x.com. Making that change threw finding_source_outside_fence on
+ * every commit and took the live monitor down until it was reverted.
+ *
+ * A real fix has to reconcile the monitor's declared source origin with the
+ * cited document, or suppress the Sources line for the owner rather than
+ * rewriting provenance. The body already carries "Cited statement: <url>".
  */
-function citedProvenance(
-  source: Readonly<{ accessClassification: "public"; sourceId: string }>,
-  canonicalUrl: string,
-) {
-  return {
-    accessClassification: source.accessClassification,
-    canonicalUrl,
-    origin: new URL(canonicalUrl).origin,
-    role: "official" as const,
-    sourceId: source.sourceId,
-  };
-}
 
 export {
   COMMENTARY_CONFIGURED_IMPACT_CONTRACT,
@@ -592,7 +585,7 @@ const source = {
         schemaVersion: 1,
         source,
       }],
-      provenance: [citedProvenance(source, statement.canonicalUrl)],
+      provenance: [source],
       summary: whyMatched,
     },
     record,
@@ -729,7 +722,7 @@ export async function materializePublicCommentaryCorrection(input: {
         schemaVersion: 1,
         source,
       }],
-      provenance: [citedProvenance(source, statement.canonicalUrl)],
+      provenance: [source],
       summary: whyMatched,
     },
     record,
