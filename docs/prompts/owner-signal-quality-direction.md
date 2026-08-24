@@ -476,9 +476,15 @@ baseline to bisect against.
        `verify-strategy-pack-configuration-kinds.ts`,
        `verify-strategy-pack-owner-surfaces.ts`). Battery green. A monitor on
        `public-commentary-tracker@1.5.0` now uses the tuned language.
-    2. Inverse Cramer parity: tune `inverse-cramer-research.ts`'s own instruction
-       (separate contract `inverse-cramer-frontier-research`, currently at
-       1.0.0/1.0.1) as a new frozen version + new inverse-cramer pack.
+    2. ~~Inverse Cramer parity.~~ DONE (2026-08-24). Tuned language shipped as a
+       frozen new contract version `inverse-cramer-frontier-research@1.0.2`
+       (1.0.0/1.0.1 kept frozen; they share the original text, 1.0.1 was a limits
+       fix). Preserves the registered inverse-direction policy. New pack
+       `inverse-cramer@1.4.9` declares it (digest `f705d8c8…` for gpt-5.4).
+       Real-model validated on a Cramer-bullish case: "Per Jim Cramer, he is
+       bullish on NVDA …; the registered inverse policy points bearish, so the
+       price could go down … Watch NVDA … be ready to watch for short setups."
+       Battery green; all hard-coded catalog lists updated.
     3. Clean fallback when the brief job throws: today the occurrence fails with
        no alert, or falls through to the legacy metadata-in-title shape. Produce
        an attribution-led basic alert from the primary evidence instead.
