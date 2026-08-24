@@ -24,6 +24,11 @@ import {
   inverseCramerResearchWorkerCandidateSchema,
 } from "./inverse-cramer-research";
 import {
+  PUBLIC_COMMENTARY_AGENTIC_RESEARCH_BUDGET,
+  PUBLIC_COMMENTARY_RESEARCH_DEFINITION_ID,
+  publicCommentaryResearchWorkerCandidateSchema,
+} from "./public-commentary-research";
+import {
   EARNINGS_CALL_AGENTIC_RESEARCH_BUDGET,
   EARNINGS_CALL_RESEARCH_DEFINITION_ID,
   earningsCallResearchWorkerCandidateSchema,
@@ -97,6 +102,20 @@ const contracts = Object.freeze([
     }),
     definitionId: PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
     research: null,
+  }),
+  Object.freeze({
+    capabilityRevisions: Object.freeze([2]),
+    completion: Object.freeze({
+      description:
+        "Commit one public-commentary executive brief using the exact registered research contract.",
+      inputSchema: publicCommentaryResearchWorkerCandidateSchema,
+    }),
+    definitionId: PUBLIC_COMMENTARY_RESEARCH_DEFINITION_ID,
+    research: Object.freeze({
+      approvedUrlPolicy: "evidence_sources" as const,
+      budget: PUBLIC_COMMENTARY_AGENTIC_RESEARCH_BUDGET,
+      requiresParentRunId: true as const,
+    }),
   }),
   Object.freeze({
     capabilityRevisions: Object.freeze([2]),

@@ -1,4 +1,9 @@
 import {
+  createPublicCommentaryResearchDefinition,
+  PUBLIC_COMMENTARY_RESEARCH_DEFINITION_ID,
+  PUBLIC_COMMENTARY_RESEARCH_DEFINITION_VERSIONS,
+} from "./public-commentary-research";
+import {
   createInverseCramerResearchDefinition,
   INVERSE_CRAMER_RESEARCH_DEFINITION_ID,
   INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS,
@@ -41,6 +46,15 @@ const contracts = new Map<string, PublicCommentaryResearchContract>([
       ),
     definitionId: INVERSE_CRAMER_RESEARCH_DEFINITION_ID,
     versions: INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS,
+  })],
+  [PUBLIC_COMMENTARY_RESEARCH_DEFINITION_ID, Object.freeze({
+    createDefinition: (modelIds: readonly string[], version: string) =>
+      createPublicCommentaryResearchDefinition(
+        [...modelIds],
+        version as (typeof PUBLIC_COMMENTARY_RESEARCH_DEFINITION_VERSIONS)[number],
+      ),
+    definitionId: PUBLIC_COMMENTARY_RESEARCH_DEFINITION_ID,
+    versions: PUBLIC_COMMENTARY_RESEARCH_DEFINITION_VERSIONS,
   })],
 ]);
 

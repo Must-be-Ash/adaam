@@ -23,6 +23,7 @@ import {
 } from "./public-commentary-semantics";
 import { secIpoResearchValidationContract } from "./sec-ipo-semantics";
 import { inverseCramerResearchValidationContract } from "./inverse-cramer-research";
+import { publicCommentaryResearchValidationContract } from "./public-commentary-research";
 import { earningsCallResearchValidationContract } from "./earnings-call-research";
 
 export const HOUSE_DOCUMENT_ROW_DEFINITION_ID = "house-ptr-document-row-recovery";
@@ -400,6 +401,7 @@ export const workspaceSemanticValidationRegistry = createWorkspaceSemanticValida
   inverseCramerActionabilityValidationContract,
   inverseCramerSemanticValidationContract,
   inverseCramerResearchValidationContract,
+  publicCommentaryResearchValidationContract,
   publicCommentaryImpactValidationContract,
   secIpoResearchValidationContract,
 ]);
