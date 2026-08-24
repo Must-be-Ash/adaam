@@ -1,8 +1,30 @@
-# Owner direction — what a signal alert must be
+# Owner objective — what a signal alert must be
 
-Recorded 2026-08-23 from the owner, in their own words, with the current state
-of each item. This is the product target for commentary alerts. Read it before
-changing anything about how an alert is composed.
+## The objective
+
+**Every background monitor delivers a trading edge: the signal it found, and
+what that signal means, in a form the owner can act on in seconds.**
+
+A delivered alert is a headline plus two or three sentences. It says what was
+found and what it indicates - "this suggests the price goes down, because..." -
+and nothing about how the system arrived there. Certainty travels with it as a
+metric, because it will later decide whether an agent may place a trade on its
+own. Where a statement is only a starting point, the agent researches around it
+to work out what it could mean; where the statement is already the answer, it
+does not.
+
+Everything below serves that objective.
+
+---
+
+Recorded 2026-08-23 from the owner, in their own words, with the state of each
+item. Read it before changing anything about how an alert is composed.
+
+**On confidence in this document:** items under "Verified" were read from
+durable state or from a delivered alert. Items under "Believed, not verified"
+are my reading of the code and MAY BE WRONG - verify them yourself before
+acting. I looped on this problem and made several confident claims today that
+turned out to be wrong, so treat unverified reasoning here with suspicion.
 
 ## The ask, verbatim
 
@@ -68,7 +90,7 @@ changing anything about how an alert is composed.
 6. No pack-ID behaviour branches in shared plumbing. Pack ids stay valid as
    provenance, registry keys and binding identity only.
 
-## Addressed
+## Verified working (seen in a delivered alert or read from durable state)
 
 - **Executive format** (`6fbb28b`). Title is the signal:
   `SPX · bearish · medium confidence · weeks · uncorroborated`. Body is the
@@ -102,39 +124,49 @@ changing anything about how an alert is composed.
   per-strategy suites in ~90s. Held at 37/38 through every change above, the
   one failure being a pre-existing sec-ipo DNS gate.
 
-## NOT addressed
+## Not addressed
 
 1. **The owner has never received an executive brief or an artifact.** This is
    the headline gap. The research lane resolves in Production - proven by the
    $3.50 reservation, which is only taken when the lane is active - but no run
    has produced a brief, so no artifact publishes and the card never shows
    `Readable report: <url>`.
-2. **Root cause found: `citation_invalid`** (2026-08-23 20:05, pack 1.4.0).
-   The durable semantic store holds it directly:
+2. **The brief fails somewhere in citation validation. I am NOT certain why.**
+
+   VERIFIED - read directly from the durable semantic store:
 
        "definitionId": "public-commentary-frontier-research",
        "quarantineCodes": ["citation_invalid"]
 
-   So the child now DOES complete - it produced a brief with citations - and
-   the citations failed validation. `hybrid_quarantine_blocking` was the
-   downstream health notification, not the cause.
+   So the research child does run, and its output is quarantined with that
+   code. I also verified the lane resolves in Production, because the $3.50
+   reservation is only taken when it is active. Earlier runs failed differently
+   (`completion_missing`), and one run showed `hybrid_quarantine_blocking` on
+   the monitor.
 
-   The mechanism is exact-citation matching in `hybrid-evidence-semantic.ts`.
-   With `requireExactCitations: true`, the model's citations must equal the
-   validator's `assertionCitations` set exactly - same locators, no duplicates,
-   none missing. `publicCommentaryResearchValidationContract` returns one
-   assertion citation per evidence item, so the child must echo each evidence
-   locator precisely; it did not.
+   BELIEVED, NOT VERIFIED - my reading of the code, which you should check:
+   I think `citation_invalid` comes from the exact-citation rule in
+   `hybrid-evidence-semantic.ts` (~line 606-621). With
+   `requireExactCitations: true` the model's citations must equal the
+   validator's `assertionCitations` set exactly, and
+   `publicCommentaryResearchValidationContract` returns one per evidence item,
+   so the child would have to echo each locator precisely. I think it did not.
+   **I did not inspect the child's actual citations to confirm this**, and I
+   have been wrong today about mechanisms that read plausibly. Verify against
+   the quarantined job records in the store before acting on it.
 
-   NEXT STEP: the fix is in the contract INSTRUCTION - tell the child it must
-   cite every statement in the signed bundle, echoing each locator exactly.
-   The instruction is digest-covered, so that means
+   I also think, but am not sure, that `hybrid_quarantine_blocking` is a
+   downstream health notification rather than a separate fault.
+
+   If the reading is right, the fix would be in the contract instruction - tell
+   the child to cite every statement in the signed bundle, echoing each locator
+   exactly - which is digest-covered and so needs
    `public-commentary-frontier-research@1.0.1` plus tracker pack `1.4.1`.
-   Confirm against the child's actual citations first rather than assuming the
-   count is what mismatched; the store holds the quarantined job records.
+   Confirm the cause first; do not build a new contract version on my guess.
 
-   Do NOT weaken the exact-citation rule to make this pass. It exists so every
-   assertion in a brief is grounded in signed evidence.
+   **Do NOT weaken the exact-citation rule to make this pass.** It exists so
+   every assertion in a brief is grounded in signed evidence.
+
 3. **The headline is still the model's rationale, not a written headline.** The
    classifier returns `rationale`, `confidence`, `horizon`, `marketView`,
    `uncertainty[]`, `counterevidence[]` - there is no `headline` field. Getting
