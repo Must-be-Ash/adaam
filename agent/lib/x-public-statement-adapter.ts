@@ -562,6 +562,27 @@ export async function normalizeXPublicStatementResponsePage(input: {
   });
 }
 
+/*
+ * A schema rejection is a determinate fact about which field failed, but the
+ * exception name alone ("ZodError") says only that one occurred. Carry the
+ * failing path and issue code as well - both are schema identity, never source
+ * content - so the next occurrence names the field instead of costing another
+ * run to find it. `received`/`message` are deliberately excluded: those can
+ * carry post text.
+ */
+function xAdapterFailureDetail(error: unknown): string {
+  const name = error instanceof Error ? error.name : typeof error;
+  const issues = (error as { issues?: readonly { code?: unknown; path?: readonly unknown[] }[] })
+    ?.issues;
+  const first = Array.isArray(issues) ? issues[0] : undefined;
+  if (!first) return `exception_${boundedXAdapterDetail(name)}`;
+  const path = (first.path ?? [])
+    .map((segment: unknown) => (typeof segment === "number" ? "n" : String(segment)))
+    .join(".");
+  const code = typeof first.code === "string" ? first.code : "issue";
+  return boundedXAdapterDetail(`${name}.${code}.${path}`);
+}
+
 /* Bounds a diagnostic detail string to characters safe to log unquoted. */
 function boundedXAdapterDetail(value: string): string {
   const trimmed = value.trim().slice(0, 40);
@@ -1042,7 +1063,7 @@ export async function runSharedXPublicStatementAcquisition(input: {
       const failure = errorAcquisition({
         code: errorCode,
         detail: errorCode === "acquisition_uncertain"
-          ? `exception_${boundedXAdapterDetail(error instanceof Error ? error.name : typeof error)}`
+          ? xAdapterFailureDetail(error)
           : null,
         observedAt: responses.at(-1)?.observedAt ?? input.window.endAt,
         receipt: receipt(responses, postsRead, false),
