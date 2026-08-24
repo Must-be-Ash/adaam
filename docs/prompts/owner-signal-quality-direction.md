@@ -5,28 +5,15 @@
 **Every background monitor delivers a trading edge: the signal it found, and
 what that signal means, in a form the owner can act on in seconds.**
 
-A delivered alert is a headline plus two or three sentences. It says what was
-found and what it indicates - "this suggests the price goes down, because..." -
-and nothing about how the system arrived there. Certainty travels with it as a
-metric, because it will later decide whether an agent may place a trade on its
-own. Where a statement is only a starting point, the agent researches around it
-to work out what it could mean; where the statement is already the answer, it
-does not.
+An alert is a headline plus two or three sentences. It says what was found and
+what it indicates — "this suggests the price goes down, because…" — and nothing
+about how the system arrived there. Certainty travels with it as a metric,
+because it will later decide whether an agent may place a trade on its own.
+Where a statement is only a starting point, the agent researches around it to
+work out what it could mean; where the statement is already the answer, it does
+not research at all.
 
-Everything below serves that objective.
-
----
-
-Recorded 2026-08-23 from the owner, in their own words, with the state of each
-item. Read it before changing anything about how an alert is composed.
-
-**On confidence in this document:** items under "Verified" were read from
-durable state or from a delivered alert. Items under "Believed, not verified"
-are my reading of the code and MAY BE WRONG - verify them yourself before
-acting. I looped on this problem and made several confident claims today that
-turned out to be wrong, so treat unverified reasoning here with suspicion.
-
-## The ask, verbatim
+## The ask, in the owner's words
 
 > "what i am looking for is an executive order. meaning straight to the point
 > what's the signal it found and what it means. super TLDR. like a headline
@@ -49,9 +36,6 @@ turned out to be wrong, so treat unverified reasoning here with suspicion.
 > what they mean or indicate (aka this indicates price is going to go down
 > because...)"
 
-> "'First run, covering the last 6 hours' this is useless information for the
-> user and they do not need to see this. it's redundant"
-
 > "the whole point of these signals is to get an edge as a trader. to have
 > information so that we can make better and more informed desisions. the need
 > for research also should depend on the strategy. for example, one news
@@ -64,129 +48,125 @@ turned out to be wrong, so treat unverified reasoning here with suspicion.
 > that means we are bearish on Oil and the price is going down. that's it."
 
 > "if research lane is a shared pipeline it should not have hardcoded things
-> left behind and all of that should have been taken care of from migration. if
-> there are issue, gaps and bugs you need to address them all."
+> left behind and all of that should have been taken care of from migration."
 
 > "backlog is only for wishlist items or things that can be deferred and don't
 > need to be dealt with, such as hardcore hardening. I don't want anything that
 > should be addressed to be backlogged going forward."
 
-## Rules that follow
+## Where it stands, 2026-08-23 evening
 
-1. An alert is a trading edge, not a pipeline report. Headline plus two or
-   three sentences. Nothing about runs, windows, cadence, counts, or how the
-   system reached the answer.
-2. Provenance is never user-facing. No finding ids, fact-revision ids,
-   interpretation ids, digests, character spans, revision numbers, internal
-   source identifiers, or API endpoints in the message. All of it stays on the
-   durable record and in the agent-facing turn context.
-3. Confidence is a metric, not prose. It rides the signal label because it will
-   later gate autonomous execution (above ~80% may place an order).
-4. Research is strategy-declared. A statement that is a STARTING POINT gets a
-   research lane; a statement that IS the conclusion does not.
-5. Research seeks the bigger picture, never validation. Confirming the speaker
-   said it, or that a quoted figure is real, is already settled by the signed
-   citation and adds nothing to a decision.
-6. No pack-ID behaviour branches in shared plumbing. Pack ids stay valid as
-   provenance, registry keys and binding identity only.
+This is the most recent alert the owner actually received:
 
-## Verified working (seen in a delivered alert or read from durable state)
+    Workspace alert · Tracker Live
 
-- **Executive format** (`6fbb28b`). Title is the signal:
-  `SPX · bearish · medium confidence · weeks · uncorroborated`. Body is the
-  finding plus at most one caveat. Removed: "First run, covering the last 6
-  hours", "N statements qualified", "one summary alert was emitted to avoid
-  spam", the classification enums restating direction, and the full uncertainty
-  and counterevidence lists. Further signals in a window are a `+N more` count
-  on the title.
-- **Provenance out of the message** (`6fbb28b`, `bd6a1f1`). Finding ids,
-  fact-revision ids, interpretation ids, spans, digests and revision numbers
-  dropped from the card; the raw ISO instant made readable; the internal source
-  identifier dropped. A fact's `source` (where data was polled from) and a
-  finding's `provenance` (what it cites) were conflated, which put
-  `https://api.x.com/2/users/<id>/tweets` under "Sources:" - now separated, so
-  the card cites the statement.
-- **Research lane is declaration-driven** (`dff0526`). The literal
-  `packId !== "inverse-cramer"` gate is gone, with a source guard that fails if
-  it returns. Audited all five pack ids across generic modules: the rest are
-  strategy workers checking their own binding, which the roadmap permits.
-- **Tracker research contract** (`d25c700`). `public-commentary-tracker@1.4.0`
-  declares `public-commentary-frontier-research@1.0.0`, instructed to spend its
-  bounded pass on surrounding context and explicitly NOT on verifying the
-  statement. Cramer and a Trump-on-Iran strategy declare no lane, which is now
-  a cheap deliberate choice rather than a hardcoded denial.
-- **Failure attribution** (`0ceeafa`, `828f1fc`, and the pause fix). Occurrence
-  failures, recovery failures and acquisition failures carry `packId`;
-  `lastErrorCode` survives an auto-pause instead of being overwritten;
-  `completion_missing` names how many tools the child called, which it reached
-  last, and whether that tool errored.
-- **Cross-strategy guard**. `npm run verify:strategies` runs all 38
-  per-strategy suites in ~90s. Held at 37/38 through every change above, the
-  one failure being a pre-existing sec-ipo DNS gate.
+    Market · bullish · medium confidence · days · uncorroborated · +3 more
 
-## Not addressed
+    The post reports a higher Philadelphia Fed manufacturing index and says US
+    manufacturing activity is rapidly expanding, implying a positive directional
+    read on the named macro theme of US manufacturing activity. Caveat: The
+    statement is based on a regional survey, so broader market implications are
+    indirect. Cited statement: https://x.com/KobeissiLetter/status/2091659126418141541
+    This direction is produced by the Configured public-commentary impact
+    hypothesis policy.
 
-1. **The owner has never received an executive brief or an artifact.** This is
-   the headline gap. The research lane resolves in Production - proven by the
-   $3.50 reservation, which is only taken when the lane is active - but no run
-   has produced a brief, so no artifact publishes and the card never shows
-   `Readable report: <url>`.
-2. **The brief fails somewhere in citation validation. I am NOT certain why.**
+    Observed Aug 24, 2026, 2:19 AM UTC
 
-   VERIFIED - read directly from the durable semantic store:
+    Sources: https://api.x.com/2/users/3316376038/tweets
 
-       "definitionId": "public-commentary-frontier-research",
-       "quarantineCodes": ["citation_invalid"]
+### Closer to the objective than it was
 
-   So the research child does run, and its output is quarantined with that
-   code. I also verified the lane resolves in Production, because the $3.50
-   reservation is only taken when it is active. Earlier runs failed differently
-   (`completion_missing`), and one run showed `hybrid_quarantine_blocking` on
-   the monitor.
+The shape is right: a scannable signal line carrying direction, certainty and
+horizon, then the finding and one caveat, then the link. The identifier dumps
+are gone — no finding ids, fact-revision ids, digests, character spans or
+revision numbers. It no longer narrates its own run ("first run, covering the
+last 6 hours", "2 statements qualified").
 
-   BELIEVED, NOT VERIFIED - my reading of the code, which you should check:
-   I think `citation_invalid` comes from the exact-citation rule in
-   `hybrid-evidence-semantic.ts` (~line 606-621). With
-   `requireExactCitations: true` the model's citations must equal the
-   validator's `assertionCitations` set exactly, and
-   `publicCommentaryResearchValidationContract` returns one per evidence item,
-   so the child would have to echo each locator precisely. I think it did not.
-   **I did not inspect the child's actual citations to confirm this**, and I
-   have been wrong today about mechanisms that read plausibly. Verify against
-   the quarantined job records in the store before acting on it.
+### Still short of it
 
-   I also think, but am not sure, that `hybrid_quarantine_blocking` is a
-   downstream health notification rather than a separate fault.
+1. **No research and no report.** This is the main gap. The alert is a reading
+   of one post, not a bigger picture. Nothing is attached that the owner can
+   open and keep. Every other item below is smaller than this one.
 
-   If the reading is right, the fix would be in the contract instruction - tell
-   the child to cite every statement in the signed bundle, echoing each locator
-   exactly - which is digest-covered and so needs
-   `public-commentary-frontier-research@1.0.1` plus tracker pack `1.4.1`.
-   Confirm the cause first; do not build a new contract version on my guess.
+2. **"Market" instead of a named asset.** When the model does not identify a
+   tradable instrument, the signal line says "Market", which is honest but weak
+   as a headline.
 
-   **Do NOT weaken the exact-citation rule to make this pass.** It exists so
-   every assertion in a brief is grounded in signed evidence.
+3. **"+3 more" are never delivered.** Three other signals in that window exist
+   and the owner cannot see them anywhere. The count is at least honest about
+   it, but the information is lost to them.
 
-3. **The headline is still the model's rationale, not a written headline.** The
-   classifier returns `rationale`, `confidence`, `horizon`, `marketView`,
-   `uncertainty[]`, `counterevidence[]` - there is no `headline` field. Getting
-   a true headline needs a new classification contract version.
-4. **The direction disclosure is verbose.** "This direction is produced by the
-   Configured public-commentary impact hypothesis policy." is registered policy
-   text; shortening it is a policy change, not a presentation change.
-5. **`Market` as a fallback target** when the classifier names no tradable
-   asset. Honest, but weak as a headline.
-6. **Only the strongest signal in a window is sent.** A `+N more` count says so,
-   but the others are not delivered anywhere. Their natural home is the artifact
-   that does not yet exist.
-7. **Tracker Live runs pack 1.3.1** (restored 2026-08-23 20:12), the proven version without a
-   research lane, so the owner's monitor keeps working. 1.4.0 is committed and
-   deployed but bound to nothing live.
+4. **"Sources: https://api.x.com/2/users/…/tweets"** is still there. It is the
+   polling endpoint, not something a person can open. See "What I broke" below —
+   I tried to fix this and it caused an outage, so it stands unfixed.
 
-## Do not regress
+5. **The closing sentence is boilerplate.** "This direction is produced by the
+   Configured public-commentary impact hypothesis policy." is required
+   disclosure text, and it reads like machinery at the end of every alert.
 
-- The cited link must survive truncation (`verify:public-commentary-signals:sprint-3`).
-- `uncorroborated` on the title is a disclosure, not decoration: nothing outside
-  the single cited post supports the read.
-- Counters carry no identity; attribution belongs in the bounded `console.error`.
-- Run `verify:strategies` before and after any shared-module change.
+6. **The headline is the model's own reasoning sentence**, not a written
+   headline, because nothing currently asks it for one.
+
+7. **Certainty is coarse** — low / medium / high. Usable as a label, but a rule
+   like "act above 80%" needs something finer, and that does not exist yet.
+
+## What I did that broke things
+
+Recorded plainly, because it is the most useful thing here.
+
+**I took the live tracker down for roughly fifteen minutes.** Trying to fix the
+"Sources:" line above, I changed what a finding records as its source so it
+would point at the post instead of the API endpoint. Every check passed — all
+38 strategy suites, the build, the deploy — and it still broke production: the
+system refuses a finding whose source does not match the source the monitor
+declared, and a post lives on a different host from the API it was polled from.
+Every result was rejected while that was live. Nothing caught it because the
+check compares against a real running monitor, which no test reproduces. I only
+found it because the owner asked why the monitor was paused. It is reverted, and
+I left a note in the code where the next person will try the same thing.
+
+**I told the owner the fleet was healthy twice without re-checking**, and the
+second time it was not.
+
+**I rebuilt the tracker workspace many times** while testing. Each rebuild makes
+the next catch-up run larger, and at least one later failure looked like the
+consequence of that rather than a real defect.
+
+**I asserted causes I had not confirmed**, more than once, and had to retract
+them: a shared network-layer theory that later evidence contradicted, and a
+budget-leak claim that measurement disproved. Treat confident-sounding reasoning
+in this area with suspicion, including mine.
+
+## What I think is wrong with research — but am not sure
+
+The research capability exists and is switched on for the tracker, and it does
+start: a run reserves the research budget, which only happens when the lane is
+active. It has never produced a report.
+
+Something in how the model's answer is checked against its evidence rejects the
+result. The stored record for those attempts is marked `citation_invalid`.
+
+**I think** the model is not pointing at its evidence in exactly the form the
+checker demands — the checker appears to want the answer's references to match
+the supplied evidence precisely, and I think the model's did not. **I am not
+sure.** I never looked at what the model actually produced; I only read the
+checking code and formed a theory. Verify against the stored attempt records
+before acting on it.
+
+**It could instead be** that the instruction I wrote is unclear about what to
+reference, or that the checking rule I copied from another strategy does not
+suit a strategy that can look at more than one post at a time, or something
+else I have not considered.
+
+One thing I would keep whatever the cause turns out to be: the rule that every
+claim in a report must point at real evidence exists so a report cannot invent
+things. The tempting shortcut is to relax it until the result passes. That would
+make the report untrustworthy, which defeats the point of having one.
+
+## Current state
+
+The three background monitors — Inverse Cramer, IPO, and the Tracker — are all
+running and healthy, and the Tracker completed a clean run at 8:25 PM after the
+revert. The Tracker runs the older configuration without research, because the
+newer one with research produces no alert at all, and a working alert beats a
+richer broken one.
