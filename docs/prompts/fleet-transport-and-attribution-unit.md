@@ -10,15 +10,12 @@ Repository: `/Users/ashnouruzi/dev/adaam`
 ## Todo list
 
 1. Repair the three red verifier gates (two are wrongly filed in `BACKLOG.md`).
-2. Release orphaned budget reservations that permanently consume paid headroom.
-3. Decide whether a determinate HTTP status should still classify as
+2. Decide whether a determinate HTTP status should still classify as
    `acquisition_uncertain`, and act on the answer.
-4. Capture the actual status code from the next real acquisition failure.
-5. Decide how `verify:strategies` is enforced, and record the rule.
-6. Get Congressional to one successful committing occurrence, then arm it.
-7. Get Earnings (U3) to one successful committing occurrence, then arm it.
-8. Confirm the three already-armed monitors are still healthy.
-9. Archive the leftover acceptance workspace and the three stale ones.
+3. Capture the actual status code from the next real acquisition failure.
+4. Decide how `verify:strategies` is enforced, and record the rule.
+5. Get Congressional to one successful committing occurrence, then arm it.
+6. Get Earnings (U3) to one successful committing occurrence, then arm it.
 
 Work them in order. One at a time; finish and verify each before the next.
 
@@ -86,36 +83,7 @@ you fix them** — by the owner's rule below they never belonged there.
 
 Do not silence a gate, and do not exclude one from the aggregate.
 
-## 2. Release orphaned budget reservations
-
-A parent run reservation whose paid figure is never reconciled keeps counting
-its **reserved** amount against the workspace's day and month, forever.
-
-`workspace-budget-ledger.ts:240` returns
-`reconciledPaidMicros ?? paidMicros` — so when nothing set the reconciled
-figure, the full reservation is what the ceiling sees. A run that completes
-records paid child attempts and resolves to actual; a run that fails before
-recording any does not, and `finishWorkspaceBudget` is called from
-`event-triggers.ts` with actual token counts but **no `actualPaidCost`**.
-`prune()` then keeps `reserved` and `uncertain` records regardless of calendar
-month, and `reconcileWorkspaceRunBudget` only accepts a caller still holding the
-run ID — which a dead worker does not.
-
-Observed 2026-08-22/23: failed occurrences showed `$1.00` against the day while
-actual spend was about `$0.02`; successful ones showed the true `$0.025`. Each
-failure permanently consumes paid headroom. That was tolerable when every
-workspace was disposable, but the three live monitors are long-lived and
-accumulate them, so a monitor can eventually be starved of budget having spent
-almost nothing.
-
-Give an unreconciled reservation a bounded lifetime, or a sweep that releases it
-once its occurrence can no longer complete — without ever releasing one a live
-run still holds. Prove both directions. Note this is **not** the same as the
-budget work already landed (`2d6ab5b` defaults, `f1409f5` owner-settable
-ceilings, `1f3f9be`/`44cc54f` phantom classification ceilings); none of those
-release a stale reservation.
-
-## 3. Determinate status vs `acquisition_uncertain`
+## 2. Determinate status vs `acquisition_uncertain`
 
 `a631998`'s own comment states the case plainly: *"A non-2xx response is a
 determinate fact — the exact status code — not an ambiguous transport
@@ -133,7 +101,7 @@ safe-by-default — but say why in the code, not just in a commit message. If yo
 do change it, `verify:strategies` before and after: the acquisition layer is
 shared by all five strategies.
 
-## 4. Capture the actual status
+## 3. Capture the actual status
 
 The status code for both original failures is unrecoverable — it was destroyed
 before the fix and the log window has rolled. Nothing to recover; do not spend
@@ -149,7 +117,7 @@ apart while SEC succeeded cleanly in between on the same infrastructure. That
 argues against a broad platform outage and toward two independent upstream
 hiccups. Treat it as the current best reading, not as settled.
 
-## 5. Cross-strategy guard
+## 4. Cross-strategy guard
 
 `npm run verify:strategies` exists. Decide whether it belongs in `prebuild` or
 stays an explicit gate — it costs ~90s per build — and record the decision plus
@@ -160,7 +128,7 @@ argument and the others do not, that branch is untested by four-fifths of the
 suite. That is exactly where the alert-keying defect lived, undetected for
 months, while another strategy using the same code worked perfectly.
 
-## 6-8. Arm the fleet
+## 5-6. Arm the fleet
 
 The owner wants every background agent running so they receive real texts.
 
@@ -179,16 +147,6 @@ Earnings is gated behind `EVE_EARNINGS_CALL_CHANGES_EXECUTION_ENABLED` and
 owner before enabling anything in Production.**
 
 Cadence discipline: hours, not minutes. Six or twelve hours is right.
-
-## 9. Cleanup
-
-`Congressional U4 Acceptance 2` is non-dispatchable but not archived — the
-previous agent's Manage Sessions token expired mid-investigation. Archive it.
-
-These three hold active-registry slots and can also be archived (Sprint 7 has
-the item): `Inverse Cramer 1.3.0 retrying`, `IPO Overnight Test`,
-`Congressional Overnight Test`. Archive only — findings, alerts, and receipts
-are retained, never deleted.
 
 ## Standing rules you must not break
 
@@ -245,9 +203,11 @@ Owner's rule, 2026-08-23: **wishlist features and extra hardening only** — wor
 genuinely optional for a first working version. **Nothing that should be
 addressed goes there.** A failing gate, a defect that consumes budget or loses
 data, a regression, or anything stopping a monitor from working is active work
-and belongs in the roadmap or in this todo list. Two items in this unit
-(the red gate, the orphaned reservations) were wrongly filed as backlog and
-have been moved back out. If you find something real, give it an owner and a
+and belongs in the roadmap or in this todo list. The red gates in item 1 were wrongly
+filed as backlog and moved back out. The reverse also happens: orphaned budget
+reservations were pulled out of backlog on a code-read hypothesis, then
+measurement (2 reserved records holding $0.00 across 443) showed the original
+filing was right, and they went back. Measure before reclassifying. If you find something real, give it an owner and a
 home — do not park it.
 
 ## Finish clean

@@ -777,6 +777,26 @@ classification reservations inside the run's paid envelope. Each fix needs its
 own immutable contract version plus a pack version that pins it, so this is
 bookkeeping rather than a one-line change.
 
+# Orphaned budget reservations are never released (found 2026-08-22, re-measured 2026-08-23)
+
+A run reservation that is never reconciled — the occurrence's process died
+before the schedule tick could finish it — stays in the workspace ledger as
+`reserved`. `prune()` in `agent/lib/workspace-budget-ledger.ts` keeps `reserved`
+and `uncertain` records regardless of calendar month, and
+`reconcileWorkspaceRunBudget` only accepts a caller still holding the run ID,
+which a dead worker does not.
+
+**Measured 2026-08-23 across all 116 ledgers: 443 reservations, of which 2 are
+`reserved` and they hold $0.00 in paid micros.** Ordinary failures do reconcile
+— the transient `$1.00` a failed occurrence shows in `paidMicrosToday` is the
+live reservation, and it settles once failure handling completes. Monthly totals
+carry actuals (`Tracker Live` $0.065, `Inverse Cramer Live` $0.01), not
+accumulated reservations.
+
+Correctly filed here: this is bounded hardening, not an active defect. It would
+only matter if a long-lived workspace accumulated orphans, which measurement
+shows is not happening. Re-measure before acting on it.
+
 # RESOLVED: missing-outcome taxonomy after a failed session (found 2026-08-22)
 
 Fixed in `481a926` — a session that fails without committing now reports the
