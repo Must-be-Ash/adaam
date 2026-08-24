@@ -29,8 +29,19 @@ const alert = {
 const presentation = renderWorkspaceAlertPresentation(alert);
 assert.equal(presentation.heading, "Workspace alert · IPO Filings");
 assert.match(presentation.fallbackText, /^Workspace alert · IPO Filings/u);
-assert.match(presentation.fallbackText, /Sources: sec-latest-s1-filings/u);
-assert.match(presentation.fallbackText, /Observed: 2026-08-14T16:58:00.000Z/u);
+/*
+ * The owner's card carries the link, not the internal source identifier - a
+ * line like "x-public-commentary-user.3316376038.KobeissiLetter: https://api.x.com/..."
+ * named an endpoint they cannot read. The identifier stays in the turn context.
+ */
+assert.equal(
+  presentation.fallbackText.includes("sec-latest-s1-filings"),
+  false,
+  "the owner card must not carry the internal source identifier",
+);
+// A raw ISO timestamp is machine provenance; the owner card carries a
+// readable instant. The exact value stays on the alert record.
+assert.match(presentation.fallbackText, /Observed Aug 14, 2026, 4:58 PM UTC/u);
 assert.match(presentation.fallbackText, /https:\/\/www\.sec\.gov\/Archives\/fixture\.htm/u);
 assert.deepEqual(presentation.actions, [
   { action: "discuss", label: "Discuss in workspace" },
@@ -50,6 +61,13 @@ assert.ok(Buffer.byteLength(sanitized.fallbackText, "utf8") <= 4_000);
 const turnContext = workspaceAlertTurnContext(alert);
 assert.match(turnContext, new RegExp(alert.alertId, "u"));
 assert.match(turnContext, /New SEC S-1 registration/u);
+/*
+ * Provenance the owner card no longer shows must still reach the agent: the
+ * internal source identifier and the exact ISO instant belong here, where a
+ * Discuss turn can use them.
+ */
+assert.match(turnContext, /sec-latest-s1-filings/u);
+assert.match(turnContext, /Observed: 2026-08-14T16:58:00.000Z/u);
 assert.equal(turnContext.includes(alert.ownerId), false);
 assert.equal(turnContext.includes(alert.workspaceId), false);
 

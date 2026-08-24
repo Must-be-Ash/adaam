@@ -112,7 +112,7 @@ const delivered = await deliverWorkspaceAlertToPhoton({
 assert.equal(delivered.state, "delivered");
 assert.equal(recorded, 1);
 assert.match(sentCard!.heading, /IPO Filings/u);
-assert.match(sentCard!.fallbackText, /Observed: 2026-08-14T19:58:00.000Z/u);
+assert.match(sentCard!.fallbackText, /Observed Aug 14, 2026, 7:58 PM UTC/u);
 assert.match(sentCard!.fallbackText, /https:\/\/www\.sec\.gov\/Archives\/fixture\.htm/u);
 assert.match(
   sentCard!.discussUrl,

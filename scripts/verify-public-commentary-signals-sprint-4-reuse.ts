@@ -375,7 +375,8 @@ assert.ok(result.alertPresentation);
 assert.equal(result.alertPresentations?.length, 1);
 assert.match(result.alertPresentation.title, /initial hours 12 summary/iu);
 assert.match(result.alertPresentation.whyMatched, /one summary alert was emitted/iu);
-assert.match(result.alertPresentation.whyMatched, /Exact cited statement:/u);
+// The citation now sits in the guaranteed tail rather than leading the message.
+assert.match(result.alertPresentation.whyMatched, /Cited statement:/u);
 assert.doesNotMatch(result.alertPresentation.whyMatched, /maximum pressure against Iran/u);
 const replay = await pipeline.run(request);
 assert.equal(replay.finding?.summary, result.finding.summary);

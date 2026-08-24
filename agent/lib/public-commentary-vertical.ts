@@ -463,22 +463,27 @@ export async function materializePublicCommentarySignal(input: {
   }, client);
   if (!eligible) return Object.freeze({ alertPresentation: null, genericFinding: null, record });
   const direction = policy.decision.researchDirection!;
-  const exactCitation = finding.citations[0]!;
-  const exactLocator = statement.textLocators[0]!;
+  /*
+   * This is what the owner reads on their phone. It used to open with a
+   * revision number, a character span and a 64-character digest, then say
+   * "Why it matched" - matched what? - and state the direction three times
+   * over. None of that helps someone decide anything. Lead with the finding,
+   * then the call, then what would undercut it. The span, digest, revision and
+   * finding identifiers stay on the durable record where provenance belongs.
+   */
+  const target = extraction.targets[0]?.symbol ?? null;
   const whyMatchedSegments = [
-    `Exact cited statement: ${exactCitation.canonicalUrl} revision ${exactCitation.contentRevision}, span ${exactLocator.start}-${exactLocator.end}, digest ${exactLocator.spanDigest}.`,
-    `Why it matched: ${semantic.rationale}`,
-    `Classification: ${input.impactClassification ?? extraction.stance}. Possible ${extraction.targets[0]?.symbol ?? "asset"} implication: ${direction} pressure.`,
-    `Direction: ${direction}.`,
-    `Confidence: ${semantic.confidence}. Horizon: ${semantic.horizon}.`,
+    semantic.rationale,
+    `Read as ${direction} for ${target ?? "the market it names"}, ${semantic.confidence} confidence over ${semantic.horizon}.`,
     `Uncertainty: ${isCompactInverseCramerPayload(semantic)
       ? semantic.uncertainty.join("; ") || "No additional uncertainty stated."
       : semantic.assumptions.length ? semantic.assumptions.join("; ") : semantic.forecast?.risks.map(({ statement }) => statement).join("; ") || "No additional uncertainty stated."}`,
     `Counterevidence: ${isCompactInverseCramerPayload(semantic)
       ? semantic.counterevidence.join("; ") || "None cited."
       : semantic.counterevidence.map(({ statement }) => statement).join("; ") || "None cited."}`,
-    `Related coverage: ${corroboration.status}. Corroboration status: ${corroboration.status}.${corroboration.status === "candidates_found" ? "" : " Warning: corroboration is weak or unavailable; the source remains visible."}`,
-    `Primary citation: ${statement.canonicalUrl} revision ${statement.revision}. The revocable source text is not copied into permanent findings or alerts.`,
+    ...(corroboration.status === "candidates_found"
+      ? []
+      : ["No corroborating coverage was found, so this rests on the single cited post."]),
   ];
   // `stageWorkspaceAlert` caps `whyMatched` at PUBLIC_COMMENTARY_ALERT_WHY_MATCHED_MAXIMUM
   // characters. This text is assembled from an unbounded model rationale, so an
@@ -488,7 +493,16 @@ export async function materializePublicCommentarySignal(input: {
   // silently dropped a real signal. Keep the exact citation and the registered
   // direction disclosure, then fit as much interpretation as the cap allows.
   const whyMatched = ((): string => {
-    const disclosure = policy.directionDisclosure;
+    /*
+     * The cited link is the one thing an alert must never lose: without it the
+     * owner cannot check the claim. It used to lead the message for exactly
+     * that reason, which is why it read like machine provenance. Keep it in the
+     * guaranteed tail with the direction disclosure instead - reserved out of
+     * the budget up front, so it survives truncation without having to come
+     * first.
+     */
+    const citation = `Cited statement: ${statement.canonicalUrl}`;
+    const disclosure = `${citation} ${policy.directionDisclosure}`;
     const budget = PUBLIC_COMMENTARY_ALERT_WHY_MATCHED_MAXIMUM - disclosure.length - 1;
     const kept: string[] = [];
     let used = 0;
@@ -510,7 +524,10 @@ export async function materializePublicCommentarySignal(input: {
     sourceId: input.source.sourceId,
   };
   return Object.freeze({
-    alertPresentation: { title: `${registeredPolicy.displayName} · ${extraction.targets[0]?.symbol ?? "public commentary"}`, whyMatched },
+    // Name the asset the statement is about. The generic fallback read
+    // "Configured public-commentary impact hypothesis · public commentary",
+    // which says nothing about what the alert is for.
+    alertPresentation: { title: `${registeredPolicy.displayName} · ${target ?? "public commentary"}`, whyMatched },
     genericFinding: {
       accessClassification: "public",
       artifactRefs: [finding.findingId, finding.statementRevisionId, finding.interpretationId],

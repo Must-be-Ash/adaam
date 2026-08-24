@@ -21,7 +21,25 @@ function singleLine(value: string, maximum: number): string {
   return value.replace(/[\u0000-\u001f\u007f]+/gu, " ").replace(/\s+/gu, " ").trim().slice(0, maximum);
 }
 
-function sourceEvidence(alert: WorkspaceAlert): string {
+/*
+ * `audience: "owner"` drops the internal source identifier and shows only the
+ * link a person can open. A line like
+ * "x-public-commentary-user.3316376038.KobeissiLetter: https://api.x.com/2/users/.../tweets"
+ * tells the owner nothing and points at an API endpoint they cannot read; the
+ * identifier stays in the durable alert record and in the agent-facing turn
+ * context, which is where provenance actually belongs.
+ */
+/* A raw ISO timestamp is machine provenance; the owner gets a readable one. */
+function readableInstant(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return singleLine(value, 100);
+  return `${parsed.toLocaleString("en-US", {
+    day: "numeric", hour: "numeric", minute: "2-digit",
+    month: "short", timeZone: "UTC", year: "numeric",
+  })} UTC`;
+}
+
+function sourceEvidence(alert: WorkspaceAlert, audience: "agent" | "owner" = "agent"): string {
   const sources = alert.sourceLinks ?? alert.sourceRefs.map((sourceId) => ({ sourceId }));
   const lines = sources.map((source) => {
     if (!("canonicalUrl" in source)) return singleLine(source.sourceId, 160);
@@ -29,6 +47,7 @@ function sourceEvidence(alert: WorkspaceAlert): string {
     const prefix = role
       ? `${role === "supplementary" ? "Supplementary context" : "Official source"} · `
       : "";
+    if (audience === "owner") return `${prefix}${source.canonicalUrl}`;
     return `${prefix}${singleLine(source.sourceId, 160)}: ${source.canonicalUrl}`;
   });
   const retained: string[] = [];
@@ -46,7 +65,7 @@ function sourceEvidence(alert: WorkspaceAlert): string {
   ].join(", ");
 }
 
-function artifactEvidenceLines(alert: WorkspaceAlert): string[] {
+function artifactEvidenceLines(alert: WorkspaceAlert, audience: "agent" | "owner" = "agent"): string[] {
   const readableReports: string[] = [];
   const exactReferences: string[] = [];
   for (const reference of alert.artifactRefs ?? []) {
@@ -64,11 +83,17 @@ function artifactEvidenceLines(alert: WorkspaceAlert): string[] {
   }
   return [
     ...readableReports,
-    ...(exactReferences.length
+    ...(audience === "agent" && exactReferences.length
       ? [`Exact finding/evidence references: ${exactReferences.join(", ")}`]
       : []),
   ];
 }
+
+/*
+ * The owner's card shows a readable report when one exists. Falling back to a
+ * list of 64-character digests told them nothing they could act on - the
+ * references remain on the durable alert record and in the turn context.
+ */
 
 export function renderWorkspaceAlertPresentation(
   alert: WorkspaceAlert,
@@ -77,10 +102,10 @@ export function renderWorkspaceAlertPresentation(
   const heading = `Workspace alert · ${workspaceName}`;
   const title = singleLine(alert.title, 240);
   const whyMatched = singleLine(alert.whyMatched, 1_000);
-  const sources = sourceEvidence(alert);
-  const artifactRefs = artifactEvidenceLines(alert);
+  const sources = sourceEvidence(alert, "owner");
+  const artifactRefs = artifactEvidenceLines(alert, "owner");
   const eventTime = alert.eventTime
-    ? `Observed: ${singleLine(alert.eventTime, 100)}`
+    ? `Observed ${readableInstant(alert.eventTime)}`
     : null;
   return presentationSchema.parse({
     actions: [

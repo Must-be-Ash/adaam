@@ -699,8 +699,8 @@ assert.equal(directModelResult.finding?.facts[0]?.finding.policyDecision.researc
     "the composed alert text must fit the shared alert store bound",
   );
   assert.ok(
-    verbose.alertPresentation.whyMatched.includes("Exact cited statement:"),
-    "the exact citation must survive truncation",
+    verbose.alertPresentation.whyMatched.includes("Cited statement:"),
+    "the cited link must survive truncation - without it the owner cannot check the claim",
   );
   assert.ok(
     verbose.alertPresentation.whyMatched.endsWith(
@@ -868,9 +868,16 @@ assert.equal(acceptedA.record.finding.outcome, "accepted");
 assert.equal(acceptedA.record.finding.policyDecision.researchDirection, "bearish");
 assert.ok(acceptedA.genericFinding);
 workspaceFindingCandidateSchema.parse(acceptedA.genericFinding);
-assert.match(acceptedA.alertPresentation!.whyMatched, /Primary citation: https:\/\/x\.com\/jimcramer\/status\/200 revision 1/u);
+// The owner-facing text carries the link, not the revision number; the
+// revision stays on the durable finding record where provenance belongs.
+assert.match(acceptedA.alertPresentation!.whyMatched, /Cited statement: https:\/\/x\.com\/jimcramer\/status\/200/u);
 assert.match(acceptedA.alertPresentation!.whyMatched, /Inverse Cramer policy/u);
-assert.match(acceptedA.alertPresentation!.whyMatched, /Related coverage: not_run/u);
+// Weak or absent corroboration must still reach the owner, but as a sentence
+// they can act on rather than a status enum.
+assert.match(
+  acceptedA.alertPresentation!.whyMatched,
+  /No corroborating coverage was found/u,
+);
 const storedCount = store.values.size;
 const replayA = await materializePublicCommentarySignal({ ...base, configuration, scope: scopeA, semanticResult: semanticResultA }, store);
 assert.equal(replayA.record.finding.findingId, acceptedA.record.finding.findingId);
