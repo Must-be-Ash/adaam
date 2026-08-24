@@ -450,14 +450,53 @@ baseline to bisect against.
     need a compiled-worker real-model run or one live occurrence. The two things
     that were actually BLOCKING (exact citations, attribution-led language) are
     proven.
-- **Phases 3–6 — not started.**
-- **eve upgrade — not started** (after phase 2).
+- **Phase 3 — IN PROGRESS (2026-08-24).** The language is solved and proven.
+  - **Root finding:** with the *actual* shipped instruction, gpt-5.4 produced a
+    non-attribution-led, analytical title ("Treasury cash-balance use is framed
+    as…") and no actionable closer — i.e. the exact shape the owner complained
+    about. The earlier "clean" real-model runs looked good only because the proof
+    script's own hardcoded prompt was doing the work. So the instruction genuinely
+    needed tuning; the proof script now injects the REAL definition instruction so
+    instruction changes are validated end-to-end.
+  - **Done:** tuned research language shipped as a frozen new contract version
+    `public-commentary-frontier-research@1.0.1` (1.0.0 kept frozen and intact;
+    version-scoped `INSTRUCTIONS` map in `public-commentary-research.ts`). Proven
+    across gpt-5.4 and claude-sonnet-5: attribution-led title/interpretation
+    ("Per CNBC / Per the Kobeissi Letter, … this means the price of X could go up
+    because …"), an actionable "watch the 10y/30y and TLT; be ready to go long"
+    implication, metadata kept out of the prose, human source only. Battery green
+    (1.0.0 digest frozen, pack 1.4.0 intact).
+  - **Remaining in Phase 3:**
+    1. Create tracker pack `1.5.0` declaring `frontier-research@1.0.1` (so a
+       monitor can actually use the new language; 1.0.1 is inert until a pack
+       declares it).
+    2. Inverse Cramer parity: tune `inverse-cramer-research.ts`'s own instruction
+       (separate contract `inverse-cramer-frontier-research`, currently at
+       1.0.0/1.0.1) as a new frozen version + new inverse-cramer pack.
+    3. Clean fallback when the brief job throws: today the occurrence fails with
+       no alert, or falls through to the legacy metadata-in-title shape. Produce
+       an attribution-led basic alert from the primary evidence instead.
+    4. Review the brief→alert body mapping (`publicCommentaryAlertPresentationForBrief`):
+       whyMatched = interpretation + implications[0] + uncertainty[0]; confirm no
+       metadata leaks and the actionable implication leads.
+  - Note: multi-signal is ALREADY the newspaper model architecturally — the
+    research path runs ONE brief over up to 8 statements as `materialFacts`
+    (→ artifact), with one headline title. 1.0.1 instructs leading the headline
+    with the most material one.
+- **Phases 4–6 — not started.**
+- **eve upgrade — not started** (after phase 2; owner wants it for general eve
+  improvements, do it carefully in a worktree).
 
 ## Current position (resume here)
 
-Phases 1 and 2 are complete; everything is green in the working tree on branch
-`fix/research-citation-visibility-and-alert-shape`; NOTHING is committed or
-deployed. Next action: **Phase 3 — alert language/shape.** The real-model proof
+Phases 1 and 2 are complete, committed as `4a900e1`, and **merged to `main`**
+(fast-forward, pushed). They are **NOT deployed to Production** — owner chose to
+hold the deploy (2026-08-24); git-push auto-deploy did not fire for this project,
+so a live deploy would be a manual `vercel --prod` and is deferred until there is
+a reason to ship. Phase 3 continues locally on branch
+`feat/alert-shape-and-multisignal`.
+
+Next action: **Phase 3 — alert language/shape.** The real-model proof
 shows the research lane already emits the target shape, so Phase 3 is about the
 wiring around it: the brief→alert mapping keeps metadata/timestamp/API-source out
 of the iMessage text (mostly already true on the research path), the newspaper
