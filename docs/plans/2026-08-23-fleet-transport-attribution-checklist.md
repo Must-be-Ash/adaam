@@ -104,20 +104,69 @@ now retired). Code is the source of truth.
 - ✅ Recorded in `docs/workspace-runtime-pitfalls.md` "Cross-strategy safety" (where
   the rule already lives and the next agent looks), with CI noted as the long-term home.
 
-## Item 5 — Arm Congressional
-- ⏳ Get one successful committing occurrence, then arm with alerts. Needs deploy +
-  a paid occurrence + a Manage Sessions capability URL (owner-provided). Assert
-  `nextOccurrenceAt > now` from the durable record after arming.
+## Deploy (owner-authorized 2026-08-23)
+- ✅ Committed items 1-4 to `main` (3 commits: gates, house retryable, docs) and deployed
+  `vercel deploy --prod --yes`. Deployment `earnings-call-analyser-kd5vr5k2s.vercel.app`
+  Ready; `adaam.vercel.app` alias confirmed (HTTP 200). No occurrence in flight at deploy.
+- Registry capacity: cap 48, main registry at 25 → room to create (no `retained_capacity_exhausted`).
 
-## Item 6 — Arm Earnings (U3)
-- ⛔ Gated behind `EVE_EARNINGS_CALL_CHANGES_EXECUTION_ENABLED` and
-  `EVE_EARNINGS_CALL_SOURCE_ADAPTER_ENABLED`. **Confirm flag state with owner before
-  enabling anything in Production.** Then one committing occurrence, then arm.
+## Item 5 — Arm Congressional  🔧 IN PROGRESS
+- ✅ Owner created "Congressional Testing" via the Manage Sessions mini-app (owner drove
+  the UI; I gave exact settings). Congressional Signals 1.4.0, America/Vancouver, check
+  22:55 (fire-in-5-min), "Start this schedule now" checked. Session: 1 monitor · 1 enabled
+  · 0 errors. Durable store confirms: enabled, `nextOccurrenceAt 2026-08-24T05:55:00Z`
+  (future), fresh (lastCompletedAt null, 0 fails). Note: Congressional's lifecycle contract
+  is `initialOccurrence: "scheduled"`, so a near-now check time (not the activate checkbox)
+  is what triggers the first run. "managed_monitor_missing" is a benign "never-run" fallback.
+- ❌ Occurrence (05:55 UTC) FAILED at House transport → monitor auto-paused
+  (`paused_failure`, lastErrorCode `worker_recovery_outcome_missing`; the underlying
+  chain: `evaluate_congressional_signals` → `congressional_source_unavailable` ←
+  House acquisition `transport:failed:acquisition_uncertain`). First failing stage
+  recorded; did NOT retry the same occurrence.
+- DIAGNOSIS (store + logs, read-only): House-specific, upstream/network, NOT my code:
+  - House acquisition `complete` on 2026-08-22 19:32; every attempt since 2026-08-23
+    20:07 fails `transport:failed:acquisition_uncertain` (20:07, 21:00, and mine 05:55).
+  - SEC (IPO) + X (Cramer/Tracker) fetch fine from Vercel in the same window; House URL
+    returns HTTP 200 (56KB) to a local curl. So it's the Vercel→House fetch specifically.
+  - It's the EXCEPTION path (fetch throwing: timeout/reset/TLS), not an HTTP status, so
+    item 2's retryable classification does not apply.
+  - The exact cause is NOT captured anywhere retrievable: the exception path records only
+    `acquisition_uncertain` durably, and no cause reaches the logs (a631998-style gap, but
+    for the exception path). Fallback UA is `EarningsCallAnalyser/0.1 public-feed-monitor`.
+- CONFIRMED it's NOT a UA issue (owner chose "confirm with one occurrence", 2026-08-24):
+  - Local test: disclosures-clerk.house.gov serves the ZIP to EVERY UA (old bot, new
+    crawler, empty, default) from a residential IP, HTTP 200 in <0.2s.
+  - Deployed a WAF-friendly `Mozilla/5.0 (compatible; ...)` UA + errno-capture in the House
+    exception path (`5b819ec`), then ran a 2nd occurrence ("Congressional Test 2", 06:46 UTC):
+    FAILED again identically at House transport. UA change had no effect.
+  - Even a prompt (~13s) log pull captured only the wrapper `congressional_source_unavailable`,
+    not the House adapter's errno detail → `coordinatePublicSourceOccurrence` does not surface
+    the fetch cause to the logs (diagnosability gap beyond a631998; FOLLOW-UP below).
+  - CONCLUSION: a Vercel→disclosures-clerk.house.gov block/throttle (House-side, started
+    ~Aug 23; SEC + X fetch fine from Vercel; House serves residential IPs fine). Not
+    cheaply code-fixable; my item-2 retryable path doesn't apply (it's a fetch exception).
+- Spend: 2 paid occurrences, both failed at TRANSPORT before any inference → ~$0 actual
+  each ($0 paid today/month per the pack summary); reservations settle on failure handling.
+- 🚧 DEFERRED (owner chose, 2026-08-24): Congressional stays archived, blocked upstream by
+  the Vercel→House egress block. Homed in roadmap Sprint 7 with the full diagnosis + the
+  three paths (proxy / third-party API / wait). Owner to archive the 2 test sessions so
+  none stays dispatchable. Getting it running needs a proxy or the (deferred) API.
+- FOLLOW-UP (give it a home): the House exception path's fetch cause (errno) never reaches
+  a durable/retrievable place on the live congressional path — a631998 fixed only the
+  HTTP-status path. Capturing `.cause.code` durably (not just in a console.warn that
+  either isn't emitted here or rolls) would make the next such failure self-describing.
 
-## Fleet hygiene (items 5–6 support)
-- 🔎 Confirm `Inverse Cramer Live`, `IPO Live`, `Tracker Live` still enabled/healthy
-  via read-only store query; re-arm any a failed run paused (assert `nextOccurrenceAt > now`).
-  Do not otherwise reconfigure/archive.
+## Item 6 — Arm Earnings (U3)  🚧 DEFERRED (owner: "Congressional first")
+- 🚧 Owner chose Congressional first (2026-08-24); Earnings not attempted. Its two flags
+  (`EVE_EARNINGS_CALL_CHANGES_EXECUTION_ENABLED`, `EVE_EARNINGS_CALL_SOURCE_ADAPTER_ENABLED`)
+  remain OFF, unconfirmed. Also note: Earnings' House-independent source is `data.sec.gov`
+  (works from Vercel) — so Earnings is not blocked by the House egress issue; it's simply
+  deferred pending the owner enabling its flags + a follow-up acceptance.
+
+## Fleet hygiene (items 5–6 support)  ✅ CONFIRMED HEALTHY
+- ✅ Read-only store query confirmed `IPO Live`, `Inverse Cramer Live`, `Tracker Live` all
+  `enabled`, future `nextOccurrenceAt`, recent clean completions, 0 failures. No re-arming
+  needed; left untouched (no reconfigure/archive).
 
 ---
 

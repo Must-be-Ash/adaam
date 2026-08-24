@@ -455,6 +455,38 @@ jobs are single-shot with a runtime cap, runaway protection already exists at
 three layers, and the limits schema is digest-covered so adding a field would
 re-version every contract and every pack that pins one.
 
+**Congressional arming blocked by a Vercel->House egress block, 2026-08-24
+(fleet transport & attribution unit).** Two acceptance occurrences
+(`Congressional Testing`, `Congressional Test 2`) both failed at the House
+transport stage: `evaluate_congressional_signals` -> `congressional_source_unavailable`
+<- House acquisition `transport:failed:acquisition_uncertain`, a fetch exception
+(not an HTTP status), watermark never advancing. Diagnosis (store + logs + local
+probes, all read-only):
+
+- SEC (IPO) and X (Cramer/Tracker) fetch fine from Vercel in the same window;
+  only `disclosures-clerk.house.gov` fails, and only since ~2026-08-23 20:07 (it
+  returned a `complete` acquisition on 2026-08-22 19:32).
+- The House URL returns HTTP 200 (56 KB) to every User-Agent from a residential
+  IP. Deploying a WAF-friendly `Mozilla/5.0 (compatible; ...)` UA (`5b819ec`)
+  changed nothing on the second occurrence.
+- So it is a House-side block/throttle of Vercel's datacenter egress IPs, not a
+  header/code issue. Item 2's retryable classification does not apply - it covers
+  HTTP 429/5xx statuses, not fetch exceptions.
+
+Both occurrences failed at transport before any inference, so ~$0 actual each.
+Congressional stays archived, blocked upstream (owner chose defer, 2026-08-24).
+Getting it running needs one of: a proxy through a non-datacenter IP (new standing
+dependency), the reviewed third-party congressional-data API adapter (changes
+provenance from "House Clerk" to an aggregator; owner deferred it), or waiting out
+the block. Owner decision required before spending more.
+
+Diagnosability follow-up: the House exception path's fetch cause (undici
+`.cause.code`) never reaches a retrievable place on the live congressional path -
+`coordinatePublicSourceOccurrence` does not surface it, and a631998 fixed only the
+HTTP-status path. `5b819ec` enriches the House adapter's exception detail with the
+errno, but it must be logged or made durable on the coordination path to help the
+next such failure describe itself.
+
 - [x] **Blocker: the session registry is full** (48/48 retained records,
   2026-08-22) and nothing can be created. Archived sessions are retained
   forever and there is no delete path, so U1's disposable acceptance
