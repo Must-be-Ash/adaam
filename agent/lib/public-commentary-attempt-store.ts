@@ -50,6 +50,34 @@ export type PublicCommentaryOccurrenceQuarantine = z.infer<
   typeof publicCommentaryOccurrenceQuarantineSchema
 >;
 
+/*
+ * When an occurrence throws, the runtime only records an opaque terminal code
+ * (`worker_recovery_not_applicable`, `worker_outcome_missing`) with no root
+ * cause, and the real error rolls off the ~50-row Vercel log buffer within
+ * minutes - so a failing monitor is undiagnosable without buying another
+ * occurrence. This record makes the failure name itself: the exact error and
+ * the stage it reached, durable and queryable read-only alongside the other
+ * attempt records.
+ */
+export const publicCommentaryOccurrenceFailureSchema = z.object({
+  configurationGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  createdAt: z.string().datetime({ offset: true }),
+  errorMessage: z.string().min(1).max(4_000),
+  errorName: z.string().min(1).max(200),
+  failureId: z.string().min(3).max(160),
+  monitorId: z.string().min(1).max(200),
+  ownerId: z.string().regex(/^[a-z][a-z0-9_-]{2,63}$/u),
+  recordType: z.literal("public_commentary_occurrence_failure"),
+  schemaVersion: z.literal(1),
+  stack: z.string().max(8_000).optional(),
+  stage: z.enum(["pipeline", "research", "commit", "unknown"]),
+  workspaceId: z.string().uuid(),
+}).strict();
+
+export type PublicCommentaryOccurrenceFailure = z.infer<
+  typeof publicCommentaryOccurrenceFailureSchema
+>;
+
 export interface PublicCommentaryAttemptStoreClient {
   createOrRead(key: string, value: string): Promise<unknown>;
   get(key: string): Promise<unknown>;
@@ -144,6 +172,51 @@ export async function persistPublicCommentaryOccurrenceQuarantine(
   );
   if (JSON.stringify(persisted) !== serialized) throw new Error("public_commentary_attempt_conflict");
   return persisted;
+}
+
+export async function persistPublicCommentaryOccurrenceFailure(
+  scope: AuthorizedWorkspaceStoreScope,
+  candidate: PublicCommentaryOccurrenceFailure,
+  client: PublicCommentaryAttemptStoreClient = store(),
+): Promise<PublicCommentaryOccurrenceFailure> {
+  assertAuthorizedWorkspaceStoreScope(scope);
+  const record = publicCommentaryOccurrenceFailureSchema.parse(candidate);
+  if (record.ownerId !== scope.ownerId || record.workspaceId !== scope.workspaceId) {
+    throw new Error("public_commentary_attempt_scope_mismatch");
+  }
+  const serialized = JSON.stringify(record);
+  if (Buffer.byteLength(serialized, "utf8") > MAX_RECORD_BYTES) {
+    throw new Error("public_commentary_attempt_corrupt");
+  }
+  // First-failure-wins: a retry of the same occurrence keeps the original root
+  // cause rather than overwriting it with a downstream recovery error. The
+  // write is idempotent, so a returned prior record is a success, not a
+  // conflict.
+  const value = await client.createOrRead(key(scope, record.failureId), serialized);
+  const persisted = publicCommentaryOccurrenceFailureSchema.parse(
+    JSON.parse(typeof value === "string" ? value : JSON.stringify(value)),
+  );
+  if (persisted.ownerId !== scope.ownerId || persisted.workspaceId !== scope.workspaceId) {
+    throw new Error("public_commentary_attempt_scope_mismatch");
+  }
+  return persisted;
+}
+
+export async function readPublicCommentaryOccurrenceFailure(
+  scope: AuthorizedWorkspaceStoreScope,
+  failureId: string,
+  client: PublicCommentaryAttemptStoreClient = store(),
+): Promise<PublicCommentaryOccurrenceFailure | null> {
+  assertAuthorizedWorkspaceStoreScope(scope);
+  const value = await client.get(key(scope, failureId));
+  if (value === null || value === undefined) return null;
+  const record = publicCommentaryOccurrenceFailureSchema.parse(
+    JSON.parse(typeof value === "string" ? value : JSON.stringify(value)),
+  );
+  if (record.ownerId !== scope.ownerId || record.workspaceId !== scope.workspaceId) {
+    throw new Error("public_commentary_attempt_scope_mismatch");
+  }
+  return record;
 }
 
 export async function readPublicCommentaryOccurrenceQuarantine(

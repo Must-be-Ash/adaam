@@ -40,7 +40,10 @@ import {
   type AuthorizedPublicSourceProjection,
   type PublicSourceSubscriptionStoreClient,
 } from "./public-source-subscription-store";
-import type { PublicCommentaryAttemptStoreClient } from "./public-commentary-attempt-store";
+import {
+  persistPublicCommentaryOccurrenceFailure,
+  type PublicCommentaryAttemptStoreClient,
+} from "./public-commentary-attempt-store";
 import {
   readPublicCommentaryFindingByStatementRevision,
   type PublicCommentaryFindingStoreClient,
@@ -1478,59 +1481,98 @@ export async function evaluatePublicCommentarySignalsForWorker(input: {
     scope,
     workspaceGeneration: envelope.strategyPack.workspaceGeneration,
   });
-  const pipelineResult = await pipeline.run({
-    configuration: strategy.value.configuration,
-    configurationGeneration: envelope.strategyPack.workspaceGeneration,
-    environment,
-    initialBackfill: isWorkspaceMonitorCheckpointOnlyBaseline(monitor) && cadenceDerivedBackfill,
-    monitorId: monitor.monitorId,
-    ownerId: scope.ownerId,
-    parentBudgetRunId: envelope.runId,
-    pack: {
-      contentDigest: managedBy.packContentDigest,
-      id: managedBy.packId as "inverse-cramer" | "public-commentary-tracker",
-      ...(monitor.lifecycleContractId
-        ? { lifecycleContractId: monitor.lifecycleContractId }
-        : {}),
-      version: managedBy.packVersion,
-    },
-    scope,
-    ...(strategyDisplayName ? { strategyDisplayName } : {}),
-    window: envelope.window,
-  });
-  const result = researchRuntime
-    ? await runInverseCramerExecutiveResearch({
-        clients: input.clients,
-        environment,
-        now,
-        parentRunId: envelope.runId,
-        result: pipelineResult,
-        runtime: researchRuntime,
-        scope,
-        signal: input.ctx.abortSignal,
-      })
-    : pipelineResult;
-  const outcome = await commitThenAcknowledgePublicCommentaryResult({
-    acknowledge: result.acknowledgeDurableCommit,
-    // A committed outcome already returned above, so this is always a first commit.
-    commit: () => commitDeterministicWorkspaceEvaluationForWorker({
-      alertPresentation: result.alertPresentation ?? undefined,
-      alertPresentations: result.alertPresentations,
-      checkpoint: result.checkpoint,
-      clients: input.clients,
-      ctx: input.ctx,
+  // The occurrence throws from deep inside the pipeline, research, or commit,
+  // and the runtime only records an opaque terminal code with no cause. Capture
+  // the real error and the stage it reached durably before re-throwing, so a
+  // failing monitor names itself instead of costing an occurrence to diagnose.
+  let failureStage: "pipeline" | "research" | "commit" | "unknown" = "pipeline";
+  try {
+    const pipelineResult = await pipeline.run({
+      configuration: strategy.value.configuration,
+      configurationGeneration: envelope.strategyPack.workspaceGeneration,
       environment,
-      finding: result.finding,
-      initialBaseline: resolvePublicCommentaryCommitInitialBaseline({
-        cadenceDerivedBackfill,
-        checkpointOnlyBaseline: isWorkspaceMonitorCheckpointOnlyBaseline(monitor),
-        firstRunLookback: strategy.value.configuration.firstRunLookback,
+      initialBackfill: isWorkspaceMonitorCheckpointOnlyBaseline(monitor) && cadenceDerivedBackfill,
+      monitorId: monitor.monitorId,
+      ownerId: scope.ownerId,
+      parentBudgetRunId: envelope.runId,
+      pack: {
+        contentDigest: managedBy.packContentDigest,
+        id: managedBy.packId as "inverse-cramer" | "public-commentary-tracker",
+        ...(monitor.lifecycleContractId
+          ? { lifecycleContractId: monitor.lifecycleContractId }
+          : {}),
+        version: managedBy.packVersion,
+      },
+      scope,
+      ...(strategyDisplayName ? { strategyDisplayName } : {}),
+      window: envelope.window,
+    });
+    failureStage = researchRuntime ? "research" : "commit";
+    const result = researchRuntime
+      ? await runInverseCramerExecutiveResearch({
+          clients: input.clients,
+          environment,
+          now,
+          parentRunId: envelope.runId,
+          result: pipelineResult,
+          runtime: researchRuntime,
+          scope,
+          signal: input.ctx.abortSignal,
+        })
+      : pipelineResult;
+    failureStage = "commit";
+    const outcome = await commitThenAcknowledgePublicCommentaryResult({
+      acknowledge: result.acknowledgeDurableCommit,
+      // A committed outcome already returned above, so this is always a first commit.
+      commit: () => commitDeterministicWorkspaceEvaluationForWorker({
+        alertPresentation: result.alertPresentation ?? undefined,
+        alertPresentations: result.alertPresentations,
+        checkpoint: result.checkpoint,
+        clients: input.clients,
+        ctx: input.ctx,
+        environment,
+        finding: result.finding,
+        initialBaseline: resolvePublicCommentaryCommitInitialBaseline({
+          cadenceDerivedBackfill,
+          checkpointOnlyBaseline: isWorkspaceMonitorCheckpointOnlyBaseline(monitor),
+          firstRunLookback: strategy.value.configuration.firstRunLookback,
+        }),
+        now,
+        toolId: INVERSE_CRAMER_EVALUATION_TOOL_ID,
       }),
-      now,
-      toolId: INVERSE_CRAMER_EVALUATION_TOOL_ID,
-    }),
-  });
-  return Object.freeze({ analyzedStatements: result.analyzedStatements, outcome, replayed: false });
+    });
+    return Object.freeze({ analyzedStatements: result.analyzedStatements, outcome, replayed: false });
+  } catch (error) {
+    const message = (error instanceof Error ? error.message : String(error)).slice(0, 4_000);
+    await persistPublicCommentaryOccurrenceFailure(scope, {
+      configurationGeneration: envelope.strategyPack.workspaceGeneration,
+      createdAt: now.toISOString(),
+      errorMessage: message.length > 0 ? message : "unknown",
+      errorName: (error instanceof Error && error.name ? error.name : "UnknownError").slice(0, 200),
+      failureId: `commentary-failure.${createHash("sha256").update(envelope.occurrenceKey).digest("hex").slice(0, 48)}`,
+      monitorId: monitor.monitorId,
+      ownerId: scope.ownerId,
+      recordType: "public_commentary_occurrence_failure",
+      schemaVersion: 1,
+      ...(error instanceof Error && typeof error.stack === "string"
+        ? { stack: error.stack.slice(0, 8_000) }
+        : {}),
+      stage: failureStage,
+      workspaceId: scope.workspaceId,
+    }, input.clients?.attempts).catch((persistError) => {
+      console.error("[public-commentary] failed to persist occurrence failure", {
+        monitorId: monitor.monitorId,
+        reason: persistError instanceof Error ? persistError.message : String(persistError),
+      });
+    });
+    console.error("[public-commentary] occurrence failed", {
+      error: `${error instanceof Error ? error.name : "UnknownError"}: ${message}`.slice(0, 500),
+      monitorId: monitor.monitorId,
+      packId: monitor.managedBy?.packId ?? null,
+      stage: failureStage,
+    });
+    throw error;
+  }
 }
 
 export const evaluatePublicCommentarySignalsTool = defineTool({
