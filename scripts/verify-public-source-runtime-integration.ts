@@ -446,3 +446,35 @@ await assert.rejects(
 );
 
 console.info("Public-source runtime integration verification passed.");
+
+/*
+ * An entity URL that the statement schema would reject must be dropped, never
+ * fatal. `safePublicUrl` requires `url.toString() === value`, so an ordinary
+ * bare-domain link normalizes to a trailing slash and fails - and before this
+ * it failed the whole statement, losing every post in the window and
+ * terminalizing the occurrence as `acquisition_uncertain`. Five of those
+ * auto-paused a live monitor.
+ */
+{
+  const { safePublicUrl } = await import("../agent/lib/public-commentary-schema");
+  const rejected = [
+    "https://www.kobeissiletter.com",
+    "https://example.com/article#section",
+    "http://example.com/insecure",
+    "https://EXAMPLE.com/Caps",
+  ];
+  for (const url of rejected) {
+    assert.equal(safePublicUrl(url), false, `expected the schema to reject ${url}`);
+  }
+  assert.equal(safePublicUrl("https://example.com/article"), true);
+  const source = await readFile(
+    new URL("../agent/lib/x-public-statement-adapter.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /expanded_url && safePublicUrl\(expanded_url\)/u,
+    "the adapter must filter entity URLs through the schema's own predicate",
+  );
+}
+console.info("Public commentary entity-URL tolerance verified.");

@@ -28,6 +28,7 @@ import {
   type PublicSourceInstance,
 } from "./public-source-adapter-schema";
 import {
+  safePublicUrl,
   PUBLIC_COMMENTARY_LIMITS,
   digestPublicCommentaryValue,
   publicStatementSchema,
@@ -407,8 +408,18 @@ async function canonicalFact(input: {
       entities: {
         cashtags: [...new Set((input.post.entities?.cashtags ?? []).map(({ tag }) => tag.toUpperCase()))],
         mentions: [...new Set((input.post.entities?.mentions ?? []).map(({ username }) => username))],
+        /*
+         * Entity URLs are decoration; the statement's own canonicalUrl is what
+         * a citation rests on. X hands back `expanded_url` unnormalized, and
+         * `safePublicUrl` requires `url.toString() === value`, so an ordinary
+         * bare-domain link ("https://example.com", which normalizes to a
+         * trailing slash), a fragment, or a mixed-case host failed the schema -
+         * and took every statement in the window with it. Five such
+         * occurrences auto-paused Tracker Live. Drop what would be rejected
+         * rather than losing the post.
+         */
         urls: [...new Set((input.post.entities?.urls ?? []).flatMap(({ expanded_url }) =>
-          expanded_url ? [expanded_url] : []))],
+          expanded_url && safePublicUrl(expanded_url) ? [expanded_url] : []))],
       },
       lifecycle: envelope.currentLifecycle === "edited"
         ? "edited" as const
@@ -585,7 +596,9 @@ function xAdapterFailureDetail(error: unknown): string {
 
 /* Bounds a diagnostic detail string to characters safe to log unquoted. */
 function boundedXAdapterDetail(value: string): string {
-  const trimmed = value.trim().slice(0, 40);
+  // 40 truncated "ZodError.custom.payload.statement.entities.urls.0" mid-path,
+  // which is the one part that identifies the failing field.
+  const trimmed = value.trim().slice(0, 96);
   return /^[A-Za-z0-9_.-]+$/u.test(trimmed) ? trimmed : "unrecognized";
 }
 

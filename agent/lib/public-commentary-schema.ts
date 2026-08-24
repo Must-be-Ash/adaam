@@ -72,7 +72,12 @@ export function attestPublicCommentaryTextSpan(input: {
   return digestPublicCommentaryValue({ end, spanDigest: evidenceSpanDigest, start });
 }
 
-function safePublicUrl(value: string): boolean {
+/*
+ * Exported so a projecting adapter can drop an entity URL this would reject
+ * instead of letting it fail the whole statement. Duplicating the predicate
+ * would let the two drift; the point is that they cannot.
+ */
+export function safePublicUrl(value: string): boolean {
   try {
     const url = new URL(value);
     return url.protocol === "https:" && url.username === "" && url.password === "" &&
