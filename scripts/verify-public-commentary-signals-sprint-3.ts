@@ -874,10 +874,9 @@ assert.match(acceptedA.alertPresentation!.whyMatched, /Cited statement: https:\/
 assert.match(acceptedA.alertPresentation!.whyMatched, /Inverse Cramer policy/u);
 // Weak or absent corroboration must still reach the owner, but as a sentence
 // they can act on rather than a status enum.
-assert.match(
-  acceptedA.alertPresentation!.whyMatched,
-  /No corroborating coverage was found/u,
-);
+// Weak or absent corroboration must still reach the owner. It is now a compact
+// label on the signal title rather than a sentence in the body.
+assert.match(acceptedA.alertPresentation!.title, /uncorroborated/u);
 const storedCount = store.values.size;
 const replayA = await materializePublicCommentarySignal({ ...base, configuration, scope: scopeA, semanticResult: semanticResultA }, store);
 assert.equal(replayA.record.finding.findingId, acceptedA.record.finding.findingId);

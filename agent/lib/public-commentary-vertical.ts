@@ -472,20 +472,23 @@ export async function materializePublicCommentarySignal(input: {
    * finding identifiers stay on the durable record where provenance belongs.
    */
   const target = extraction.targets[0]?.symbol ?? null;
+  /*
+   * An alert is a trading edge, not a pipeline report. The owner reads it on a
+   * phone and needs the signal and what it means - nothing else. Everything the
+   * message used to carry about how the system reached the conclusion
+   * (classification enums restating the direction, a full uncertainty list, a
+   * counterevidence list, a corroboration status) belongs on the durable
+   * finding and in the readable report, not in the first three seconds of
+   * someone's attention. Direction, confidence and horizon move to the title
+   * where they read as a label; the body carries the finding and at most one
+   * caveat.
+   */
+  const caveat = (isCompactInverseCramerPayload(semantic)
+    ? semantic.uncertainty[0]
+    : semantic.assumptions[0] ?? semantic.forecast?.risks[0]?.statement) ?? null;
   const whyMatchedSegments = [
     semantic.rationale,
-    target
-      ? `Read as ${direction} for ${target}, ${semantic.confidence} confidence over ${semantic.horizon}.`
-      : `Read as ${direction}, ${semantic.confidence} confidence over ${semantic.horizon}.`,
-    `Uncertainty: ${isCompactInverseCramerPayload(semantic)
-      ? semantic.uncertainty.join("; ") || "No additional uncertainty stated."
-      : semantic.assumptions.length ? semantic.assumptions.join("; ") : semantic.forecast?.risks.map(({ statement }) => statement).join("; ") || "No additional uncertainty stated."}`,
-    `Counterevidence: ${isCompactInverseCramerPayload(semantic)
-      ? semantic.counterevidence.join("; ") || "None cited."
-      : semantic.counterevidence.map(({ statement }) => statement).join("; ") || "None cited."}`,
-    ...(corroboration.status === "candidates_found"
-      ? []
-      : ["No corroborating coverage was found, so this rests on the single cited post."]),
+    ...(caveat ? [`Caveat: ${caveat}`] : []),
   ];
   // `stageWorkspaceAlert` caps `whyMatched` at PUBLIC_COMMENTARY_ALERT_WHY_MATCHED_MAXIMUM
   // characters. This text is assembled from an unbounded model rationale, so an
@@ -529,7 +532,29 @@ export async function materializePublicCommentarySignal(input: {
     // Name the asset the statement is about. The generic fallback read
     // "Configured public-commentary impact hypothesis · public commentary",
     // which says nothing about what the alert is for.
-    alertPresentation: { title: `${registeredPolicy.displayName} · ${target ?? "public commentary"}`, whyMatched },
+    /*
+     * The card heading already names the workspace, so the title is free to be
+     * the signal itself. It used to repeat the policy's own name - "Configured
+     * public-commentary impact hypothesis · public commentary" - which told the
+     * owner nothing about what had been found. Confidence rides here as the
+     * compact metric that will later gate autonomous execution.
+     */
+    alertPresentation: {
+      /*
+       * `uncorroborated` is a compact form of a disclosure that must not be
+       * lost: nothing outside the single cited post supports this read. It was
+       * a full sentence in the body; a trader still needs it, but as a label
+       * they can weigh at a glance rather than prose to wade through.
+       */
+      title: [
+        target ?? "Market",
+        direction,
+        `${semantic.confidence} confidence`,
+        semantic.horizon,
+        ...(corroboration.status === "candidates_found" ? [] : ["uncorroborated"]),
+      ].join(" · "),
+      whyMatched,
+    },
     genericFinding: {
       accessClassification: "public",
       artifactRefs: [finding.findingId, finding.statementRevisionId, finding.interpretationId],
@@ -1265,14 +1290,18 @@ export function createPublicCommentaryPipeline(input: {
       const alertPresentations = request.initialBackfill
         ? firstAlert ? [{
             key: "initial-summary",
-            title: `${request.strategyDisplayName ?? interpretation.policy.displayName} · first run`,
             /*
-             * "eligible statement in the initial cadence interval" and "emitted
-             * to avoid spam" are how the pipeline describes itself, not what
-             * the owner needs to know: that this is the catch-up run and that
-             * more than one statement may sit behind the single alert.
+             * A catch-up run is still just a signal to the owner. "First run,
+             * covering the last 6 hours. 2 statements qualified" is the
+             * pipeline narrating itself; the run count and window are already
+             * on the durable record. Carry the strongest signal exactly as it
+             * would read on any other run, and note the others only as a bare
+             * count so nothing looks silently dropped.
              */
-            whyMatched: `First run, covering the last ${configuration.cadenceMinutes.replace(/^hours_/u, "")} hours. ${allMaterial.length} statement${allMaterial.length === 1 ? "" : "s"} qualified${allMaterial.length === 1 ? "" : "; the most significant is summarised here"}. ${firstAlert.whyMatched}`,
+            title: allMaterial.length > 1
+              ? `${firstAlert.title} · +${allMaterial.length - 1} more`
+              : firstAlert.title,
+            whyMatched: firstAlert.whyMatched,
           }] : []
         : allMaterial.flatMap(({ materialized }) => materialized.alertPresentation
           ? [{ key: materialized.record.finding.statementRevisionId, ...materialized.alertPresentation }]

@@ -373,8 +373,10 @@ assert.ok(result.finding);
 assert.equal(result.finding.factIdentities.length, 2);
 assert.ok(result.alertPresentation);
 assert.equal(result.alertPresentations?.length, 1);
-assert.match(result.alertPresentation.title, /first run/iu);
-assert.match(result.alertPresentation.whyMatched, /statements? qualified/iu);
+assert.match(result.alertPresentation.title, /·\s*(?:bullish|bearish)\s*·/u);
+// Further signals in the same window are counted on the title, so the body
+// stays a single clean signal rather than a batch report.
+assert.match(result.alertPresentation.title, /\+\d+ more/u);
 // The citation now sits in the guaranteed tail rather than leading the message.
 assert.match(result.alertPresentation.whyMatched, /Cited statement:/u);
 assert.doesNotMatch(result.alertPresentation.whyMatched, /maximum pressure against Iran/u);
