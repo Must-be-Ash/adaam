@@ -373,8 +373,8 @@ assert.ok(result.finding);
 assert.equal(result.finding.factIdentities.length, 2);
 assert.ok(result.alertPresentation);
 assert.equal(result.alertPresentations?.length, 1);
-assert.match(result.alertPresentation.title, /initial hours 12 summary/iu);
-assert.match(result.alertPresentation.whyMatched, /one summary alert was emitted/iu);
+assert.match(result.alertPresentation.title, /first run/iu);
+assert.match(result.alertPresentation.whyMatched, /statements? qualified/iu);
 // The citation now sits in the guaranteed tail rather than leading the message.
 assert.match(result.alertPresentation.whyMatched, /Cited statement:/u);
 assert.doesNotMatch(result.alertPresentation.whyMatched, /maximum pressure against Iran/u);

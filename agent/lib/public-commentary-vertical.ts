@@ -474,7 +474,9 @@ export async function materializePublicCommentarySignal(input: {
   const target = extraction.targets[0]?.symbol ?? null;
   const whyMatchedSegments = [
     semantic.rationale,
-    `Read as ${direction} for ${target ?? "the market it names"}, ${semantic.confidence} confidence over ${semantic.horizon}.`,
+    target
+      ? `Read as ${direction} for ${target}, ${semantic.confidence} confidence over ${semantic.horizon}.`
+      : `Read as ${direction}, ${semantic.confidence} confidence over ${semantic.horizon}.`,
     `Uncertainty: ${isCompactInverseCramerPayload(semantic)
       ? semantic.uncertainty.join("; ") || "No additional uncertainty stated."
       : semantic.assumptions.length ? semantic.assumptions.join("; ") : semantic.forecast?.risks.map(({ statement }) => statement).join("; ") || "No additional uncertainty stated."}`,
@@ -1263,8 +1265,14 @@ export function createPublicCommentaryPipeline(input: {
       const alertPresentations = request.initialBackfill
         ? firstAlert ? [{
             key: "initial-summary",
-            title: `${request.strategyDisplayName ?? interpretation.policy.displayName} · initial ${configuration.cadenceMinutes.replaceAll("_", " ")} summary`,
-            whyMatched: `${allMaterial.length} eligible statement${allMaterial.length === 1 ? "" : "s"} in the initial cadence interval; one summary alert was emitted to avoid spam. ${firstAlert.whyMatched}`,
+            title: `${request.strategyDisplayName ?? interpretation.policy.displayName} · first run`,
+            /*
+             * "eligible statement in the initial cadence interval" and "emitted
+             * to avoid spam" are how the pipeline describes itself, not what
+             * the owner needs to know: that this is the catch-up run and that
+             * more than one statement may sit behind the single alert.
+             */
+            whyMatched: `First run, covering the last ${configuration.cadenceMinutes.replace(/^hours_/u, "")} hours. ${allMaterial.length} statement${allMaterial.length === 1 ? "" : "s"} qualified${allMaterial.length === 1 ? "" : "; the most significant is summarised here"}. ${firstAlert.whyMatched}`,
           }] : []
         : allMaterial.flatMap(({ materialized }) => materialized.alertPresentation
           ? [{ key: materialized.record.finding.statementRevisionId, ...materialized.alertPresentation }]
