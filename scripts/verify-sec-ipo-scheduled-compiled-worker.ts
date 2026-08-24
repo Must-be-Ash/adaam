@@ -319,6 +319,7 @@ const environment = {
   EVE_WORKSPACE_RUNTIME_AUTH_SECRET: Buffer.alloc(32, 31).toString("base64url"),
   KV_REST_API_TOKEN: "fixture",
   KV_REST_API_URL: "https://fixture.invalid",
+  PHOTON_MINI_APP_BASE_URL: "https://app.fixture.test",
   REDIS_URL: "redis://fixture.invalid:6379",
 } as const;
 
@@ -347,6 +348,7 @@ let activeFetch: (requestedUrl: string) => Promise<OfficialPublicSourceResponse>
     throw new Error("sec_fixture_fetch_not_configured");
   };
 let fetchCount = 0;
+let publishReportCount = 0;
 const workerClients: SecIpoWorkspaceWorkerClients = {
   alert: alerts,
   async fetchSource(requestedUrl) {
@@ -355,6 +357,18 @@ const workerClients: SecIpoWorkspaceWorkerClients = {
   },
   finding: findings,
   monitor: monitors,
+  // The compiled evaluator publishes an executive report artifact when a finding
+  // warrants one. The real store writes to Vercel Blob; keep this offline by
+  // echoing the deterministic id the worker computed, which is all the worker
+  // verifies before referencing it.
+  async publishReport(input) {
+    publishReportCount += 1;
+    return {
+      artifactId: input.artifactId,
+      kind: "report" as const,
+      publicUrl: `https://app.fixture.test/artifacts/${input.artifactId}`,
+    };
+  },
   sourceCoverage: coverage,
   state,
 };
@@ -406,6 +420,13 @@ async function startFixtureRpc(): Promise<{
       } else if (payload.namespace === "fetchSource") {
         assert.equal(payload.method, "fetchSource");
         result = await workerClients.fetchSource!(String(payload.args[0]));
+      } else if (payload.namespace === "publishReport") {
+        assert.equal(payload.method, "publishReport");
+        result = await workerClients.publishReport!(
+          payload.args[0] as Parameters<
+            NonNullable<SecIpoWorkspaceWorkerClients["publishReport"]>
+          >[0],
+        );
       } else {
         const target = workerClients[payload.namespace];
         if (!target || typeof target !== "object") {

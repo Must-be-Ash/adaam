@@ -386,7 +386,25 @@ const ids = [
   "923e4567-e89b-42d3-a456-426614174000",
   "a23e4567-e89b-42d3-a456-426614174000",
 ];
+/*
+ * Managed-workspace creation ensures the delivery subscription its monitors
+ * name (strategy-pack-service.ts). The real store needs KV credentials this
+ * offline acceptance does not provide, so inject an in-memory recorder - like
+ * every other client here - and assert the seam fires rather than reaching KV.
+ */
+const ensuredAlertSubscriptions: Array<{
+  ownerId: string;
+  subscriptionId: string;
+}> = [];
 const dependencies = {
+  alertDeliverySubscription: async (
+    input: { ownerId: string; subscriptionId: string },
+  ) => {
+    ensuredAlertSubscriptions.push({
+      ownerId: input.ownerId,
+      subscriptionId: input.subscriptionId,
+    });
+  },
   capabilityInventory: STRATEGY_PACK_CAPABILITY_INVENTORY,
   catalog: strategyPackCatalog,
   environment,
@@ -436,6 +454,16 @@ assert.deepEqual(monitor.schedule, {
   times: ["09:00", "16:00"],
   timezone: "America/Vancouver",
 });
+assert.equal(
+  ensuredAlertSubscriptions.length,
+  1,
+  "creating the managed workspace must ensure exactly one delivery subscription",
+);
+assert.equal(
+  ensuredAlertSubscriptions[0]?.subscriptionId,
+  monitor.deliverySubscriptionId,
+  "the ensured subscription must be the one the monitor delivers through",
+);
 
 const installOnly = await createStrategyPackWorkspaceFromSelection({
   activateMonitorResourceIds: [],

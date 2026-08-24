@@ -577,22 +577,16 @@ fast-to-frontier route chain.
 - [ ] Add bounded cost/context observations without logging message text,
   balances, financial amounts, credentials, or PII.
 
-### Verifier drift found during U3 (2026-08-22)
+### Verifier hardening: typecheck `scripts/` (2026-08-22)
 
-Both reproduce identically on unmodified `main` and are not U3 regressions.
 `tsconfig.json` excludes `scripts/`, so no typecheck catches fixture drift in
-verifiers; that is the common cause of the first item and of the
-already-repaired `verify:adaptive-model-routing:sprint-1` envelope
-(`2c5a577`).
+verifiers before run time. Two gates that drifted this way — the
+`verify:agentic-durable-research:u4` version pin and the
+`verify:workspace-runtime:sec-ipo-scheduled-compiled` fixture wiring — were
+active work, not backlog, and were repaired in the fleet transport & attribution
+unit (2026-08-23); they are removed from this list. The remaining item is the
+optional hardening that would have caught them at typecheck.
 
-- [ ] `verify:agentic-durable-research:u4` asserts the latest `ipo-filings`
-  version is `1.1.1`; `44d83c6` published `1.1.2` without updating it. Decide
-  whether the assertion should track the latest version or pin the version the
-  U4 receipt covered.
-- [ ] `verify:workspace-runtime:sec-ipo-scheduled-compiled` fails with
-  `getaddrinfo ENOTFOUND fixture.invalid`. The fixture expects an unresolvable
-  host to fail closed locally, but the check reaches real DNS. Decide whether
-  it needs an injected fetch or a network-free host assertion.
 - [ ] Consider extending `tsconfig.json` `include` to `scripts/**/*.ts`, or
   adding a second project for them, so verifier fixtures fail at typecheck
   instead of at run time.

@@ -85,6 +85,10 @@ export function resolveSecIpoWorkspaceWorkerFixtureClients():
       >,
     finding: client("finding") as NonNullable<SecIpoWorkspaceWorkerClients["finding"]>,
     monitor: client("monitor") as NonNullable<SecIpoWorkspaceWorkerClients["monitor"]>,
+    publishReport: (input) =>
+      invoke("publishReport", "publishReport", [input]) as ReturnType<
+        NonNullable<SecIpoWorkspaceWorkerClients["publishReport"]>
+      >,
     sourceCoverage: client("sourceCoverage") as NonNullable<
       SecIpoWorkspaceWorkerClients["sourceCoverage"]
     >,

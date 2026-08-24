@@ -13,6 +13,7 @@ import {
 import type { HybridEvidenceBudgetReservation } from "./hybrid-evidence-budget";
 import { normalizeHybridEvidenceResearchUrl } from "./hybrid-evidence-research";
 import { resolveHybridEvidenceWorkerContract } from "./hybrid-evidence-worker-contract-registry";
+import { fixtureRuntimeAllowed as hybridEvidenceWorkerFixtureRuntimeAllowed } from "./hybrid-evidence-worker-test-fixtures";
 import {
   HYBRID_MODEL_REASONING_VALUES,
   type HybridModelReasoning,
@@ -90,9 +91,34 @@ export class HybridEvidenceWorkerAuthError extends Error {
   }
 }
 
+interface SessionCapabilityStore {
+  get(key: string): Promise<unknown>;
+  set(key: string, value: string, options?: { ex: number }): Promise<unknown>;
+}
+
 let sessionCapabilityRedis: Redis | undefined;
 
-function sessionCapabilityStore(environment: NodeJS.ProcessEnv = process.env): Redis {
+/*
+ * The compiled-worker acceptance runs the real worker launch - which binds a
+ * session capability - while injecting in-memory data clients and pointing KV
+ * at an unresolvable host. Reuse the worker's own fail-closed fixture gate (the
+ * same one that redirects its data clients) to keep the bind and its later
+ * authorization read on one in-process map, so the launch never reaches real
+ * DNS. Production (VERCEL/VERCEL_ENV set) never takes this branch and uses KV.
+ */
+const fixtureSessionCapabilities = new Map<string, string>();
+const fixtureSessionCapabilityStore: SessionCapabilityStore = {
+  get: async (key) => fixtureSessionCapabilities.get(key) ?? null,
+  set: async (key, value) => {
+    fixtureSessionCapabilities.set(key, value);
+    return "OK";
+  },
+};
+
+function sessionCapabilityStore(
+  environment: NodeJS.ProcessEnv = process.env,
+): SessionCapabilityStore {
+  if (hybridEvidenceWorkerFixtureRuntimeAllowed()) return fixtureSessionCapabilityStore;
   if (sessionCapabilityRedis) return sessionCapabilityRedis;
   const url = environment.KV_REST_API_URL ?? environment.UPSTASH_REDIS_REST_URL;
   const token = environment.KV_REST_API_TOKEN ?? environment.UPSTASH_REDIS_REST_TOKEN;

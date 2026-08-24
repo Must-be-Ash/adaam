@@ -832,7 +832,10 @@ export async function startHybridEvidenceWorkerTask(
   const token = request.auth.attributes.hybrid_evidence_runtime_token;
   if (typeof token !== "string") throw new HybridEvidenceWorkerError("capability_denied");
   const envelope = decodeHybridEvidenceWorkerToken(token);
-  const record = await readHybridEvidenceJob(envelope.jobId);
+  const record = await readHybridEvidenceJob(
+    envelope.jobId,
+    resolveHybridEvidenceWorkerFixtureClients()?.jobs,
+  );
   assertEnvelopeMatchesRecord(envelope, record, token);
   const runtime = await createNodeTargetedWorkflowRuntime({
     // The bridge's published declaration predates Eve's durable `{ id }` model

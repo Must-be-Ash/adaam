@@ -144,9 +144,19 @@ assert.equal(budget.maximumPaidPerDay, "1.000000");
 assert.equal(budget.maximumPaidPerMonth, "5.000000");
 assert.equal(budget.unknownPriceFallbackCeiling, "0.250000");
 
-assert.equal(
-  strategyPackCatalog.listLatestModelSafe().find(({ id }) => id === "ipo-filings")?.version,
-  "1.1.1",
-);
+/*
+ * U4's receipt covers ipo-filings through 1.1.1, the model-safe head it adopted.
+ * Later revisions add funding only - 1.1.2 raised the research session's token
+ * ceilings while keeping 1.0.0-1.1.1's exact limits and digests - so they
+ * advance listLatestModelSafe() without changing what U4 validated. Pin the
+ * covered version here rather than tracking a moving head; asserting "latest"
+ * is what broke this receipt when 1.1.2 shipped.
+ */
+const u4CoveredModelSafeHead = strategyPackCatalog.resolve({
+  id: "ipo-filings",
+  version: "1.1.1",
+});
+assert.ok(u4CoveredModelSafeHead, "the ipo-filings version U4 covered must remain resolvable");
+assert.equal(isSecIpoAgenticResearchPack(u4CoveredModelSafeHead), true);
 
 console.info("Agentic durable research U4 IPO adoption verification passed.");

@@ -8,7 +8,7 @@ type FixtureGlobal = typeof globalThis & {
   [FIXTURE_CLIENTS]?: HybridEvidenceWorkerControlClients;
 };
 
-function fixtureRuntimeAllowed(): boolean {
+export function fixtureRuntimeAllowed(): boolean {
   return process.env.VERCEL === undefined &&
     process.env.VERCEL_ENV === undefined &&
     (
