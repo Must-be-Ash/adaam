@@ -508,6 +508,23 @@ so a live deploy would be a manual `vercel --prod` and is deferred until there i
 a reason to ship. Phase 3 continues locally on branch
 `feat/alert-shape-and-multisignal`.
 
+Phase 3 language is DONE for both live commentary strategies (tracker pack 1.5.0
+/ research 1.0.1, inverse-cramer pack 1.4.9 / research 1.0.2), committed on
+`feat/alert-shape-and-multisignal` (`77eb913`, `bb214ac`, `147acdb`), battery
+green, NOT merged to main yet. The ONLY remaining Phase 3 item is the clean
+failure fallback (item 3 below). After that: Phase 4 (budget), Phase 5
+(research-only + point live monitors at 1.5.0/1.4.9 + archive old packs), Phase 6
+(live E2E), and the eve upgrade.
+
+Fallback design (for whoever implements it): on a brief-job throw inside
+`runInverseCramerExecutiveResearch`, build a minimal deterministic
+`WorkspaceExecutiveBrief` from the signed subjects (speaker/account + statement +
+registered direction + confidence + the human source), run it through the same
+`materializeInverseCramerExecutiveOutput` path so it still yields a clean
+attribution-by-account alert + a minimal artifact holding the metadata - never
+the legacy metadata-in-title shape, never silence. Rethrow only if the fallback
+materialization itself fails. Cover it with a worker test.
+
 Next action: **Phase 3 — alert language/shape.** The real-model proof
 shows the research lane already emits the target shape, so Phase 3 is about the
 wiring around it: the brief→alert mapping keeps metadata/timestamp/API-source out
