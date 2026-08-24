@@ -89,6 +89,7 @@ assert.deepEqual(pinnedIdentityPacks, [
   "public-commentary-tracker@1.3.0",
   "public-commentary-tracker@1.3.1",
   "public-commentary-tracker@1.4.0",
+  "public-commentary-tracker@1.5.0",
 ]);
 const trackerPack = strategyPackCatalog.resolve({
   id: "public-commentary-tracker",

@@ -467,9 +467,15 @@ baseline to bisect against.
     implication, metadata kept out of the prose, human source only. Battery green
     (1.0.0 digest frozen, pack 1.4.0 intact).
   - **Remaining in Phase 3:**
-    1. Create tracker pack `1.5.0` declaring `frontier-research@1.0.1` (so a
-       monitor can actually use the new language; 1.0.1 is inert until a pack
-       declares it).
+    1. ~~Create tracker pack `1.5.0` declaring `frontier-research@1.0.1`.~~ DONE
+       (2026-08-24). `strategy-packs/public-commentary-tracker/1.5.0/` declares
+       the `1.0.1` research contract (digest `29f5dd18…`, computed for the
+       production frontier model `openai/gpt-5.4`, matching how 1.4.0 pinned
+       1.0.0). Catalog regenerated (33 entries); the three hard-coded catalog
+       expectation lists updated (`verify-strategy-packs.mjs`,
+       `verify-strategy-pack-configuration-kinds.ts`,
+       `verify-strategy-pack-owner-surfaces.ts`). Battery green. A monitor on
+       `public-commentary-tracker@1.5.0` now uses the tuned language.
     2. Inverse Cramer parity: tune `inverse-cramer-research.ts`'s own instruction
        (separate contract `inverse-cramer-frontier-research`, currently at
        1.0.0/1.0.1) as a new frozen version + new inverse-cramer pack.
