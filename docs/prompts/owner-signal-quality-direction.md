@@ -109,11 +109,32 @@ changing anything about how an alert is composed.
    $3.50 reservation, which is only taken when the lane is active - but no run
    has produced a brief, so no artifact publishes and the card never shows
    `Readable report: <url>`.
-2. **Latest failure: `hybrid_quarantine_blocking`** (2026-08-23 20:05, pack
-   1.4.0). Previously `completion_missing`. A quarantined hybrid-evidence job
-   appears to block subsequent attempts; earlier failed 1.4.0 runs likely left
-   that record behind. Not yet diagnosed. `completion_missing` is now
-   self-describing, so the next occurrence that reaches it will name the tool.
+2. **Root cause found: `citation_invalid`** (2026-08-23 20:05, pack 1.4.0).
+   The durable semantic store holds it directly:
+
+       "definitionId": "public-commentary-frontier-research",
+       "quarantineCodes": ["citation_invalid"]
+
+   So the child now DOES complete - it produced a brief with citations - and
+   the citations failed validation. `hybrid_quarantine_blocking` was the
+   downstream health notification, not the cause.
+
+   The mechanism is exact-citation matching in `hybrid-evidence-semantic.ts`.
+   With `requireExactCitations: true`, the model's citations must equal the
+   validator's `assertionCitations` set exactly - same locators, no duplicates,
+   none missing. `publicCommentaryResearchValidationContract` returns one
+   assertion citation per evidence item, so the child must echo each evidence
+   locator precisely; it did not.
+
+   NEXT STEP: the fix is in the contract INSTRUCTION - tell the child it must
+   cite every statement in the signed bundle, echoing each locator exactly.
+   The instruction is digest-covered, so that means
+   `public-commentary-frontier-research@1.0.1` plus tracker pack `1.4.1`.
+   Confirm against the child's actual citations first rather than assuming the
+   count is what mismatched; the store holds the quarantined job records.
+
+   Do NOT weaken the exact-citation rule to make this pass. It exists so every
+   assertion in a brief is grounded in signed evidence.
 3. **The headline is still the model's rationale, not a written headline.** The
    classifier returns `rationale`, `confidence`, `horizon`, `marketView`,
    `uncertainty[]`, `counterevidence[]` - there is no `headline` field. Getting
@@ -126,7 +147,7 @@ changing anything about how an alert is composed.
 6. **Only the strongest signal in a window is sent.** A `+N more` count says so,
    but the others are not delivered anywhere. Their natural home is the artifact
    that does not yet exist.
-7. **Tracker Live currently runs pack 1.3.1**, the proven version without a
+7. **Tracker Live runs pack 1.3.1** (restored 2026-08-23 20:12), the proven version without a
    research lane, so the owner's monitor keeps working. 1.4.0 is committed and
    deployed but bound to nothing live.
 
