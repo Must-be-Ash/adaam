@@ -148,7 +148,9 @@ assert.equal(resolveHybridEvidenceWorkerContract(INVERSE_CRAMER_RESEARCH_DEFINIT
 assert.equal(resolveHybridEvidenceWorkerContract(INVERSE_CRAMER_RESEARCH_DEFINITION_ID)?.research
   ?.budget.paidPerRun, "3.500000");
 const budget = resolveStrategyPackInitialBudgetPolicy(pack, { timezone: "UTC" }, activatedAt);
-assert.equal(budget.maximumInputTokensPerRun, 40_000);
+// The per-run envelope is floored so the fan-out has room even when a pack
+// declares a smaller budget (see WORKSPACE_MINIMUM_*_TOKENS_PER_RUN).
+assert.equal(budget.maximumInputTokensPerRun, 1_000_000);
 assert.equal(budget.maximumPaidPerCall, "1.000000");
 // The research lane declares $5.00/day; the workspace default is higher, and a
 // monitor takes whichever leaves it more room to work.
@@ -173,7 +175,7 @@ assert.ok(
 // A run whose reservation exceeds the daily allowance could never dispatch.
 assert.ok(activeBudget.maximumInputTokensPerRun <= activeBudget.maximumInputTokensPerDay);
 assert.ok(activeBudget.maximumOutputTokensPerRun <= activeBudget.maximumOutputTokensPerDay);
-assert.equal(budget.maximumInputTokensPerRun, 40_000, "historical packs keep their declared envelope");
+assert.equal(budget.maximumInputTokensPerRun, 1_000_000, "the per-run floor funds the fan-out even for a pack that declared a smaller envelope");
 
 // Exact Production reproduction: two projected statements evaluated at the
 // declared concurrency each reserve the compact ceiling from the same parent.
@@ -223,8 +225,8 @@ assert.equal(
 );
 assert.equal(
   await fanOutReservationOutcome(budget),
-  "budget_exhausted",
-  "the superseded 40,000-token envelope funded only one child, which is the reported defect",
+  "funded",
+  "the per-run floor now funds the fan-out even for a pack that declared the superseded 40,000-token envelope",
 );
 
 // The outer workspace worker adds one turn per evaluated statement and must

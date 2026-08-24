@@ -135,12 +135,27 @@ export const DEFAULT_PAID_BUDGET = Object.freeze({
 const PAID_PUBLIC_SOURCE_ORIGINS = Object.freeze(["https://api.x.com"]);
 
 const DEFAULT_BUDGET_CEILINGS = Object.freeze({
-  maximumInputTokensPerDay: 1_400_000,
-  maximumInputTokensPerRun: 280_000,
-  maximumOutputTokensPerDay: 280_000,
-  maximumOutputTokensPerRun: 56_000,
+  maximumInputTokensPerDay: 12_000_000,
+  maximumInputTokensPerRun: 1_500_000,
+  maximumOutputTokensPerDay: 2_400_000,
+  maximumOutputTokensPerRun: 300_000,
   maximumScheduledRunsPerDay: 144,
 });
+
+/*
+ * Each fanned-out semantic child job reserves its definition's *maximum* tokens
+ * against the occurrence's per-run envelope, and on the production path the
+ * child session reports no usage, so the reservation reconciles at that maximum
+ * rather than the (far smaller) actual spend and never frees. A pack's
+ * conservative per-run suggestedBudget then exhausts after only ~6-7 statements
+ * (`budget_exhausted` at reserveHybridEvidenceAttempt), which a frequent-poster
+ * tracker blows through in a single backfill. Floor the derived per-run envelope
+ * so the fan-out has room; the floor only raises the ceiling on what MAY be
+ * spent - actual inference is bounded by the real statement count, and paid-tool
+ * spend stays separately capped by the paid ceilings.
+ */
+const WORKSPACE_MINIMUM_INPUT_TOKENS_PER_RUN = 1_000_000;
+const WORKSPACE_MINIMUM_OUTPUT_TOKENS_PER_RUN = 200_000;
 
 export const strategyPackMutationConfigurationSchema = z.record(
   z.string().min(1).max(80),
@@ -1048,11 +1063,17 @@ export function resolveStrategyPackInitialBudgetPolicy(
   );
   const inputPerRun = Math.min(
     ceilings.maximumInputTokensPerRun,
-    Math.max(...pack.monitors.map((monitor) => monitor.suggestedBudget.maximumInputTokensPerRun)),
+    Math.max(
+      WORKSPACE_MINIMUM_INPUT_TOKENS_PER_RUN,
+      ...pack.monitors.map((monitor) => monitor.suggestedBudget.maximumInputTokensPerRun),
+    ),
   );
   const outputPerRun = Math.min(
     ceilings.maximumOutputTokensPerRun,
-    Math.max(...pack.monitors.map((monitor) => monitor.suggestedBudget.maximumOutputTokensPerRun)),
+    Math.max(
+      WORKSPACE_MINIMUM_OUTPUT_TOKENS_PER_RUN,
+      ...pack.monitors.map((monitor) => monitor.suggestedBudget.maximumOutputTokensPerRun),
+    ),
   );
   const timezoneField = pack.configuration.find((field) => field.kind === "iana_timezone");
   const ownerTimezone = timezoneField ? configuration[timezoneField.key] : "UTC";

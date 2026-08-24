@@ -141,6 +141,26 @@ AND every pack that pins it. It is never a one-line change.
 exhaust a daily ceiling with almost no actual spend, so always report reserved
 separately from actual.
 
+**A fanned-out occurrence exhausts its per-run envelope after ~6-7 statements
+because child reservations never shrink to actual.** Each semantic child job
+reserves its definition's *maximum* input tokens (24,000 for the impact
+contract) against the occurrence's per-run envelope. It is meant to reconcile
+down to actual on completion, and the boundary tests only require the envelope
+to fund the *concurrent* fan-out (`semanticConcurrency`) on that assumption. But
+the production drain (`drainPublicCommentaryHybridWorker`) returns no usage, so
+`accountedUsage(def, void)` falls back to the definition maximum and every job
+reconciles at 24,000 rather than the ~3,000 actually spent - so reservations
+accumulate and a conservative per-run envelope (the tracker's 160,000,
+Inverse Cramer's 40,000) throws `budget_exhausted` at `reserveHybridEvidenceAttempt`
+after a handful of statements, which a frequent poster blows through in one
+backfill. The failure was invisible until a durable occurrence-failure record
+was added (it rolls off the log buffer). Interim fix (2026-08-24): a generous
+per-run floor in `resolveStrategyPackInitialBudgetPolicy` so the fan-out has
+room. The real fix is to thread the child session's actual usage back through
+the drain so reconciliation frees the reservation as the design intended; until
+then the envelope caps the statements-per-occurrence at roughly
+`per-run-input / def.maximumInputTokens`.
+
 ## Cross-strategy safety
 
 **Five strategies share one set of generic modules.** `workspace-worker-control-plane.ts`,

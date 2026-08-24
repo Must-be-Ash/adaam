@@ -444,8 +444,10 @@ assert.ok(
   Number(marketBudget.maximumPaidPerDay) >= Number(marketBudget.maximumPaidPerCall) * 4,
   "a day must hold several worst-case polls or one occurrence exhausts it",
 );
-assert.equal(marketBudget.maximumInputTokensPerRun, 160_000);
-assert.equal(marketBudget.maximumOutputTokensPerRun, 32_000);
+// Floored so a frequent poster's fan-out of semantic children has room; a
+// conservative pack envelope otherwise exhausted after ~6-7 statements.
+assert.equal(marketBudget.maximumInputTokensPerRun, 1_000_000);
+assert.equal(marketBudget.maximumOutputTokensPerRun, 200_000);
 
 // A monitor reading a paid source reserves that read as a child of the run's
 // paid envelope. Production terminalized the first Tracker Live occurrence as
