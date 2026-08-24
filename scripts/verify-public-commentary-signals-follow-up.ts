@@ -32,6 +32,7 @@ import {
 } from "../agent/lib/public-commentary-vertical";
 import { decideCommentaryPolicy } from "../agent/lib/commentary-policy";
 import {
+  buildPublicCommentaryFallbackBrief,
   drainPublicCommentaryHybridWorker,
   resolvePublicCommentarySemanticReasoning,
   resolvePublicCommentaryCommitInitialBaseline,
@@ -464,5 +465,49 @@ assert.deepEqual(configured.configuration.selectedSymbols, ["BTC", "INTC"]);
 assert.throws(() => resolveStrategyPackConfiguration(latestPack, {
   selectedSymbols: Array.from({ length: 33 }, (_, index) => `T${index}`),
 }));
+
+// The deterministic fallback brief (used when the frontier brief cannot be
+// produced) must be a valid, clean executive brief built from the primary
+// evidence: no machine-metadata labels in the human-readable title, the raw
+// statement carried through, the registered direction stated in prose, and only
+// the human source pages.
+{
+  const subjectFor = (url: string, plaintext: string, direction: "bearish" | "bullish") => ({
+    finding: { policyDecision: { researchDirection: direction } },
+    subject: {
+      plaintext,
+      statement: { canonicalUrl: url },
+      summary: plaintext.slice(0, 60),
+      uncertainty: ["Policy step not confirmed."],
+    },
+  });
+  const single = buildPublicCommentaryFallbackBrief([
+    subjectFor(
+      "https://x.com/KobeissiLetter/status/2091859386176090296",
+      "BREAKING: The US Treasury is considering using its $950B General Account to fund long-term bond buying, per CNBC.",
+      "bullish",
+    ),
+  ] as never);
+  assert.equal(single.research.status, "not_needed");
+  assert.equal(single.sources.length, 1);
+  assert.equal(single.sources[0]?.role, "official");
+  assert.equal(single.sources[0]?.url, "https://x.com/KobeissiLetter/status/2091859386176090296");
+  assert.equal(single.materialFacts.length, 1);
+  // No machine-metadata labels ("· medium confidence", "Observed", API endpoint)
+  // anywhere in the human-readable fields.
+  const humanText = `${single.title}\n${single.interpretation}\n${single.implications.join("\n")}`;
+  assert.doesNotMatch(humanText, /·|confidence|Observed|api\.x\.com|horizon/iu);
+  // The registered direction is stated in prose, and the raw statement survives.
+  assert.match(single.interpretation, /bullish/u);
+  assert.match(single.interpretation, /General Account/u);
+  // A multi-signal fallback keeps every statement and de-duplicates sources.
+  const multi = buildPublicCommentaryFallbackBrief([
+    subjectFor("https://x.com/a/1", "First signal about oil.", "bearish"),
+    subjectFor("https://x.com/a/2", "Second signal about gold.", "bullish"),
+    subjectFor("https://x.com/a/1", "Third signal, same page as the first.", "bearish"),
+  ] as never);
+  assert.equal(multi.materialFacts.length, 3);
+  assert.equal(multi.sources.length, 2);
+}
 
 console.info("Spec 4C narrow follow-up verification passed.");

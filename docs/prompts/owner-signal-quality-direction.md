@@ -450,7 +450,9 @@ baseline to bisect against.
     need a compiled-worker real-model run or one live occurrence. The two things
     that were actually BLOCKING (exact citations, attribution-led language) are
     proven.
-- **Phase 3 — IN PROGRESS (2026-08-24).** The language is solved and proven.
+- **Phase 3 — DONE (2026-08-24).** Language solved and proven for both live
+  strategies; tracker pack 1.5.0 + inverse-cramer pack 1.4.9 make it reachable;
+  clean failure fallback in place; body mapping confirmed clean.
   - **Root finding:** with the *actual* shipped instruction, gpt-5.4 produced a
     non-attribution-led, analytical title ("Treasury cash-balance use is framed
     as…") and no actionable closer — i.e. the exact shape the owner complained
@@ -485,12 +487,19 @@ baseline to bisect against.
        bullish on NVDA …; the registered inverse policy points bearish, so the
        price could go down … Watch NVDA … be ready to watch for short setups."
        Battery green; all hard-coded catalog lists updated.
-    3. Clean fallback when the brief job throws: today the occurrence fails with
-       no alert, or falls through to the legacy metadata-in-title shape. Produce
-       an attribution-led basic alert from the primary evidence instead.
-    4. Review the brief→alert body mapping (`publicCommentaryAlertPresentationForBrief`):
-       whyMatched = interpretation + implications[0] + uncertainty[0]; confirm no
-       metadata leaks and the actionable implication leads.
+    3. ~~Clean fallback when the brief cannot be produced.~~ DONE (2026-08-24).
+       `buildPublicCommentaryFallbackBrief` builds a minimal deterministic
+       executive brief from the signed primary evidence; wired into
+       `runInverseCramerExecutiveResearch` so a semantic job that returns no
+       accepted result (citation_invalid / abstention) degrades to a clean
+       attribution-by-content alert instead of failing silently. Infrastructure
+       errors (budget/storage/auth) still throw and propagate — the fallback only
+       covers the "model ran, brief unusable" case. A single-signal fallback
+       publishes no supplementary artifact (the accepted shape). Unit-tested in
+       `verify-public-commentary-signals-follow-up.ts`; battery + eve build green.
+    4. ~~Review the brief→alert body mapping.~~ DONE — satisfied by 1.0.1/1.0.2:
+       whyMatched = interpretation + implications[0] + uncertainty[0], all now
+       attribution-led and metadata-free, with the actionable implication present.
   - Note: multi-signal is ALREADY the newspaper model architecturally — the
     research path runs ONE brief over up to 8 statements as `materialFacts`
     (→ artifact), with one headline title. 1.0.1 instructs leading the headline
@@ -508,31 +517,22 @@ so a live deploy would be a manual `vercel --prod` and is deferred until there i
 a reason to ship. Phase 3 continues locally on branch
 `feat/alert-shape-and-multisignal`.
 
-Phase 3 language is DONE for both live commentary strategies (tracker pack 1.5.0
-/ research 1.0.1, inverse-cramer pack 1.4.9 / research 1.0.2), committed on
-`feat/alert-shape-and-multisignal` (`77eb913`, `bb214ac`, `147acdb`), battery
-green, NOT merged to main yet. The ONLY remaining Phase 3 item is the clean
-failure fallback (item 3 below). After that: Phase 4 (budget), Phase 5
-(research-only + point live monitors at 1.5.0/1.4.9 + archive old packs), Phase 6
-(live E2E), and the eve upgrade.
+Phases 1, 2, and 3 are all DONE. Phase 3 (all of it: language for both live
+strategies via tracker pack 1.5.0 / research 1.0.1 and inverse-cramer pack 1.4.9
+/ research 1.0.2, the clean failure fallback, and the confirmed body mapping) is
+committed on `feat/alert-shape-and-multisignal` (`77eb913`, `bb214ac`, `147acdb`,
+`a2512da`, + the fallback commit), battery + typecheck + eve build green, NOT
+merged to main yet, NOT deployed.
 
-Fallback design (for whoever implements it): on a brief-job throw inside
-`runInverseCramerExecutiveResearch`, build a minimal deterministic
-`WorkspaceExecutiveBrief` from the signed subjects (speaker/account + statement +
-registered direction + confidence + the human source), run it through the same
-`materializeInverseCramerExecutiveOutput` path so it still yields a clean
-attribution-by-account alert + a minimal artifact holding the metadata - never
-the legacy metadata-in-title shape, never silence. Rethrow only if the fallback
-materialization itself fails. Cover it with a worker test.
-
-Next action: **Phase 3 — alert language/shape.** The real-model proof
-shows the research lane already emits the target shape, so Phase 3 is about the
-wiring around it: the brief→alert mapping keeps metadata/timestamp/API-source out
-of the iMessage text (mostly already true on the research path), the newspaper
-multi-signal model (strongest = headline, all signals in the artifact), and a
-clean attribution-led fallback when the brief model call fails. Verify the
-non-research legacy path is fully retired by Phase 5 so the bad
-metadata-in-title shape can never be produced.
+Next action: **Phase 4 — budget reconciliation.** The child hybrid-evidence job
+reconciles at its definition maximum rather than actual usage because the
+production drain (`drainPublicCommentaryHybridWorker`) returns no usage, so a
+busy window can still exhaust the per-run envelope (see
+`docs/workspace-runtime-pitfalls.md` "A fanned-out occurrence exhausts its per-run
+envelope"). Thread the child session's actual usage back through the drain so
+reconciliation frees the reservation. Then Phase 5 (research-only: point the live
+monitors at 1.5.0 / 1.4.9, retire the legacy non-research alert path, archive old
+packs), Phase 6 (live E2E), and the eve upgrade.
 
 Reference: [[deterministic-worker-dispatch]] and [[research-lane-citation-visibility]]
 in auto-memory capture the architecture and the citation root cause.

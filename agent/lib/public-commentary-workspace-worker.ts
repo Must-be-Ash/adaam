@@ -1226,6 +1226,65 @@ export async function materializeInverseCramerExecutiveOutput(input: {
   });
 }
 
+/*
+ * When the frontier brief cannot be produced (the research/semantic job returns
+ * no accepted result - e.g. citation_invalid or an abstention), do not lose the
+ * signal. Build a minimal deterministic executive brief from the already-signed
+ * primary evidence so the owner still gets a clean alert: the raw statement as
+ * the headline, the registered direction stated in plain prose, and the human
+ * source - no machine metadata in the text. A single-signal fallback publishes no
+ * supplementary artifact (materialize only publishes for multi-fact/research
+ * briefs), which is exactly the accepted "clean basic alert, no supplementary
+ * artifact this run" shape.
+ */
+export function buildPublicCommentaryFallbackBrief(
+  subjects: ReadonlyArray<{
+    readonly finding: {
+      readonly policyDecision: { readonly researchDirection: string | null };
+    };
+    readonly subject: PublicCommentaryResearchSubject;
+  }>,
+): WorkspaceExecutiveBrief {
+  const clamp = (value: string, max: number): string =>
+    value.replace(/\s+/gu, " ").trim().slice(0, max);
+  const lead = subjects[0]!;
+  const direction = lead.finding.policyDecision.researchDirection ?? "uncertain";
+  const sourceByUrl = new Map<string, { label: string; role: "official"; url: string }>();
+  for (const { subject } of subjects) {
+    const url = subject.statement.canonicalUrl;
+    if (!sourceByUrl.has(url)) {
+      sourceByUrl.set(url, {
+        label: clamp(subject.summary ?? subject.plaintext ?? "Public statement", 180),
+        role: "official",
+        url,
+      });
+    }
+  }
+  const uncertainty = (lead.subject.uncertainty?.length
+    ? [...lead.subject.uncertainty]
+    : ["An automated interpretation could not be generated this run, so this shows the raw signal only."]
+  ).slice(0, 6).map((value) => clamp(value, 500));
+  return workspaceExecutiveBriefSchema.parse({
+    confidence: "low",
+    implications: [clamp(
+      `The registered read points ${direction}: watch the named market and be ready to prepare for that direction. A full brief was unavailable this run.`,
+      500,
+    )],
+    interpretation: clamp(
+      `${lead.subject.plaintext} A full automated brief could not be produced this run, so this is the raw signal: the registered read points ${direction}.`,
+      1_000,
+    ),
+    materialFacts: subjects.map(({ subject }) => ({
+      sourceUrls: [subject.statement.canonicalUrl],
+      statement: clamp(subject.plaintext, 500),
+    })),
+    research: { status: "not_needed" },
+    sources: [...sourceByUrl.values()],
+    title: clamp(lead.subject.summary ?? lead.subject.plaintext, 200),
+    uncertainty,
+  });
+}
+
 async function runInverseCramerExecutiveResearch(input: {
   clients?: PublicCommentaryWorkspaceWorkerClients;
   environment: NodeJS.ProcessEnv;
@@ -1346,12 +1405,22 @@ async function runInverseCramerExecutiveResearch(input: {
       subscription: input.clients?.subscription,
     });
     const accepted = semantic.record.acceptedResult;
+    // A semantic job that returns no accepted result means the model ran but its
+    // brief was unusable (citation_invalid, an abstention). Infrastructure
+    // failures (budget, storage, auth) throw before this and still propagate.
+    // Rather than lose an already-material signal, degrade to a deterministic
+    // fallback brief built from the signed primary evidence.
+    const brief = accepted
+      ? workspaceExecutiveBriefSchema.parse(accepted.payload)
+      : buildPublicCommentaryFallbackBrief(subjects);
+    const approvedSupplementaryUrls = accepted ? semantic.record.researchUrlGrants : [];
     if (!accepted) {
-      throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+      console.error("[public-commentary] research produced no accepted brief; using deterministic fallback", {
+        statements: subjects.length,
+      });
     }
-    const brief = workspaceExecutiveBriefSchema.parse(accepted.payload);
     const output = await materializeInverseCramerExecutiveOutput({
-      approvedSupplementaryUrls: semantic.record.researchUrlGrants,
+      approvedSupplementaryUrls,
       asOf: input.result.finding.asOf,
       brief,
       clients: input.clients,
