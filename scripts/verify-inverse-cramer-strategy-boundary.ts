@@ -404,3 +404,48 @@ assert.equal(
 }
 
 console.log("Inverse Cramer strategy-boundary characterization passed.");
+
+/*
+ * Research is a declared capability, not an identity. It used to be gated by a
+ * literal `managed.packId !== "inverse-cramer"`, so a pack could declare a
+ * research contract and still be refused the lane - the declaration was not the
+ * switch. Pack ids stay valid as provenance, registry keys and binding
+ * identity; they must never decide what a strategy is allowed to do.
+ */
+{
+  const { resolvePublicCommentaryResearchContract } = await import(
+    "../agent/lib/public-commentary-research-contract"
+  );
+  const { INVERSE_CRAMER_RESEARCH_DEFINITION_ID, INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS } =
+    await import("../agent/lib/inverse-cramer-research");
+  const version = INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS.at(-1)!;
+  const declared = [{ id: INVERSE_CRAMER_RESEARCH_DEFINITION_ID, version }];
+
+  assert.ok(
+    resolvePublicCommentaryResearchContract({ evidenceContracts: declared }),
+    "a pack that declares a registered research contract must resolve the lane",
+  );
+  assert.equal(
+    resolvePublicCommentaryResearchContract({ evidenceContracts: [] }),
+    null,
+    "a pack that declares no research contract gets no lane - a deliberate choice",
+  );
+  assert.equal(
+    resolvePublicCommentaryResearchContract({
+      evidenceContracts: [{ id: INVERSE_CRAMER_RESEARCH_DEFINITION_ID, version: "0.0.0" }],
+    }),
+    null,
+    "an unregistered contract version must not resolve",
+  );
+
+  const worker = readFileSync(
+    new URL("../agent/lib/public-commentary-workspace-worker.ts", import.meta.url),
+    "utf8",
+  );
+  assert.equal(
+    /packId\s*!==\s*"inverse-cramer"/u.test(worker),
+    false,
+    "the research lane must never be gated on a pack id again",
+  );
+}
+console.info("Commentary research lane is declaration-driven.");

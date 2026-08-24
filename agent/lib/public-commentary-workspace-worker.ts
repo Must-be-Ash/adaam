@@ -26,9 +26,6 @@ import {
 } from "./hybrid-evidence-model-routing";
 import {
   createInverseCramerResearchDefinition,
-  INVERSE_CRAMER_RESEARCH_DEFINITION_ID,
-  INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS,
-  isInverseCramerAgenticResearchPack,
 } from "./inverse-cramer-research";
 import {
   readPublicSourceAcquisitionResult,
@@ -117,6 +114,7 @@ import {
   type WorkspaceWorkerControlPlaneClients,
 } from "./workspace-worker-control-plane";
 import { createExaWebCorroborationProvider, type WebCorroborationProvider } from "./web-corroboration-search";
+import { resolvePublicCommentaryResearchContract } from "./public-commentary-research-contract";
 import {
   reconcileWorkspaceRunBudget,
   reserveWorkspaceRunBudget,
@@ -1091,14 +1089,21 @@ async function resolveInverseCramerResearchRuntime(input: {
   scope: AuthorizedWorkspaceStoreScope;
 }): Promise<InverseCramerResearchRuntime | null> {
   const managed = input.monitor.managedBy;
-  if (!managed || managed.packId !== "inverse-cramer") return null;
+  if (!managed) return null;
   const strategy = await readWorkspaceDocument("strategy", input.scope, input.clients?.state);
   const pack = strategyPackCatalog.resolve({
     contentDigest: managed.packContentDigest,
     id: managed.packId,
     version: managed.packVersion,
   });
-  if (!pack || !isInverseCramerAgenticResearchPack(pack)) return null;
+  /*
+   * The declaration is the switch, not the pack id. Any commentary pack that
+   * declares a registered research contract gets the lane; one that declares
+   * none is answered from the statement alone, which is a deliberate choice for
+   * a strategy whose statement is already the conclusion.
+   */
+  const declaredResearch = pack ? resolvePublicCommentaryResearchContract(pack) : null;
+  if (!pack || !declaredResearch) return null;
   const snapshot = strategy?.schemaVersion === 2
     ? strategy.value.pendingSnapshot ?? strategy.value.lastActiveSnapshot
     : null;
@@ -1112,17 +1117,9 @@ async function resolveInverseCramerResearchRuntime(input: {
   }
   const configured = resolveHybridTaskModelRoute("semantic_interpretation", input.environment);
   const candidates = input.capabilities.resolved.workerModelIds
-    .flatMap((modelId) => (pack.evidenceContracts ?? []).flatMap((contract) =>
-      contract.id === INVERSE_CRAMER_RESEARCH_DEFINITION_ID &&
-          INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS.includes(
-            contract.version as (typeof INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS)[number],
-          )
-        ? [createInverseCramerResearchDefinition(
-            [modelId],
-            contract.version as (typeof INVERSE_CRAMER_RESEARCH_DEFINITION_VERSIONS)[number],
-          )]
-        : []
-    ))
+    .map((modelId) =>
+      declaredResearch.contract.createDefinition([modelId], declaredResearch.version)
+    )
     .filter((definition) => pack.evidenceContracts?.some((contract) =>
       contract.id === definition.definitionId &&
       contract.version === definition.definitionVersion &&
