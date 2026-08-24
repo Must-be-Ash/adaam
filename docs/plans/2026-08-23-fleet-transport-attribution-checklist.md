@@ -180,6 +180,32 @@ now retired). Code is the source of truth.
 - Don't spend a paid occurrence to test a code-read hypothesis — instrument first.
 - Roadmap/migration receipts are append-only.
 
-## Finish clean
-- Report completed / deferred (+why) / reserved-vs-actual spend / final armed state.
-- Leave no test monitor dispatchable, no temp routes, no stray worktrees.
+## Finish clean — final state 2026-08-24
+
+**Completed & deployed** (commits on `main`, deployed to `adaam.vercel.app`):
+- Item 1: gates `u4` + `sec-ipo-scheduled-compiled` green (`2ef4305`); gate `acceptance`
+  subscription layer fixed + research-only decision, remainder homed to Sprint 8.
+- Item 2: House transient statuses → `retryable_failure` (`910c50e`).
+- Items 3-4: instrumentation confirmed; `verify:strategies` = explicit pre-deploy gate (recorded).
+- Item 5 follow-on: WAF-friendly UA + errno capture (`5b819ec`).
+- Docs: GOAL vision, pitfalls guard rule, gate-3 + Congressional homes (`9b8b5d9`, `773169d`).
+- Verification: `verify:strategies` 38/38, typecheck, production build all green before each deploy.
+
+**Deferred (+why):**
+- Item 5 (Congressional): blocked upstream by a Vercel→House egress block (confirmed, not
+  code-fixable cheaply). Owner chose defer. Home: roadmap Sprint 7.
+- Item 6 (Earnings): owner chose "Congressional first"; flags stay OFF, not attempted. Not
+  blocked by the House issue (its source is data.sec.gov).
+- Gate 3 research-acceptance harness: Sprint 8 (research-only decided).
+
+**Reserved vs actual spend:** 2 Congressional occurrences (+ their bounded recovery
+attempts), all failed at TRANSPORT before any inference → ~$0.00 actual; transient
+reservations settle on failure handling. Items 1-4 + both deploys: 0 occurrences, $0.
+
+**Final armed state:** IPO Live, Inverse Cramer Live, Tracker Live — all enabled, healthy,
+future `nextOccurrenceAt`, untouched. Congressional — 6 monitors all paused_failure/archived
+(not dispatchable), blocked upstream. Earnings — archived, deferred.
+
+**Clean:** working tree clean; only the `main` worktree; no temporary routes; no secrets in
+repo. Owner cleanup (optional, not urgent since already non-dispatchable): archive the two
+test sessions "Congressional Testing" and "Congressional Test 2".
