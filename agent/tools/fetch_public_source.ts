@@ -79,8 +79,18 @@ function requestHeaders(url: URL): HeadersInit {
   return {
     accept:
       "application/atom+xml, application/rss+xml, application/xml, text/xml, application/json;q=0.9, */*;q=0.2",
+    /*
+     * SEC keeps its own fair-access UA. For the other official sources the
+     * bare "EarningsCallAnalyser/0.1 public-feed-monitor" string lacks the
+     * "Mozilla/5.0 (compatible; ...)" prefix that many WAFs require even from
+     * honest crawlers - a plausible cause of disclosures-clerk.house.gov
+     * rejecting our fetch from Vercel while a browser and other .gov sources
+     * succeed. This still identifies honestly as a named bot (no browser
+     * impersonation, no bot-detection evasion) in the well-behaved-crawler
+     * format servers whitelist.
+     */
     "user-agent":
-      secUserAgent ?? "EarningsCallAnalyser/0.1 public-feed-monitor",
+      secUserAgent ?? "Mozilla/5.0 (compatible; EarningsCallAnalyser/1.0)",
   };
 }
 

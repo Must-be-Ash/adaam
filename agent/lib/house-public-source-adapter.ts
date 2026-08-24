@@ -838,13 +838,26 @@ function mappedError(error: unknown): HouseAdapterError {
   /*
    * Anything else unrecognized here is the fetch layer itself failing (DNS,
    * connection refused/reset, timeout, TLS) rather than a parsed HTTP
-   * response.
+   * response. undici carries the real reason on `.cause.code` (ETIMEDOUT,
+   * ECONNRESET, ENOTFOUND, UND_ERR_*, ...) while `error.name` alone is only
+   * "TypeError" - capture it so the bounded log detail names which failure it
+   * was, the same determinacy a631998 restored for HTTP statuses.
    */
+  const causeCode =
+    error instanceof Error &&
+    typeof error.cause === "object" &&
+    error.cause !== null &&
+    "code" in error.cause
+      ? String((error.cause as { readonly code?: unknown }).code)
+      : null;
+  const exceptionName = error instanceof Error ? error.name : typeof error;
   return new HouseAdapterError(
     "acquisition_uncertain",
     "transport",
     "uncertain",
-    `exception_${boundedAdapterDetail(error instanceof Error ? error.name : typeof error)}`,
+    `exception_${boundedAdapterDetail(
+      causeCode ? `${exceptionName}_${causeCode}` : exceptionName,
+    )}`,
   );
 }
 

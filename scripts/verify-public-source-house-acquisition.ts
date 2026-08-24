@@ -621,6 +621,40 @@ function captureWarnings(): { readonly calls: unknown[][]; restore(): void } {
 }
 
 {
+  // undici surfaces the real network reason on error.cause.code; the adapter
+  // must carry it into the bounded detail so the log names ETIMEDOUT /
+  // ECONNRESET / etc. rather than a bare "TypeError" - the gap that left the
+  // live Congressional House-fetch failures undiagnosable (only the raw code,
+  // never the message, ever reaches the log).
+  const warnings = captureWarnings();
+  const observedAt = "2026-08-16T07:00:00.000Z";
+  try {
+    await runHousePublicSourceAcquisition({
+      client: new MemoryStore(),
+      fetchDocument: async (url) => response({ body: singlePdf, contentType: "application/pdf", observedAt, url }),
+      fetchIndex: async () => {
+        const error = new TypeError("fetch failed");
+        (error as { cause?: unknown }).cause = Object.assign(
+          new Error("connect ETIMEDOUT 1.2.3.4:443"),
+          { code: "ETIMEDOUT" },
+        );
+        throw error;
+      },
+      sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+      window: window(observedAt),
+    });
+  } finally {
+    warnings.restore();
+  }
+  const logged = warnings.calls.find(([message]) => message === "[house-public-source] acquisition failed");
+  assert.ok(logged, "a thrown transport exception with a cause must log a bounded failure summary");
+  assert.equal((logged![1] as { detail: string }).detail, "exception_TypeError_ETIMEDOUT",
+    "the fetch cause code must reach the bounded detail so the real network reason is diagnosable");
+  assert.equal(/ETIMEDOUT 1\.2\.3\.4/u.test(JSON.stringify(logged![1])), false,
+    "only the bounded code, never the raw cause message/address, reaches the log");
+}
+
+{
   // The actual production shape: fetchOfficialPublicSourceBytes (the real
   // fetchIndex implementation) validates the response status itself and
   // throws PublicSourceHttpStatusError before returning - it never reaches
