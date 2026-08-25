@@ -1415,19 +1415,12 @@ async function runInverseCramerExecutiveResearch(input: {
   /*
    * Each material post is its own story. Research and brief EACH statement on its
    * own so unrelated posts never get a fabricated shared thesis - a Treasury post
-   * and a dollar-positioning post are two events, not one. The base lane already
-   * emits one alert per statement (keyed by statementRevisionId) on a steady run
-   * and collapses a catch-up backfill to the lead statement plus a bare count;
-   * `perPostMode` reads that decision back off the base presentations so this
-   * lane fans out the same way - one researched brief + artifact + alert per post
-   * live, lead-only on a backfill so a first run neither pays for nor posts a
-   * separate brief per backfilled statement.
+   * and a dollar-positioning post are two events, not one - then assemble them
+   * into ONE report with a section per signal. Fan-out is bounded upstream: the
+   * caller returns early when `facts.length > 8`, and the per-run budget envelope
+   * is floored so a fanned-out occurrence has room, so a backfill produces the
+   * same newspaper (up to 8 sections) rather than being collapsed to its lead.
    */
-  const basePresentations = input.result.alertPresentations ?? [];
-  const perPostKeys = new Set(subjects.map(({ subject }) => subject.statementRevisionId));
-  const perPostMode = basePresentations.length === subjects.length &&
-    basePresentations.every(({ key }) => perPostKeys.has(key));
-  const researchSubjects = perPostMode ? subjects : subjects.slice(0, 1);
   const variant: PublicCommentaryReportVariant =
     input.runtime.pack.id === "public-commentary-tracker"
       ? "public-commentary-tracker"
@@ -1439,7 +1432,7 @@ async function runInverseCramerExecutiveResearch(input: {
       finding: (typeof subjects)[number]["finding"];
       subject: PublicCommentaryResearchSubject;
     }>> = [];
-    for (const { finding, subject } of researchSubjects) {
+    for (const { finding, subject } of subjects) {
       const content = JSON.stringify({
         canonicalUrl: subject.statement.canonicalUrl,
         confidence: finding.confidence,
@@ -1542,13 +1535,11 @@ async function runInverseCramerExecutiveResearch(input: {
     }
     if (researched.length === 0) return input.result;
     const lead = researched[0]!;
-    const moreCount = subjects.length - researched.length;
     /*
      * One delivery, one report. A single signal keeps the proven single-brief
      * artifact and its accepted alert shape. Several signals become ONE report
      * whose sections are each post's own story - never a fabricated cross-post
-     * thesis, and never a separate message per post. A collapsed backfill posts
-     * the lead story and names the rest only as a count.
+     * thesis, and never a separate message per post.
      */
     const output = researched.length === 1
       ? await materializeInverseCramerExecutiveOutput({
@@ -1570,9 +1561,7 @@ async function runInverseCramerExecutiveResearch(input: {
           signals: researched,
           variant,
         });
-    const title = researched.length === 1 && moreCount > 0
-      ? `${output.presentation.title} · +${moreCount} more`.slice(0, 240)
-      : output.presentation.title;
+    const title = output.presentation.title;
     const finding = workspaceFindingCandidateSchema.parse({
       ...input.result.finding,
       artifactRefs: [
