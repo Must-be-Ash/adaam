@@ -577,11 +577,42 @@ green), pending the owner's `vercel --prod`:
    discuss card. Per-post presentations can carry their own `artifactRefs`
    (`stageWorkspaceAlert` prefers them over the finding aggregate).
 
-Not yet verified on a real multi-post prod occurrence (the ultimate proof, as
-with the citation fix). Touched: `public-commentary-signal-report.ts`,
-`public-commentary-workspace-worker.ts`, `workspace-alert-store.ts`,
-`workspace-worker-control-plane.ts`, `photon-alert-delivery.ts`,
-`photon-alert-outbound.ts` + three verifiers.
+Deployed `0e98876` to prod 2026-08-25. Then a live multi-post occurrence (24h
+backfill disposable, 2 material posts) exposed a fan-out TIMEOUT: two sequential
+frontier-research jobs (~4.3 min) killed the worker mid-run
+(`worker_outcome_missing`, $7 reservation left unreconciled, no finding). Fixed in
+`0e98876`: only the LEAD signal gets the frontier research pass; every other
+signal gets its own section from the grounded deterministic per-post brief. One
+paid job, bounded time. See [[fanout-research-timeout]] in auto-memory. Verifying
+this on a fresh multi-post occurrence next.
+
+## OPEN: budget reservations are coarse and fail-instead-of-notify (owner's take, DO NOT fix yet)
+
+Owner flagged this after seeing the $3.50-per-research hold; recorded here for a
+later pass, NOT to be worked until the alert-shape fixes are verified in prod.
+
+What's happening today:
+- The research contract reserves `paidPerRun: "3.500000"` up front as a HOLD
+  (`public-commentary-research.ts:26`, `inverse-cramer-research.ts:25`; reserved
+  at `workspace-dispatch-budget.ts:504`). It reconciles to actual (~$0.27) on a
+  COMPLETED run, but each research pass holds its own $3.50, so a few posts stack
+  holds past `maximumPaidPerDay` ($5) and a run can `budget_exhausted`.
+- When the ceiling is hit the run FAILS / throws. That is the core problem.
+
+Owner's direction (the target design, for the later pass):
+- **Never fail a run to save budget.** Failing after paid work has happened wastes
+  the money already spent AND the work — "spending $5 to save $0.50" throws out $5
+  of work. Let the run COMPLETE and instead **notify the owner** that they went
+  past budget.
+- **Lower the reservation** (owner suggested ~$0.70) so holds don't tie up the day.
+- **Don't gate on spend ceilings at all; gate on WORK.** The original intent was to
+  bound the number of research loops / tool calls an agent may make per run, not to
+  set a dollar ceiling that stops mid-run. Goal: don't prevent app usage — just
+  prevent (a) a surprise bill and (b) one run consuming a whole day's budget.
+- Net: replace "hard dollar ceiling that throws" with "bounded work per run +
+  post-hoc over-budget notification."
+
+Not started. Do after the multi-signal alert shape is verified in prod.
 
 ## Historical position notes
 
