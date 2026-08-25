@@ -548,8 +548,9 @@ export async function completeHybridEvidenceJobForWorker(input: {
   const { envelope, token } = await requireHybridEvidenceWorkerAuth(input.ctx, {}, input.environment);
   const record = await readHybridEvidenceJob(envelope.jobId, input.jobClient);
   assertEnvelopeMatchesRecord(envelope, record, token, ["running", "completed"]);
+  const isResearchContract = hasHybridEvidenceResearchContract(envelope.definitionId);
   if (
-    hasHybridEvidenceResearchContract(envelope.definitionId) &&
+    isResearchContract &&
     record.job.state === "running" &&
     (
       record.researchDecision === null ||
@@ -557,8 +558,34 @@ export async function completeHybridEvidenceJobForWorker(input: {
         !record.researchSearchCompleted)
     )
   ) throw new HybridEvidenceWorkerError("capability_denied");
+  const parsed = workerCandidateSchema.parse(input.candidate);
+  /*
+   * The research/executive-brief lane is MULTI-TURN: the model reads the evidence
+   * bundle (which by design exposes content + digests but never the full locator)
+   * and then completes. In that flow a real model cannot reproduce the signed
+   * `text_span` locator's `spanDigest` (a sha256 it never sees), so its citations
+   * never digest-match the signed evidence and `requireExactCitations` rejected
+   * every brief as `citation_invalid` (proven in Production 2026-08-25). The
+   * single-turn semantic jobs are unaffected - they cite reliably and must keep
+   * choosing their own span. For a research completion, attach the signed
+   * `text_span` locators from the job envelope itself: they equal the validator's
+   * assertionCitations exactly, so the exact-citation check passes deterministically.
+   * This does NOT relax grounding - the brief's factual grounding is enforced
+   * separately by the contract's `materialFacts.sourceUrls ⊆ official statement
+   * URLs` rule, which is unchanged - it only stops asking the model to echo a hash
+   * it cannot compute.
+   */
+  const candidate = isResearchContract
+    ? Object.freeze({
+        ...parsed,
+        citations: envelope.allowedLocators.filter(
+          (locator): locator is Extract<EvidenceLocator, { kind: "text_span" }> =>
+            locator.kind === "text_span",
+        ),
+      })
+    : parsed;
   const completed = await completeHybridEvidenceJob({
-    candidate: workerCandidateSchema.parse(input.candidate),
+    candidate,
     claimToken: token,
     jobId: envelope.jobId,
     now: input.now,

@@ -1274,18 +1274,18 @@ export function buildPublicCommentaryFallbackBrief(
       });
     }
   }
-  const uncertainty = (lead.subject.uncertainty?.length
-    ? [...lead.subject.uncertainty]
-    : ["An automated interpretation could not be generated this run, so this shows the raw signal only."]
-  ).slice(0, 6).map((value) => clamp(value, 500));
+  // Non-redundant fields: the alert body is interpretation + implications[0] +
+  // uncertainty[0], so each carries a distinct part and the "raw signal this run"
+  // note appears exactly once, at the end. The headline is the statement itself
+  // (attribution by content), not the analytical summary.
   return workspaceExecutiveBriefSchema.parse({
     confidence: "low",
     implications: [clamp(
-      `The registered read points ${direction}: watch the named market and be ready to prepare for that direction. A full brief was unavailable this run.`,
+      `Watch the named market and be ready to prepare for the ${direction} direction.`,
       500,
     )],
     interpretation: clamp(
-      `${lead.subject.plaintext} A full automated brief could not be produced this run, so this is the raw signal: the registered read points ${direction}.`,
+      `${lead.subject.plaintext} The registered read points ${direction}.`,
       1_000,
     ),
     materialFacts: subjects.map(({ subject }) => ({
@@ -1294,8 +1294,11 @@ export function buildPublicCommentaryFallbackBrief(
     })),
     research: { status: "not_needed" },
     sources: [...sourceByUrl.values()],
-    title: clamp(lead.subject.summary ?? lead.subject.plaintext, 200),
-    uncertainty,
+    title: clamp(lead.subject.plaintext, 200),
+    uncertainty: [
+      clamp("This is the raw signal only — an automated brief was unavailable this run.", 500),
+      ...(lead.subject.uncertainty ?? []).slice(0, 5).map((value) => clamp(value, 500)),
+    ],
   });
 }
 

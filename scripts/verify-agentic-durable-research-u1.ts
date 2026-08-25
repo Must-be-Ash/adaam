@@ -658,6 +658,62 @@ try {
     primaryCandidate,
   );
 
+  /*
+   * Citation repair (the Production `citation_invalid` fix, 2026-08-25). A real
+   * multi-turn research model reads the bundle - which exposes content + digests
+   * but never the full locator - and cannot recompute the signed `spanDigest`, so
+   * it completes with an INVALID locator and every brief quarantined. A research
+   * completion must therefore attach the SIGNED text_span locators from the job
+   * envelope, ignoring whatever the model reproduced, so `requireExactCitations`
+   * passes. This is safe: the brief's factual grounding is enforced separately by
+   * the contract's material-fact source-URL rule.
+   */
+  {
+    const repairWorker = await prepareSignedResearchJob(
+      "123e4567-e89b-42d3-a456-426614174009",
+    );
+    const repairCtx = {
+      session: {
+        auth: {
+          current: repairWorker.request.auth,
+          initiator: repairWorker.request.auth,
+        },
+        id: "session-citation-repair",
+      },
+    };
+    await (await resolveHybridEvidenceWorkerCapabilities(repairCtx))
+      ?.decide_hybrid_evidence_research?.execute(
+        { decision: "report_now", reason: "The official filing is sufficient." },
+        repairCtx as never,
+      );
+    const wrongLocator = {
+      ...locator,
+      end: locator.end + 999,
+      spanDigest: digest("a model-invented span the harness must ignore"),
+    };
+    await (await resolveHybridEvidenceWorkerCapabilities(repairCtx))
+      ?.complete_hybrid_evidence_job?.execute({
+        citations: [wrongLocator],
+        disposition: "accepted" as const,
+        fields: { filing: "Example Holdings S-1" },
+        unknowns: [],
+      }, repairCtx as never);
+    const repaired = (await readHybridEvidenceJob(
+      repairWorker.record.job.jobId,
+      jobs,
+    ))?.candidate;
+    assert.deepEqual(
+      repaired?.citations,
+      [locator],
+      "a research completion must store the signed text_span locator, not the model's invented one",
+    );
+    assert.equal(
+      JSON.stringify(repaired?.citations).includes(String(locator.end + 999)),
+      false,
+      "the model's invented locator must not survive into the stored candidate",
+    );
+  }
+
   const researchWorker = await prepareSignedResearchJob("123e4567-e89b-42d3-a456-426614174002");
   const researchAbort = new AbortController();
   const researchCtx = {
