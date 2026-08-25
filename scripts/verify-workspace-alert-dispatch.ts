@@ -170,6 +170,43 @@ assert.deepEqual(
 );
 
 /*
+ * Per-post separation: each material post is its own story, and its alert must
+ * reference its OWN report so the delivered mini-app opens that post - not the
+ * occurrence's first artifact. A presentation that carries no refs falls back to
+ * the finding aggregate, preserving the shared base path.
+ */
+const perPostStore = new MemoryStore();
+const perPostFinding = {
+  ...finding,
+  artifactRefs: ["artifact:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+};
+await stageWorkspaceAlertPresentations({
+  alertPresentations: [
+    {
+      artifactRefs: ["artifact:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+      key: perPostFinding.findingId + ".post-1",
+      title: "Post 1 story",
+      whyMatched: "Post one.",
+    },
+    {
+      key: perPostFinding.findingId + ".post-2",
+      title: "Post 2 story",
+      whyMatched: "Post two.",
+    },
+  ],
+  finding: perPostFinding,
+  monitor,
+  now,
+  scope,
+}, perPostStore);
+const perPostLead = await readWorkspaceAlert(scope, perPostFinding.findingId, perPostStore);
+assert.deepEqual(
+  perPostLead?.artifactRefs,
+  ["artifact:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+  "a per-post alert must reference its own report, not the finding aggregate",
+);
+
+/*
  * A finding's summary doubles as the alert's fallback `whyMatched`, and
  * `alertSchema` caps that at 1,000 characters. A summary sized to the finding's
  * own 2,000-character limit therefore commits happily and then throws at alert

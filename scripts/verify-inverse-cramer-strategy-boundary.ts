@@ -23,7 +23,10 @@ import {
 import { resolveHybridEvidenceWorkerContract } from "../agent/lib/hybrid-evidence-worker-contract-registry";
 import { DEFAULT_PAID_BUDGET } from "../agent/lib/strategy-pack-service";
 import { strategyPackCatalog } from "../agent/lib/strategy-pack-catalog";
-import { buildPublicCommentarySignalReport } from "../agent/lib/public-commentary-signal-report";
+import {
+  buildPublicCommentaryMultiSignalReport,
+  buildPublicCommentarySignalReport,
+} from "../agent/lib/public-commentary-signal-report";
 import {
   createInverseCramerActionabilityDefinition,
   createInverseCramerSemanticDefinition,
@@ -261,6 +264,60 @@ const brief = workspaceExecutiveBriefSchema.parse({
 const report = buildPublicCommentarySignalReport({ asOf: activatedAt, brief });
 assert.equal(report.blocks[0]?.type, "callout");
 assert.deepEqual(report.sources.map(({ url }) => url), [statementUrl]);
+
+// The inverse-cramer variant (default) discloses its registered inverse policy.
+assert.equal(report.verdict?.label, "Inverse-policy research signal");
+assert.match(report.eyebrow ?? "", /Inverse Cramer/u);
+assert.match(report.disclosure ?? "", /inverse direction is a registered research policy/u);
+
+// A plain public-commentary tracker has NO inverse policy: it must not inherit
+// Inverse-Cramer branding (the bug that labeled a Kobeissi tracker artifact
+// "Inverse-policy research signal" / "Eve · Inverse Cramer monitor").
+const trackerReport = buildPublicCommentarySignalReport({
+  asOf: activatedAt,
+  brief,
+  variant: "public-commentary-tracker",
+});
+assert.equal(trackerReport.verdict?.label, "Research signal");
+assert.doesNotMatch(trackerReport.eyebrow ?? "", /Inverse Cramer/u);
+assert.doesNotMatch(trackerReport.disclosure ?? "", /inverse direction/u);
+assert.doesNotMatch(trackerReport.description ?? "", /Inverse Cramer/u);
+
+/*
+ * Two unrelated posts must NOT be fused into one thesis: each is its own labeled
+ * section in a single report, with its own facts and interpretation preserved
+ * verbatim. This is the newspaper the owner asked for - one artifact, one item
+ * per signal, no fabricated cross-post correlation.
+ */
+const secondUrl = "https://x.com/jimcramer/status/456";
+const secondBrief = workspaceExecutiveBriefSchema.parse({
+  confidence: "medium",
+  implications: ["Unrelated to the first signal; evaluated on its own footing."],
+  interpretation: "A separate post about semiconductor demand, standing on its own.",
+  materialFacts: [{ sourceUrls: [secondUrl], statement: "A distinct statement about chip demand." }],
+  research: { status: "not_needed" },
+  sources: [{ label: "Second statement", role: "official", url: secondUrl }],
+  title: "Chip-demand signal",
+  uncertainty: ["The second statement may not predict price action."],
+});
+const multi = buildPublicCommentaryMultiSignalReport({
+  asOf: activatedAt,
+  briefs: [brief, secondBrief],
+  variant: "public-commentary-tracker",
+});
+assert.match(multi.title, /\+1 more/u, "a multi-signal report names the additional signals in its title");
+const headings = multi.blocks.map((block) => block.heading ?? "");
+assert.ok(headings.some((h) => /^Signal 1:/u.test(h)), "each post is its own labeled section");
+assert.ok(headings.some((h) => /^Signal 2:/u.test(h)), "the second post has its own section too");
+// Both interpretations survive verbatim - the signals are NOT merged into one.
+const bodies = multi.blocks.map((block) => ("body" in block ? block.body : "")).join("\n");
+assert.match(bodies, /immutable Inverse Cramer transform/u);
+assert.match(bodies, /semiconductor demand, standing on its own/u);
+assert.deepEqual(
+  multi.sources.map(({ url }) => url).sort(),
+  [statementUrl, secondUrl].sort(),
+  "every signal's source is carried, deduped across sections",
+);
 let publishCalls = 0;
 const textOnly = await materializeInverseCramerExecutiveOutput({
   approvedSupplementaryUrls: [],

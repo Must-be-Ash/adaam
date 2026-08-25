@@ -56,9 +56,11 @@ import {
   publicStatementSchema,
 } from "./public-commentary-schema";
 import {
+  buildPublicCommentaryMultiSignalReport,
   buildPublicCommentarySignalReport,
   publicCommentaryAlertPresentationForBrief,
   publicCommentaryReportArtifactId,
+  type PublicCommentaryReportVariant,
 } from "./public-commentary-signal-report";
 import {
   createCommentarySemanticDefinition,
@@ -154,7 +156,7 @@ type WorkerContext = Parameters<typeof requireWorkspaceWorkerAuth>[0] & {
 export interface PublicCommentaryPipelineResult {
   readonly acknowledgeDurableCommit?: () => Promise<void>;
   readonly alertPresentation: { readonly title: string; readonly whyMatched: string } | null;
-  readonly alertPresentations?: readonly Readonly<{ key: string; title: string; whyMatched: string }>[];
+  readonly alertPresentations?: readonly Readonly<{ artifactRefs?: readonly string[]; key: string; title: string; whyMatched: string }>[];
   readonly analyzedStatements: number;
   readonly checkpoint: Readonly<{ readonly contentDigest: string; readonly watermark: string }>;
   readonly finding: WorkspaceFindingCandidate | null;
@@ -1189,6 +1191,7 @@ export async function materializeInverseCramerExecutiveOutput(input: {
   officialUrls: readonly string[];
   scope: AuthorizedWorkspaceStoreScope;
   signal?: AbortSignal;
+  variant?: PublicCommentaryReportVariant;
 }): Promise<Readonly<{
   artifactRefs: readonly string[];
   presentation: { title: string; whyMatched: string };
@@ -1228,6 +1231,7 @@ export async function materializeInverseCramerExecutiveOutput(input: {
     report: buildPublicCommentarySignalReport({
       asOf: input.asOf,
       brief,
+      variant: input.variant,
     }),
     signal: input.signal,
   });
@@ -1237,6 +1241,76 @@ export async function materializeInverseCramerExecutiveOutput(input: {
   return Object.freeze({
     artifactRefs: Object.freeze([artifactReferenceForId(artifactId)]),
     presentation,
+  });
+}
+
+/*
+ * Several unrelated posts from one check become ONE report whose sections are each
+ * post's own story - the owner's newspaper: one delivery, one artifact, one item
+ * per signal, never a fabricated cross-post thesis. Grounding is still enforced
+ * per brief (each material fact must cite its own post's official URL), so a
+ * multi-section report cannot smuggle in an ungrounded claim.
+ */
+export async function materializePublicCommentaryMultiSignalOutput(input: {
+  asOf: string;
+  clients?: PublicCommentaryWorkspaceWorkerClients;
+  scope: AuthorizedWorkspaceStoreScope;
+  signal?: AbortSignal;
+  signals: ReadonlyArray<Readonly<{
+    approvedSupplementaryUrls: readonly string[];
+    brief: WorkspaceExecutiveBrief;
+    finding: Readonly<{ findingId: string }>;
+    subject: PublicCommentaryResearchSubject;
+  }>>;
+  variant?: PublicCommentaryReportVariant;
+}): Promise<Readonly<{
+  artifactRefs: readonly string[];
+  presentation: { title: string; whyMatched: string };
+}>> {
+  const briefs = input.signals.map(({ brief }) => workspaceExecutiveBriefSchema.parse(brief));
+  for (const { approvedSupplementaryUrls, brief, subject } of input.signals) {
+    const officialUrls = new Set([subject.statement.canonicalUrl]);
+    const briefOfficialUrls = new Set(
+      brief.sources.filter(({ role }) => role === "official").map(({ url }) => url),
+    );
+    const approved = new Set(approvedSupplementaryUrls);
+    if (
+      officialUrls.size !== briefOfficialUrls.size ||
+      [...officialUrls].some((url) => !briefOfficialUrls.has(url)) ||
+      brief.sources.some(({ role, url }) => role === "supplementary" && !approved.has(url)) ||
+      brief.materialFacts.some(({ sourceUrls }) => !sourceUrls.some((url) => officialUrls.has(url)))
+    ) {
+      throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+    }
+  }
+  const lead = briefs[0]!;
+  const leadPresentation = publicCommentaryAlertPresentationForBrief(lead);
+  const artifactId = publicCommentaryReportArtifactId({
+    factIdentities: input.signals.map(({ finding }) => finding.findingId),
+    ownerId: input.scope.ownerId,
+    workspaceId: input.scope.workspaceId,
+  });
+  const published = await (input.clients?.publishReport ?? publishReportArtifact)({
+    artifactId,
+    report: buildPublicCommentaryMultiSignalReport({
+      asOf: input.asOf,
+      briefs,
+      variant: input.variant,
+    }),
+    signal: input.signal,
+  });
+  if (published.artifactId !== artifactId || published.kind !== "report") {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+  }
+  return Object.freeze({
+    artifactRefs: Object.freeze([artifactReferenceForId(artifactId)]),
+    presentation: {
+      title: `${leadPresentation.title} · +${briefs.length - 1} more`.slice(0, 240),
+      whyMatched: `${leadPresentation.whyMatched} (${briefs.length} separate signals in the report.)`
+        .replace(/\s+/gu, " ")
+        .trim()
+        .slice(0, 1_000),
+    },
   });
 }
 
@@ -1338,8 +1412,34 @@ async function runInverseCramerExecutiveResearch(input: {
     finding: (typeof subjects)[number]["finding"];
     subject: PublicCommentaryResearchSubject;
   }>> = [];
+  /*
+   * Each material post is its own story. Research and brief EACH statement on its
+   * own so unrelated posts never get a fabricated shared thesis - a Treasury post
+   * and a dollar-positioning post are two events, not one. The base lane already
+   * emits one alert per statement (keyed by statementRevisionId) on a steady run
+   * and collapses a catch-up backfill to the lead statement plus a bare count;
+   * `perPostMode` reads that decision back off the base presentations so this
+   * lane fans out the same way - one researched brief + artifact + alert per post
+   * live, lead-only on a backfill so a first run neither pays for nor posts a
+   * separate brief per backfilled statement.
+   */
+  const basePresentations = input.result.alertPresentations ?? [];
+  const perPostKeys = new Set(subjects.map(({ subject }) => subject.statementRevisionId));
+  const perPostMode = basePresentations.length === subjects.length &&
+    basePresentations.every(({ key }) => perPostKeys.has(key));
+  const researchSubjects = perPostMode ? subjects : subjects.slice(0, 1);
+  const variant: PublicCommentaryReportVariant =
+    input.runtime.pack.id === "public-commentary-tracker"
+      ? "public-commentary-tracker"
+      : "inverse-cramer";
   try {
-    for (const { finding, subject } of subjects) {
+    const researched: Array<Readonly<{
+      approvedSupplementaryUrls: readonly string[];
+      brief: WorkspaceExecutiveBrief;
+      finding: (typeof subjects)[number]["finding"];
+      subject: PublicCommentaryResearchSubject;
+    }>> = [];
+    for (const { finding, subject } of researchSubjects) {
       const content = JSON.stringify({
         canonicalUrl: subject.statement.canonicalUrl,
         confidence: finding.confidence,
@@ -1369,98 +1469,127 @@ async function runInverseCramerExecutiveResearch(input: {
         },
       });
       persisted.push(Object.freeze({ artifact, content, finding, subject }));
-    }
-    const semantic = await runWorkspaceSemanticEvidenceBundleJob({
-      definition: input.runtime.definition,
-      environment: input.environment,
-      members: persisted.map(({ artifact, content, subject }) => ({
-        artifact,
-        locators: [{
-          factRevisionId: subject.statementRevisionId,
-          kind: "source_fact" as const,
-          payloadDigest: subject.factPayloadDigest,
-        }, {
-          artifactDigest: artifact.contentDigest,
-          end: content.length,
-          kind: "text_span" as const,
-          spanDigest: digestPublicCommentaryEvidenceSpan(content),
-          start: 0,
+      const semantic = await runWorkspaceSemanticEvidenceBundleJob({
+        definition: input.runtime.definition,
+        environment: input.environment,
+        members: [{
+          artifact,
+          locators: [{
+            factRevisionId: subject.statementRevisionId,
+            kind: "source_fact" as const,
+            payloadDigest: subject.factPayloadDigest,
+          }, {
+            artifactDigest: artifact.contentDigest,
+            end: content.length,
+            kind: "text_span" as const,
+            spanDigest: digestPublicCommentaryEvidenceSpan(content),
+            start: 0,
+          }],
+          memberId: subject.statementRevisionId,
+          projectionReference: {
+            factRevisionId: subject.statementRevisionId,
+            sourceId: subject.source.sourceId,
+            subscriptionId: subject.subscriptionId,
+          },
+          role: "section" as const,
+          semanticContext: Object.freeze({ publicCommentaryFinding: true }),
         }],
-        memberId: subject.statementRevisionId,
-        projectionReference: {
-          factRevisionId: subject.statementRevisionId,
-          sourceId: subject.source.sourceId,
-          subscriptionId: subject.subscriptionId,
+        modelId: input.runtime.modelId,
+        now: input.now,
+        pack: {
+          contentDigest: input.runtime.pack.contentDigest,
+          id: input.runtime.pack.id,
+          version: input.runtime.pack.version,
         },
-        role: "section" as const,
-        semanticContext: Object.freeze({ publicCommentaryFinding: true }),
-      })),
-      modelId: input.runtime.modelId,
-      now: input.now,
-      pack: {
-        contentDigest: input.runtime.pack.contentDigest,
-        id: input.runtime.pack.id,
-        version: input.runtime.pack.version,
-      },
-      parentBudgetRunId: input.parentRunId,
-      reasoning: input.runtime.reasoning,
-      scope: input.scope,
-      workspaceGeneration: input.runtime.workspaceGeneration,
-    }, {
-      acquisition: input.clients?.acquisition,
-      artifacts,
-      budget: input.clients?.semantic?.budget,
-      catalog: input.clients?.semantic?.catalog,
-      execute: async (prepared) => input.clients?.semantic?.execute
-        ? input.clients.semantic.execute(prepared)
-        : drainPublicCommentaryHybridWorker(prepared.request),
-      jobs: input.clients?.semantic?.jobs,
-      lineage: input.clients?.semantic?.lineage,
-      monitor: input.clients?.monitor,
-      semantic: input.clients?.semantic?.semantic,
-      state: input.clients?.state,
-      subscription: input.clients?.subscription,
-    });
-    const accepted = semantic.record.acceptedResult;
-    // A semantic job that returns no accepted result means the model ran but its
-    // brief was unusable (citation_invalid, an abstention). Infrastructure
-    // failures (budget, storage, auth) throw before this and still propagate.
-    // Rather than lose an already-material signal, degrade to a deterministic
-    // fallback brief built from the signed primary evidence.
-    const brief = accepted
-      ? workspaceExecutiveBriefSchema.parse(accepted.payload)
-      : buildPublicCommentaryFallbackBrief(subjects);
-    const approvedSupplementaryUrls = accepted ? semantic.record.researchUrlGrants : [];
-    if (!accepted) {
-      console.error("[public-commentary] research produced no accepted brief; using deterministic fallback", {
-        statements: subjects.length,
+        parentBudgetRunId: input.parentRunId,
+        reasoning: input.runtime.reasoning,
+        scope: input.scope,
+        workspaceGeneration: input.runtime.workspaceGeneration,
+      }, {
+        acquisition: input.clients?.acquisition,
+        artifacts,
+        budget: input.clients?.semantic?.budget,
+        catalog: input.clients?.semantic?.catalog,
+        execute: async (prepared) => input.clients?.semantic?.execute
+          ? input.clients.semantic.execute(prepared)
+          : drainPublicCommentaryHybridWorker(prepared.request),
+        jobs: input.clients?.semantic?.jobs,
+        lineage: input.clients?.semantic?.lineage,
+        monitor: input.clients?.monitor,
+        semantic: input.clients?.semantic?.semantic,
+        state: input.clients?.state,
+        subscription: input.clients?.subscription,
       });
+      const accepted = semantic.record.acceptedResult;
+      // No accepted result means the model ran but its brief was unusable
+      // (citation_invalid, an abstention); infrastructure failures throw before
+      // this. Degrade to a deterministic fallback for THIS post so an already
+      // material signal is not lost.
+      const brief = accepted
+        ? workspaceExecutiveBriefSchema.parse(accepted.payload)
+        : buildPublicCommentaryFallbackBrief([{ finding, subject }]);
+      if (!accepted) {
+        console.error("[public-commentary] research produced no accepted brief; using deterministic fallback", {
+          statementRevisionId: subject.statementRevisionId,
+        });
+      }
+      researched.push(Object.freeze({
+        approvedSupplementaryUrls: accepted ? semantic.record.researchUrlGrants : [],
+        brief,
+        finding,
+        subject,
+      }));
     }
-    const output = await materializeInverseCramerExecutiveOutput({
-      approvedSupplementaryUrls,
-      asOf: input.result.finding.asOf,
-      brief,
-      clients: input.clients,
-      factIdentities: input.result.finding.factIdentities ?? [],
-      officialUrls: subjects.map(({ subject }) => subject.statement.canonicalUrl),
-      scope: input.scope,
-      signal: input.signal,
-    });
+    if (researched.length === 0) return input.result;
+    const lead = researched[0]!;
+    const moreCount = subjects.length - researched.length;
+    /*
+     * One delivery, one report. A single signal keeps the proven single-brief
+     * artifact and its accepted alert shape. Several signals become ONE report
+     * whose sections are each post's own story - never a fabricated cross-post
+     * thesis, and never a separate message per post. A collapsed backfill posts
+     * the lead story and names the rest only as a count.
+     */
+    const output = researched.length === 1
+      ? await materializeInverseCramerExecutiveOutput({
+          approvedSupplementaryUrls: lead.approvedSupplementaryUrls,
+          asOf: input.result.finding.asOf,
+          brief: lead.brief,
+          clients: input.clients,
+          factIdentities: [lead.finding.findingId],
+          officialUrls: [lead.subject.statement.canonicalUrl],
+          scope: input.scope,
+          signal: input.signal,
+          variant,
+        })
+      : await materializePublicCommentaryMultiSignalOutput({
+          asOf: input.result.finding.asOf,
+          clients: input.clients,
+          scope: input.scope,
+          signal: input.signal,
+          signals: researched,
+          variant,
+        });
+    const title = researched.length === 1 && moreCount > 0
+      ? `${output.presentation.title} · +${moreCount} more`.slice(0, 240)
+      : output.presentation.title;
     const finding = workspaceFindingCandidateSchema.parse({
       ...input.result.finding,
       artifactRefs: [
         ...(input.result.finding.artifactRefs ?? []),
         ...output.artifactRefs,
-      ].slice(0, 8),
+      ].filter((ref, index, all) => all.indexOf(ref) === index).slice(0, 8),
       summary: output.presentation.whyMatched,
     });
     const alertPresentations = Object.freeze([Object.freeze({
-      key: "inverse-cramer-executive-brief",
-      ...output.presentation,
+      artifactRefs: output.artifactRefs,
+      key: "public-commentary-executive-brief",
+      title,
+      whyMatched: output.presentation.whyMatched,
     })]);
     return Object.freeze({
       ...input.result,
-      alertPresentation: output.presentation,
+      alertPresentation: { title, whyMatched: output.presentation.whyMatched },
       alertPresentations,
       finding,
     });

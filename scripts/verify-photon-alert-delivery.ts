@@ -150,4 +150,40 @@ await assert.rejects(() => deliverWorkspaceAlertToPhoton({
 }), (error) => error instanceof PhotonAlertDeliveryUncertainError && error.delivery.state === "delivery_uncertain");
 assert.equal(paused, 1);
 
+/*
+ * An alert that carries a report must deliver it as its own mini-app card - the
+ * rich surface token research uses - so the card exposes the artifact page URL
+ * for the outbound adapter to render, not just a text link buried in the body.
+ */
+const reportAlertClient = new MemoryAlertStore();
+let reportCard;
+await deliverWorkspaceAlertToPhoton({
+  alert: {
+    ...baseAlert,
+    alertId: `alert_${"f".repeat(64)}`,
+    artifactRefs: [
+      "commentary-finding.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "artifact:abcdef0123456789abcdef0123456789",
+    ],
+    findingId: `finding_${"f".repeat(64)}`,
+  },
+  alertClient: reportAlertClient,
+  monitor,
+  now: new Date(now.getTime() + 2_000),
+  pauseMonitor: async () => { throw new Error("Must not pause successful delivery."); },
+  recordRecent: async () => undefined,
+  scope,
+  send: async (card) => {
+    reportCard = card;
+    return { messageId: "message_report_fixture" };
+  },
+  subscription,
+  workspaceClient,
+});
+assert.equal(
+  reportCard!.artifactUrl,
+  "https://eve.example.test/artifacts/abcdef0123456789abcdef0123456789",
+  "the card must expose the post's report as a mini-app URL, skipping non-artifact refs",
+);
+
 console.info("Photon alert delivery and uncertainty verification passed.");

@@ -145,7 +145,7 @@ export async function stageWorkspaceAlert(input: {
   finding: WorkspaceFinding;
   monitor: WorkspaceMonitor;
   now?: Date;
-  presentation?: { title: string; whyMatched: string };
+  presentation?: { artifactRefs?: readonly string[]; title: string; whyMatched: string };
   presentationKey?: string;
   scope: AuthorizedWorkspaceStoreScope;
 }, client: WorkspaceAlertStoreClient = store()): Promise<WorkspaceAlert> {
@@ -160,7 +160,12 @@ export async function stageWorkspaceAlert(input: {
     : input.finding.findingId)}`;
   const candidate = alertSchema.parse({
     alertId,
-    artifactRefs: input.finding.artifactRefs,
+    /*
+     * A per-post alert points at its OWN report so each story's mini-app opens
+     * that story, not the occurrence's first artifact. Presentations that carry
+     * no refs (the shared base path) fall back to the finding's aggregate.
+     */
+    artifactRefs: input.presentation?.artifactRefs ?? input.finding.artifactRefs,
     createdAt: (input.now ?? new Date()).toISOString(),
     eventTime: input.finding.asOf,
     findingId: input.finding.findingId,

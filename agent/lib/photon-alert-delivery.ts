@@ -11,6 +11,8 @@ import {
   photonAlertAppUrl,
   photonWorkspaceAppUrl,
 } from "./photon-mini-app";
+import { artifactIdFromReference } from "./artifact-reference";
+import { artifactPageUrl } from "./public-app-url";
 import {
   getPhotonWorkspaceState,
   mintPhotonAlertDiscussCapability,
@@ -31,6 +33,7 @@ export interface PhotonAlertDeliverySubscription {
 }
 
 export interface PhotonAlertCard {
+  artifactUrl?: string;
   discussUrl: string;
   fallbackText: string;
   heading: string;
@@ -108,7 +111,17 @@ export async function deliverWorkspaceAlertToPhoton(input: {
       workspaceName: workspace.name,
     };
     const presentation = renderWorkspaceAlertPresentation(presentationAlert);
+    /*
+     * Deliver the story's own report as a mini-app card - the same rich surface
+     * token research uses - not just a text link. `artifactRefs` on a per-post
+     * alert already point at that post's report; take the first that resolves to
+     * a public artifact page and let the outbound adapter render it.
+     */
+    const artifactId = (input.alert.artifactRefs ?? [])
+      .map((reference) => artifactIdFromReference(reference))
+      .find((id): id is string => Boolean(id));
     card = {
+      ...(artifactId ? { artifactUrl: artifactPageUrl(artifactId) } : {}),
       discussUrl: photonAlertAppUrl(
         discuss.alertToken,
         manager.managerToken,

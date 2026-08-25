@@ -542,6 +542,47 @@ Note: `delete` on `/action` requires `confirmedConsequences: true` AND the
 workspace to be archived first (the registry refuses to delete a non-archived
 session) — see `photon-workspace-app.ts:171` and `:2188`.
 
+## Alert-shape follow-up from the first live alert (2026-08-25, not yet deployed)
+
+The first accepted live alert surfaced three owner issues; all fixed in code
+(`tsc` + the public-commentary / alert-delivery / durable-research verifiers
+green), pending the owner's `vercel --prod`:
+
+1. **Branding leak (bug).** The shared report builder hardcoded Inverse-Cramer
+   copy, so a plain Kobeissi tracker artifact read "Inverse-policy research
+   signal" / "Eve · Inverse Cramer monitor". `buildPublicCommentarySignalReport`
+   is now strategy-branded (`variant`): `public-commentary-tracker` →
+   neutral ("Research signal", "Public commentary monitor"); `inverse-cramer`
+   keeps the inverse disclosure. The research was NOT inverted — direction was
+   correct; only the label was wrong.
+
+2. **Signals must never be fused (owner directive).** Each post is its own event;
+   forcing unrelated posts (Treasury intervention + dollar positioning) into one
+   thesis fabricates correlation. The research lane now researches and briefs
+   EACH post on its own, then assembles them into **one report with one section
+   per signal** (`buildPublicCommentaryMultiSignalReport`) — the owner's
+   newspaper: one delivery, one artifact, one item per signal, never a merged
+   narrative. Owner's explicit shape: "one message … each signal should have its
+   own section or card on the mini-app artifact" — NOT a message per post.
+   Single-signal path is unchanged (keeps the proven accepted artifact). Backfill
+   still collapses to the lead + "+N more". The `facts.length > 8` guard caps
+   fan-out (≤8 sections). No delivery-layer change: still one alert per
+   occurrence (`deliverWorkspaceOutcomeToPhoton` reads one alert by finding id).
+
+3. **Artifact must arrive as a mini-app, not a text link.** The alert sent only
+   the *discuss* mini-app and demoted the report to a `Readable report:` URL. The
+   card now carries the artifact URL (`PhotonAlertCard.artifactUrl`) and the
+   outbound sends it as a mini-app card — the same rich surface token research
+   uses (`app/artifacts/[id]` renders the multi-section report) — before the
+   discuss card. Per-post presentations can carry their own `artifactRefs`
+   (`stageWorkspaceAlert` prefers them over the finding aggregate).
+
+Not yet verified on a real multi-post prod occurrence (the ultimate proof, as
+with the citation fix). Touched: `public-commentary-signal-report.ts`,
+`public-commentary-workspace-worker.ts`, `workspace-alert-store.ts`,
+`workspace-worker-control-plane.ts`, `photon-alert-delivery.ts`,
+`photon-alert-outbound.ts` + three verifiers.
+
 ## Historical position notes
 
 Phases 1 and 2 were committed as `4a900e1`; Phase 3 on `feat/alert-shape-and-multisignal`;

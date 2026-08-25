@@ -238,7 +238,7 @@ async function completeMonitorCheckpoint(
  */
 export async function stageWorkspaceAlertPresentations(input: {
   alertPresentation?: { title: string; whyMatched: string };
-  alertPresentations?: readonly { key: string; title: string; whyMatched: string }[];
+  alertPresentations?: readonly { artifactRefs?: readonly string[]; key: string; title: string; whyMatched: string }[];
   finding: Parameters<typeof stageWorkspaceAlert>[0]["finding"];
   monitor: WorkspaceMonitor;
   now?: Date;
@@ -270,7 +270,7 @@ export async function stageWorkspaceAlertPresentations(input: {
 
 export async function commitDeterministicWorkspaceEvaluationForWorker(input: {
   alertPresentation?: { title: string; whyMatched: string };
-  alertPresentations?: readonly { key: string; title: string; whyMatched: string }[];
+  alertPresentations?: readonly { artifactRefs?: readonly string[]; key: string; title: string; whyMatched: string }[];
   checkpoint: { contentDigest: string; watermark: string };
   clients?: WorkspaceWorkerControlPlaneClients;
   ctx: WorkerContext;
@@ -351,7 +351,7 @@ export async function commitDeterministicWorkspaceEvaluationForWorker(input: {
 
 export async function finalizeExistingWorkspaceRunOutcomeForWorker(input: {
   alertPresentation?: { title: string; whyMatched: string };
-  alertPresentations?: readonly { key: string; title: string; whyMatched: string }[];
+  alertPresentations?: readonly { artifactRefs?: readonly string[]; key: string; title: string; whyMatched: string }[];
   clients?: WorkspaceWorkerControlPlaneClients;
   ctx: WorkerContext;
   environment?: NodeJS.ProcessEnv;
