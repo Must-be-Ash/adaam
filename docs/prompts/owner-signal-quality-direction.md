@@ -508,6 +508,63 @@ baseline to bisect against.
 - **eve upgrade — not started** (after phase 2; owner wants it for general eve
   improvements, do it carefully in a worktree).
 
+## ⚠️ LATEST STATE — multi-post occurrence failing to commit (2026-08-25, UNRESOLVED, do not auto-fix)
+
+Recorded at the owner's request. NOT being worked; documenting only.
+
+**Deployed to prod:** `main` @ `0e98876` (owner ran `vercel --prod`, Ready).
+
+**Last thing that worked (proven in prod):** a SINGLE-signal research occurrence.
+The citation fix produced an accepted `public-commentary-frontier-research` job
+(2026-08-25 02:48, `state: accepted`) and delivered the "Per the Kobeissi Letter…"
+alert. Single-signal path is unchanged by the multi-signal work and remains the
+proven-good path.
+
+**What I changed (this session, for the alert-shape work):**
+1. Strategy-branded the report builder (tracker → neutral copy, no "Inverse-policy").
+2. Multi-signal: research each material post separately, assemble into ONE report
+   with a section per signal (`buildPublicCommentaryMultiSignalReport`,
+   `materializePublicCommentaryMultiSignalOutput`); one alert, one artifact.
+3. Deliver the report as a mini-app card (`PhotonAlertCard.artifactUrl` +
+   `sendPhotonWorkspaceAlertCard`).
+4. `0e98876`: bounded fan-out to LEAD-ONLY frontier research (other signals get a
+   deterministic per-post section) after a 2-post run timed out at ~4.3 min.
+
+**What is NOT working now:** a MULTI-post occurrence never commits an outcome.
+- Run 1 (pre-`0e98876`, 2 material posts): reserved $7 (two sequential research
+  holds), worker killed ~4.3 min → `worker_outcome_missing`, $7 unreconciled, no
+  finding. → led to the lead-only fix.
+- Run 2 (on `0e98876`, 24h backfill, ~6 material posts seen as accepted
+  `public-commentary-impact-actionability` cheap jobs): only ONE research hold
+  now — reserved $3.5, RECONCILED to $0.07 (the budget/timeout stacking from run 1
+  is GONE, lead-only fix confirmed working on that dimension). BUT still no
+  `public-commentary-frontier-research` job persisted, no finding, monitor →
+  `paused_failure` with `worker_recovery_not_applicable`. No
+  `public_commentary_occurrence_failure` record written in either run.
+
+**Best guess at cause (UNCERTAIN — not verified, not being pursued):**
+- The absence of any persisted occurrence_failure record in BOTH runs suggests the
+  worker is being KILLED (not throwing a caught error), or the failure surfaces in
+  the RECOVERY dispatch rather than the main worker try/catch. `worker_recovery_
+  not_applicable` is specifically the recovery path giving up.
+- Possibly the occurrence still exceeds its execution window: even lead-only, a
+  wide backfill runs the base pipeline over MANY material posts (~6 cheap
+  actionability jobs observed) plus the lead research plus the multi-section
+  assembly — total wall-clock may again overrun, and the second firing enters the
+  recovery path which cannot recover a half-done occurrence.
+- Alternatively the new multi-signal assembly path
+  (`materializePublicCommentaryMultiSignalOutput` / `buildPublicCommentaryMultiSignalReport`,
+  or the per-brief grounding validation on the deterministic fallback briefs, or
+  the report publish) throws on multi-post input in a way that doesn't persist a
+  failure record. Not confirmed.
+- Unknowns to check later: whether a frontier-research job was ever created for the
+  lead (none persisted — so the throw/kill may be BEFORE or DURING the lead
+  research, or the whole thing dies in the base-pipeline/commit before research
+  output is stored), and why no occurrence_failure record is written on this path.
+
+Single-signal delivery is believed intact; only the multi-post path is broken.
+Disposable test workspaces (`4a2139b0`, `ddfab3aa`) were deleted after each run.
+
 ## PRODUCTION STATE as of 2026-08-25 (read this first)
 
 Phases 1-4 are DEPLOYED to Production (`main` @ `77fddbb`, owner ran `vercel --prod`;
