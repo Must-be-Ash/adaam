@@ -1413,13 +1413,15 @@ async function runInverseCramerExecutiveResearch(input: {
     subject: PublicCommentaryResearchSubject;
   }>> = [];
   /*
-   * Each material post is its own story. Research and brief EACH statement on its
-   * own so unrelated posts never get a fabricated shared thesis - a Treasury post
-   * and a dollar-positioning post are two events, not one - then assemble them
-   * into ONE report with a section per signal. Fan-out is bounded upstream: the
-   * caller returns early when `facts.length > 8`, and the per-run budget envelope
-   * is floored so a fanned-out occurrence has room, so a backfill produces the
-   * same newspaper (up to 8 sections) rather than being collapsed to its lead.
+   * Each material post is its own story - a Treasury post and a dollar-positioning
+   * post are two events, not one - so they are briefed separately and assembled
+   * into ONE report with a section per signal, never a fabricated shared thesis.
+   * Only the LEAD signal gets the frontier research pass, though: two sequential
+   * research jobs overran the occurrence's execution window (the worker was killed
+   * mid-fan-out, committing nothing), so deep research is bounded to one job while
+   * every other signal still gets its own honest section from the deterministic
+   * per-post brief the pipeline already grounded. One paid job, bounded time, and
+   * each post remains its own newspaper item.
    */
   const variant: PublicCommentaryReportVariant =
     input.runtime.pack.id === "public-commentary-tracker"
@@ -1432,7 +1434,18 @@ async function runInverseCramerExecutiveResearch(input: {
       finding: (typeof subjects)[number]["finding"];
       subject: PublicCommentaryResearchSubject;
     }>> = [];
-    for (const { finding, subject } of subjects) {
+    for (const [index, { finding, subject }] of subjects.entries()) {
+      if (index > 0) {
+        // Non-lead signal: its own section from the grounded deterministic brief,
+        // no additional paid research pass (see the note above on the time bound).
+        researched.push(Object.freeze({
+          approvedSupplementaryUrls: [],
+          brief: buildPublicCommentaryFallbackBrief([{ finding, subject }]),
+          finding,
+          subject,
+        }));
+        continue;
+      }
       const content = JSON.stringify({
         canonicalUrl: subject.statement.canonicalUrl,
         confidence: finding.confidence,
