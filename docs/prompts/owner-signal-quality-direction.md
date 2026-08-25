@@ -519,17 +519,20 @@ reconciliation ($3.50 reserved -> $0.28 actual), alert delivery. Fleet cleaned u
 (inverse-cramer@1.4.9, PAUSED), `IPO Live` (paused_failure); archived: Nancy
 Pelosi tracker, Value investing, Recovery, Demo.
 
-**THE ONE OPEN BLOCKER — the research brief still quarantines `citation_invalid`
-in the real multi-turn worker**, so occurrences fall back to the deterministic
-raw-signal alert instead of the attribution-led brief. The two live monitors are
-PAUSED pending the fix (owner's call, to avoid fallback spam). Full diagnosis in
-[[research-citation-multiturn-gap]] (memory). Fix direction: the completion tool
-must not require the model to reproduce a sha256 `spanDigest` it can't compute —
-accept citations by member index (or expose the full citable locator in the
-`read_hybrid_evidence_bundle` response) and have the harness attach the signed
-locator; validate against the REAL multi-turn worker path, never a single-shot.
-Then redeploy, get a fresh Manage Sessions token, and re-enable the monitors
-(IPO Live shares the lane). Also tidy the repetitive fallback wording.
+**The `citation_invalid` blocker is FIXED in code (`main` @ `a5dd495`), NOT yet
+deployed/verified in prod.** `completeHybridEvidenceJobForWorker` now attaches the
+signed `text_span` locators from the job envelope as a research completion's
+citations (they equal the validator's assertionCitations exactly), instead of
+asking the model to echo a sha256 it can't compute in the multi-turn flow.
+Grounding is unchanged (the contract's material-fact source-URL rule still
+enforces it). Proven in `verify-agentic-durable-research-u1` with a wrong-locator
+completion that now stores the signed locator; battery + research verifiers + eve
+build green. Fallback wording also cleaned up.
+**REMAINING to close it out:** (1) owner redeploys `main` (`vercel --prod`);
+(2) fresh Manage Sessions token; (3) re-enable Tracker Live, fire one occurrence,
+confirm the brief is ACCEPTED with the "Per the Kobeissi Letter…" language (not
+the fallback); (4) then re-enable Inverse Cramer Live (and consider IPO Live,
+which shares the lane and whose empty-response is already fixed).
 
 ## Historical position notes
 
