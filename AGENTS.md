@@ -3,11 +3,9 @@
 **The code is the source of truth for how Eve currently behaves.** Verify every
 behavioral claim against it before acting.
 
-The owner keeps local, gitignored notes under `docs/notes/` (product target,
-handoff snapshot, backlog, north star, MCP adapter pattern). These are absent
-from a fresh clone; when present, treat them as stale context, not authority. In
-particular, do not rely on any handoff or backlog note for current state,
-architecture, or flag values, and do not plan a change from it. Their safety
+`GOAL.md` states the owner's product target. `HANDOFF.md` is a stale snapshot of
+the owner's own notes: do not treat it as authoritative for current state,
+architecture, or flag values, and do not rely on it to plan a change. Its safety
 boundaries (financial approval, secrets, MCP normalization) still describe real
 invariants worth respecting, but confirm them in code.
 
