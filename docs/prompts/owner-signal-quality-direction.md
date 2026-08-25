@@ -508,14 +508,33 @@ baseline to bisect against.
 - **eve upgrade — not started** (after phase 2; owner wants it for general eve
   improvements, do it carefully in a worktree).
 
-## Current position (resume here)
+## PRODUCTION STATE as of 2026-08-25 (read this first)
 
-Phases 1 and 2 are complete, committed as `4a900e1`, and **merged to `main`**
-(fast-forward, pushed). They are **NOT deployed to Production** — owner chose to
-hold the deploy (2026-08-24); git-push auto-deploy did not fire for this project,
-so a live deploy would be a manual `vercel --prod` and is deferred until there is
-a reason to ship. Phase 3 continues locally on branch
-`feat/alert-shape-and-multisignal`.
+Phases 1-4 are DEPLOYED to Production (`main` @ `a9f2712`, owner ran `vercel --prod`;
+git-push auto-deploy does not fire for this project). Verified live: deterministic
+dispatch (no `workspace_worker_failed`), monitors run on the new packs, budget
+reconciliation ($3.50 reserved -> $0.28 actual), alert delivery. Fleet cleaned up
+(27 test/superseded sessions deleted). Remaining: `Main`, `Tracker Live`
+(public-commentary-tracker@1.5.0, PAUSED), `Inverse Cramer Live`
+(inverse-cramer@1.4.9, PAUSED), `IPO Live` (paused_failure); archived: Nancy
+Pelosi tracker, Value investing, Recovery, Demo.
+
+**THE ONE OPEN BLOCKER — the research brief still quarantines `citation_invalid`
+in the real multi-turn worker**, so occurrences fall back to the deterministic
+raw-signal alert instead of the attribution-led brief. The two live monitors are
+PAUSED pending the fix (owner's call, to avoid fallback spam). Full diagnosis in
+[[research-citation-multiturn-gap]] (memory). Fix direction: the completion tool
+must not require the model to reproduce a sha256 `spanDigest` it can't compute —
+accept citations by member index (or expose the full citable locator in the
+`read_hybrid_evidence_bundle` response) and have the harness attach the signed
+locator; validate against the REAL multi-turn worker path, never a single-shot.
+Then redeploy, get a fresh Manage Sessions token, and re-enable the monitors
+(IPO Live shares the lane). Also tidy the repetitive fallback wording.
+
+## Historical position notes
+
+Phases 1 and 2 were committed as `4a900e1`; Phase 3 on `feat/alert-shape-and-multisignal`;
+Phase 4 on `fix/budget-reconciliation`; all fast-forward merged to `main` and deployed.
 
 Phases 1, 2, 3 are DONE and merged to `main` (`2e7643d`, not deployed). Phase 4
 (budget reconciliation, TOKEN part) is DONE on branch `fix/budget-reconciliation`.
