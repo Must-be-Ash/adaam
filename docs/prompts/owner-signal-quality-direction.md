@@ -510,29 +510,37 @@ baseline to bisect against.
 
 ## PRODUCTION STATE as of 2026-08-25 (read this first)
 
-Phases 1-4 are DEPLOYED to Production (`main` @ `a9f2712`, owner ran `vercel --prod`;
+Phases 1-4 are DEPLOYED to Production (`main` @ `77fddbb`, owner ran `vercel --prod`;
 git-push auto-deploy does not fire for this project). Verified live: deterministic
 dispatch (no `workspace_worker_failed`), monitors run on the new packs, budget
-reconciliation ($3.50 reserved -> $0.28 actual), alert delivery. Fleet cleaned up
-(27 test/superseded sessions deleted). Remaining: `Main`, `Tracker Live`
-(public-commentary-tracker@1.5.0, PAUSED), `Inverse Cramer Live`
-(inverse-cramer@1.4.9, PAUSED), `IPO Live` (paused_failure); archived: Nancy
-Pelosi tracker, Value investing, Recovery, Demo.
+reconciliation ($3.50 reserved -> $0.27 actual), alert delivery.
 
-**The `citation_invalid` blocker is FIXED in code (`main` @ `a5dd495`), NOT yet
-deployed/verified in prod.** `completeHybridEvidenceJobForWorker` now attaches the
-signed `text_span` locators from the job envelope as a research completion's
-citations (they equal the validator's assertionCitations exactly), instead of
-asking the model to echo a sha256 it can't compute in the multi-turn flow.
-Grounding is unchanged (the contract's material-fact source-URL rule still
-enforces it). Proven in `verify-agentic-durable-research-u1` with a wrong-locator
-completion that now stores the signed locator; battery + research verifiers + eve
-build green. Fallback wording also cleaned up.
-**REMAINING to close it out:** (1) owner redeploys `main` (`vercel --prod`);
-(2) fresh Manage Sessions token; (3) re-enable Tracker Live, fire one occurrence,
-confirm the brief is ACCEPTED with the "Per the Kobeissi Letter…" language (not
-the fallback); (4) then re-enable Inverse Cramer Live (and consider IPO Live,
-which shares the lane and whose empty-response is already fixed).
+**The `citation_invalid` blocker is FIXED and VERIFIED IN PRODUCTION (2026-08-25).**
+`completeHybridEvidenceJobForWorker` now attaches the signed `text_span` locators
+from the job envelope as a research completion's citations (they equal the
+validator's assertionCitations exactly), instead of asking the model to echo a
+sha256 it can't compute in the multi-turn flow. Grounding is unchanged (the
+contract's material-fact source-URL rule still enforces it).
+Proof: a disposable Tracker on public-commentary-tracker@1.5.0 was created and
+rescheduled to backfill 6h, forcing a material KobeissiLetter occurrence through
+the real multi-turn worker. The `public-commentary-frontier-research` job came
+back **`state: accepted`, `quarantine: []`** (vs every prior one:
+`citation_invalid` / `model_output_invalid`), and the delivered brief led with
+"Per the Kobeissi Letter, … long-duration Treasuries could go up and the US dollar
+could go down … Watch the US 10-year and 30-year yields, TLT, and broad-dollar
+gauges like DXY or UUP; … be ready …" — attribution-led, actionable, machine
+metadata pushed to `artifactRefs`. The disposable was then deleted.
+
+**Fleet now (2026-08-25):** live/enabled — `Tracker Live`
+(public-commentary-tracker@1.5.0, interval 6h), `Inverse Cramer Live`
+(inverse-cramer@1.4.9, interval 12h), `IPO Live` (sec-ipo, daily 4x — resumed
+from `paused_failure` now the empty-response bug is fixed); `Main`; archived:
+Nancy Pelosi tracker, Value investing, Recovery, Demo. All disposables/test runs
+deleted.
+
+Note: `delete` on `/action` requires `confirmedConsequences: true` AND the
+workspace to be archived first (the registry refuses to delete a non-archived
+session) — see `photon-workspace-app.ts:171` and `:2188`.
 
 ## Historical position notes
 
