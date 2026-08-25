@@ -517,14 +517,40 @@ so a live deploy would be a manual `vercel --prod` and is deferred until there i
 a reason to ship. Phase 3 continues locally on branch
 `feat/alert-shape-and-multisignal`.
 
-Phases 1, 2, and 3 are all DONE. Phase 3 (all of it: language for both live
-strategies via tracker pack 1.5.0 / research 1.0.1 and inverse-cramer pack 1.4.9
-/ research 1.0.2, the clean failure fallback, and the confirmed body mapping) is
-committed on `feat/alert-shape-and-multisignal` (`77eb913`, `bb214ac`, `147acdb`,
-`a2512da`, + the fallback commit), battery + typecheck + eve build green, NOT
-merged to main yet, NOT deployed.
+Phases 1, 2, 3 are DONE and merged to `main` (`2e7643d`, not deployed). Phase 4
+(budget reconciliation, TOKEN part) is DONE on branch `fix/budget-reconciliation`.
 
-Next action: **Phase 4 — budget reconciliation.** CAUSE CONFIRMED by code
+Phase 4 status:
+- **DONE — token reconciliation.** The three fan-out drains
+  (`drainPublicCommentaryHybridWorker`, and `drainHybridWorker` in
+  `sec-ipo-workspace-worker.ts` and `earnings-call-workspace-worker.ts`) now
+  accumulate the child session's actual token usage from `step.completed` events
+  and return it; `accountedUsage` (`hybrid-evidence-semantic.ts`) fills any
+  unreported field from the definition max per-field (new
+  `WorkspaceSemanticModelUsageReport` type, `paidCostUsd` optional). Result:
+  every fanned-out child reconciles TOKENS at actual (~3k) instead of its 24k
+  maximum, so the per-run token envelope funds a large fan-out instead of
+  exhausting after ~6-7. PAID is deliberately unchanged (stays at the
+  conservative ceiling) — no under-reporting. Drain-usage unit test added;
+  battery + typecheck + eve build green.
+- **FOLLOW-UP — paid ceiling (not done, lower priority).** With tokens fixed, the
+  per-child $0.25 paid reservation reconciling at max makes paid the next
+  limiter (~paidPerRun/0.25 children). The correct fix threads the child's actual
+  Exa cost from its research receipt back through the drain. Only bites a window
+  with very many material statements; the per-run floor already mitigates.
+- **Reasoning (owner asked to "lower reasoning"):** the frontier child reasoning
+  is pinned "high" by model-routing config and drives the analysis quality (the
+  whole value). The token fix removed the budget pressure that would have
+  motivated lowering it, so it is left "high" pending an owner cost/quality call.
+
+Next action: **Phase 5 — research-only** (point the live monitors at 1.5.0 /
+1.4.9, retire the legacy non-research alert path, archive old packs), then Phase 6
+(live E2E) and the eve upgrade.
+
+---
+(historical Phase 4 investigation notes below)
+
+**Phase 4 — budget reconciliation.** CAUSE CONFIRMED by code
 reading (2026-08-24): `drainPublicCommentaryHybridWorker`
 (`public-commentary-workspace-worker.ts`) returns `Promise<void>` — it never
 accumulates the child session's token usage from `step.completed` events. So

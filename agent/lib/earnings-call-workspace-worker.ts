@@ -53,7 +53,10 @@ import {
   earningsCallAlertPresentationForBrief,
   earningsCallReportArtifactId,
 } from "./earnings-call-signal-report";
-import { runWorkspaceSemanticEvidenceBundleJob } from "./hybrid-evidence-semantic";
+import {
+  runWorkspaceSemanticEvidenceBundleJob,
+  type WorkspaceSemanticModelUsageReport,
+} from "./hybrid-evidence-semantic";
 import {
   shouldPublishWorkspaceExecutiveArtifact,
   workspaceExecutiveBriefSchema,
@@ -537,16 +540,27 @@ const defaultFetchResponse = createEarningsCallPublicSourceFetch();
 
 async function drainHybridWorker(
   request: Parameters<typeof startHybridEvidenceWorkerTask>[0],
-): Promise<void> {
+): Promise<WorkspaceSemanticModelUsageReport> {
   const handle = await startHybridEvidenceWorkerTask(request);
   const reader = handle.events.getReader();
+  // Report the child's actual token usage so the comparison child reconciles at
+  // what it spent, not at the definition maximum. Paid cost reconciles separately.
+  let inputTokens = 0;
+  let outputTokens = 0;
   try {
-    while (!(await reader.read()).done) {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      if (next.value.type === "step.completed") {
+        inputTokens += next.value.data.usage?.inputTokens ?? 0;
+        outputTokens += next.value.data.usage?.outputTokens ?? 0;
+      }
       // Completion is durably recorded by the compiled hybrid worker tool.
     }
   } finally {
     reader.releaseLock();
   }
+  return { inputTokens, outputTokens };
 }
 
 function eventForArtifact(artifact: EarningsCallTransientArtifact) {

@@ -12,7 +12,7 @@ import {
 import { resolveHybridTaskModelRoute } from "./hybrid-evidence-model-routing";
 import {
   runWorkspaceSemanticEvidenceBundleJob,
-  type WorkspaceSemanticModelUsage,
+  type WorkspaceSemanticModelUsageReport,
 } from "./hybrid-evidence-semantic";
 import { startHybridEvidenceWorkerTask, type PreparedHybridEvidenceWorkerRun } from "./hybrid-evidence-worker";
 import {
@@ -109,7 +109,7 @@ export interface SecIpoWorkspaceWorkerClients
     readonly catalog?: Parameters<typeof runWorkspaceSemanticEvidenceBundleJob>[1]["catalog"];
     readonly execute?: (
       prepared: PreparedHybridEvidenceWorkerRun,
-    ) => Promise<WorkspaceSemanticModelUsage | void>;
+    ) => Promise<WorkspaceSemanticModelUsageReport | void>;
     readonly jobs?: Parameters<typeof runWorkspaceSemanticEvidenceBundleJob>[1]["jobs"];
     readonly lineage?: Parameters<typeof runWorkspaceSemanticEvidenceBundleJob>[1]["lineage"];
     readonly semantic?: Parameters<typeof runWorkspaceSemanticEvidenceBundleJob>[1]["semantic"];
@@ -264,16 +264,28 @@ async function resolveSecIpoResearchRuntime(input: {
 
 async function drainHybridWorker(
   prepared: PreparedHybridEvidenceWorkerRun,
-): Promise<void> {
+): Promise<WorkspaceSemanticModelUsageReport> {
   const handle = await startHybridEvidenceWorkerTask(prepared.request);
   const reader = handle.events.getReader();
+  // Report the child's actual token usage so each fanned-out filing reconciles at
+  // what it spent, not at the definition maximum. Paid cost is not reported here
+  // (it reconciles separately), so accountedUsage keeps paid conservative.
+  let inputTokens = 0;
+  let outputTokens = 0;
   try {
-    while (!(await reader.read()).done) {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      if (next.value.type === "step.completed") {
+        inputTokens += next.value.data.usage?.inputTokens ?? 0;
+        outputTokens += next.value.data.usage?.outputTokens ?? 0;
+      }
       // The compiled completion tool durably owns the result commit.
     }
   } finally {
     reader.releaseLock();
   }
+  return { inputTokens, outputTokens };
 }
 
 async function selectUnseenEvaluationFindings(input: {

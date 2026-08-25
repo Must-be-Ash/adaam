@@ -177,6 +177,20 @@ export interface WorkspaceSemanticModelUsage {
   readonly paidCostUsd: string;
 }
 
+/*
+ * What an `execute` drain may report back about a child session. Tokens are the
+ * child's actual model usage (accumulated from its `step.completed` events);
+ * `paidCostUsd` is optional because a session-stream drain cannot see the child's
+ * paid (Exa) cost - that is reconciled separately through the research receipt.
+ * `accountedUsage` fills any field left undefined from the definition maximum, so
+ * reporting only tokens reconciles them at actual while paid stays conservative.
+ */
+export interface WorkspaceSemanticModelUsageReport {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly paidCostUsd?: string;
+}
+
 export class WorkspaceSemanticEvidenceError extends Error {
   constructor(readonly code:
     | "citation_invalid"
@@ -691,12 +705,17 @@ const semanticUsageSchema = z.object({
 
 function accountedUsage(
   definition: HybridEvidenceJobDefinition,
-  usage: WorkspaceSemanticModelUsage | void,
+  usage: WorkspaceSemanticModelUsageReport | void,
 ): WorkspaceSemanticModelUsage {
-  const accounted = semanticUsageSchema.parse(usage ?? {
-    inputTokens: definition.limits.maximumInputTokens,
-    outputTokens: definition.limits.maximumOutputTokens,
-    paidCostUsd: definition.limits.maximumPaidCostUsd,
+  // Reconcile each field at what the child actually reported, falling back to the
+  // definition maximum per field for anything it could not report. A drain that
+  // reports only its actual tokens therefore reconciles tokens at actual (freeing
+  // the over-reservation that used to reconcile every child at its 24k maximum)
+  // while paid stays at the conservative ceiling, never under-reporting spend.
+  const accounted = semanticUsageSchema.parse({
+    inputTokens: usage?.inputTokens ?? definition.limits.maximumInputTokens,
+    outputTokens: usage?.outputTokens ?? definition.limits.maximumOutputTokens,
+    paidCostUsd: usage?.paidCostUsd ?? definition.limits.maximumPaidCostUsd,
   });
   if (
     accounted.inputTokens > definition.limits.maximumInputTokens ||
@@ -812,7 +831,7 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
   artifacts: HybridEvidenceArtifactStore;
   budget?: WorkspaceBudgetLedgerClient;
   catalog?: SemanticPackCatalog;
-  execute(prepared: PreparedHybridEvidenceWorkerRun): Promise<WorkspaceSemanticModelUsage | void>;
+  execute(prepared: PreparedHybridEvidenceWorkerRun): Promise<WorkspaceSemanticModelUsageReport | void>;
   jobs?: HybridEvidenceJobStoreClient;
   lineage?: HybridEvidenceLineageStoreClient;
   monitor?: WorkspaceMonitorStoreClient;
@@ -940,7 +959,7 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
 
   let reservation: HybridEvidenceBudgetReservation | null = null;
   let record = prepared.record;
-  let executionUsage: WorkspaceSemanticModelUsage | void = undefined;
+  let executionUsage: WorkspaceSemanticModelUsageReport | void = undefined;
   let modelAttempted = false;
   let budgetSettled = false;
   try {
@@ -1193,7 +1212,7 @@ export async function runWorkspaceSemanticEvidenceBundleJob(input: Parameters<
   artifacts: HybridEvidenceArtifactStore;
   budget?: WorkspaceBudgetLedgerClient;
   catalog?: SemanticPackCatalog;
-  execute(prepared: PreparedHybridEvidenceWorkerRun): Promise<WorkspaceSemanticModelUsage | void>;
+  execute(prepared: PreparedHybridEvidenceWorkerRun): Promise<WorkspaceSemanticModelUsageReport | void>;
   jobs?: HybridEvidenceJobStoreClient;
   lineage?: HybridEvidenceLineageStoreClient;
   monitor?: WorkspaceMonitorStoreClient;
@@ -1305,7 +1324,7 @@ export async function runWorkspaceSemanticEvidenceBundleJob(input: Parameters<
 
   let reservation: HybridEvidenceBudgetReservation | null = null;
   let record = prepared.record;
-  let executionUsage: WorkspaceSemanticModelUsage | void = undefined;
+  let executionUsage: WorkspaceSemanticModelUsageReport | void = undefined;
   let modelAttempted = false;
   let budgetSettled = false;
   try {

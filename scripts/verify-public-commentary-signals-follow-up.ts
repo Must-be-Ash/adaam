@@ -510,4 +510,35 @@ assert.throws(() => resolveStrategyPackConfiguration(latestPack, {
   assert.equal(multi.sources.length, 2);
 }
 
+// Budget reconciliation: the child-session drain must report the child's ACTUAL
+// accumulated token usage, so the parent reconciles this attempt at what it spent
+// instead of at the definition maximum (which exhausted the per-run envelope
+// after ~6-7 fanned-out statements). Paid cost is intentionally not reported here.
+{
+  const events = [
+    { data: { usage: { inputTokens: 1200, outputTokens: 300 } }, type: "step.completed" },
+    { data: { usage: { inputTokens: 800, outputTokens: 150 } }, type: "step.completed" },
+    {
+      data: {
+        result: { isError: false, kind: "tool-result", toolName: "complete_hybrid_evidence_job" },
+        status: "completed",
+      },
+      type: "action.result",
+    },
+  ];
+  const fakeWorker = (async () => ({
+    events: new ReadableStream({
+      start(controller) {
+        for (const event of events) controller.enqueue(event);
+        controller.close();
+      },
+    }),
+  })) as unknown as Parameters<typeof drainPublicCommentaryHybridWorker>[1];
+  const usage = await drainPublicCommentaryHybridWorker({} as never, fakeWorker);
+  assert.deepEqual(usage, { inputTokens: 2000, outputTokens: 450 });
+  // The drain does not fabricate a paid cost - accountedUsage keeps that at the
+  // conservative ceiling so spend is never under-reported.
+  assert.equal("paidCostUsd" in usage, false);
+}
+
 console.info("Spec 4C narrow follow-up verification passed.");

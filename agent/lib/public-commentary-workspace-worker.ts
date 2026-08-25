@@ -14,6 +14,7 @@ import type { HybridEvidenceLineageStoreClient } from "./hybrid-evidence-lineage
 import {
   runWorkspaceSemanticEvidenceBundleJob,
   type WorkspaceSemanticModelUsage,
+  type WorkspaceSemanticModelUsageReport,
 } from "./hybrid-evidence-semantic";
 import type { WorkspaceSemanticEvidenceStoreClient } from "./hybrid-evidence-semantic-store";
 import {
@@ -179,7 +180,7 @@ export interface PublicCommentaryWorkspaceWorkerClients extends WorkspaceWorkerC
   readonly semantic?: Readonly<{
     readonly budget?: WorkspaceBudgetLedgerClient;
     readonly catalog?: Pick<typeof strategyPackCatalog, "resolve">;
-    readonly execute?: (prepared: PreparedHybridEvidenceWorkerRun) => Promise<WorkspaceSemanticModelUsage | void>;
+    readonly execute?: (prepared: PreparedHybridEvidenceWorkerRun) => Promise<WorkspaceSemanticModelUsageReport | void>;
     readonly jobs?: HybridEvidenceJobStoreClient;
     readonly lineage?: HybridEvidenceLineageStoreClient;
     readonly semantic?: WorkspaceSemanticEvidenceStoreClient;
@@ -316,11 +317,19 @@ export function resolvePublicCommentaryCommitInitialBaseline(input: Readonly<{
 export async function drainPublicCommentaryHybridWorker(
   request: Parameters<typeof startHybridEvidenceWorkerTask>[0],
   startWorker: typeof startHybridEvidenceWorkerTask = startHybridEvidenceWorkerTask,
-): Promise<void> {
+): Promise<WorkspaceSemanticModelUsageReport> {
   const handle = await startWorker(request);
   const reader = handle.events.getReader();
   let completed = false;
   let terminalFailure: Readonly<{ code: string; message: string }> | null = null;
+  // Accumulate the child session's actual model usage so the parent reconciles
+  // this attempt's token reservation at what it really spent, instead of
+  // reconciling every fanned-out child at its definition maximum (which exhausted
+  // the per-run envelope after ~6-7 statements). Paid cost is not reported here -
+  // the child's Exa cost reconciles separately through its research receipt - so
+  // `accountedUsage` keeps paid at the conservative ceiling.
+  let inputTokens = 0;
+  let outputTokens = 0;
   /*
    * `completion_missing` means the child stream ended with no completion AND no
    * failure event - the session simply stopped. On its own that names nothing
@@ -336,6 +345,10 @@ export async function drainPublicCommentaryHybridWorker(
       const next = await reader.read();
       if (next.done) break;
       const event = next.value;
+      if (event.type === "step.completed") {
+        inputTokens += event.data.usage?.inputTokens ?? 0;
+        outputTokens += event.data.usage?.outputTokens ?? 0;
+      }
       if (
         event.type === "action.result" &&
         event.data.result.kind === "tool-result" &&
@@ -383,6 +396,7 @@ export async function drainPublicCommentaryHybridWorker(
       : `completion_missing:tools=${toolCalls}:last=${lastTool ?? "none"}:err=${lastToolErrored}`;
     throw new Error(`hybrid_evidence_worker_failed:${suffix}`);
   }
+  return { inputTokens, outputTokens };
 }
 
 export function createProductionPublicCommentaryPipeline(input: {
