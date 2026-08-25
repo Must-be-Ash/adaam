@@ -83,7 +83,7 @@ remote when useful.
 Inside the fork:
 
 1. Use Node.js 24.
-2. Read AGENTS.md, HANDOFF.md, README.md, and the relevant installed Eve docs.
+2. Read AGENTS.md and the relevant installed Eve docs.
 3. Run npm install yourself and inspect any failure.
 4. Run npm run typecheck.
 5. Run npm run build before making setup-specific changes.
