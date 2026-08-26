@@ -9,6 +9,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { McpToolResultError } from "#mcp-tool-result";
+
 import {
   coinbaseCliSha256,
   coinbaseCliSource,
@@ -165,6 +167,43 @@ export function coinbaseChildEnvironment(): Record<string, string> {
   );
 }
 
+const COINBASE_REJECTION_DETAIL_LIMIT = 400;
+
+function scrubCoinbaseSecrets(value: string): string {
+  let scrubbed = value;
+  for (const name of [
+    "COINBASE_KEY_SECRET",
+    "COINBASE_KEY_ID",
+    "CDP_SECRET_KEY",
+    "CDP_API_KEY_SECRET",
+    "CDP_API_KEY_PRIVATE_KEY",
+    "CDP_API_KEY_ID",
+    "CDP_API_KEY_NAME",
+  ] as const) {
+    const secret = process.env[name]?.trim();
+    if (secret && secret.length >= 8) {
+      scrubbed = scrubbed.replaceAll(secret, "[credential omitted]");
+    }
+  }
+  return scrubbed;
+}
+
+// Coinbase reports API rejections as human-readable `HTTP <status>: <message>`
+// text rather than the enum codes matched above, so the only actionable reason a
+// call failed (a size minimum, an unsupported product, a closed market) lives in
+// that message. Echo it, but only from a normalized MCP tool result: that text
+// has already been redacted and bounded by mcp-tool-result. Transport, spawn and
+// exec failures can carry child stderr or environment fragments holding
+// COINBASE_KEY_SECRET, so they stay opaque.
+function coinbaseRejectionDetail(failure: Error): string | undefined {
+  if (!(failure instanceof McpToolResultError)) return undefined;
+  const detail = scrubCoinbaseSecrets(failure.message).trim();
+  if (!detail) return undefined;
+  return detail.length > COINBASE_REJECTION_DETAIL_LIMIT
+    ? `${detail.slice(0, COINBASE_REJECTION_DETAIL_LIMIT)}…`
+    : detail;
+}
+
 export function safeCoinbaseFailure(error: unknown): Error {
   const failure =
     error instanceof Error
@@ -209,6 +248,27 @@ export function safeCoinbaseFailure(error: unknown): Error {
   if (/MCP response exceeded \d+ bytes/iu.test(diagnostic)) {
     return new Error(
       "Coinbase returned more data than Eve can safely read in one response. Retry the same read with a smaller limit or narrower filters.",
+    );
+  }
+
+  const rejection = coinbaseRejectionDetail(failure);
+  const status = Number(/\bHTTP\s+(\d{3})\b/u.exec(diagnostic)?.[1] ?? Number.NaN);
+
+  if (status === 429) {
+    return new Error(
+      `Coinbase rate-limited this request${rejection ? `: ${rejection}` : "."} It was rejected rather than executed; wait before retrying the same call.`,
+    );
+  }
+  // A 5xx can drop the response to an already-accepted write, so its completion
+  // state is unknown and must not be reported as a clean rejection.
+  if (status >= 500) {
+    return new Error(
+      `Coinbase's service failed to complete this request${rejection ? `: ${rejection}` : "."} Its completion state is unknown; do not retry a write without checking its resulting order or transfer state.`,
+    );
+  }
+  if (rejection) {
+    return new Error(
+      `Coinbase rejected this request: ${rejection} It was not submitted, so correct the request before retrying.`,
     );
   }
 

@@ -36,7 +36,7 @@ export default defineEval({
     });
     const request = t.requireInputRequest({
       input: isOneDollarBitcoinBuy,
-      optionIds: ["approve", "deny"],
+      optionIds: ["approve", "cancel"],
       toolName: "coinbase_create_order",
     });
 

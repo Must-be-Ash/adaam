@@ -36,7 +36,9 @@ chat.
    `SPOT`, status is online, and the base/quote currencies match the user's wording.
    Never silently substitute `ETH-USD` for `ETH-USDC`, or vice versa.
 2. If sizing depends on holdings, request the relevant balance with
-   `coinbase_balance`.
+   `coinbase_balance`. Resolve proportional wording ("half", "50%", "all of it")
+   against the *available* balance you just read, never against a holding
+   remembered from earlier in the conversation.
 3. Call `coinbase_preview_order` for the exact order. Do not use a raw native
    `coinbase_orders_preview` or `coinbase_orders_create`; they are intentionally hidden.
 4. Show the user the exact product, side, order type, base or quote size, estimated fill,
@@ -56,6 +58,32 @@ chat.
 - Limit BUY or SELL: use `baseSize` and `limitPrice`.
 - Stop-limit: use `baseSize`, `limitPrice`, `stopPrice`, and `stopDirection`.
 - Never include both base and quote size.
+
+## One order per approval, and stop
+
+Run exactly one order through steps 1-6 at a time. Never preview a second order,
+and never request a second approval, while an earlier order in the same request
+is still previewing, awaiting approval, or executing. A conversation holds one
+active approval at a time: a second overlapping request is refused outright, and
+the user silently loses that trade.
+
+A request that chains trades is several tasks, not one. "Sell 50% of my BTC and
+buy SOL with it" is:
+
+1. Sell 50% of the BTC.
+2. Buy SOL with the USD that sale actually realized.
+
+Finish task 1 completely, then **stop and hand the decision back**. Report the
+fill - filled size, average price, and the exact proceeds from the create
+response - then ask whether to proceed with the next trade, naming the amount now
+available. Do not preview, size, or place the second order until the user answers.
+
+This is not only a safety rule, it is the only correct order of operations. Sale
+proceeds do not exist until the sell fills, so a buy sized before then is sized
+against stale funds and Coinbase rejects it - typically as a quote size below the
+product's `quote_min_size`. When the user does authorize the follow-on trade,
+re-read `coinbase_balance` and size the buy from the settled balance rather than
+from the proceeds you predicted.
 
 ## Existing orders
 
@@ -91,5 +119,9 @@ the matching fresh quote ID. Use `coinbase_convert_get` to inspect status when a
 - If a write times out or returns an uncertain result, do not retry automatically.
   Inspect the resulting order or conversion status, or ask the user to reconcile the
   transfer before proceeding.
+- When a Coinbase call is rejected, relay the reason it gives verbatim and say what
+  would satisfy it. A rejection ends the current task: report it and stop rather
+  than silently retrying a different size, a different product, or the next trade
+  in the request.
 - Never include API keys, secrets, raw authentication errors, or full account objects in
   logs.

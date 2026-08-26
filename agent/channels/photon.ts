@@ -24,6 +24,7 @@ import {
   failPhotonApprovalDecision,
   getCurrentPhotonApprovalActivity,
   getPhotonApprovalView,
+  hasCurrentPhotonApproval,
   releasePhotonApprovalProcessing,
   savePhotonApproval,
   type PhotonApprovalProcessingRelease,
@@ -42,6 +43,7 @@ import {
   quarantinePhotonDispatch,
   readPhotonIngressReceipt,
   readPhotonDispatchReceipt,
+  readPhotonResponseDeliveryReceipt,
   type PhotonIngressReceipt,
 } from "../lib/photon-ingress-store";
 import {
@@ -385,21 +387,75 @@ const bridge = chatSdkChannel({
     async "turn.completed"(_data, channel, ctx) {
       await completePhotonDispatchReceipt(ctx, "completed");
       const release = await releaseApprovedOrderGuard(ctx.session.id);
-      if (release === "retained" && channel.thread) {
-        const principalId = ctx.session.auth.current?.principalId;
-        const workspaceName = principalId
+      const principalId = ctx.session.auth.current?.principalId;
+      const workspaceName =
+        principalId && channel.thread
           ? await photonWorkspaceResponseName({
               principalId,
               sessionId: ctx.session.id,
               threadId: channel.thread.id,
             })
           : null;
+      if (release === "retained" && channel.thread) {
         await channel.thread.post(
           photonWorkspaceLabeledText(
             workspaceName,
             "The Coinbase order status is not safely settled. Check Coinbase before trying another order; new orders remain blocked for safety.",
           ),
         );
+        return;
+      }
+
+      // A turn can finish having produced no assistant message at all - an empty
+      // model response, or a loop that ended on a tool-call boundary. The
+      // message.completed handler has nothing to post in that case and returns
+      // silently, so the conversation simply stops answering with no error
+      // anywhere. A tool failure must never cost Eve the ability to reply.
+      const ingressId = photonIngressIdFromAuth(ctx.session.auth.current);
+      if (!channel.thread || !ingressId || !principalId) return;
+      if (await readPhotonResponseDeliveryReceipt(ingressId)) return;
+      // An approval card is a reply; it just isn't delivered through
+      // message.completed. Parking for one is not silence.
+      if (
+        await hasCurrentPhotonApproval({
+          principalId,
+          threadId: channel.thread.id,
+        })
+      ) {
+        return;
+      }
+
+      console.error("[photon.turn] Turn completed without delivering a reply", {
+        session_id: ctx.session.id,
+      });
+      // "no order was placed" is only safe to assert when this turn processed no
+      // approved order at all (`release === "missing"`). A cleanly released guard
+      // (`release === "released"`) means an approved order reached a terminal
+      // state this turn - it may have SUCCEEDED - so we must not tell the owner
+      // nothing happened and risk a duplicate resubmission.
+      const notice = photonWorkspaceLabeledText(
+        workspaceName,
+        release === "released"
+          ? "I couldn't put a reply together for that one. If you just approved an order, check Coinbase for its status before retrying. Reply `new session` if I keep coming up empty and I'll start with a clean slate."
+          : "I couldn't put a reply together for that one. Nothing was changed and no order was placed. Try sending it again - and if I keep coming up empty, reply `new session` and I'll start with a clean slate.",
+      );
+      const delivery = await createPhotonResponseDeliveryReceipt({
+        content: notice,
+        destination: physicalPhotonThreadId(channel.thread.id),
+        ingressId,
+      });
+      if (!delivery.created) return;
+      await markPhotonResponseDelivery({ ingressId, state: "delivering" });
+      try {
+        await channel.thread.post({ markdown: notice });
+        await markPhotonResponseDelivery({ ingressId, state: "delivered" });
+      } catch (error) {
+        await markPhotonResponseDelivery({
+          failureCode: "response_delivery_uncertain",
+          ingressId,
+          state: "delivery_uncertain",
+        }).catch(() => undefined);
+        throw error;
       }
     },
     async "turn.cancelled"(_data, channel, ctx) {

@@ -19,13 +19,13 @@ export default defineEval({
       status: "completed",
     });
     const request = t.requireInputRequest({
-      optionIds: ["approve", "deny"],
+      optionIds: ["approve", "cancel"],
       toolName: "coinbase_create_order",
     });
 
     await t.respond([
       {
-        optionId: "deny",
+        optionId: "cancel",
         requestId: request.requestId,
       },
     ]);
