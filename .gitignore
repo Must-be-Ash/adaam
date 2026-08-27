@@ -20,3 +20,6 @@ TOKEN_EFFICIENCY.md
 notes
 # Local-only owner notes (product target, handoff, backlog, north star, adapter pattern, etc.)
 docs/notes/
+# Internal working docs and idea scratchpad — not part of the public project
+docs/
+idea/
