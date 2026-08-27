@@ -2,8 +2,6 @@
 
 Your own AI investment & research agent built on top of Eve by Vercel
 
-> ⚠️ **Early and experimental.** Three strategies work today — **IPO Filings**, **Public Commentary Tracker**, and **Inverse Cramer** — others are in progress. Not financial advice.
-
 ## What you get
 
 - **Personal markets agent** that investigates public companies, strategy ideas, and news on demand
@@ -53,7 +51,7 @@ Use a **dedicated, minimally funded** Advanced Trade spot portfolio — never yo
 Store the key in your password manager and paste `COINBASE_KEY_ID` + `COINBASE_KEY_SECRET` straight into Vercel's Production env vars. Never put credentials in chat, source, or commits.
 
 > [!WARNING]
-> This is not software intended for production use.
+> Early and experimental — not intended for production use. Three strategies work today (IPO Filings, Public Commentary Tracker, and Inverse Cramer); others are in progress. Not financial advice.
 
 ---
 
