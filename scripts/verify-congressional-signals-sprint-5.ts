@@ -5,7 +5,17 @@ import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 
 import type { PublicSourceAcquisitionStoreClient } from "../agent/lib/public-source-acquisition-store";
 import type { CongressionalSignalStoreClient } from "../agent/lib/congressional-signal-store";
-import { readCongressionalHistory } from "../agent/lib/congressional-signal-store";
+import {
+  persistCongressionalSignalRecords,
+  readCongressionalHistory,
+} from "../agent/lib/congressional-signal-store";
+import {
+  congressionalFilingSignalSchema,
+  deriveCongressionalSignalRevisionId,
+  deriveHouseStrategyTransactionId,
+  deriveHouseStrategyTransactionRevisionId,
+  houseStrategyTransactionSchema,
+} from "../agent/lib/congressional-signal-schema";
 import {
   CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_3,
   CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_2,
@@ -542,6 +552,61 @@ const baselineD = await prepare(workspaceD.monitor, baseNow, workspaceD.scope);
 assert.equal((await execute({ document: baselineDocument, now: baseNow, prepared: baselineD, shouldFetch: false })).result.baselineEstablished, true);
 const baselineF = await prepare(workspaceF.monitor, baseNow, workspaceF.scope);
 assert.equal((await execute({ document: baselineDocument, now: baseNow, prepared: baselineF, shouldFetch: false })).result.baselineEstablished, true);
+
+const seedSignal = [...signal.values.values()].map((raw) => JSON.parse(raw) as unknown).find(
+  (record) => congressionalFilingSignalSchema.safeParse(record).data?.workspaceId === workspaceF.scope.workspaceId,
+);
+const parsedSeedSignal = congressionalFilingSignalSchema.parse(seedSignal);
+const seedTransactionRevisionId = parsedSeedSignal.transactionEvaluations[0]!.transactionRevisionId;
+const seedTransaction = [...signal.values.values()].map((raw) => JSON.parse(raw) as unknown).find(
+  (record) => houseStrategyTransactionSchema.safeParse(record).data?.transactionRevisionId === seedTransactionRevisionId,
+);
+const parsedSeedTransaction = houseStrategyTransactionSchema.parse(seedTransaction);
+const largeFilingTransactions = Array.from({ length: 224 }, (_, index) => {
+  const sequence = String(index + 1).padStart(3, "0");
+  const source = {
+    ...parsedSeedTransaction.source,
+    factLogicalKey: `${parsedSeedTransaction.source.factLogicalKey}.large-${sequence}`,
+    factRevisionId: `${parsedSeedTransaction.source.factRevisionId}.large-${sequence}`,
+    rowIdentity: `row:${index + 1}`,
+  };
+  const transactionId = deriveHouseStrategyTransactionId({
+    factLogicalKey: source.factLogicalKey,
+    subscriptionId: source.subscriptionId,
+    workspaceId: parsedSeedTransaction.workspaceId,
+  });
+  const { transactionRevisionId: _seedRevisionId, ...seedCore } = parsedSeedTransaction;
+  const core = { ...seedCore, source, transactionId };
+  return houseStrategyTransactionSchema.parse({
+    ...core,
+    transactionRevisionId: deriveHouseStrategyTransactionRevisionId(core),
+  });
+}).sort((left, right) => left.transactionRevisionId.localeCompare(right.transactionRevisionId));
+const seedEvaluation = parsedSeedSignal.transactionEvaluations[0]!;
+const transactionEvaluations = largeFilingTransactions.map(({ transactionRevisionId }) => ({
+  ...seedEvaluation,
+  transactionRevisionId,
+}));
+const { signalRevisionId: _seedSignalRevisionId, ...seedSignalCore } = parsedSeedSignal;
+const largeSignalCore = { ...seedSignalCore, transactionEvaluations };
+const largeFilingSignal = congressionalFilingSignalSchema.parse({
+  ...largeSignalCore,
+  signalRevisionId: deriveCongressionalSignalRevisionId(largeSignalCore),
+});
+assert.ok(
+  Buffer.byteLength(JSON.stringify(largeFilingSignal), "utf8") > 256 * 1_024,
+  "the production-shaped 224-transaction House filing must exercise the former signal-record ceiling",
+);
+const largeFilingPersistence = await persistCongressionalSignalRecords({
+  scope: workspaceF.scope,
+  signal: largeFilingSignal,
+  transactions: largeFilingTransactions,
+}, signal);
+assert.equal(
+  largeFilingPersistence.signalCreated,
+  true,
+  "a valid House filing with 224 transactions must persist as one filing signal",
+);
 
 const liveNow = baseNow;
 const liveDocument = fixture("ptr-14.pdf");

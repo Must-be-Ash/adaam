@@ -20,6 +20,7 @@ import {
 
 const KEY_PREFIX = "eve:congressional-signals:v1:";
 const MAX_RECORD_BYTES = 256 * 1_024;
+const MAX_SIGNAL_RECORD_BYTES = 2 * 1_024 * 1_024;
 const MAX_HISTORY_RECORD_BYTES = 2 * 1_024 * 1_024;
 const CREATE_OR_READ_SCRIPT = `
 local current = redis.call("GET", KEYS[1])
@@ -209,6 +210,7 @@ async function persistSignalRecords(input: {
   const signalResult = await createOrReuse({
     client: input.client,
     key: recordKey(input.scope, "signal", input.signal.signalRevisionId),
+    maximumBytes: MAX_SIGNAL_RECORD_BYTES,
     parse: (value) => congressionalFilingSignalSchema.parse(value),
     value: input.signal,
   });
@@ -251,7 +253,11 @@ export async function readCongressionalFilingSignal(
   assertAuthorizedWorkspaceStoreScope(scope);
   const raw = rawValue(await client.get(recordKey(scope, "signal", signalRevisionId)));
   if (raw === null) return null;
-  const signal = parseRecord(raw, (value) => congressionalFilingSignalSchema.parse(value));
+  const signal = parseRecord(
+    raw,
+    (value) => congressionalFilingSignalSchema.parse(value),
+    MAX_SIGNAL_RECORD_BYTES,
+  );
   assertScopedRecord(scope, signal);
   return signal;
 }
