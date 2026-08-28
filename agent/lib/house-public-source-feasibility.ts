@@ -42,22 +42,28 @@ export class HouseFeasibilityError extends Error {
 
 let pdfJsModule: Promise<typeof import("pdfjs-dist/legacy/build/pdf.mjs")> | undefined;
 let pdfJsWorkerModule: Promise<typeof import("pdfjs-dist/legacy/build/pdf.worker.mjs")> | undefined;
-let canvasPrimitives: { DOMMatrix: typeof DOMMatrix; Path2D: typeof Path2D } | undefined;
+let canvasModule: Promise<typeof import("@napi-rs/canvas")> | undefined;
 
 async function loadPdfJs() {
-  canvasPrimitives ??= process.getBuiltinModule("module")
-    .createRequire(import.meta.url)("@napi-rs/canvas") as typeof canvasPrimitives;
+  /*
+   * Keep this import lazy because most source checks never inspect a PDF, but
+   * keep the module specifier visible to Eve/Nitro's production tracer. The
+   * previous createRequire call hid @napi-rs/canvas's platform package from
+   * the Vercel function bundle, so House downloads succeeded and the first
+   * PDF failed at runtime with MODULE_NOT_FOUND.
+   */
+  const canvasPrimitives = await (canvasModule ??= import("@napi-rs/canvas"));
   if (!globalThis.DOMMatrix) {
     Object.defineProperty(globalThis, "DOMMatrix", {
       configurable: true,
-      value: canvasPrimitives!.DOMMatrix,
+      value: canvasPrimitives.DOMMatrix,
       writable: true,
     });
   }
   if (!globalThis.Path2D) {
     Object.defineProperty(globalThis, "Path2D", {
       configurable: true,
-      value: canvasPrimitives!.Path2D,
+      value: canvasPrimitives.Path2D,
       writable: true,
     });
   }

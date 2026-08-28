@@ -49,6 +49,15 @@ const liveReviewRoot = new URL(
   import.meta.url,
 );
 const bytes = async (name: string) => new Uint8Array(await readFile(new URL(name, corpusRoot)));
+const feasibilitySource = await readFile(
+  new URL("../agent/lib/house-public-source-feasibility.ts", import.meta.url),
+  "utf8",
+);
+assert.match(
+  feasibilitySource,
+  /canvasModule \?\?= import\("@napi-rs\/canvas"\)/u,
+  "the House PDF runtime must keep a literal lazy canvas import so Eve/Nitro traces the platform binary",
+);
 const window = (endAt: string) => ({
   endAt,
   startAt: new Date(Date.parse(endAt) - 6 * 60 * 60 * 1_000).toISOString(),
