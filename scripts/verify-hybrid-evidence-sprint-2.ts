@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
+import type { UserContent } from "ai";
 
 import {
   createHybridEvidenceArtifactStore,
@@ -149,7 +150,7 @@ assert.ok(Date.now() - decoderTimeoutStartedAt < 2_000, "decoder timeout must ki
 const definitions = createExtractionRecoveryDefinitions([modelId]);
 const pdfDefinition = definitions.find((definition) => definition.allowedMediaTypes.includes("application/pdf"))!;
 const spreadsheetDefinition = definitions.find((definition) => definition.definitionId === SPREADSHEET_ROLE_DEFINITION_ID)!;
-assert.equal(pdfDefinition.definitionVersion, "1.0.2");
+assert.equal(pdfDefinition.definitionVersion, "1.0.3");
 assert.equal(spreadsheetDefinition.definitionVersion, "1.0.0");
 assert.equal(assessExtractionRecoveryEligibility({
   definition: pdfDefinition,
@@ -371,14 +372,38 @@ const jbig2Budget = await reserveHybridEvidenceAttempt({
   environment,
   job: jbig2Job.job,
 }, { global: memory });
+await assert.rejects(
+  prepareHybridEvidenceWorkerRun({
+    budget: jbig2Budget,
+    definition: pdfDefinition,
+    environment,
+    initialEvidenceImages: [{
+      imageBase64: `${jbig2FirstPage.imageBase64.slice(0, -4)}AAAA`,
+      locator: jbig2Locator,
+      mediaType: "image/png",
+    }],
+    jobClient: memory,
+    locators: [jbig2Locator],
+    prepared: jbig2Job,
+  }),
+  /input_projection_invalid/u,
+);
 const jbig2Worker = await prepareHybridEvidenceWorkerRun({
   budget: jbig2Budget,
   definition: pdfDefinition,
   environment,
+  initialEvidenceImages: [{
+    imageBase64: jbig2FirstPage.imageBase64,
+    locator: jbig2Locator,
+    mediaType: "image/png",
+  }],
   jobClient: memory,
   locators: [jbig2Locator],
   prepared: jbig2Job,
 });
+assert.equal(Array.isArray(jbig2Worker.request.input.message), true);
+assert.equal(jbig2Worker.request.input.message[0]?.type, "file");
+assert.equal(jbig2Worker.request.input.message.at(-1)?.type, "text");
 const jbig2WorkerSlice = await readHybridEvidenceSliceForWorker({
   clients: { artifacts, jobs: memory },
   ctx: { session: { auth: { current: jbig2Worker.request.auth } } },
@@ -391,7 +416,7 @@ assert.ok(jbig2WorkerSlice.byteCount > 64 * 1_024);
 
 async function completeThroughWorker(input: {
   readonly candidate: Record<string, unknown>;
-  readonly prepared: PreparedHybridEvidenceWorkerRun;
+  readonly prepared: PreparedHybridEvidenceWorkerRun<string | UserContent>;
 }) {
   const envelope = verifyHybridEvidenceWorkerToken(input.prepared.token, {}, environment);
   const ctx = { session: { auth: { current: input.prepared.request.auth } } };
@@ -490,7 +515,15 @@ const recovery = createHouseHybridEvidenceRecovery({
   dependencies: {
     async dispatch({ prepared }) {
       workerCalls += 1;
-      assert.match(prepared.request.input.message, /fields\.document must contain docId/u);
+      const initialParts = prepared.request.input.message;
+      assert.equal(Array.isArray(initialParts), true);
+      const files = initialParts.filter((part) => part.type === "file");
+      const promptPart = initialParts.find((part) => part.type === "text");
+      assert.equal(files.length, 1);
+      assert.equal(files[0]?.mediaType, "image/png");
+      assert.match(String(files[0]?.data), /^data:image\/png;base64,/u);
+      assert.match(promptPart?.text ?? "", /fields\.document must contain docId/u);
+      assert.match(promptPart?.text ?? "", /attached images map one-to-one/u);
       const envelope = verifyHybridEvidenceWorkerToken(prepared.token, {}, environment);
       await completeThroughWorker({
         candidate: {

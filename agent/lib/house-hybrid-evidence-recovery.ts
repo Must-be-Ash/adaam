@@ -1,5 +1,5 @@
 import type { RunHandle } from "../../node_modules/eve/dist/src/channel/types.js";
-import { createGateway, generateText } from "ai";
+import { createGateway, generateText, type UserContent } from "ai";
 
 import {
   createHybridEvidenceArtifactStore,
@@ -61,11 +61,13 @@ export interface HouseHybridEvidenceRecoveryClients {
 
 export interface HouseHybridEvidenceRecoveryDependencies {
   readonly dispatch?: (input: {
-    readonly prepared: PreparedHybridEvidenceWorkerRun;
+    readonly prepared: PreparedHybridEvidenceWorkerRun<UserContent>;
     readonly reservation: HybridEvidenceBudgetReservation;
   }) => Promise<HybridEvidenceModelUsage | void>;
   readonly ocr?: IndependentPdfOcr;
-  readonly startWorker?: (request: PreparedHybridEvidenceWorkerRun["request"]) => Promise<RunHandle>;
+  readonly startWorker?: (
+    request: PreparedHybridEvidenceWorkerRun<UserContent>["request"],
+  ) => Promise<RunHandle>;
 }
 
 interface HybridEvidenceModelUsage {
@@ -341,6 +343,11 @@ export function createHouseHybridEvidenceRecovery(input: {
         budget: reservation,
         definition,
         environment,
+        initialEvidenceImages: projection.pages.map((page, index) => ({
+          imageBase64: page.imageBase64,
+          locator: locators[index] as Extract<EvidenceLocator, { kind: "pdf_page" }>,
+          mediaType: page.mediaType,
+        })),
         jobClient: input.clients?.jobs,
         locators,
         now: processingNow,
