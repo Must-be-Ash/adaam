@@ -89,7 +89,16 @@ for (const [index, scope] of scopes.entries()) {
     expectedRevision: 0,
     now,
     scope,
-    value: IPO_FILINGS_CAPABILITY_MANIFEST,
+    value: {
+      ...IPO_FILINGS_CAPABILITY_MANIFEST,
+      // Existing workspaces retain the reviewed model policy they were installed
+      // with. Deterministic evaluator dispatch must not be coupled to whichever
+      // primary worker model a later deployment happens to select.
+      workerModelPolicy: {
+        ...IPO_FILINGS_CAPABILITY_MANIFEST.workerModelPolicy,
+        allowedModelIds: ["google/gemini-3.6-flash"],
+      },
+    },
   }, state);
   await writeWorkspaceDocument("budget", {
     expectedRevision: 0,

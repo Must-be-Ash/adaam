@@ -186,7 +186,11 @@ function capabilitiesFor(version: string): WorkspaceCapabilityManifestValue {
       origin: new URL(item.canonicalUrl).origin,
       sourceId: item.sourceId,
     })),
-    workerModelPolicy: { allowedModelIds: ["zai/glm-5.3-flash"], maximumOutputTokens: 2_000 },
+    // Production workspaces installed before the deployment's primary-model
+    // change retain this reviewed policy. Preparing and evaluating the House
+    // occurrence must remain valid because dispatch itself is deterministic;
+    // any nested recovery model is authorized separately by the strategy.
+    workerModelPolicy: { allowedModelIds: ["google/gemini-3.6-flash"], maximumOutputTokens: 2_000 },
   };
 }
 

@@ -38,6 +38,12 @@ import {
   type WorkspaceWorkerEnvelope,
 } from "./workspace-worker-auth";
 
+/*
+ * Retained as the reviewed default identifier for capability fixtures and
+ * compatibility callers. Scheduled occurrences no longer launch a primary
+ * model turn, so dispatch preparation must not require this identifier to be
+ * present in a workspace's persisted model policy.
+ */
 export const WORKSPACE_WORKER_MODEL_ID = "zai/glm-5.3-flash";
 
 /*
@@ -243,13 +249,6 @@ export async function prepareWorkspaceWorkerRun(input: {
   ]);
   if (!brief || !strategy || !capabilities || !budget) {
     throw new WorkspaceWorkerRunnerError("workspace_worker_state_missing");
-  }
-  if (
-    !capabilities.value.workerModelPolicy.allowedModelIds.includes(
-      WORKSPACE_WORKER_MODEL_ID,
-    )
-  ) {
-    throw new WorkspaceWorkerRunnerError("workspace_worker_model_denied");
   }
   const strategyPack = await prepareWorkspaceWorkerStrategyPackRuntime({
     catalog: input.clients?.strategyPackCatalog,
