@@ -55,6 +55,7 @@ import {
 import {
   createBoundedIndependentPdfOcr,
   createHouseHybridEvidenceRecovery,
+  type HouseHybridEvidenceRecoveryObservation,
 } from "../agent/lib/house-hybrid-evidence-recovery";
 import {
   runHousePublicSourceAcquisition,
@@ -520,6 +521,7 @@ function currentIndependentOcr(): string {
 }
 let workerCalls = 0;
 const ocr: IndependentPdfOcr = { async recognize() { return currentIndependentOcr(); } };
+const recoveryObservations: HouseHybridEvidenceRecoveryObservation[] = [];
 const recovery = createHouseHybridEvidenceRecovery({
   clients: {
     artifacts,
@@ -562,6 +564,9 @@ const recovery = createHouseHybridEvidenceRecovery({
         prepared,
       });
       return { inputTokens: 120, outputTokens: 30, paidCostUsd: "0.01" };
+    },
+    observe(observation) {
+      recoveryObservations.push(observation);
     },
     ocr,
   },
@@ -628,6 +633,14 @@ const retracted = await runRecoveredHouse("2026-08-16T22:00:00.000Z", "Sr.");
 assert.equal(retracted.acquisition.retractions.length, 1);
 assert.equal(retracted.acquisition.hybridPromotions.length, 1);
 assert.equal(workerCalls, 3);
+assert.equal(recoveryObservations.length, 3);
+assert.equal(recoveryObservations.every((observation) =>
+  observation.outcome === "accepted" &&
+  observation.definitionVersion === "1.0.4" &&
+  observation.jobId?.startsWith("hybrid-job.") === true &&
+  observation.modelId === modelId &&
+  observation.rowCount >= 0 &&
+  observation.usage.inputTokens === 120), true);
 const lineageRecords = [...memory.values.values()].map((value) => {
   try { return JSON.parse(value) as Record<string, unknown>; } catch { return {}; }
 });
@@ -820,6 +833,7 @@ assert.throws(
 // Quarantined PDF validation never reaches the adapter promotion boundary.
 const invalidPdfClient = new MemoryCas();
 const invalidArtifacts = createHybridEvidenceArtifactStore({ blob: new MemoryBlob(), index: invalidPdfClient });
+const invalidRecoveryObservations: HouseHybridEvidenceRecoveryObservation[] = [];
 const invalidRecovery = createHouseHybridEvidenceRecovery({
   clients: { artifacts: invalidArtifacts, globalBudget: invalidPdfClient, jobs: invalidPdfClient, lineage: invalidPdfClient },
   dependencies: {
@@ -838,6 +852,9 @@ const invalidRecovery = createHouseHybridEvidenceRecovery({
         environment,
         jobClient: invalidPdfClient,
       });
+    },
+    observe(observation) {
+      invalidRecoveryObservations.push(observation);
     },
     ocr,
   },
@@ -862,6 +879,18 @@ const quarantinedRecords = [...invalidPdfClient.values.values()].map((value) => 
   try { return JSON.parse(value) as Record<string, unknown>; } catch { return {}; }
 }).filter(({ recordType }) => recordType === "hybrid_evidence_job_record");
 assert.equal(quarantinedRecords.some(({ failureCode }) => failureCode === "citation_invalid"), true);
+assert.deepEqual(invalidRecoveryObservations.filter((observation) =>
+  observation.outcome === "failed").map(({ code, detail, jobId, stage }) => ({
+  code,
+  detail,
+  hasJobId: jobId?.startsWith("hybrid-job.") ?? false,
+  stage,
+})), [{
+  code: "citation_invalid",
+  detail: "citation_invalid",
+  hasJobId: true,
+  stage: "validation",
+}]);
 
 assert.equal(sourceUrl.endsWith("2026FD.zip"), true);
 assert.equal(ptrUrl.endsWith("20000011.pdf"), true);

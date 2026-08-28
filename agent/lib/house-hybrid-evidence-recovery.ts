@@ -70,10 +70,59 @@ export interface HouseHybridEvidenceRecoveryDependencies {
     readonly reservation: HybridEvidenceBudgetReservation;
   }) => Promise<HybridEvidenceModelUsage | void>;
   readonly ocr?: IndependentPdfOcr;
+  readonly observe?: (observation: HouseHybridEvidenceRecoveryObservation) => void;
   readonly startWorker?: (
     request: PreparedHybridEvidenceWorkerRun<UserContent>["request"],
   ) => Promise<RunHandle>;
 }
+
+export type HouseHybridEvidenceRecoveryStage =
+  | "projection"
+  | "artifact_persist"
+  | "job_prepare"
+  | "accepted_result_reuse"
+  | "job_state"
+  | "budget_reservation"
+  | "worker_prepare"
+  | "worker_dispatch"
+  | "job_read"
+  | "independent_ocr"
+  | "validation"
+  | "result_acceptance"
+  | "artifact_reference"
+  | "lineage"
+  | "budget_reconciliation"
+  | "failure_finalization";
+
+interface HouseHybridEvidenceRecoveryObservationBase {
+  readonly acquisitionId: string;
+  readonly definitionId: string;
+  readonly definitionVersion: string;
+  readonly docId: string;
+  readonly jobId: string | null;
+  readonly modelId: string;
+  readonly sourceInstanceId: string;
+}
+
+export type HouseHybridEvidenceRecoveryObservation = Readonly<
+  HouseHybridEvidenceRecoveryObservationBase & {
+    readonly code: string;
+    readonly detail: string;
+    readonly outcome: "failed";
+    readonly stage: HouseHybridEvidenceRecoveryStage;
+  }
+> | Readonly<
+  HouseHybridEvidenceRecoveryObservationBase & {
+    readonly outcome: "accepted" | "reused";
+    readonly resultId: string;
+    readonly rowCount: number;
+    readonly usage: Readonly<{
+      readonly inputTokens: number;
+      readonly outputTokens: number;
+      readonly paidCostUsd: string;
+    }>;
+  }
+>;
 
 interface HybridEvidenceModelUsage {
   readonly inputTokens: number;
@@ -229,6 +278,75 @@ function validationCode(error: unknown) {
   return allowed.has(code as never) ? code as Parameters<typeof quarantineHybridEvidenceJob>[0]["codes"][number] : "validator_failed";
 }
 
+function boundedRecoveryDetail(error: unknown): string {
+  const explicitCode = error instanceof Error && "code" in error && typeof error.code === "string"
+    ? error.code
+    : null;
+  const candidate = explicitCode ?? (error instanceof Error ? error.message : typeof error);
+  if (/^[A-Za-z0-9_.:-]{1,120}$/u.test(candidate)) return candidate;
+  return error instanceof Error && /^[A-Za-z][A-Za-z0-9_.-]{0,119}$/u.test(error.name)
+    ? error.name
+    : "unrecognized";
+}
+
+function emitRecoveryFailure(input: {
+  readonly acquisitionId: string;
+  readonly definitionId: string;
+  readonly definitionVersion: string;
+  readonly dependencies?: HouseHybridEvidenceRecoveryDependencies;
+  readonly docId: string;
+  readonly error: unknown;
+  readonly jobId: string | null;
+  readonly modelId: string;
+  readonly sourceInstanceId: string;
+  readonly stage: HouseHybridEvidenceRecoveryStage;
+}): void {
+  const observation = Object.freeze({
+    acquisitionId: input.acquisitionId,
+    code: validationCode(input.error),
+    definitionId: input.definitionId,
+    definitionVersion: input.definitionVersion,
+    detail: boundedRecoveryDetail(input.error),
+    docId: input.docId,
+    jobId: input.jobId,
+    modelId: input.modelId,
+    outcome: "failed" as const,
+    sourceInstanceId: input.sourceInstanceId,
+    stage: input.stage,
+  });
+  if (input.dependencies?.observe) input.dependencies.observe(observation);
+  else console.warn("[house-hybrid-recovery] recovery failed", observation);
+}
+
+function emitRecoverySuccess(input: {
+  readonly acquisitionId: string;
+  readonly definition: HybridEvidenceJobDefinition;
+  readonly dependencies?: HouseHybridEvidenceRecoveryDependencies;
+  readonly docId: string;
+  readonly jobId: string;
+  readonly modelId: string;
+  readonly outcome: "accepted" | "reused";
+  readonly result: NonNullable<HybridEvidenceJobRecord["acceptedResult"]>;
+  readonly rowCount: number;
+  readonly sourceInstanceId: string;
+}): void {
+  const observation = Object.freeze({
+    acquisitionId: input.acquisitionId,
+    definitionId: input.definition.definitionId,
+    definitionVersion: input.definition.definitionVersion,
+    docId: input.docId,
+    jobId: input.jobId,
+    modelId: input.modelId,
+    outcome: input.outcome,
+    resultId: input.result.resultId,
+    rowCount: input.rowCount,
+    sourceInstanceId: input.sourceInstanceId,
+    usage: input.result.usage,
+  });
+  if (input.dependencies?.observe) input.dependencies.observe(observation);
+  else console.info("[house-hybrid-recovery] recovery accepted", observation);
+}
+
 export function createHouseHybridEvidenceRecovery(input: {
   readonly allowedModelIds?: readonly string[];
   readonly clients?: HouseHybridEvidenceRecoveryClients;
@@ -261,6 +379,23 @@ export function createHouseHybridEvidenceRecovery(input: {
       });
       if (decision.kind !== "recover") return null;
 
+      const observeFailure = (
+        stage: HouseHybridEvidenceRecoveryStage,
+        error: unknown,
+        jobId: string | null,
+      ) => emitRecoveryFailure({
+        acquisitionId: recoveryInput.acquisitionId,
+        definitionId: definition.definitionId,
+        definitionVersion: definition.definitionVersion,
+        dependencies: input.dependencies,
+        docId: recoveryInput.row.docId,
+        error,
+        jobId,
+        modelId: input.modelId,
+        sourceInstanceId: recoveryInput.source.sourceInstanceId,
+        stage,
+      });
+
       let projection;
       try {
         projection = await projectHybridEvidencePdf(recoveryInput.artifact, {
@@ -272,34 +407,41 @@ export function createHouseHybridEvidenceRecovery(input: {
         ) {
           projection = await projectHybridEvidencePdf(recoveryInput.artifact);
         }
-      } catch {
+      } catch (error) {
+        observeFailure("projection", error, null);
         return null;
       }
-      const manifest = await artifacts.persist({
-        acquisitionId: recoveryInput.acquisitionId,
-        authority: "House Clerk",
-        bytes: recoveryInput.artifact,
-        canonicalPublicUrl: recoveryInput.publicUrl,
-        mediaType: "application/pdf",
-        observedAt: recoveryInput.observedAt,
-        parserEligibility: {
-          adapterId: recoveryInput.source.adapterId,
-          factSchemaVersion: "house-ptr-transaction/v1",
-          outcomeDigest: recoveryInput.deterministic.errorCode === "deterministic_false_success"
-            ? recoveryInput.row.rowDigest
-            : projection.documentDigest,
-          reasonCode: decision.code,
-          state: decision.state,
-        },
-        sourceInstanceId: recoveryInput.source.sourceInstanceId,
-        structure: {
-          characterCount: null,
-          columnCount: null,
-          pageCount: projection.pageCount,
-          rowCount: null,
-          sheetCount: null,
-        },
-      });
+      let manifest;
+      try {
+        manifest = await artifacts.persist({
+          acquisitionId: recoveryInput.acquisitionId,
+          authority: "House Clerk",
+          bytes: recoveryInput.artifact,
+          canonicalPublicUrl: recoveryInput.publicUrl,
+          mediaType: "application/pdf",
+          observedAt: recoveryInput.observedAt,
+          parserEligibility: {
+            adapterId: recoveryInput.source.adapterId,
+            factSchemaVersion: "house-ptr-transaction/v1",
+            outcomeDigest: recoveryInput.deterministic.errorCode === "deterministic_false_success"
+              ? recoveryInput.row.rowDigest
+              : projection.documentDigest,
+            reasonCode: decision.code,
+            state: decision.state,
+          },
+          sourceInstanceId: recoveryInput.source.sourceInstanceId,
+          structure: {
+            characterCount: null,
+            columnCount: null,
+            pageCount: projection.pageCount,
+            rowCount: null,
+            sheetCount: null,
+          },
+        });
+      } catch (error) {
+        observeFailure("artifact_persist", error, null);
+        return null;
+      }
       const locators: EvidenceLocator[] = projection.pages.map((page) => ({
         artifactDigest: projection.documentDigest,
         evidenceDigest: page.evidenceDigest,
@@ -322,20 +464,26 @@ export function createHouseHybridEvidenceRecovery(input: {
         }),
         sourceRowDigest: recoveryInput.row.rowDigest,
       });
-      let record = await prepareHybridEvidenceJob({
-        artifacts: [manifest],
-        definition,
-        inputContextDigest: digestHybridEvidenceValue(inputProjection),
-        inputProjection,
-        locators,
-        modelId: input.modelId,
-        now: processingNow,
-        scope: {
-          initiatingWorkspaceId: input.initiatingWorkspaceId,
-          kind: "source_global",
-          sourceInstanceId: recoveryInput.source.sourceInstanceId,
-        },
-      }, input.clients?.jobs);
+      let record: HybridEvidenceJobRecord;
+      try {
+        record = await prepareHybridEvidenceJob({
+          artifacts: [manifest],
+          definition,
+          inputContextDigest: digestHybridEvidenceValue(inputProjection),
+          inputProjection,
+          locators,
+          modelId: input.modelId,
+          now: processingNow,
+          scope: {
+            initiatingWorkspaceId: input.initiatingWorkspaceId,
+            kind: "source_global",
+            sourceInstanceId: recoveryInput.source.sourceInstanceId,
+          },
+        }, input.clients?.jobs);
+      } catch (error) {
+        observeFailure("job_prepare", error, null);
+        return null;
+      }
       if (record.job.state === "accepted" && record.acceptedResult) {
         const payload = record.acceptedResult.payload as unknown as HouseHybridRecoveryResult;
         if (
@@ -344,60 +492,103 @@ export function createHouseHybridEvidenceRecovery(input: {
           payload.document.filerName !== filerName ||
           payload.document.filingDate !== recoveryInput.row.filingDate ||
           payload.document.stateDistrict !== recoveryInput.row.filer.stateDistrict
-        ) return null;
-        await advanceHybridSourceResultLineage({
-          lineageKey: `${recoveryInput.source.sourceInstanceId}:${recoveryInput.row.year}:${recoveryInput.row.docId}:${definition.definitionId}`,
-          now: new Date(recoveryInput.observedAt),
-          resultId: record.acceptedResult.resultId,
-          sourceDigest: recoveryInput.row.rowDigest,
-          sourceRevision: `cursor:${recoveryInput.source.cursor.revision}:row:${recoveryInput.row.rowDigest}`,
-        }, input.clients?.lineage);
+        ) {
+          observeFailure(
+            "accepted_result_reuse",
+            new Error("accepted_result_identity_mismatch"),
+            record.job.jobId,
+          );
+          return null;
+        }
+        try {
+          await advanceHybridSourceResultLineage({
+            lineageKey: `${recoveryInput.source.sourceInstanceId}:${recoveryInput.row.year}:${recoveryInput.row.docId}:${definition.definitionId}`,
+            now: new Date(recoveryInput.observedAt),
+            resultId: record.acceptedResult.resultId,
+            sourceDigest: recoveryInput.row.rowDigest,
+            sourceRevision: `cursor:${recoveryInput.source.cursor.revision}:row:${recoveryInput.row.rowDigest}`,
+          }, input.clients?.lineage);
+        } catch (error) {
+          observeFailure("lineage", error, record.job.jobId);
+          return null;
+        }
+        emitRecoverySuccess({
+          acquisitionId: recoveryInput.acquisitionId,
+          definition,
+          dependencies: input.dependencies,
+          docId: recoveryInput.row.docId,
+          jobId: record.job.jobId,
+          modelId: input.modelId,
+          outcome: "reused",
+          result: record.acceptedResult,
+          rowCount: payload.rows.length,
+          sourceInstanceId: recoveryInput.source.sourceInstanceId,
+        });
         return Object.freeze({
           document: payload.document,
           resultId: record.acceptedResult.resultId,
           rows: payload.rows,
         });
       }
-      if (record.job.state !== "prepared") return null;
+      if (record.job.state !== "prepared") {
+        observeFailure("job_state", new Error(`job_state_${record.job.state}`), record.job.jobId);
+        return null;
+      }
 
-      const reservation = await reserveHybridEvidenceAttempt({
-        definition,
-        environment,
-        job: record.job,
-        now: processingNow,
-      }, {
-        global: input.clients?.globalBudget,
-        workspace: input.clients?.workspaceBudget,
-      });
-      const prepared = await prepareHybridEvidenceWorkerRun({
-        budget: reservation,
-        definition,
-        environment,
-        initialEvidenceImages: projection.pages.map((page, index) => ({
-          imageBase64: page.imageBase64,
-          locator: locators[index] as Extract<EvidenceLocator, { kind: "pdf_page" }>,
-          mediaType: page.mediaType,
-        })),
-        inputProjection,
-        jobClient: input.clients?.jobs,
-        locators,
-        now: processingNow,
-        prepared: record,
-        reasoning: input.reasoning,
-      });
+      let reservation: HybridEvidenceBudgetReservation;
       try {
+        reservation = await reserveHybridEvidenceAttempt({
+          definition,
+          environment,
+          job: record.job,
+          now: processingNow,
+        }, {
+          global: input.clients?.globalBudget,
+          workspace: input.clients?.workspaceBudget,
+        });
+      } catch (error) {
+        observeFailure("budget_reservation", error, record.job.jobId);
+        return null;
+      }
+      let stage: HouseHybridEvidenceRecoveryStage = "worker_prepare";
+      const jobId = record.job.jobId;
+      try {
+        const prepared = await prepareHybridEvidenceWorkerRun({
+          budget: reservation,
+          definition,
+          environment,
+          initialEvidenceImages: projection.pages.map((page, index) => ({
+            imageBase64: page.imageBase64,
+            locator: locators[index] as Extract<EvidenceLocator, { kind: "pdf_page" }>,
+            mediaType: page.mediaType,
+          })),
+          inputProjection,
+          jobClient: input.clients?.jobs,
+          locators,
+          now: processingNow,
+          prepared: record,
+          reasoning: input.reasoning,
+        });
+        stage = "worker_dispatch";
         let workerUsage: HybridEvidenceModelUsage | void;
         if (input.dependencies?.dispatch) {
           workerUsage = await input.dependencies.dispatch({ prepared, reservation });
         } else {
           workerUsage = await drain(await startWorker(prepared.request));
         }
-        record = (await readHybridEvidenceJob(record.job.jobId, input.clients?.jobs))!;
-        if (record.job.state !== "completed" || !record.candidate) throw new Error("validator_failed");
+        stage = "job_read";
+        const completedRecord = await readHybridEvidenceJob(jobId, input.clients?.jobs);
+        if (!completedRecord) throw new Error("worker_outcome_missing");
+        record = completedRecord;
+        if (record.job.state !== "completed" || !record.candidate) {
+          throw new Error(`worker_outcome_${record.job.state}`);
+        }
+        stage = "independent_ocr";
         const independent = await readIndependentPdfTextWithUsage({
           ocr: input.dependencies?.ocr,
           projection,
         });
+        stage = "validation";
         const validated = validateHouseDocumentRowCandidate({
           artifactDigest: projection.documentDigest,
           candidate: record.candidate,
@@ -422,11 +613,13 @@ export function createHouseHybridEvidenceRecovery(input: {
           payload: validated as unknown as Record<string, unknown>,
           usage,
         });
+        stage = "result_acceptance";
         const accepted = await acceptHybridEvidenceJob({
           jobId: record.job.jobId,
           now: new Date(),
           result,
         }, input.clients?.jobs);
+        stage = "artifact_reference";
         await artifacts.setReference({
           active: true,
           artifactDigest: manifest.contentDigest,
@@ -439,6 +632,7 @@ export function createHouseHybridEvidenceRecovery(input: {
           kind: "current_lineage",
           referenceId: result.resultId,
         });
+        stage = "lineage";
         await advanceHybridSourceResultLineage({
           lineageKey: `${recoveryInput.source.sourceInstanceId}:${recoveryInput.row.year}:${recoveryInput.row.docId}:${definition.definitionId}`,
           now: new Date(),
@@ -446,6 +640,7 @@ export function createHouseHybridEvidenceRecovery(input: {
           sourceDigest: recoveryInput.row.rowDigest,
           sourceRevision: `cursor:${recoveryInput.source.cursor.revision}:row:${recoveryInput.row.rowDigest}`,
         }, input.clients?.lineage);
+        stage = "budget_reconciliation";
         await reconcileHybridEvidenceAttempt({
           actualInputTokens: accepted.acceptedResult?.usage.inputTokens,
           actualOutputTokens: accepted.acceptedResult?.usage.outputTokens,
@@ -453,41 +648,53 @@ export function createHouseHybridEvidenceRecovery(input: {
           outcome: "reconciled",
           reservation,
         }, { global: input.clients?.globalBudget, workspace: input.clients?.workspaceBudget });
+        emitRecoverySuccess({
+          acquisitionId: recoveryInput.acquisitionId,
+          definition,
+          dependencies: input.dependencies,
+          docId: recoveryInput.row.docId,
+          jobId: record.job.jobId,
+          modelId: input.modelId,
+          outcome: "accepted",
+          result: accepted.acceptedResult!,
+          rowCount: validated.rows.length,
+          sourceInstanceId: recoveryInput.source.sourceInstanceId,
+        });
         return Object.freeze({
           document: validated.document,
           resultId: result.resultId,
           rows: validated.rows,
         });
       } catch (error) {
-        console.warn("[house-hybrid-recovery] recovery failed", {
-          code: validationCode(error),
-          detail: error instanceof Error ? error.message : null,
-          jobId: record.job.jobId,
-        });
-        const latest = await readHybridEvidenceJob(record.job.jobId, input.clients?.jobs);
-        if (latest?.job.state === "completed") {
-          await quarantineHybridEvidenceJob({
-            codes: [validationCode(error)],
-            jobId: latest.job.jobId,
-            now: new Date(),
-          }, input.clients?.jobs);
-          await artifacts.setRetention({
-            artifactDigest: manifest.contentDigest,
-            now: new Date(),
-            state: "quarantined",
-          });
-          await reconcileHybridEvidenceAttempt({ outcome: "reconciled", reservation }, {
-            global: input.clients?.globalBudget,
-            workspace: input.clients?.workspaceBudget,
-          });
-        } else {
-          if (latest && (latest.job.state === "prepared" || latest.job.state === "running")) {
-            await markHybridEvidenceJobUncertain({ jobId: latest.job.jobId, now: new Date() }, input.clients?.jobs);
+        observeFailure(stage, error, jobId);
+        try {
+          const latest = await readHybridEvidenceJob(jobId, input.clients?.jobs);
+          if (latest?.job.state === "completed") {
+            await quarantineHybridEvidenceJob({
+              codes: [validationCode(error)],
+              jobId: latest.job.jobId,
+              now: new Date(),
+            }, input.clients?.jobs);
+            await artifacts.setRetention({
+              artifactDigest: manifest.contentDigest,
+              now: new Date(),
+              state: "quarantined",
+            });
+            await reconcileHybridEvidenceAttempt({ outcome: "reconciled", reservation }, {
+              global: input.clients?.globalBudget,
+              workspace: input.clients?.workspaceBudget,
+            });
+          } else {
+            if (latest && (latest.job.state === "prepared" || latest.job.state === "running")) {
+              await markHybridEvidenceJobUncertain({ jobId: latest.job.jobId, now: new Date() }, input.clients?.jobs);
+            }
+            await reconcileHybridEvidenceAttempt({ outcome: "uncertain", reservation }, {
+              global: input.clients?.globalBudget,
+              workspace: input.clients?.workspaceBudget,
+            });
           }
-          await reconcileHybridEvidenceAttempt({ outcome: "uncertain", reservation }, {
-            global: input.clients?.globalBudget,
-            workspace: input.clients?.workspaceBudget,
-          });
+        } catch (finalizationError) {
+          observeFailure("failure_finalization", finalizationError, jobId);
         }
         return null;
       }

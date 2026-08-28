@@ -992,10 +992,22 @@ async function acquireHouse(input: {
             row,
             source,
           });
-        } catch {
-          throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
+        } catch (error) {
+          throw new HouseAdapterError(
+            "parser_incomplete",
+            "normalize",
+            "partial",
+            `hybrid_recovery_${boundedAdapterDetail(error instanceof Error ? error.name : typeof error)}`,
+          );
         }
-        if (!recovered) throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
+        if (!recovered) {
+          throw new HouseAdapterError(
+            "parser_incomplete",
+            "normalize",
+            "partial",
+            "hybrid_recovery_no_result",
+          );
+        }
         const expectedFilerName = [row.filer.prefix, row.filer.firstName, row.filer.lastName, row.filer.suffix]
           .filter((value): value is string => value !== null).join(" ");
         if (
