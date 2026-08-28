@@ -199,3 +199,137 @@ export function buildPublicCommentaryMultiSignalReport(input: {
     },
   };
 }
+
+/*
+ * Inverse Cramer needs NO research: the statement IS the conclusion. The owner
+ * only wants "here is what Cramer said, so he is bullish on X and bearish on Y" -
+ * and infers the inverse trade himself. This builder produces exactly that from
+ * the deterministic marketView (stance + named companies), grouped by direction
+ * across every post in the occurrence, with no per-post fan-out, no research
+ * brief, and no "brief unavailable" fallback. It is inverse-cramer only; the
+ * research builders above stay in place for the tracker and other lanes.
+ */
+export interface InverseCramerDirectSignal {
+  readonly publishedAt?: string;
+  readonly sourceLabel?: string;
+  // A human, openable source page. Omitted when only a polling/API endpoint is
+  // known (the owner never wants api.x.com shown), in which case no source row is
+  // emitted for that post rather than surfacing the machine endpoint.
+  readonly sourceUrl?: string;
+  readonly stance: "bullish" | "bearish";
+  readonly statement: string;
+  readonly targets: readonly { readonly displayName: string; readonly symbol: string | null }[];
+}
+
+function inverseCramerNameList(names: readonly string[]): string {
+  const unique = [...new Set(names.map((name) => name.trim()).filter(Boolean))];
+  if (unique.length === 0) return "";
+  if (unique.length === 1) return unique[0]!;
+  if (unique.length === 2) return `${unique[0]} and ${unique[1]}`;
+  return `${unique.slice(0, -1).join(", ")}, and ${unique[unique.length - 1]}`;
+}
+
+export function buildInverseCramerDirectSignalReport(input: {
+  readonly asOf: string;
+  readonly signals: readonly InverseCramerDirectSignal[];
+}): ResearchReport {
+  if (input.signals.length === 0) {
+    throw new Error("inverse_cramer_direct_report_requires_a_signal");
+  }
+  const branding = PUBLIC_COMMENTARY_REPORT_BRANDING["inverse-cramer"];
+  const nameOf = (target: { displayName: string; symbol: string | null }): string =>
+    target.symbol ? `${target.displayName} (${target.symbol})` : target.displayName;
+
+  // Cramer's own stance, aggregated across every post in this occurrence.
+  const cramerBullish: string[] = [];
+  const cramerBearish: string[] = [];
+  for (const signal of input.signals) {
+    const names = signal.targets.map(nameOf);
+    (signal.stance === "bullish" ? cramerBullish : cramerBearish).push(...names);
+  }
+  // The inverse: what Cramer is bullish on is a bearish read (sell/short), and
+  // what he is bearish on is a bullish read (buy/long).
+  const inverseSellShort = inverseCramerNameList(cramerBullish);
+  const inverseBuyLong = inverseCramerNameList(cramerBearish);
+
+  const moveLines: string[] = [];
+  if (inverseSellShort) {
+    moveLines.push(
+      `Cramer is bullish on ${inverseSellShort}, so the inverse read is bearish: consider selling or shorting.`,
+    );
+  }
+  if (inverseBuyLong) {
+    moveLines.push(
+      `Cramer is bearish on ${inverseBuyLong}, so the inverse read is bullish: consider buying or going long.`,
+    );
+  }
+
+  const verdictLabel = [
+    inverseSellShort ? `Bearish on ${inverseSellShort}` : "",
+    inverseBuyLong ? `Bullish on ${inverseBuyLong}` : "",
+  ].filter(Boolean).join(" · ") || "No directional read";
+
+  const tone = inverseSellShort && !inverseBuyLong
+    ? "negative" as const
+    : inverseBuyLong && !inverseSellShort
+      ? "positive" as const
+      : "info" as const;
+
+  // One tight line per post: his stance and the companies, plus a short quote.
+  const saidBullets = input.signals.map((signal) => {
+    const names = inverseCramerNameList(signal.targets.map(nameOf));
+    const quote = signal.statement.replace(/\s+/gu, " ").trim().slice(0, 220);
+    return `${signal.stance === "bullish" ? "Bullish" : "Bearish"} on ${names}: "${quote}"`.slice(0, 1_000);
+  });
+
+  const seenUrls = new Set<string>();
+  const sources = input.signals
+    .flatMap((signal) => {
+      const url = signal.sourceUrl;
+      if (!url || seenUrls.has(url)) return [];
+      seenUrls.add(url);
+      return [{
+        label: (signal.sourceLabel ?? "Public statement on X").slice(0, 180),
+        ...(signal.publishedAt ? { publishedAt: signal.publishedAt } : {}),
+        publisher: "X",
+        url,
+      }];
+    });
+
+  const title = inverseSellShort && !inverseBuyLong
+    ? `Jim Cramer is bullish on ${inverseSellShort} — inverse read: bearish`
+    : inverseBuyLong && !inverseSellShort
+      ? `Jim Cramer is bearish on ${inverseBuyLong} — inverse read: bullish`
+      : `Jim Cramer's latest — inverse read on ${inverseCramerNameList([...cramerBullish, ...cramerBearish])}`;
+
+  return {
+    asOf: input.asOf,
+    blocks: [
+      {
+        body: moveLines.join(" ").slice(0, 4_000),
+        heading: "The inverse read (your move)",
+        tone,
+        type: "callout" as const,
+      },
+      {
+        body: "Here is what Jim Cramer said.",
+        bullets: saidBullets.slice(0, 20),
+        heading: "What Cramer said",
+        type: "text" as const,
+      },
+    ],
+    confidence: "medium",
+    description: branding.description,
+    disclosure: branding.disclosure,
+    eyebrow: branding.eyebrow,
+    sources,
+    summary: moveLines.join(" ").slice(0, 5_000),
+    title: title.slice(0, 200),
+    verdict: {
+      label: verdictLabel.slice(0, 120),
+      rationale: "Inverse Cramer: his stance is the source view and your read is its deterministic opposite. No further research; the statement is the signal."
+        .slice(0, 1_000),
+      tone,
+    },
+  };
+}

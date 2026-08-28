@@ -741,8 +741,13 @@ export interface PublicCommentaryResearchSubject extends PublicCommentaryProject
   readonly counterevidence?: readonly string[];
   readonly factPayloadDigest: string;
   readonly sourceInstanceId: string;
+  // The speaker's own directional view and the named market targets, carried
+  // through from the extraction so the no-research Inverse Cramer lane can state
+  // "Cramer is bullish on X" and group by company without re-reading anything.
+  readonly stance?: z.infer<typeof commentaryExtractionSchema>["stance"];
   readonly subscriptionId: string;
   readonly summary?: string;
+  readonly targets?: z.infer<typeof commentaryExtractionSchema>["targets"];
   readonly uncertainty?: readonly string[];
 }
 
@@ -1247,6 +1252,7 @@ export function createPublicCommentaryPipeline(input: {
               counterevidence: Object.freeze(isCompactInverseCramerPayload(semantic)
                 ? semantic.counterevidence
                 : semantic.counterevidence.map(({ statement }) => statement)),
+              ...(extraction ? { stance: extraction.stance, targets: extraction.targets } : {}),
               summary: semantic.rationale,
               uncertainty: Object.freeze(isCompactInverseCramerPayload(semantic)
                 ? semantic.uncertainty

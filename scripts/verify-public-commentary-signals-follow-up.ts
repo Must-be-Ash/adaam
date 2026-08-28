@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 
 import { z } from "zod";
 
+import { buildInverseCramerDirectSignalReport } from "../agent/lib/public-commentary-signal-report";
+import { researchReportSchema } from "../agent/lib/artifact-schema";
+
 import {
   listLatestStrategyPacks,
   resolveStrategyPackIntervalMinutes,
@@ -50,7 +53,7 @@ import {
 const versions = strategyPackCatalog.entries
   .filter(({ id }) => id === "inverse-cramer")
   .map(({ version }) => version);
-assert.deepEqual(versions, ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.4.1", "1.4.2", "1.4.3", "1.4.4", "1.4.5", "1.4.6", "1.4.7", "1.4.8", "1.4.9"]);
+assert.deepEqual(versions, ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.4.1", "1.4.2", "1.4.3", "1.4.4", "1.4.5", "1.4.6", "1.4.7", "1.4.8", "1.4.9", "1.5.0"]);
 assert.equal(
   strategyPackCatalog.resolve({ id: "inverse-cramer", version: "1.0.0" })?.contentDigest,
   "c84defe79be9b72da6deaa7e7c3bc9254fa27f1286a79073b260ee4b90bcb434",
@@ -271,7 +274,7 @@ assert.deepEqual(
     EVE_STRATEGY_PACK_CATALOG_ENABLED: "1",
     EVE_WORKSPACE_STATE_ENABLED: "1",
   } }).packs.filter(({ id }) => id === "inverse-cramer").map(({ version }) => version),
-  ["1.4.9"],
+  ["1.5.0"],
 );
 assert.equal(latestPack.configuration.some(({ key }) => key === "firstRunLookback"), false);
 assert.equal(resolveStrategyPackInitialMonitorDueAt({
@@ -539,6 +542,57 @@ assert.throws(() => resolveStrategyPackConfiguration(latestPack, {
   // The drain does not fabricate a paid cost - accountedUsage keeps that at the
   // conservative ceiling so spend is never under-reported.
   assert.equal("paidCostUsd" in usage, false);
+}
+
+{
+  // Inverse Cramer no-research direct-signal report: concise, grouped by company
+  // across every post, no research brief, no per-post fragmentation. Modeled on
+  // the real 5-post Cramer occurrence (all bullish -> inverse bearish, with one
+  // multi-company post that must list every name it mentions).
+  const bullish = "bullish" as const;
+  const report = buildInverseCramerDirectSignalReport({
+    asOf: "2026-08-26",
+    signals: [
+      { stance: bullish, statement: "Meta goes negative: this is one hated stock.. huge win. Shocked it doesn't matter", targets: [{ displayName: "Meta", symbol: "META" }] },
+      { stance: bullish, statement: "$1.3 Billion a year--drop in the bucket--instead of $100 billion a year", targets: [{ displayName: "Meta", symbol: "META" }] },
+      { stance: bullish, statement: "Operation Grand Slam: Crowdstrike, Salesforce, Nvidia what a night", targets: [{ displayName: "Crowdstrike", symbol: "CRWD" }, { displayName: "Salesforce", symbol: "CRM" }, { displayName: "Nvidia", symbol: "NVDA" }] },
+      { stance: bullish, statement: "Nvidia not going to stop here.... a 2% gross margin hit from DRAMs.. Picayune!", targets: [{ displayName: "Nvidia", symbol: "NVDA" }] },
+      { stance: bullish, statement: "Meta was looking at a trillion; final is $12.6b and no onerous restrictions", targets: [{ displayName: "Meta", symbol: "META" }] },
+    ],
+  });
+  researchReportSchema.parse(report);
+  // Exactly two blocks - the inverse read and one "what Cramer said" list - never
+  // ten (two per post) as the old fragmented research report produced.
+  assert.equal(report.blocks.length, 2);
+  assert.equal(report.eyebrow, "Eve · Inverse Cramer monitor");
+  // All bullish -> inverse bearish; each company appears once despite three Meta
+  // posts and two Nvidia posts.
+  assert.equal(report.verdict.tone, "negative");
+  assert.match(report.verdict.label, /^Bearish on /u);
+  for (const name of ["Meta", "Nvidia", "Crowdstrike", "Salesforce"]) {
+    assert.ok(report.verdict.label.includes(name), `verdict names ${name}`);
+  }
+  assert.equal((report.verdict.label.match(/Meta/gu) ?? []).length, 1, "Meta deduped");
+  assert.match(report.summary, /inverse read is bearish: consider selling or shorting/u);
+  // No research: no "brief unavailable" fallback text anywhere.
+  const rendered = JSON.stringify(report);
+  assert.equal(rendered.includes("automated brief was unavailable"), false);
+  assert.equal(rendered.includes("What it means and what to watch"), false);
+  // One "what Cramer said" bullet per post, each naming his stance + companies.
+  const saidBlock = report.blocks.find((block) => block.heading === "What Cramer said");
+  assert.ok(saidBlock && saidBlock.type === "text" && saidBlock.bullets?.length === 5);
+
+  // Mixed directions: a bearish-on-X post inverts to a bullish (buy/long) read.
+  const mixed = buildInverseCramerDirectSignalReport({
+    asOf: "2026-08-26",
+    signals: [
+      { stance: "bearish", statement: "Intel is a disaster, avoid it", targets: [{ displayName: "Intel", symbol: "INTC" }] },
+    ],
+  });
+  researchReportSchema.parse(mixed);
+  assert.equal(mixed.verdict.tone, "positive");
+  assert.match(mixed.verdict.label, /^Bullish on Intel/u);
+  assert.match(mixed.summary, /inverse read is bullish: consider buying or going long/u);
 }
 
 console.info("Spec 4C narrow follow-up verification passed.");

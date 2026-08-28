@@ -56,10 +56,12 @@ import {
   publicStatementSchema,
 } from "./public-commentary-schema";
 import {
+  buildInverseCramerDirectSignalReport,
   buildPublicCommentaryMultiSignalReport,
   buildPublicCommentarySignalReport,
   publicCommentaryAlertPresentationForBrief,
   publicCommentaryReportArtifactId,
+  type InverseCramerDirectSignal,
   type PublicCommentaryReportVariant,
 } from "./public-commentary-signal-report";
 import {
@@ -1602,6 +1604,94 @@ async function runInverseCramerExecutiveResearch(input: {
   }
 }
 
+/*
+ * Inverse Cramer's no-research lane. The statement is the conclusion: report what
+ * Cramer said and which companies he is bullish/bearish on, grouped across every
+ * post in the occurrence, and let the owner take the inverse. No fan-out, no
+ * frontier research, no deterministic raw dump. Publishes ONE concise report as a
+ * mini-app artifact and a tight attribution-led alert. If no accepted directional
+ * signal carries a company target, the pipeline result is returned unchanged.
+ */
+async function runInverseCramerDirectSignal(input: {
+  readonly clients?: PublicCommentaryWorkspaceWorkerClients;
+  readonly result: PublicCommentaryPipelineResult;
+  readonly scope: AuthorizedWorkspaceStoreScope;
+  readonly signal?: AbortSignal;
+}): Promise<PublicCommentaryPipelineResult> {
+  if (!input.result.finding) return input.result;
+  const facts = (input.result.finding.facts ?? []).flatMap((fact) => {
+    if (fact.kind !== "public_commentary_signal") return [];
+    const finding = commentaryFindingSchema.parse(fact.finding);
+    return finding.outcome === "accepted" ? [{ finding }] : [];
+  });
+  if (facts.length === 0 || facts.length > 8) return input.result;
+  const signals: InverseCramerDirectSignal[] = [];
+  for (const { finding } of facts) {
+    const subject = input.result.researchSubjects?.find(
+      ({ statementRevisionId }) => statementRevisionId === finding.statementRevisionId,
+    );
+    if (!subject) {
+      throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+    }
+    if (
+      (subject.stance !== "bullish" && subject.stance !== "bearish") ||
+      !subject.targets || subject.targets.length === 0
+    ) {
+      continue;
+    }
+    // Only a human, openable page is ever cited; the polling endpoint is dropped.
+    const canonicalUrl = subject.statement.canonicalUrl;
+    const humanSource = typeof canonicalUrl === "string" && !/\bapi\.x\.com\b/iu.test(canonicalUrl);
+    signals.push({
+      stance: subject.stance,
+      statement: subject.plaintext,
+      targets: subject.targets.map(({ displayName, symbol }) => ({ displayName, symbol })),
+      ...(humanSource ? { sourceLabel: "Jim Cramer on X", sourceUrl: canonicalUrl } : {}),
+    });
+  }
+  if (signals.length === 0) return input.result;
+
+  const report = buildInverseCramerDirectSignalReport({
+    asOf: input.result.finding.asOf,
+    signals,
+  });
+  const artifactId = publicCommentaryReportArtifactId({
+    factIdentities: facts.map(({ finding }) => finding.findingId),
+    ownerId: input.scope.ownerId,
+    workspaceId: input.scope.workspaceId,
+  });
+  const published = await (input.clients?.publishReport ?? publishReportArtifact)({
+    artifactId,
+    report,
+    signal: input.signal,
+  });
+  if (published.artifactId !== artifactId || published.kind !== "report") {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+  }
+  const title = report.title.slice(0, 240);
+  const whyMatched = report.summary.replace(/\s+/gu, " ").trim().slice(0, 1_000);
+  const artifactRefs = [artifactReferenceForId(artifactId)];
+  const finding = workspaceFindingCandidateSchema.parse({
+    ...input.result.finding,
+    artifactRefs: [
+      ...(input.result.finding.artifactRefs ?? []),
+      ...artifactRefs,
+    ].filter((ref, index, all) => all.indexOf(ref) === index).slice(0, 8),
+    summary: whyMatched,
+  });
+  return Object.freeze({
+    ...input.result,
+    alertPresentation: { title, whyMatched },
+    alertPresentations: Object.freeze([Object.freeze({
+      artifactRefs,
+      key: "inverse-cramer-direct-signal",
+      title,
+      whyMatched,
+    })]),
+    finding,
+  });
+}
+
 export async function evaluatePublicCommentarySignalsForWorker(input: {
   readonly clients?: PublicCommentaryWorkspaceWorkerClients;
   readonly ctx: WorkerContext;
@@ -1724,7 +1814,11 @@ export async function evaluatePublicCommentarySignalsForWorker(input: {
       ...(strategyDisplayName ? { strategyDisplayName } : {}),
       window: envelope.window,
     });
-    failureStage = researchRuntime ? "research" : "commit";
+    // Inverse Cramer needs no research: when the pack declares no research
+    // contract, publish the concise "here is what Cramer said, so he is bullish
+    // on X and bearish on Y" report directly from the deterministic findings.
+    const directSignalOnly = !researchRuntime && monitor.managedBy.packId === "inverse-cramer";
+    failureStage = researchRuntime || directSignalOnly ? "research" : "commit";
     const result = researchRuntime
       ? await runInverseCramerExecutiveResearch({
           clients: input.clients,
@@ -1736,7 +1830,14 @@ export async function evaluatePublicCommentarySignalsForWorker(input: {
           scope,
           signal: input.ctx.abortSignal,
         })
-      : pipelineResult;
+      : directSignalOnly
+        ? await runInverseCramerDirectSignal({
+            clients: input.clients,
+            result: pipelineResult,
+            scope,
+            signal: input.ctx.abortSignal,
+          })
+        : pipelineResult;
     failureStage = "commit";
     const outcome = await commitThenAcknowledgePublicCommentaryResult({
       acknowledge: result.acknowledgeDurableCommit,
