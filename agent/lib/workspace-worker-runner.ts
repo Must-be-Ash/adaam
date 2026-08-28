@@ -38,7 +38,7 @@ import {
   type WorkspaceWorkerEnvelope,
 } from "./workspace-worker-auth";
 
-export const WORKSPACE_WORKER_MODEL_ID = "google/gemini-3.6-flash";
+export const WORKSPACE_WORKER_MODEL_ID = "zai/glm-5.3-flash";
 
 /*
  * A scheduled occurrence no longer runs an LLM worker session; the scheduler

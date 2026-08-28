@@ -18,7 +18,7 @@ const environment = {
   EVE_HYBRID_FAST_MODEL_REASONING: "provider-default",
   EVE_HYBRID_FRONTIER_MODEL_ID: "openai/gpt-5.4",
   EVE_HYBRID_FRONTIER_MODEL_REASONING: "high",
-  EVE_STRATEGY_PACK_WORKER_MODEL_ID: "google/gemini-3.6-flash",
+  EVE_STRATEGY_PACK_WORKER_MODEL_ID: "zai/glm-5.3-flash",
 };
 
 const historical = strategyPackCatalog.resolve({
@@ -43,7 +43,7 @@ const policy = resolveStrategyPackWorkerModelPolicy({
   pack: adopted,
 });
 assert.deepEqual(policy.allowedModelIds, [
-  "google/gemini-3.6-flash",
+  "zai/glm-5.3-flash",
   "openai/gpt-5.4",
 ]);
 const definition = createSecIpoResearchDefinition(["openai/gpt-5.4"], "1.0.0");

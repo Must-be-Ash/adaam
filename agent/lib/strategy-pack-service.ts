@@ -998,7 +998,7 @@ export function resolveStrategyPackWorkerModelPolicy(input: {
     resolveStrategyPackResearchWorkerContract(input.pack) !== null
   ) {
     const workerModelId =
-      input.environment.EVE_STRATEGY_PACK_WORKER_MODEL_ID ?? "google/gemini-3.6-flash";
+      input.environment.EVE_STRATEGY_PACK_WORKER_MODEL_ID ?? "zai/glm-5.3-flash";
     const semanticModelId = resolveHybridTaskModelRoute(
       "semantic_interpretation",
       input.environment,
@@ -1011,7 +1011,7 @@ export function resolveStrategyPackWorkerModelPolicy(input: {
   }
   return input.fallback ?? {
     allowedModelIds: [
-      input.environment.EVE_STRATEGY_PACK_WORKER_MODEL_ID ?? "google/gemini-3.6-flash",
+      input.environment.EVE_STRATEGY_PACK_WORKER_MODEL_ID ?? "zai/glm-5.3-flash",
     ],
     maximumOutputTokens: 12_000,
   };

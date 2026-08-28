@@ -187,7 +187,7 @@ await writeWorkspaceDocument("capabilities", {
     researchToolIds: ["fetch_public_source"],
     skills: [{ id: "public-event-monitoring", version: "1.0.0" }],
     sources: [{ origin: source.origin, sourceId: source.sourceId }],
-    workerModelPolicy: { allowedModelIds: ["google/gemini-3.6-flash"], maximumOutputTokens: 200 },
+    workerModelPolicy: { allowedModelIds: ["zai/glm-5.3-flash"], maximumOutputTokens: 200 },
   },
 }, stateClient);
 await writeWorkspaceDocument("strategy", {
@@ -925,7 +925,7 @@ await writeWorkspaceDocument("capabilities", {
     researchToolIds: ["fetch_public_source"],
     skills: [{ id: "public-event-monitoring", version: "1.0.0" }],
     sources: [{ origin: source.origin, sourceId: source.sourceId }],
-    workerModelPolicy: { allowedModelIds: ["google/gemini-3.6-flash"], maximumOutputTokens: 200 },
+    workerModelPolicy: { allowedModelIds: ["zai/glm-5.3-flash"], maximumOutputTokens: 200 },
   },
 }, stateClient);
 const deniedRunId = `${"b".repeat(64)}:attempt:1`;

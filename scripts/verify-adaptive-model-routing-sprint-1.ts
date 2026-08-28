@@ -14,7 +14,7 @@ import {
 import { createHybridEvidenceWorkerAgentConfig } from "../agent/lib/hybrid-evidence-worker-config";
 
 const configuredEnvironment: NodeJS.ProcessEnv = {
-  EVE_HYBRID_FAST_MODEL_ID: "google/gemini-3-flash",
+  EVE_HYBRID_FAST_MODEL_ID: "zai/glm-5.3-flash",
   EVE_HYBRID_FAST_MODEL_REASONING: "low",
   EVE_HYBRID_FRONTIER_MODEL_ID: "openai/gpt-5.4",
   EVE_HYBRID_FRONTIER_MODEL_REASONING: "high",
@@ -36,7 +36,7 @@ const fast = resolveHybridTaskModelRoute(
 );
 assert.deepEqual(fast, {
   executionClass: "fast",
-  modelId: "google/gemini-3-flash",
+  modelId: "zai/glm-5.3-flash",
   purpose: "extraction_recovery",
   reasoning: "low",
 });
@@ -54,14 +54,14 @@ assert.deepEqual(frontier, {
 
 for (const environment of [
   {},
-  { EVE_HYBRID_FAST_MODEL_ID: "google/gemini-3-flash" },
+  { EVE_HYBRID_FAST_MODEL_ID: "zai/glm-5.3-flash" },
   {
     ...configuredEnvironment,
     EVE_HYBRID_FRONTIER_MODEL_REASONING: "medium",
   },
   {
     ...configuredEnvironment,
-    EVE_HYBRID_FRONTIER_MODEL_ID: "google/gemini-3-flash",
+    EVE_HYBRID_FRONTIER_MODEL_ID: "zai/glm-5.3-flash",
   },
 ]) {
   assert.throws(
@@ -73,9 +73,9 @@ for (const environment of [
 }
 
 assert.doesNotThrow(() =>
-  assertHybridModelRouteAllowed(fast, ["google/gemini-3-flash"]));
+  assertHybridModelRouteAllowed(fast, ["zai/glm-5.3-flash"]));
 assert.throws(
-  () => assertHybridModelRouteAllowed(frontier, ["google/gemini-3-flash"]),
+  () => assertHybridModelRouteAllowed(frontier, ["zai/glm-5.3-flash"]),
   (error) =>
     error instanceof HybridModelRoutingError &&
     error.code === "hybrid_model_route_denied",
@@ -134,7 +134,7 @@ assert.deepEqual(createHybridEvidenceWorkerAgentConfig(verifiedEnvelope), {
     maxOutputTokensPerSession: 400,
     sessionTimeoutMs: 15 * 60_000,
   },
-  model: "google/gemini-3-flash",
+  model: "zai/glm-5.3-flash",
   reasoning: "low",
 });
 const frontierEnvelope = {
@@ -166,7 +166,7 @@ assert.throws(
   /hybrid_evidence_auth_invalid/u,
 );
 
-assert.equal(rootAgent.model, "google/gemini-3.6-flash");
+assert.equal(rootAgent.model, "zai/glm-5.3-flash");
 assert.equal(rootAgent.reasoning, "high");
 
 console.log("adaptive model routing Sprint 1 verification passed");

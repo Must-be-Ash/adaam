@@ -114,7 +114,7 @@ const earningsCapabilities: WorkspaceCapabilityManifestValue = {
     sourceId: source.sourceId,
   })),
   workerModelPolicy: {
-    allowedModelIds: ["google/gemini-3.6-flash"],
+    allowedModelIds: ["zai/glm-5.3-flash"],
     maximumOutputTokens: 4_000,
   },
 };

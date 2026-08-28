@@ -89,7 +89,7 @@ assert.deepEqual(resolveStrategyPackWorkerModelPolicy({
   environment,
   pack: commentaryPack,
 }), {
-  allowedModelIds: ["google/gemini-3.6-flash", frontierRoute.modelId],
+  allowedModelIds: ["zai/glm-5.3-flash", frontierRoute.modelId],
   maximumOutputTokens: WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS,
 });
 const commentaryBudget = resolveStrategyPackInitialBudgetPolicy(

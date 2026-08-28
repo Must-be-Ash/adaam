@@ -8,7 +8,7 @@ export default defineAgent({
       "pdfjs-dist",
     ],
   },
-  model: "google/gemini-3.6-flash",
+  model: "zai/glm-5.3-flash",
   reasoning: "high",
   compaction: {
     thresholdPercent: 0.75,

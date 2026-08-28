@@ -226,7 +226,7 @@ function capabilitiesFor(version: string): WorkspaceCapabilityManifestValue {
       origin: new URL(item.canonicalUrl).origin,
       sourceId: item.sourceId,
     })),
-    workerModelPolicy: { allowedModelIds: ["google/gemini-3.6-flash"], maximumOutputTokens: 2_000 },
+    workerModelPolicy: { allowedModelIds: ["zai/glm-5.3-flash"], maximumOutputTokens: 2_000 },
   };
 }
 

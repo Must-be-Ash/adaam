@@ -303,7 +303,7 @@ export const IPO_FILINGS_CAPABILITY_MANIFEST = Object.freeze({
     sourceId: SEC_IPO_SOURCE_ID,
   }],
   workerModelPolicy: {
-    allowedModelIds: ["google/gemini-3.6-flash"],
+    allowedModelIds: ["zai/glm-5.3-flash"],
     maximumOutputTokens: 2_000,
   },
 } satisfies WorkspaceCapabilityManifestValue);
