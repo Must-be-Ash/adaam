@@ -852,6 +852,7 @@ const invalidRecovery = createHouseHybridEvidenceRecovery({
         environment,
         jobClient: invalidPdfClient,
       });
+      return { inputTokens: 130, outputTokens: 35, paidCostUsd: "0.02" };
     },
     observe(observation) {
       invalidRecoveryObservations.push(observation);
@@ -879,6 +880,10 @@ const quarantinedRecords = [...invalidPdfClient.values.values()].map((value) => 
   try { return JSON.parse(value) as Record<string, unknown>; } catch { return {}; }
 }).filter(({ recordType }) => recordType === "hybrid_evidence_job_record");
 assert.equal(quarantinedRecords.some(({ failureCode }) => failureCode === "citation_invalid"), true);
+const quarantinedUsage = (await readGlobalDispatchBudgetLedger(invalidPdfClient)).reservations.at(-1)!;
+assert.equal(quarantinedUsage.reconciledInputTokens, 130);
+assert.equal(quarantinedUsage.reconciledOutputTokens, 35);
+assert.equal(quarantinedUsage.reconciledPaidMicros, "20000");
 assert.deepEqual(invalidRecoveryObservations.filter((observation) =>
   observation.outcome === "failed").map(({ code, detail, jobId, stage }) => ({
   code,

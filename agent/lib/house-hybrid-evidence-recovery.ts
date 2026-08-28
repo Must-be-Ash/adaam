@@ -552,6 +552,7 @@ export function createHouseHybridEvidenceRecovery(input: {
       }
       let stage: HouseHybridEvidenceRecoveryStage = "worker_prepare";
       const jobId = record.job.jobId;
+      let workerUsage: HybridEvidenceModelUsage | void = undefined;
       try {
         const prepared = await prepareHybridEvidenceWorkerRun({
           budget: reservation,
@@ -570,7 +571,6 @@ export function createHouseHybridEvidenceRecovery(input: {
           reasoning: input.reasoning,
         });
         stage = "worker_dispatch";
-        let workerUsage: HybridEvidenceModelUsage | void;
         if (input.dependencies?.dispatch) {
           workerUsage = await input.dependencies.dispatch({ prepared, reservation });
         } else {
@@ -680,7 +680,19 @@ export function createHouseHybridEvidenceRecovery(input: {
               now: new Date(),
               state: "quarantined",
             });
-            await reconcileHybridEvidenceAttempt({ outcome: "reconciled", reservation }, {
+            await reconcileHybridEvidenceAttempt({
+              ...(workerUsage
+                ? {
+                    actualInputTokens: workerUsage.inputTokens,
+                    actualOutputTokens: workerUsage.outputTokens,
+                  }
+                : {}),
+              ...(workerUsage?.paidCostUsd === undefined
+                ? {}
+                : { actualPaidCost: workerUsage.paidCostUsd }),
+              outcome: "reconciled",
+              reservation,
+            }, {
               global: input.clients?.globalBudget,
               workspace: input.clients?.workspaceBudget,
             });
