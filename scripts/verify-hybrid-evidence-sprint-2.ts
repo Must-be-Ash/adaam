@@ -149,7 +149,7 @@ assert.ok(Date.now() - decoderTimeoutStartedAt < 2_000, "decoder timeout must ki
 const definitions = createExtractionRecoveryDefinitions([modelId]);
 const pdfDefinition = definitions.find((definition) => definition.allowedMediaTypes.includes("application/pdf"))!;
 const spreadsheetDefinition = definitions.find((definition) => definition.definitionId === SPREADSHEET_ROLE_DEFINITION_ID)!;
-assert.equal(pdfDefinition.definitionVersion, "1.0.1");
+assert.equal(pdfDefinition.definitionVersion, "1.0.2");
 assert.equal(spreadsheetDefinition.definitionVersion, "1.0.0");
 assert.equal(assessExtractionRecoveryEligibility({
   definition: pdfDefinition,
@@ -324,6 +324,70 @@ const artifacts = createHybridEvidenceArtifactStore({
     sourceCountPerDay: 50,
   },
 });
+
+const jbig2Manifest = await artifacts.persist({
+  acquisitionId: "acquisition.fixture-house-jbig2-worker",
+  authority: "House Clerk",
+  bytes: jbig2ScannedPdf,
+  canonicalPublicUrl: "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/8221360.pdf",
+  mediaType: "application/pdf",
+  observedAt: "2026-08-28T17:00:00.000Z",
+  parserEligibility: {
+    adapterId: "house-financial-disclosures",
+    factSchemaVersion: "house-ptr-transaction/v1",
+    outcomeDigest: jbig2Projection.documentDigest,
+    reasonCode: "parser_incomplete",
+    state: "partial",
+  },
+  sourceInstanceId: "source.house-financial-disclosures.2026",
+  structure: {
+    characterCount: null,
+    columnCount: null,
+    pageCount: jbig2Projection.pageCount,
+    rowCount: null,
+    sheetCount: null,
+  },
+});
+const jbig2Locator: EvidenceLocator = {
+  artifactDigest: jbig2Projection.documentDigest,
+  evidenceDigest: jbig2FirstPage.evidenceDigest,
+  kind: "pdf_page",
+  page: 1,
+  region: null,
+};
+const jbig2Job = await prepareHybridEvidenceJob({
+  artifacts: [jbig2Manifest],
+  definition: pdfDefinition,
+  locators: [jbig2Locator],
+  modelId,
+  scope: {
+    initiatingWorkspaceId: "123e4567-e89b-42d3-a456-426614174200",
+    kind: "source_global",
+    sourceInstanceId: "source.house-financial-disclosures.2026",
+  },
+}, memory);
+const jbig2Budget = await reserveHybridEvidenceAttempt({
+  definition: pdfDefinition,
+  environment,
+  job: jbig2Job.job,
+}, { global: memory });
+const jbig2Worker = await prepareHybridEvidenceWorkerRun({
+  budget: jbig2Budget,
+  definition: pdfDefinition,
+  environment,
+  jobClient: memory,
+  locators: [jbig2Locator],
+  prepared: jbig2Job,
+});
+const jbig2WorkerSlice = await readHybridEvidenceSliceForWorker({
+  clients: { artifacts, jobs: memory },
+  ctx: { session: { auth: { current: jbig2Worker.request.auth } } },
+  environment,
+  locator: jbig2Locator,
+});
+assert.equal(jbig2WorkerSlice.contentKind, "image");
+assert.equal(jbig2WorkerSlice.byteCount, jbig2FirstPage.byteCount);
+assert.ok(jbig2WorkerSlice.byteCount > 64 * 1_024);
 
 async function completeThroughWorker(input: {
   readonly candidate: Record<string, unknown>;

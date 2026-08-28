@@ -481,7 +481,9 @@ export async function readHybridEvidenceSliceForWorker(input: {
   return input.clients.artifacts.readSlice({
     locator,
     maximumBytes: Math.min(
-      HYBRID_EVIDENCE_LIMITS.maximumPayloadBytes,
+      locator.kind === "pdf_page"
+        ? HYBRID_EVIDENCE_LIMITS.maximumArtifactBytes
+        : HYBRID_EVIDENCE_LIMITS.maximumPayloadBytes,
       envelope.evidenceLimits.maximumBytes,
     ),
   });
