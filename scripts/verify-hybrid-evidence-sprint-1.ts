@@ -38,6 +38,10 @@ import {
   type HybridEvidenceJobDefinition,
 } from "../agent/lib/hybrid-evidence-schema";
 import {
+  hybridEvidenceWorkerTokenFromSessionAuth,
+  requireHybridEvidenceWorkerAuth,
+} from "../agent/lib/hybrid-evidence-auth";
+import {
   completeHybridEvidenceJobForWorker,
   prepareHybridEvidenceWorkerRun,
   readHybridEvidenceSliceForWorker,
@@ -433,6 +437,25 @@ const workerCtx = { session: { auth: { current: worker.request.auth } } };
 assert.equal((await readHybridEvidenceSliceForWorker({
   clients: { artifacts, jobs }, ctx: workerCtx, environment, locator,
 })).content, evidenceText);
+const replacedCurrentAuth = {
+  ...worker.request.auth,
+  attributes: {
+    ...worker.request.auth.attributes,
+    hybrid_evidence_runtime_token: "invalid.current-token",
+  },
+};
+const durableWorkerAuth = {
+  current: replacedCurrentAuth,
+  initiator: worker.request.auth,
+};
+assert.equal(
+  hybridEvidenceWorkerTokenFromSessionAuth(durableWorkerAuth),
+  worker.token,
+  "the immutable worker initiator must outrank a replaced active-turn principal",
+);
+assert.equal((await requireHybridEvidenceWorkerAuth({
+  session: { auth: durableWorkerAuth, id: "fixture-durable-worker-session" },
+}, { jobId: preparedA.job.jobId }, environment)).token, worker.token);
 await assert.rejects(
   readHybridEvidenceSliceForWorker({
     clients: { artifacts, jobs },

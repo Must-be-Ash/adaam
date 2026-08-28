@@ -82,11 +82,24 @@ const envelopeSchema = z.object({
 
 export type HybridEvidenceWorkerEnvelope = Readonly<z.infer<typeof envelopeSchema>>;
 
+export type HybridEvidenceWorkerAuthFailureReason =
+  | "claim_mismatch"
+  | "envelope_invalid"
+  | "expected_claim_mismatch"
+  | "secret_invalid"
+  | "token_expired"
+  | "token_format_invalid"
+  | "token_not_yet_valid"
+  | "token_payload_invalid"
+  | "token_schema_invalid"
+  | "token_signature_invalid"
+  | "unknown";
+
 export class HybridEvidenceWorkerAuthError extends Error {
   readonly code = "hybrid_evidence_auth_invalid";
 
-  constructor() {
-    super("hybrid_evidence_auth_invalid");
+  constructor(readonly reason: HybridEvidenceWorkerAuthFailureReason = "unknown") {
+    super(`hybrid_evidence_auth_invalid:${reason}`);
     this.name = "HybridEvidenceWorkerAuthError";
   }
 }
@@ -151,15 +164,15 @@ async function readHybridEvidenceWorkerSessionCapability(
   return typeof value === "string" ? value : undefined;
 }
 
-function invalid(): never {
-  throw new HybridEvidenceWorkerAuthError();
+function invalid(reason: HybridEvidenceWorkerAuthFailureReason = "unknown"): never {
+  throw new HybridEvidenceWorkerAuthError(reason);
 }
 
 function secret(environment: NodeJS.ProcessEnv): Buffer {
   const encoded = environment.EVE_HYBRID_EVIDENCE_AUTH_SECRET;
-  if (!encoded || !SECRET_PATTERN.test(encoded)) return invalid();
+  if (!encoded || !SECRET_PATTERN.test(encoded)) return invalid("secret_invalid");
   const value = Buffer.from(encoded, "base64url");
-  if (value.byteLength < 32) return invalid();
+  if (value.byteLength < 32) return invalid("secret_invalid");
   return value;
 }
 
@@ -220,7 +233,7 @@ export function createHybridEvidenceWorkerEnvelope(input: {
     !parsed.success ||
     input.budget.reservationKey !== input.job.budgetReservation.key ||
     input.locators.length !== input.job.locatorDigests.length
-  ) return invalid();
+  ) return invalid("envelope_invalid");
   return Object.freeze(parsed.data);
 }
 
@@ -229,7 +242,7 @@ export function signHybridEvidenceWorkerEnvelope(
   environment: NodeJS.ProcessEnv = process.env,
 ): string {
   const parsed = envelopeSchema.safeParse(envelope);
-  if (!parsed.success) return invalid();
+  if (!parsed.success) return invalid("envelope_invalid");
   const payload = Buffer.from(JSON.stringify(parsed.data), "utf8").toString("base64url");
   return `${payload}.${signature(payload, environment).toString("base64url")}`;
 }
@@ -240,11 +253,11 @@ export function verifyHybridEvidenceWorkerToken(
   environment: NodeJS.ProcessEnv = process.env,
 ): HybridEvidenceWorkerEnvelope {
   const match = /^([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/u.exec(token);
-  if (!match) return invalid();
+  if (!match) return invalid("token_format_invalid");
   const expected = signature(match[1]!, environment);
   const supplied = Buffer.from(match[2]!, "base64url");
   if (supplied.byteLength !== expected.byteLength || !timingSafeEqual(supplied, expected)) {
-    return invalid();
+    return invalid("token_signature_invalid");
   }
   return decodeHybridEvidenceWorkerToken(token, options);
 }
@@ -260,20 +273,20 @@ export function decodeHybridEvidenceWorkerToken(
   options: { now?: Date } = {},
 ): HybridEvidenceWorkerEnvelope {
   const match = /^([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/u.exec(token);
-  if (!match) return invalid();
+  if (!match) return invalid("token_format_invalid");
   let value: unknown;
   try {
     value = JSON.parse(Buffer.from(match[1]!, "base64url").toString("utf8"));
   } catch {
-    return invalid();
+    return invalid("token_payload_invalid");
   }
   const parsed = envelopeSchema.safeParse(value);
-  if (!parsed.success) return invalid();
+  if (!parsed.success) return invalid("token_schema_invalid");
   const now = (options.now ?? new Date()).getTime();
-  if (
-    now < Date.parse(parsed.data.issuedAt) - CLOCK_SKEW_MS ||
-    now >= Date.parse(parsed.data.expiresAt)
-  ) return invalid();
+  if (now < Date.parse(parsed.data.issuedAt) - CLOCK_SKEW_MS) {
+    return invalid("token_not_yet_valid");
+  }
+  if (now >= Date.parse(parsed.data.expiresAt)) return invalid("token_expired");
   return Object.freeze(parsed.data);
 }
 
@@ -302,14 +315,14 @@ function stringAttribute(auth: SessionAuthContext, name: string): string | undef
 export function hybridEvidenceWorkerTokenFromSessionAuth(
   auth: SessionContext["session"]["auth"],
 ): string | undefined {
-  return auth.current
-    ? stringAttribute(auth.current, "hybrid_evidence_runtime_token") ??
-      (auth.initiator
-        ? stringAttribute(auth.initiator, "hybrid_evidence_runtime_token")
-        : undefined)
-    : auth.initiator
-      ? stringAttribute(auth.initiator, "hybrid_evidence_runtime_token")
-      : undefined;
+  // A durable tool turn may replace `current`; `initiator` remains the caller
+  // that created this single-job worker session and therefore owns its bearer
+  // capability for the session's lifetime.
+  return (auth.initiator
+    ? stringAttribute(auth.initiator, "hybrid_evidence_runtime_token")
+    : undefined) ?? (auth.current
+    ? stringAttribute(auth.current, "hybrid_evidence_runtime_token")
+    : undefined);
 }
 
 export async function requireHybridEvidenceWorkerAuth(
@@ -318,25 +331,65 @@ export async function requireHybridEvidenceWorkerAuth(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<{ envelope: HybridEvidenceWorkerEnvelope; token: string }> {
   const auth = ctx.session.auth;
-  const token = hybridEvidenceWorkerTokenFromSessionAuth(auth) ??
-    await readHybridEvidenceWorkerSessionCapability(ctx.session.id, environment);
-  if (!token) return invalid();
-  // Eve may resume the worker in a different durable invocation from the
-  // issuer. Decode here; each privileged worker operation compares the opaque
-  // token's digest with the claim stored when the signed job was issued.
-  const envelope = decodeHybridEvidenceWorkerToken(token);
-  // Eve can rewrite principal wrapper metadata while preserving attributes as
-  // a task crosses durable workflow steps. The token is a bearer capability;
-  // privileged operations separately require its SHA-256 claim to match the
-  // server-side running job and verify every immutable envelope field.
+  const authTokens = [auth.initiator, auth.current]
+    .flatMap((principal) => principal
+      ? [stringAttribute(principal, "hybrid_evidence_runtime_token")]
+      : [])
+    .filter((value): value is string => value !== undefined);
   const assertedJobIds = [auth.current, auth.initiator]
     .flatMap((principal) => principal
       ? [stringAttribute(principal, "hybrid_evidence_job_id")]
       : [])
     .filter((value): value is string => value !== undefined);
-  if (assertedJobIds.some((value) => value !== envelope.jobId)) return invalid();
-  for (const [key, value] of Object.entries(expected)) {
-    if (envelope[key as keyof typeof expected] !== value) return invalid();
+  let failure = new HybridEvidenceWorkerAuthError("token_format_invalid");
+  const authorize = (token: string): {
+    envelope: HybridEvidenceWorkerEnvelope;
+    token: string;
+  } | null => {
+    let envelope: HybridEvidenceWorkerEnvelope;
+    try {
+      // Eve may resume the worker in a different durable invocation from the
+      // issuer. Decode here; each privileged worker operation compares the
+      // opaque token's digest with the claim stored when the signed job was issued.
+      envelope = decodeHybridEvidenceWorkerToken(token);
+    } catch (error) {
+      if (!(error instanceof HybridEvidenceWorkerAuthError)) throw error;
+      failure = error;
+      return null;
+    }
+    // The token is a bearer capability; privileged operations separately
+    // require its SHA-256 claim to match the running job and verify every
+    // immutable envelope field.
+    if (assertedJobIds.some((value) => value !== envelope.jobId)) {
+      failure = new HybridEvidenceWorkerAuthError("claim_mismatch");
+      return null;
+    }
+    if (Object.entries(expected).some(([key, value]) =>
+      envelope[key as keyof typeof expected] !== value
+    )) {
+      failure = new HybridEvidenceWorkerAuthError("expected_claim_mismatch");
+      return null;
+    }
+    return { envelope, token };
+  };
+  const candidates = [...new Set(authTokens)];
+  for (const token of candidates) {
+    const authorized = authorize(token);
+    if (authorized) return authorized;
   }
-  return { envelope, token };
+  const storedToken = await readHybridEvidenceWorkerSessionCapability(
+    ctx.session.id,
+    environment,
+  );
+  if (storedToken && !candidates.includes(storedToken)) {
+    const authorized = authorize(storedToken);
+    if (authorized) return authorized;
+  }
+  console.warn("[hybrid-evidence-auth] authorization failed", {
+    authCandidateCount: new Set(authTokens).size,
+    reason: failure.reason,
+    sessionCapabilityPresent: storedToken !== undefined,
+    sessionIdDigest: createHash("sha256").update(ctx.session.id).digest("hex"),
+  });
+  throw failure;
 }

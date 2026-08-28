@@ -416,6 +416,7 @@ function reviewedDefinition(input: {
   readonly inputSchemaId: string;
   readonly instruction: string;
   readonly maximumInputTokens?: number;
+  readonly maximumRuntimeMs?: number;
   readonly maximumPages: number;
   readonly maximumRows: number;
   readonly mediaTypes: readonly HybridEvidenceJobDefinition["allowedMediaTypes"][number][];
@@ -453,7 +454,7 @@ function reviewedDefinition(input: {
       maximumPages: input.maximumPages,
       maximumPaidCostUsd: "1.0000",
       maximumRows: input.maximumRows,
-      maximumRuntimeMs: 120_000,
+      maximumRuntimeMs: input.maximumRuntimeMs ?? 120_000,
     },
     outputSchema: { schemaId: input.outputSchemaId, schemaVersion: "1.0.0" },
     purpose: "extraction_recovery",
@@ -476,10 +477,11 @@ export function createExtractionRecoveryDefinitions(
     reviewedDefinition({
       adapterId: "house-financial-disclosures",
       definitionId: HOUSE_DOCUMENT_ROW_DEFINITION_ID,
-      definitionVersion: "1.0.4",
+      definitionVersion: "1.0.5",
       inputSchemaId: "house-ptr-pdf-pages",
       instruction: HOUSE_DOCUMENT_ROW_INSTRUCTION,
       maximumInputTokens: 40_000,
+      maximumRuntimeMs: 300_000,
       maximumPages: 8,
       maximumRows: 0,
       mediaTypes: ["application/pdf"],

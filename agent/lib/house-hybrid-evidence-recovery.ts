@@ -558,6 +558,9 @@ export function createHouseHybridEvidenceRecovery(input: {
           budget: reservation,
           definition,
           environment,
+          // Projection and artifact persistence can consume a meaningful part
+          // of the occurrence. Start the signed worker lifetime at dispatch.
+          issuedAt: new Date(),
           initialEvidenceImages: projection.pages.map((page, index) => ({
             imageBase64: page.imageBase64,
             locator: locators[index] as Extract<EvidenceLocator, { kind: "pdf_page" }>,
