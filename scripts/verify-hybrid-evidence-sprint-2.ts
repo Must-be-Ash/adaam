@@ -153,7 +153,7 @@ assert.ok(Date.now() - decoderTimeoutStartedAt < 2_000, "decoder timeout must ki
 const definitions = createExtractionRecoveryDefinitions([modelId]);
 const pdfDefinition = definitions.find((definition) => definition.allowedMediaTypes.includes("application/pdf"))!;
 const spreadsheetDefinition = definitions.find((definition) => definition.definitionId === SPREADSHEET_ROLE_DEFINITION_ID)!;
-assert.equal(pdfDefinition.definitionVersion, "1.0.5");
+assert.equal(pdfDefinition.definitionVersion, "1.0.6");
 assert.equal(pdfDefinition.limits.maximumInputTokens, 40_000);
 assert.equal(pdfDefinition.limits.maximumRuntimeMs, 300_000);
 assert.equal(spreadsheetDefinition.definitionVersion, "1.0.0");
@@ -638,7 +638,7 @@ assert.equal(workerCalls, 3);
 assert.equal(recoveryObservations.length, 3);
 assert.equal(recoveryObservations.every((observation) =>
   observation.outcome === "accepted" &&
-  observation.definitionVersion === "1.0.5" &&
+  observation.definitionVersion === "1.0.6" &&
   observation.jobId?.startsWith("hybrid-job.") === true &&
   observation.modelId === modelId &&
   observation.rowCount >= 0 &&

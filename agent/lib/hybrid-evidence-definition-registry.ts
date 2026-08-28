@@ -477,7 +477,7 @@ export function createExtractionRecoveryDefinitions(
     reviewedDefinition({
       adapterId: "house-financial-disclosures",
       definitionId: HOUSE_DOCUMENT_ROW_DEFINITION_ID,
-      definitionVersion: "1.0.5",
+      definitionVersion: "1.0.6",
       inputSchemaId: "house-ptr-pdf-pages",
       instruction: HOUSE_DOCUMENT_ROW_INSTRUCTION,
       maximumInputTokens: 40_000,
