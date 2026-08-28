@@ -208,24 +208,16 @@ try {
   await page.getByText(/Signal outcomes · 6 total · 1 priority · 3 review/u).waitFor();
   await page.getByText(/Latest signal · priority/u).waitFor();
 
-  const dialogMessages = [];
-  page.on("dialog", async (dialog) => {
-    dialogMessages.push(dialog.message());
-    if (dialog.type() === "prompt") {
-      const message = dialog.message();
-      await dialog.accept(
-        message.includes("Timezone") ? "America/Vancouver" :
-        message.includes("Daily times") ? "08:30, 16:00" :
-        message.includes("Minimum alert band") ? "review" :
-        "G000568",
-      );
-    } else {
-      await dialog.accept();
-    }
-  });
   let releaseAction;
   actionRelease = new Promise((resolvePromise) => { releaseAction = resolvePromise; });
+  // Configure now opens a webview-safe inline DOM editor (no browser prompts).
   await page.getByRole("button", { name: "Configure" }).click();
+  await page.getByText(/Saving pauses managed work and starts a fresh conversation generation/u).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Save configuration" }).count(), 1);
+  await page.getByLabel("Selected House members").selectOption("G000568");
+  await page.getByLabel("Daily times").fill("08:30, 16:00");
+  await page.getByLabel("Minimum alert band").selectOption("review");
+  await page.getByRole("button", { name: "Save configuration" }).click();
   await page.getByText(/Applying strategy-pack configuration/u).waitFor();
   assert.equal(await page.getByRole("button", { name: "Rename" }).isDisabled(), true);
   releaseAction();
@@ -235,17 +227,17 @@ try {
   assert.deepEqual(lastAction.configuration.dailyTimes, ["08:30", "16:00"]);
   assert.equal(lastAction.configuration.minimumAlertBand, "review");
   assert.deepEqual(lastAction.configuration.selectedMemberBioguideIds, ["G000568"]);
-  assert.ok(dialogMessages.some((message) => message.includes("future messages will start a fresh conversation generation")));
-  assert.ok(dialogMessages.some((message) => message.includes("durable research will remain")));
 
   actionRelease = null;
   actionMode = "conflict";
   await page.getByRole("button", { name: "Configure" }).click();
+  await page.getByRole("button", { name: "Save configuration" }).click();
   await page.getByText("Active session: Alpha Research").waitFor();
   assert.equal(await page.locator("#status").getAttribute("class"), "");
 
   actionMode = "failure";
   await page.getByRole("button", { name: "Configure" }).click();
+  await page.getByRole("button", { name: "Save configuration" }).click();
   await page.getByText("Bounded mutation failure.").waitFor();
   assert.match(await page.locator("#status").getAttribute("class"), /error/u);
 
@@ -260,11 +252,11 @@ try {
   await page.getByText(/Unavailable · strategy_pack_exact_version_unavailable/u).waitFor();
   assert.equal(await page.getByRole("button", { name: "Configure" }).count(), 0);
   assert.equal(await page.getByRole("button", { name: "Remove pack" }).count(), 1);
-  dialogMessages.length = 0;
   await page.getByRole("button", { name: "Remove pack" }).click();
+  await page.getByText(/Durable brief, findings, alerts, checkpoints, and audit history remain/u).waitFor();
+  await page.getByRole("button", { name: "Confirm remove pack" }).click();
   await page.getByText(/Strategy-pack removed/u).waitFor();
   assert.equal(lastAction.action, "strategy-pack-remove");
-  assert.ok(dialogMessages.some((message) => message.includes("findings, alerts, checkpoints, and audit history will remain")));
   assert.equal(await page.getByText("None installed").count(), 1);
 
   authoritativeState = stateFor({ reasonCode: null, state: "unbound" }, { strategyPackCatalog: [] });

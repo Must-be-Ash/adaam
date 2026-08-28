@@ -43,6 +43,7 @@ import {
 } from "../lib/public-source-health";
 import { readCongressionalWorkspacePresentation } from "../lib/congressional-signal-presentation";
 import { readEarningsCallWorkspacePresentation } from "../lib/earnings-call-presentation";
+import { CONGRESSIONAL_HOUSE_MEMBER_ROSTER_SNAPSHOT_2026_07_06 } from "../lib/congressional-reference-catalog";
 import { readPublicCommentaryWorkspacePresentation } from "../lib/public-commentary-presentation";
 import { PhotonAlertDeliverySubscriptionError } from "../lib/photon-alert-subscription-store";
 import {
@@ -94,6 +95,21 @@ export const photonWorkspaceMonitorSourcesSchema =
 const PHOTON_SESSION_ICON_PATH = `${PHOTON_WORKSPACE_APP_PATH}/${PHOTON_APP_ICON_SVG_PATH}`;
 const PHOTON_SESSION_ICON_PNG_PATH = `${PHOTON_WORKSPACE_APP_PATH}/${PHOTON_APP_ICON_PNG_PATH}`;
 const PHOTON_SESSION_MANIFEST_PATH = `${PHOTON_WORKSPACE_APP_PATH}/${PHOTON_APP_MANIFEST_PATH}`;
+
+// Human-readable labels for canonical Bioguide IDs so the config picker can show
+// member names (e.g. "Nancy Pelosi · CA-11") instead of opaque IDs like "P000197".
+// Built once from the pinned official House roster snapshot and serialized into
+// the mini-app's client script.
+const CANONICAL_ID_LABELS: Readonly<Record<string, string>> = Object.freeze(
+  Object.fromEntries(
+    CONGRESSIONAL_HOUSE_MEMBER_ROSTER_SNAPSHOT_2026_07_06.entries.map((entry) => [
+      entry.bioguideId,
+      `${entry.officialName} · ${entry.state}-${entry.district}`,
+    ]),
+  ),
+);
+const CANONICAL_ID_LABELS_JSON = JSON.stringify(CANONICAL_ID_LABELS);
+
 const stateRequestSchema = z.object({
   managerToken: tokenSchema,
 });
@@ -884,9 +900,16 @@ export function workspaceHtml(nonce: string, origin: string): string {
       const packName = document.querySelector("#pack-name");
       const packConfigurationFields = document.querySelector("#pack-configuration-fields");
       const packActivate = document.querySelector("#pack-activate");
+      const packSubmitButton = packForm.querySelector('button[type="submit"]');
+      const packNameField = packName.closest(".pack-field");
+      const packActivateLabel = packActivate.closest(".pack-toggle");
+      const CANONICAL_ID_LABELS = ${CANONICAL_ID_LABELS_JSON};
       let state = null;
       let busy = false;
       let pendingConfirmation = null;
+      let pendingSchedule = null;
+      let pendingPackRemoval = null;
+      let configureContext = null;
       let actionFeedback = null;
 
       showArchivedInput.addEventListener("change", () => render());
@@ -960,6 +983,55 @@ export function workspaceHtml(nonce: string, origin: string): string {
         return container;
       };
 
+      const scheduleEditor = (workspace, monitor) => {
+        const container = document.createElement("div");
+        container.className = "inline-confirmation";
+        container.setAttribute("role", "group");
+        const message = document.createElement("p");
+        message.textContent = "Edit schedule for " + monitor.name;
+        const timesLabel = document.createElement("label");
+        timesLabel.className = "form-label";
+        timesLabel.textContent = "Daily times (24-hour, comma-separated)";
+        const times = document.createElement("input");
+        times.type = "text";
+        times.autocomplete = "off";
+        times.value = monitor.schedule.times.join(", ");
+        times.placeholder = "09:00, 16:00";
+        const tzLabel = document.createElement("label");
+        tzLabel.className = "form-label";
+        tzLabel.textContent = "Time zone";
+        const timezone = buildTimezoneSelect(monitor.schedule.timezone);
+        const controls = document.createElement("div");
+        controls.className = "actions";
+        const saveButton = document.createElement("button");
+        saveButton.type = "button";
+        saveButton.className = "primary";
+        saveButton.textContent = "Save schedule";
+        saveButton.addEventListener("click", () => {
+          const parsedTimes = times.value.split(",").map((value) => value.trim()).filter(Boolean);
+          if (parsedTimes.length === 0) {
+            actionFeedback = { workspaceId: workspace.id, message: "Enter at least one time, for example 09:00." };
+            render();
+            return;
+          }
+          pendingSchedule = null;
+          void runtimeMutate({ action: "monitor-schedule", expectedMonitorRevision: monitor.configurationRevision,
+            monitorId: monitor.monitorId, schedule: { kind: "daily_local", times: parsedTimes, timezone: timezone.value },
+            workspaceId: workspace.id });
+        });
+        requestAnimationFrame(() => times.focus());
+        const cancelButton = document.createElement("button");
+        cancelButton.type = "button";
+        cancelButton.textContent = "Cancel";
+        cancelButton.addEventListener("click", () => {
+          pendingSchedule = null;
+          render();
+        });
+        controls.append(saveButton, cancelButton);
+        container.append(message, timesLabel, times, tzLabel, timezone, controls);
+        return container;
+      };
+
       const formatSchedule = (schedule) => {
         if (schedule.kind === "daily_local") {
           return schedule.times.join(", ") + " · " + schedule.timezone;
@@ -977,9 +1049,31 @@ export function workspaceHtml(nonce: string, origin: string): string {
       );
 
       const configurationChoiceLabel = (value) => {
+        if (CANONICAL_ID_LABELS[value]) return CANONICAL_ID_LABELS[value];
         const cadence = /^(minutes|hours)_(\\d+)$/.exec(value);
         if (cadence) return cadence[2] + " " + cadence[1];
         return value === "off" ? "Off" : value.replaceAll("_", " ");
+      };
+
+      const COMMON_TIMEZONES = ["America/Vancouver", "America/Los_Angeles", "America/Denver",
+        "America/Phoenix", "America/Chicago", "America/New_York", "America/Toronto",
+        "America/Sao_Paulo", "UTC", "Europe/London", "Europe/Paris", "Europe/Berlin",
+        "Europe/Moscow", "Asia/Dubai", "Asia/Kolkata", "Asia/Singapore", "Asia/Hong_Kong",
+        "Asia/Shanghai", "Asia/Tokyo", "Australia/Sydney", "Pacific/Auckland"];
+      const detectedTimezone = (() => {
+        try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return null; }
+      })();
+      const buildTimezoneSelect = (selected) => {
+        const select = document.createElement("select");
+        const zones = [...new Set([selected, detectedTimezone, "America/Vancouver", ...COMMON_TIMEZONES].filter(Boolean))];
+        for (const zone of zones) {
+          const option = document.createElement("option");
+          option.value = zone;
+          option.textContent = zone.replaceAll("_", " ") + (zone === detectedTimezone ? " (your time zone)" : "");
+          option.selected = zone === selected;
+          select.append(option);
+        }
+        return select;
       };
 
       const configurationValue = (field, control) => {
@@ -1065,6 +1159,8 @@ export function workspaceHtml(nonce: string, origin: string): string {
             control = document.createElement("input");
             control.type = "hidden";
             control.value = JSON.stringify(field.default);
+          } else if (field.kind === "iana_timezone") {
+            control = buildTimezoneSelect(detectedTimezone || "America/Vancouver");
           } else {
             control = ["bounded_text_list", "impact_hypothesis_list"].includes(field.kind)
               ? document.createElement("textarea")
@@ -1238,6 +1334,69 @@ export function workspaceHtml(nonce: string, origin: string): string {
             control.addEventListener("input", validateTokens);
             wrapper.append(label, control, selectorStatus);
             validateTokens();
+          } else if (field.kind === "canonical_id_list") {
+            const search = document.createElement("input");
+            search.type = "search";
+            search.autocomplete = "off";
+            search.placeholder = "Search name or ID";
+            search.setAttribute("aria-label", "Search members by name or ID");
+            search.setAttribute("aria-controls", id);
+            const tools = document.createElement("div");
+            tools.className = "actions";
+            const selectAllButton = document.createElement("button");
+            selectAllButton.type = "button";
+            selectAllButton.textContent = "Select all";
+            const clearButton = document.createElement("button");
+            clearButton.type = "button";
+            clearButton.textContent = "Clear";
+            tools.append(selectAllButton, clearButton);
+            const selectorStatus = document.createElement("p");
+            const statusId = id + "-status";
+            selectorStatus.id = statusId;
+            selectorStatus.className = "runtime-detail";
+            selectorStatus.setAttribute("role", "status");
+            selectorStatus.setAttribute("aria-live", "polite");
+            control.setAttribute("aria-describedby", statusId);
+            const announceSelection = (message) => {
+              const count = control.selectedOptions.length;
+              control.setAttribute("aria-invalid", String(count > field.maximumItems));
+              selectorStatus.textContent = (message ? message + " · " : "") +
+                count + " of " + field.maximumItems + " selected" +
+                (count === 0 ? " · empty means everyone is monitored" : "");
+            };
+            search.addEventListener("input", () => {
+              const query = search.value.trim().toLocaleLowerCase();
+              for (const option of control.options) {
+                option.hidden = Boolean(query) &&
+                  !option.textContent.toLocaleLowerCase().includes(query) &&
+                  !option.value.toLocaleLowerCase().includes(query);
+              }
+            });
+            selectAllButton.addEventListener("click", () => {
+              let selected = 0;
+              for (const option of control.options) {
+                if (option.hidden || selected >= field.maximumItems) { option.selected = false; continue; }
+                option.selected = true;
+                selected += 1;
+              }
+              announceSelection(selected >= field.maximumItems
+                ? "Selection capped at " + field.maximumItems + " — use Clear to monitor everyone"
+                : "Selected " + selected);
+            });
+            clearButton.addEventListener("click", () => {
+              for (const option of control.options) option.selected = false;
+              announceSelection("Cleared");
+            });
+            control.addEventListener("change", () => {
+              if (control.selectedOptions.length > field.maximumItems) {
+                control.selectedOptions[control.selectedOptions.length - 1].selected = false;
+                announceSelection("Limit reached — the last pick was not added");
+              } else {
+                announceSelection("Selection changed");
+              }
+            });
+            wrapper.append(label, search, tools, control, selectorStatus);
+            announceSelection();
           } else {
             wrapper.append(label, control);
           }
@@ -1316,7 +1475,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
             configure.type = "button";
             configure.textContent = "Configure";
             configure.disabled = busy;
-            configure.addEventListener("click", () => void handlePackLifecycle("configure", workspace));
+            configure.addEventListener("click", () => beginConfigure(workspace));
             controls.append(configure);
           }
           if (strategyPack.state === "active" || strategyPack.state === "unavailable") {
@@ -1329,6 +1488,39 @@ export function workspaceHtml(nonce: string, origin: string): string {
             remove.disabled = busy;
             remove.addEventListener("click", () => void handlePackLifecycle("remove", workspace));
             danger.append(remove);
+            if (pendingPackRemoval && pendingPackRemoval.workspaceId === workspace.id) {
+              const managed = (strategyPack.managedMonitors || []).map((monitor) => monitor.name).join(", ") || "none";
+              const confirmation = document.createElement("div");
+              confirmation.className = "inline-confirmation";
+              confirmation.setAttribute("role", "group");
+              const message = document.createElement("p");
+              message.textContent = "Remove this pack non-destructively? Pack-managed work will retire: " + managed +
+                ". Durable brief, findings, alerts, checkpoints, and audit history remain.";
+              const confirmControls = document.createElement("div");
+              confirmControls.className = "actions";
+              const confirmButton = document.createElement("button");
+              confirmButton.type = "button";
+              confirmButton.className = "danger";
+              confirmButton.textContent = "Confirm remove pack";
+              confirmButton.disabled = busy;
+              confirmButton.addEventListener("click", () => {
+                pendingPackRemoval = null;
+                void packMutate({
+                  action: "strategy-pack-remove",
+                  confirmedConsequences: true,
+                  expectedBindingRevision: strategyPack.bindingRevision,
+                  sourceWorkspaceGeneration: workspace.generation,
+                  sourceWorkspaceId: workspace.id,
+                });
+              });
+              const cancelButton = document.createElement("button");
+              cancelButton.type = "button";
+              cancelButton.textContent = "Cancel";
+              cancelButton.addEventListener("click", () => { pendingPackRemoval = null; render(); });
+              confirmControls.append(confirmButton, cancelButton);
+              confirmation.append(message, confirmControls);
+              danger.append(confirmation);
+            }
             controls.append(danger);
           }
           row.append(controls);
@@ -1547,6 +1739,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
         for (const control of document.querySelectorAll("form input, form select, form textarea, form button")) {
           control.disabled = busy;
         }
+        if (configureContext) packSelect.disabled = true;
         if (!state) return;
         for (const workspace of state.workspaces) {
           if (workspace.status === "archived" && !showArchivedInput.checked) continue;
@@ -1641,6 +1834,10 @@ export function workspaceHtml(nonce: string, origin: string): string {
             );
             row.append(monitorName, monitorMeta, monitorSchedule, monitorSources,
               ...publicSourceHealth, monitorActions);
+            if (pendingSchedule && pendingSchedule.workspaceId === workspace.id &&
+              pendingSchedule.monitorId === monitor.monitorId && monitor.schedule.kind === "daily_local") {
+              row.append(scheduleEditor(workspace, monitor));
+            }
             runtime.append(row);
           }
           const packSummary = strategyPackSummary(workspace.strategyPack);
@@ -1855,49 +2052,105 @@ export function workspaceHtml(nonce: string, origin: string): string {
               " · binding revision " + receipt.bindingRevision +
               ". Future messages start a fresh conversation generation; durable research remains."
             : "Strategy-pack update completed.";
+          return true;
         } catch (error) {
           status.classList.add("error");
           status.textContent = error instanceof Error
             ? error.message
             : "Could not complete the strategy-pack update.";
           if (error && error.status === 409) await load();
+          return false;
         } finally {
           busy = false;
           render();
         }
       };
 
+      const prefillPackConfiguration = (pack, current) => {
+        for (const field of pack.configuration) {
+          const value = current[field.key];
+          if (value === undefined) continue;
+          const control = packConfigurationFields.querySelector('[data-configuration-key="' + field.key + '"]');
+          if (!control) continue;
+          if (field.kind === "canonical_id_list" || field.kind === "catalog_id_list") {
+            const chosen = Array.isArray(value) ? value : [];
+            for (const option of control.options) option.selected = chosen.includes(option.value);
+            control.dispatchEvent(new Event("change"));
+          } else if (["bounded_text_list", "impact_hypothesis_list"].includes(field.kind)) {
+            control.value = Array.isArray(value) ? value.join("\\n") : value;
+          } else if (["daily_local_times", "bounded_token_list"].includes(field.kind)) {
+            control.value = Array.isArray(value) ? value.join(", ") : value;
+            control.dispatchEvent(new Event("input"));
+          } else if (field.kind !== "x_public_identity") {
+            control.value = value;
+          }
+        }
+      };
+
+      const exitConfigure = () => {
+        configureContext = null;
+        packSelect.disabled = false;
+        packSubmitButton.textContent = "Create pack session";
+        if (packNameField) packNameField.hidden = false;
+        if (packActivateLabel) packActivateLabel.hidden = false;
+        renderPackCatalog();
+      };
+
+      const beginConfigure = (workspace) => {
+        const strategyPack = workspace.strategyPack;
+        const pack = strategyPack && strategyPack.pack;
+        if (!strategyPack || !strategyPack.bindingRevision || !pack || !pack.configuration) return;
+        const packKey = pack.id + "@" + pack.version;
+        const available = (state.strategyPackCatalog || []).some(
+          (candidate) => candidate.id + "@" + candidate.version === packKey &&
+            candidate.availability === "available",
+        );
+        if (!available) {
+          actionFeedback = { workspaceId: workspace.id,
+            message: "This pack version is not available to reconfigure here. Ask Eve in chat." };
+          render();
+          return;
+        }
+        if (pack.configuration.some((field) => field.kind === "x_public_identity")) {
+          actionFeedback = { workspaceId: workspace.id,
+            message: "Reconfigure packs with a linked X identity by asking Eve in chat." };
+          render();
+          return;
+        }
+        pendingSchedule = null;
+        pendingPackRemoval = null;
+        actionFeedback = null;
+        configureContext = {
+          workspaceId: workspace.id,
+          generation: workspace.generation,
+          bindingRevision: strategyPack.bindingRevision,
+        };
+        packSelect.value = packKey;
+        packSelect.disabled = true;
+        renderPackConfiguration();
+        prefillPackConfiguration(pack, strategyPack.configuration || {});
+        packName.value = workspace.name;
+        if (packNameField) packNameField.hidden = true;
+        if (packActivateLabel) packActivateLabel.hidden = true;
+        packSubmitButton.textContent = "Save configuration";
+        packSection.hidden = false;
+        status.classList.remove("error");
+        status.textContent = "Editing “" + pack.displayName + "”. Saving pauses managed work and starts a fresh " +
+          "conversation generation; durable research remains. Choose Create pack session again to leave edit mode.";
+        render();
+        packSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      };
+
       const handlePackLifecycle = async (action, workspace) => {
         const strategyPack = workspace.strategyPack;
         if (!strategyPack || !strategyPack.bindingRevision) return;
-        const managed = (strategyPack.managedMonitors || []).map((monitor) => monitor.name).join(", ") || "none";
-        if (action === "configure") {
-          const current = strategyPack.configuration || {};
-          const pack = strategyPack.pack;
-          if (!pack || !pack.configuration) return;
-          const configuration = promptPackConfiguration(pack, current);
-          if (!configuration) return;
-          if (!confirm("Configure this pack? Affected managed work: " + managed +
-            ". Cadence and budget timing may change. Managed work will pause, future messages will start a fresh conversation generation, and durable research will remain.")) return;
-          await packMutate({
-            action: "strategy-pack-configure",
-            configuration,
-            confirmedConsequences: true,
-            expectedBindingRevision: strategyPack.bindingRevision,
-            sourceWorkspaceGeneration: workspace.generation,
-            sourceWorkspaceId: workspace.id,
-          });
+        if (action === "remove") {
+          pendingPackRemoval = { workspaceId: workspace.id };
+          pendingSchedule = null;
+          actionFeedback = null;
+          render();
           return;
         }
-        if (!confirm("Remove this pack non-destructively? Pack-managed work will retire: " + managed +
-          ". Future messages will start a fresh conversation generation. Durable brief, findings, alerts, checkpoints, and audit history will remain.")) return;
-        await packMutate({
-          action: "strategy-pack-remove",
-          confirmedConsequences: true,
-          expectedBindingRevision: strategyPack.bindingRevision,
-          sourceWorkspaceGeneration: workspace.generation,
-          sourceWorkspaceId: workspace.id,
-        });
       };
 
       const handleRuntime = async (action, workspace, monitor) => {
@@ -1924,15 +2177,14 @@ export function workspaceHtml(nonce: string, origin: string): string {
         }
         if (action === "monitor-schedule") {
           if (monitor.schedule.kind !== "daily_local") {
-            alert("This editor currently supports local daily schedules. Ask Eve in chat to change other schedule types.");
+            actionFeedback = { workspaceId: workspace.id,
+              message: "This editor supports local daily schedules. Ask Eve in chat to change other schedule types." };
+            render();
             return;
           }
-          const times = prompt("Daily times (24-hour, comma-separated)", monitor.schedule.times.join(", "));
-          const timezone = prompt("IANA time zone", monitor.schedule.timezone);
-          if (!times || !timezone) return;
-          await runtimeMutate({ action, expectedMonitorRevision: monitor.configurationRevision,
-            monitorId: monitor.monitorId, schedule: { kind: "daily_local",
-              times: times.split(",").map((value) => value.trim()).filter(Boolean), timezone }, workspaceId: workspace.id });
+          pendingSchedule = { workspaceId: workspace.id, monitorId: monitor.monitorId };
+          actionFeedback = null;
+          render();
           return;
         }
         await runtimeMutate({ action, expectedMonitorRevision: monitor.configurationRevision,
@@ -2030,6 +2282,18 @@ export function workspaceHtml(nonce: string, origin: string): string {
         if (unconfirmedIdentity) {
           status.classList.add("error");
           status.textContent = "Resolve and confirm the pinned numeric X identity before saving.";
+          return;
+        }
+        if (configureContext) {
+          const ok = await packMutate({
+            action: "strategy-pack-configure",
+            configuration: readPackConfiguration(selected),
+            confirmedConsequences: true,
+            expectedBindingRevision: configureContext.bindingRevision,
+            sourceWorkspaceGeneration: configureContext.generation,
+            sourceWorkspaceId: configureContext.workspaceId,
+          });
+          if (ok) exitConfigure();
           return;
         }
         await packMutate({
