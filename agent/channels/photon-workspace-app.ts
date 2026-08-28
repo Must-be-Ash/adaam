@@ -989,6 +989,54 @@ export function workspaceHtml(nonce: string, origin: string): string {
         container.setAttribute("role", "group");
         const message = document.createElement("p");
         message.textContent = "Edit schedule for " + monitor.name;
+        const controls = document.createElement("div");
+        controls.className = "actions";
+        const saveButton = document.createElement("button");
+        saveButton.type = "button";
+        saveButton.className = "primary";
+        saveButton.textContent = "Save schedule";
+        const cancelButton = document.createElement("button");
+        cancelButton.type = "button";
+        cancelButton.textContent = "Cancel";
+        cancelButton.addEventListener("click", () => {
+          pendingSchedule = null;
+          render();
+        });
+        controls.append(saveButton, cancelButton);
+
+        if (monitor.schedule.kind === "interval") {
+          // Interval (cadence) monitors run every N minutes rather than at fixed
+          // local times. Edit the interval directly; the anchor is preserved so
+          // the run phase does not jump.
+          const everyLabel = document.createElement("label");
+          everyLabel.className = "form-label";
+          everyLabel.textContent = "Run every (minutes)";
+          const every = document.createElement("input");
+          every.type = "number";
+          every.min = "10";
+          every.max = "525600";
+          every.step = "1";
+          every.autocomplete = "off";
+          every.value = String(monitor.schedule.everyMinutes);
+          saveButton.addEventListener("click", () => {
+            const minutes = Number(every.value);
+            if (!Number.isInteger(minutes) || minutes < 10 || minutes > 525600) {
+              actionFeedback = { workspaceId: workspace.id,
+                message: "Enter a whole number of minutes between 10 and 525600." };
+              render();
+              return;
+            }
+            pendingSchedule = null;
+            void runtimeMutate({ action: "monitor-schedule", expectedMonitorRevision: monitor.configurationRevision,
+              monitorId: monitor.monitorId,
+              schedule: { kind: "interval", everyMinutes: minutes, anchor: monitor.schedule.anchor },
+              workspaceId: workspace.id });
+          });
+          requestAnimationFrame(() => every.focus());
+          container.append(message, everyLabel, every, controls);
+          return container;
+        }
+
         const timesLabel = document.createElement("label");
         timesLabel.className = "form-label";
         timesLabel.textContent = "Daily times (24-hour, comma-separated)";
@@ -1001,12 +1049,6 @@ export function workspaceHtml(nonce: string, origin: string): string {
         tzLabel.className = "form-label";
         tzLabel.textContent = "Time zone";
         const timezone = buildTimezoneSelect(monitor.schedule.timezone);
-        const controls = document.createElement("div");
-        controls.className = "actions";
-        const saveButton = document.createElement("button");
-        saveButton.type = "button";
-        saveButton.className = "primary";
-        saveButton.textContent = "Save schedule";
         saveButton.addEventListener("click", () => {
           const parsedTimes = times.value.split(",").map((value) => value.trim()).filter(Boolean);
           if (parsedTimes.length === 0) {
@@ -1020,14 +1062,6 @@ export function workspaceHtml(nonce: string, origin: string): string {
             workspaceId: workspace.id });
         });
         requestAnimationFrame(() => times.focus());
-        const cancelButton = document.createElement("button");
-        cancelButton.type = "button";
-        cancelButton.textContent = "Cancel";
-        cancelButton.addEventListener("click", () => {
-          pendingSchedule = null;
-          render();
-        });
-        controls.append(saveButton, cancelButton);
         container.append(message, timesLabel, times, tzLabel, timezone, controls);
         return container;
       };
@@ -1835,7 +1869,8 @@ export function workspaceHtml(nonce: string, origin: string): string {
             row.append(monitorName, monitorMeta, monitorSchedule, monitorSources,
               ...publicSourceHealth, monitorActions);
             if (pendingSchedule && pendingSchedule.workspaceId === workspace.id &&
-              pendingSchedule.monitorId === monitor.monitorId && monitor.schedule.kind === "daily_local") {
+              pendingSchedule.monitorId === monitor.monitorId &&
+              (monitor.schedule.kind === "daily_local" || monitor.schedule.kind === "interval")) {
               row.append(scheduleEditor(workspace, monitor));
             }
             runtime.append(row);
@@ -2176,9 +2211,9 @@ export function workspaceHtml(nonce: string, origin: string): string {
           return;
         }
         if (action === "monitor-schedule") {
-          if (monitor.schedule.kind !== "daily_local") {
+          if (monitor.schedule.kind !== "daily_local" && monitor.schedule.kind !== "interval") {
             actionFeedback = { workspaceId: workspace.id,
-              message: "This editor supports local daily schedules. Ask Eve in chat to change other schedule types." };
+              message: "This editor supports daily and interval schedules. Ask Eve in chat to change other schedule types." };
             render();
             return;
           }
