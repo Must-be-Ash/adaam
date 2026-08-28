@@ -599,18 +599,18 @@ export async function evaluateCongressionalSignalsForWorker(input: {
   }
   const evaluatedEntries = evaluations.flatMap((evaluation) => {
     const signalEvaluations = completeEvaluations(evaluation.signal);
-    return evaluation.transactions.map((transaction, index) => {
+    return evaluation.transactions.flatMap((transaction, index) => {
       const party = partyFor(transaction);
-      if (party === null) throw new CongressionalWorkspaceWorkerError("congressional_projection_invalid");
+      if (party === null) return [];
       const transactionEvaluation = signalEvaluations[index]!;
-      return {
+      return [{
         alertEligible: evaluation.signal.alertEligible,
         band: transactionEvaluation.band,
         committeeKeys: transactionEvaluation.committeeResolution.committeeKeys,
         party,
         signalRevisionId: evaluation.signal.signalRevisionId,
         transaction,
-      };
+      }];
     });
   });
   const activeByTransactionId = new Map(historyChanges.activeEntries.map((entry) =>

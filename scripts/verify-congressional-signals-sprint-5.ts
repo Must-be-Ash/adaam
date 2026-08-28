@@ -435,6 +435,7 @@ async function execute(input: {
   now: Date;
   prepared: Awaited<ReturnType<typeof prepare>>;
   shouldFetch: boolean;
+  sourceClient?: MemoryCasStore;
 }) {
   const archive = await index(input.document);
   const documentBytes = new Uint8Array(await pdf(input.document.retainedFile));
@@ -442,6 +443,7 @@ async function execute(input: {
   const result = await evaluateCongressionalSignalsForWorker({
     clients: {
       ...clients,
+      acquisition: input.sourceClient ?? clients.acquisition,
       fetchDocument: async (url) => {
         fetches += 1;
         if (!input.shouldFetch) throw new Error("shared_acquisition_should_be_reused");
@@ -452,6 +454,7 @@ async function execute(input: {
         if (!input.shouldFetch) throw new Error("shared_acquisition_should_be_reused");
         return response(archive, "application/zip", url, input.now.toISOString());
       },
+      subscription: input.sourceClient ?? clients.subscription,
     },
     ctx: { session: { auth: { current: input.prepared.request.auth } } },
     environment,
@@ -494,6 +497,11 @@ const workspaceF = installWorkspace({
   configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: [] },
   version: "1.4.0",
   workspaceId: "123e4567-e89b-42d3-a456-426614175506",
+});
+const workspaceG = installWorkspace({
+  configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: [] },
+  version: "1.3.0",
+  workspaceId: "123e4567-e89b-42d3-a456-426614175507",
 });
 const packV1_3 = strategyPackCatalog.resolve({ id: "congressional-signals", version: "1.3.0" });
 assert.ok(packV1_3);
@@ -700,5 +708,30 @@ assert.equal(countRecordType(finding.values, "workspace_run_outcome") >= 8, true
 assert.equal(alert.values.size > 0, true, "the review-threshold workspace should stage an isolated alert");
 assert.equal([...alert.values.values()].every((raw) =>
   !raw.includes(workspaceA.scope.workspaceId) || !raw.includes(workspaceB.scope.workspaceId)), true);
+
+const unresolvedNow = baseNow;
+const unresolvedDocument = fixture("ptr-05.pdf");
+const unresolvedPrepared = await prepare(workspaceG.monitor, unresolvedNow, workspaceG.scope);
+const unresolvedResult = await execute({
+  document: unresolvedDocument,
+  now: unresolvedNow,
+  prepared: unresolvedPrepared,
+  shouldFetch: true,
+  sourceClient: new MemoryCasStore(),
+});
+assert.equal(unresolvedResult.result.replayed, false);
+const unresolvedHistory = await readCongressionalHistory(workspaceG.scope, signal);
+assert.ok(unresolvedHistory);
+assert.equal(
+  unresolvedHistory.activeEntries.length,
+  0,
+  "unresolved members remain durable filing signals but cannot enter party-based history",
+);
+assert.equal(
+  [...signal.values.values()].some((raw) =>
+    raw.includes(workspaceG.scope.workspaceId) && raw.includes("unresolved_member")),
+  true,
+  "the unresolved-member filing signal must remain durable",
+);
 
 console.log("Congressional Signals Sprint 5 worker, replay, version, and isolation verification passed.");
