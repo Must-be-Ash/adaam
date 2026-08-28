@@ -242,6 +242,7 @@ function capabilitiesFor(version: string): WorkspaceCapabilityManifestValue {
 
 function installWorkspace(input: {
   configuration: { minimumAlertBand: "priority" | "review"; selectedMemberBioguideIds: string[] };
+  nextOccurrenceAt?: string;
   version: "1.0.0" | "1.1.0" | "1.2.0" | "1.3.0";
   workspaceId: string;
 }) {
@@ -266,7 +267,7 @@ function installWorkspace(input: {
       resourceId: resource.resourceId,
     },
     name: resource.displayName,
-    nextOccurrenceAt: new Date(baseNow.getTime() + 60 * 60_000).toISOString(),
+    nextOccurrenceAt: input.nextOccurrenceAt ?? new Date(baseNow.getTime() + 60 * 60_000).toISOString(),
     now: baseNow,
     publicSourceIds: [HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID],
     requiredCapabilityIds: [...resource.requiredCapabilityIds],
@@ -503,6 +504,12 @@ const workspaceG = installWorkspace({
   version: "1.3.0",
   workspaceId: "123e4567-e89b-42d3-a456-426614175507",
 });
+const workspaceH = installWorkspace({
+  configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: [] },
+  nextOccurrenceAt: new Date(baseNow.getTime() + 1_000).toISOString(),
+  version: "1.3.0",
+  workspaceId: "123e4567-e89b-42d3-a456-426614175508",
+});
 const packV1_3 = strategyPackCatalog.resolve({ id: "congressional-signals", version: "1.3.0" });
 assert.ok(packV1_3);
 assert.deepEqual(packV1_3.evidenceContracts, CONGRESSIONAL_EVIDENCE_CONTRACTS_V1_3);
@@ -732,6 +739,21 @@ assert.equal(
     raw.includes(workspaceG.scope.workspaceId) && raw.includes("unresolved_member")),
   true,
   "the unresolved-member filing signal must remain durable",
+);
+
+const lateNow = new Date(baseNow.getTime() + 2_000);
+const latePrepared = await prepare(workspaceH.monitor, lateNow, workspaceH.scope);
+const lateResult = await execute({
+  document: baselineDocument,
+  now: lateNow,
+  prepared: latePrepared,
+  shouldFetch: true,
+  sourceClient: new MemoryCasStore(),
+});
+assert.equal(
+  lateResult.result.checkpoint.watermark,
+  workspaceH.monitor.nextOccurrenceAt,
+  "a delayed cron run advances to its logical window end, not its later physical observation time",
 );
 
 console.log("Congressional Signals Sprint 5 worker, replay, version, and isolation verification passed.");

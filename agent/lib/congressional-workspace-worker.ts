@@ -723,7 +723,13 @@ export async function evaluateCongressionalSignalsForWorker(input: {
   }, input.clients?.finding));
   const alertEvaluations = alertArtifacts.filter(({ finding }) =>
     finding?.factIdentities?.some((identity) => unseen.has(identity)));
-  const checkpoint = { contentDigest: cursor.contentDigest, watermark: observedAt };
+  const checkpoint = {
+    contentDigest: cursor.contentDigest,
+    // Acquisition keeps its physical observation time as provenance. The
+    // workspace checkpoint advances the logical occurrence window so a normal
+    // cron delay cannot move the result outside its authorized source fence.
+    watermark: envelope.window.endAt,
+  };
   await markWorkspaceSourceSuccess({
     contentDigest: cursor.contentDigest,
     now,
