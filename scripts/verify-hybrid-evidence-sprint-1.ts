@@ -38,8 +38,11 @@ import {
   type HybridEvidenceJobDefinition,
 } from "../agent/lib/hybrid-evidence-schema";
 import {
+  bindHybridEvidenceWorkerSessionCapability,
+  decodeHybridEvidenceWorkerToken,
   hybridEvidenceWorkerTokenFromSessionAuth,
   requireHybridEvidenceWorkerAuth,
+  signHybridEvidenceWorkerEnvelope,
 } from "../agent/lib/hybrid-evidence-auth";
 import {
   completeHybridEvidenceJobForWorker,
@@ -456,6 +459,48 @@ assert.equal(
 assert.equal((await requireHybridEvidenceWorkerAuth({
   session: { auth: durableWorkerAuth, id: "fixture-durable-worker-session" },
 }, { jobId: preparedA.job.jobId }, environment)).token, worker.token);
+const sessionBoundId = "fixture-session-bound-worker";
+const alternateValidToken = signHybridEvidenceWorkerEnvelope({
+  ...decodeHybridEvidenceWorkerToken(worker.token, { now }),
+  expiresAt: new Date(now.getTime() + 90_000).toISOString(),
+}, environment);
+assert.notEqual(alternateValidToken, worker.token);
+const previousFixtureTransport = process.env.EVE_HYBRID_EVIDENCE_WORKER_LOCAL_TRANSPORT;
+process.env.EVE_HYBRID_EVIDENCE_WORKER_LOCAL_TRANSPORT = "1";
+try {
+  await bindHybridEvidenceWorkerSessionCapability({
+    sessionId: sessionBoundId,
+    token: worker.token,
+  }, environment);
+  assert.equal((await requireHybridEvidenceWorkerAuth({
+    session: {
+      auth: {
+        current: {
+          ...worker.request.auth,
+          attributes: {
+            ...worker.request.auth.attributes,
+            hybrid_evidence_runtime_token: alternateValidToken,
+          },
+        },
+        initiator: {
+          ...worker.request.auth,
+          attributes: {
+            ...worker.request.auth.attributes,
+            hybrid_evidence_runtime_token: alternateValidToken,
+          },
+        },
+      },
+      id: sessionBoundId,
+    },
+  }, { jobId: preparedA.job.jobId }, environment)).token, worker.token,
+  "the session-bound claim token must outrank alternate valid Eve principals");
+} finally {
+  if (previousFixtureTransport === undefined) {
+    delete process.env.EVE_HYBRID_EVIDENCE_WORKER_LOCAL_TRANSPORT;
+  } else {
+    process.env.EVE_HYBRID_EVIDENCE_WORKER_LOCAL_TRANSPORT = previousFixtureTransport;
+  }
+}
 await assert.rejects(
   readHybridEvidenceSliceForWorker({
     clients: { artifacts, jobs },

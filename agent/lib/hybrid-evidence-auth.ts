@@ -342,6 +342,18 @@ export async function requireHybridEvidenceWorkerAuth(
       : [])
     .filter((value): value is string => value !== undefined);
   let failure = new HybridEvidenceWorkerAuthError("token_format_invalid");
+  let storedToken: string | undefined;
+  let sessionCapabilityReadFailed = false;
+  try {
+    storedToken = await readHybridEvidenceWorkerSessionCapability(
+      ctx.session.id,
+      environment,
+    );
+  } catch {
+    // The immutable Eve session binding is authoritative when available, but
+    // a transient KV read must not deny a still-valid auth-context capability.
+    sessionCapabilityReadFailed = true;
+  }
   const authorize = (token: string): {
     envelope: HybridEvidenceWorkerEnvelope;
     token: string;
@@ -372,22 +384,23 @@ export async function requireHybridEvidenceWorkerAuth(
     }
     return { envelope, token };
   };
-  const candidates = [...new Set(authTokens)];
+  // Eve can preserve more than one valid token-shaped principal across durable
+  // turns. Only the token bound when this exact worker session was launched is
+  // guaranteed to equal the job's stored claim digest, so prefer it before the
+  // auth-context fallbacks. Every candidate still has to pass the signed
+  // envelope and asserted-job checks below.
+  const candidates = [...new Set([
+    ...(storedToken ? [storedToken] : []),
+    ...authTokens,
+  ])];
   for (const token of candidates) {
     const authorized = authorize(token);
-    if (authorized) return authorized;
-  }
-  const storedToken = await readHybridEvidenceWorkerSessionCapability(
-    ctx.session.id,
-    environment,
-  );
-  if (storedToken && !candidates.includes(storedToken)) {
-    const authorized = authorize(storedToken);
     if (authorized) return authorized;
   }
   console.warn("[hybrid-evidence-auth] authorization failed", {
     authCandidateCount: new Set(authTokens).size,
     reason: failure.reason,
+    sessionCapabilityReadFailed,
     sessionCapabilityPresent: storedToken !== undefined,
     sessionIdDigest: createHash("sha256").update(ctx.session.id).digest("hex"),
   });
