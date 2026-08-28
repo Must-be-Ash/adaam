@@ -886,7 +886,7 @@ assert.equal(
 const compilation = await compileAgent({ startPath: appRoot });
 assert.deepEqual(
   compilation.manifest.config.build?.externalDependencies,
-  ["@adaam/eve-workspace-runtime-bridge", "@napi-rs/canvas", "pdfjs-dist"],
+  ["@adaam/eve-workspace-runtime-bridge", "@napi-rs/canvas", "pdfjs-dist", "pdfjs-dist*"],
   "The hosted worker runtime must retain its node-targeted bridge and PDF dependencies.",
 );
 const jiti = createJiti(import.meta.url, { interopDefault: false });

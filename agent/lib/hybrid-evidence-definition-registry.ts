@@ -409,6 +409,7 @@ export const workspaceSemanticValidationRegistry = createWorkspaceSemanticValida
 function reviewedDefinition(input: {
   readonly adapterId: string;
   readonly definitionId: string;
+  readonly definitionVersion?: string;
   readonly inputSchemaId: string;
   readonly instruction: string;
   readonly maximumPages: number;
@@ -428,7 +429,7 @@ function reviewedDefinition(input: {
     allowedMediaTypes: [...new Set(input.mediaTypes)].sort(),
     allowedModelIds: modelIds,
     definitionId: input.definitionId,
-    definitionVersion: "1.0.0",
+    definitionVersion: input.definitionVersion ?? "1.0.0",
     inputProjection: { schemaId: input.inputSchemaId, schemaVersion: "1.0.0" },
     instructionTemplate: {
       content: input.instruction,
@@ -471,6 +472,7 @@ export function createExtractionRecoveryDefinitions(
     reviewedDefinition({
       adapterId: "house-financial-disclosures",
       definitionId: HOUSE_DOCUMENT_ROW_DEFINITION_ID,
+      definitionVersion: "1.0.1",
       inputSchemaId: "house-ptr-pdf-pages",
       instruction: HOUSE_DOCUMENT_ROW_INSTRUCTION,
       maximumPages: 8,

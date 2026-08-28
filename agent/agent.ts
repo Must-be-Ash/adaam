@@ -6,6 +6,8 @@ export default defineAgent({
       "@adaam/eve-workspace-runtime-bridge",
       "@napi-rs/canvas",
       "pdfjs-dist",
+      // Nitro full-trace selector: retain PDF.js's runtime-loaded decoder assets.
+      "pdfjs-dist*",
     ],
   },
   model: "zai/glm-5.3-flash",

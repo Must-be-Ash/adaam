@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
+import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 
 import {
@@ -120,6 +121,9 @@ Object.assign(process.env, environment, {
 });
 
 const root = new URL("./fixtures/public-source-adapters/house/real-layout/", import.meta.url);
+const jbig2ScannedPdf = new Uint8Array(await readFile(
+  new URL("../live-review-2026-08-28/ptr-8221360.pdf", root),
+));
 const scannedPdf = new Uint8Array(await readFile(new URL("ptr-scanned.pdf", root)));
 const linkedPdf = new Uint8Array(await readFile(new URL("../live-review-2026-08-16/ptr-02.pdf", root)));
 const singlePdf = new Uint8Array(await readFile(new URL("ptr-single-row.pdf", root)));
@@ -145,6 +149,8 @@ assert.ok(Date.now() - decoderTimeoutStartedAt < 2_000, "decoder timeout must ki
 const definitions = createExtractionRecoveryDefinitions([modelId]);
 const pdfDefinition = definitions.find((definition) => definition.allowedMediaTypes.includes("application/pdf"))!;
 const spreadsheetDefinition = definitions.find((definition) => definition.definitionId === SPREADSHEET_ROLE_DEFINITION_ID)!;
+assert.equal(pdfDefinition.definitionVersion, "1.0.1");
+assert.equal(spreadsheetDefinition.definitionVersion, "1.0.0");
 assert.equal(assessExtractionRecoveryEligibility({
   definition: pdfDefinition,
   outcome: { errorCode: null, plausibilityPassed: true, relationshipPassed: true, state: "complete" },
@@ -162,6 +168,25 @@ const scannedProjection = await projectHybridEvidencePdf(scannedPdf);
 assert.equal(scannedProjection.pageCount, 1);
 assert.equal(scannedProjection.pages[0]?.text, "");
 assert.ok((scannedProjection.pages[0]?.byteCount ?? Infinity) < 3 * 1_024 * 1_024);
+const jbig2Projection = await projectHybridEvidencePdf(jbig2ScannedPdf);
+assert.equal(jbig2Projection.pageCount, 5);
+assert.ok(jbig2Projection.pages.every(({ text }) => text === ""));
+const jbig2FirstPage = jbig2Projection.pages[0]!;
+const jbig2Image = await loadImage(Buffer.from(jbig2FirstPage.imageBase64, "base64"));
+const jbig2Canvas = createCanvas(jbig2Image.width, jbig2Image.height);
+const jbig2Context = jbig2Canvas.getContext("2d");
+jbig2Context.drawImage(jbig2Image, 0, 0);
+const jbig2Pixels = jbig2Context.getImageData(0, 0, jbig2Image.width, jbig2Image.height).data;
+let jbig2VisiblePixels = 0;
+for (let index = 0; index < jbig2Pixels.length; index += 4) {
+  if (jbig2Pixels[index]! < 250 || jbig2Pixels[index + 1]! < 250 || jbig2Pixels[index + 2]! < 250) {
+    jbig2VisiblePixels += 1;
+  }
+}
+assert.ok(
+  jbig2VisiblePixels > jbig2Image.width * jbig2Image.height * 0.01,
+  "JBIG2-scanned House pages must render visible evidence instead of white images",
+);
 await assert.rejects(
   projectHybridEvidencePdf(linkedPdf),
   (error) => error instanceof HybridEvidencePdfError && error.code === "hostile_document",

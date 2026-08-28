@@ -1,6 +1,8 @@
 /** Plain JavaScript evaluated in a capability-restricted decoder process. */
 export const HYBRID_EVIDENCE_PDF_DECODER_SOURCE = String.raw`
 import { createHash } from "node:crypto";
+import { dirname, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createCanvas, DOMMatrix, ImageData, loadImage, Path2D } from "@napi-rs/canvas";
 await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
 const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -8,6 +10,7 @@ for (const [name, value] of Object.entries({ DOMMatrix, ImageData, Path2D })) {
   if (!Reflect.get(globalThis, name)) Object.defineProperty(globalThis, name, { value });
 }
 const digest = (value) => createHash("sha256").update(value).digest("hex");
+const wasmUrl = dirname(fileURLToPath(import.meta.resolve("pdfjs-dist/wasm/jbig2.wasm"))) + sep;
 const normalized = (value) => value.replaceAll("\0", "").replace(/\s+/gu, " ").trim();
 const normalizedLines = (items) => items
   .flatMap((item) => "str" in item ? [item.str, item.hasEOL ? "\n" : " "] : [])
@@ -49,7 +52,7 @@ try {
     }));
   } else {
     const bytes = Buffer.from(input.bytesBase64, "base64");
-    const loadingTask = getDocument({ data: Uint8Array.from(bytes), useSystemFonts: false });
+    const loadingTask = getDocument({ data: Uint8Array.from(bytes), useSystemFonts: false, wasmUrl });
     try {
       const document = await loadingTask.promise;
       if (
