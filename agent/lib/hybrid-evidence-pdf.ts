@@ -10,7 +10,8 @@ import { HYBRID_EVIDENCE_PDF_DECODER_SOURCE } from "./hybrid-evidence-pdf-decode
 import { HYBRID_EVIDENCE_LIMITS } from "./hybrid-evidence-schema";
 
 const MAX_RENDER_BYTES = 2_500_000;
-const MAX_RENDER_EDGE = 1_600;
+const DEFAULT_RENDER_EDGE = 1_600;
+export const HYBRID_EVIDENCE_MAX_RENDER_EDGE = 2_400;
 const MAX_OCR_CHARACTERS_PER_PAGE = 16_000;
 const MAX_PDF_RUNTIME_MS = 15_000;
 const MAX_PDF_PAGES = 64;
@@ -67,13 +68,13 @@ export interface HybridEvidencePdfProjection {
 const pdfPageSchema = z.object({
   byteCount: z.number().int().positive().max(MAX_RENDER_BYTES),
   evidenceDigest: z.string().regex(/^[a-f0-9]{64}$/u),
-  height: z.number().int().positive().max(MAX_RENDER_EDGE),
+  height: z.number().int().positive().max(HYBRID_EVIDENCE_MAX_RENDER_EDGE),
   imageBase64: z.string().max(Math.ceil(MAX_RENDER_BYTES * 4 / 3) + 8),
   mediaType: z.literal("image/png"),
   page: z.number().int().positive().max(MAX_PDF_PAGES),
   text: z.string().max(MAX_OCR_CHARACTERS_PER_PAGE),
   textDigest: z.string().regex(/^[a-f0-9]{64}$/u),
-  width: z.number().int().positive().max(MAX_RENDER_EDGE),
+  width: z.number().int().positive().max(HYBRID_EVIDENCE_MAX_RENDER_EDGE),
 }).strict();
 
 const pdfProjectionSchema = z.object({
@@ -171,13 +172,19 @@ export async function projectHybridEvidencePdf(
   bytes: Uint8Array,
   options: Readonly<{
     allowHttpLinks?: boolean;
+    maximumRenderEdge?: number;
     maximumPages?: number;
     preserveTextLines?: boolean;
   }> = {},
 ): Promise<HybridEvidencePdfProjection> {
   const allowHttpLinks = options.allowHttpLinks === true;
+  const maximumRenderEdge = options.maximumRenderEdge ?? DEFAULT_RENDER_EDGE;
   const maximumPages = options.maximumPages ?? HYBRID_EVIDENCE_LIMITS.maximumArtifactPages;
-  if (!Number.isInteger(maximumPages) || maximumPages < 1 || maximumPages > MAX_PDF_PAGES) {
+  if (
+    !Number.isInteger(maximumPages) || maximumPages < 1 || maximumPages > MAX_PDF_PAGES ||
+    !Number.isInteger(maximumRenderEdge) || maximumRenderEdge < 1 ||
+      maximumRenderEdge > HYBRID_EVIDENCE_MAX_RENDER_EDGE
+  ) {
     throw new HybridEvidencePdfError("evidence_bounds_exceeded");
   }
   assertPdfContainer(bytes, allowHttpLinks);
@@ -188,7 +195,7 @@ export async function projectHybridEvidencePdf(
         maximumCharactersPerPage: MAX_OCR_CHARACTERS_PER_PAGE,
         maximumPages,
         maximumRenderBytes: MAX_RENDER_BYTES,
-        maximumRenderEdge: MAX_RENDER_EDGE,
+        maximumRenderEdge,
         operation: "project",
         allowHttpLinks,
         preserveTextLines: options.preserveTextLines === true,

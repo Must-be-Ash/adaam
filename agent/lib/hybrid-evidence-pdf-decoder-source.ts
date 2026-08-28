@@ -78,7 +78,7 @@ try {
           : normalized(content.items.flatMap((item) => "str" in item ? [item.str] : []).join(" "));
         if (text.length > input.maximumCharactersPerPage) throw new Error("evidence_bounds_exceeded");
         const initial = page.getViewport({ scale: 1 });
-        let scale = Math.min(2, input.maximumRenderEdge / Math.max(initial.width, initial.height));
+        let scale = Math.min(4, input.maximumRenderEdge / Math.max(initial.width, initial.height));
         let png;
         let width = 0;
         let height = 0;

@@ -33,8 +33,20 @@ import {
   EARNINGS_CALL_RESEARCH_DEFINITION_ID,
   earningsCallResearchWorkerCandidateSchema,
 } from "./earnings-call-research";
+import { houseDocumentRowWorkerCandidateSchema } from "./hybrid-evidence-extraction-recovery";
+import { HOUSE_DOCUMENT_ROW_DEFINITION_ID } from "./hybrid-evidence-definition-registry";
 
 const contracts = Object.freeze([
+  Object.freeze({
+    capabilityRevisions: Object.freeze([2]),
+    completion: Object.freeze({
+      description:
+        "Commit one exact House PTR extraction using the registered document, checkbox, amount-band, and row schema.",
+      inputSchema: houseDocumentRowWorkerCandidateSchema,
+    }),
+    definitionId: HOUSE_DOCUMENT_ROW_DEFINITION_ID,
+    research: null,
+  }),
   Object.freeze({
     capabilityRevisions: Object.freeze([2]),
     completion: Object.freeze({

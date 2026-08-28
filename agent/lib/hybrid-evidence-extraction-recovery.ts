@@ -36,7 +36,20 @@ const pdfCitationSchema = z.object({
   }).strict().nullable(),
 }).strict();
 
-const houseCandidateSchema = z.object({
+const houseAmountRangeSchema = z.enum([
+  "$1,001 - $15,000",
+  "$15,001 - $50,000",
+  "$50,001 - $100,000",
+  "$100,001 - $250,000",
+  "$250,001 - $500,000",
+  "$500,001 - $1,000,000",
+  "$1,000,001 - $5,000,000",
+  "$5,000,001 - $25,000,000",
+  "$25,000,001 - $50,000,000",
+  "Over $50,000,000",
+]);
+
+export const houseDocumentRowWorkerCandidateSchema = z.object({
   citations: z.array(pdfCitationSchema).min(1).max(64),
   disposition: z.enum(["accepted", "quarantined"]),
   fields: z.object({
@@ -48,19 +61,24 @@ const houseCandidateSchema = z.object({
       stateDistrict: z.string().regex(/^[A-Z]{2}(?:\d{2}|AL)$/u),
     }).strict(),
     rows: z.array(z.object({
-      amountRange: z.string().trim().min(1).max(120),
+      amountRange: houseAmountRangeSchema,
       assetDescription: z.string().trim().min(1).max(1_000),
-      capitalGainsIndicator: z.enum(["yes", "no", "unknown"]),
+      capitalGainsIndicator: z.enum(["yes", "no", "unknown"])
+        .describe("Use unknown when the legacy form has no capital-gains field."),
       notificationDate: z.string().date(),
       ownerCode: z.string().trim().min(1).max(20).nullable(),
       page: z.number().int().positive().max(8),
-      reportedTicker: z.string().regex(/^[A-Z0-9.-]{1,20}$/u).nullable(),
+      reportedTicker: z.string().regex(/^[A-Z0-9.-]{1,20}$/u).nullable()
+        .describe("Use null unless a ticker is printed in the asset cell; never infer one."),
       transactionDate: z.string().date(),
-      transactionType: z.enum(["E", "P", "S"]),
+      transactionType: z.enum(["E", "P", "S"])
+        .describe("P=Purchase, S=Sale or Partial Sale, E=Exchange."),
     }).strict()).max(499),
   }).strict(),
   unknowns: z.array(z.string().min(1).max(200)).max(64),
 }).strict();
+
+const houseCandidateSchema = houseDocumentRowWorkerCandidateSchema;
 
 const spreadsheetCandidateSchema = z.object({
   citations: z.array(z.object({
@@ -172,20 +190,22 @@ function assertIndependentDocument(input: {
     .trim()
     .toLocaleLowerCase("en-US");
   for (const value of [
-    input.document.docId,
     input.document.filerName,
     input.document.filingDate,
-    input.document.stateDistrict,
   ]) {
     if (!findIndependentValue(text, value)) {
       throw new HybridEvidencePdfError("independent_value_mismatch");
     }
   }
-  const amendment = /\bamend(?:ed|ment)\b/iu.test(text);
-  if (input.document.isAmendment !== amendment) {
+  const initial = /\breportstatus\s*=\s*initial\b|\binitial report\s*\[x\]|\[x\]\s*initial report\b/iu.test(text);
+  const amendment = /\breportstatus\s*=\s*amendment\b|\bamendment\s*\[x\]|\[x\]\s*amendment\b/iu.test(text);
+  if (
+    (input.document.isAmendment && (!amendment || initial)) ||
+    (!input.document.isAmendment && (!initial || amendment))
+  ) {
     throw new HybridEvidencePdfError("independent_value_mismatch");
   }
-  if (!input.document.isAmendment && !/\bperiodic transaction report\b/iu.test(text)) {
+  if (!/\bperiodic transaction report\b/iu.test(text)) {
     throw new HybridEvidencePdfError("independent_value_mismatch");
   }
 }

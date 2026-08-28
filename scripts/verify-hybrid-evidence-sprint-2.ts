@@ -13,8 +13,10 @@ import {
 import { reserveHybridEvidenceAttempt } from "../agent/lib/hybrid-evidence-budget";
 import {
   createExtractionRecoveryDefinitions,
+  HOUSE_DOCUMENT_ROW_DEFINITION_ID,
   SPREADSHEET_ROLE_DEFINITION_ID,
 } from "../agent/lib/hybrid-evidence-definition-registry";
+import { resolveHybridEvidenceWorkerContract } from "../agent/lib/hybrid-evidence-worker-contract-registry";
 import {
   assessExtractionRecoveryEligibility,
   createAcceptedExtractionResult,
@@ -150,8 +152,10 @@ assert.ok(Date.now() - decoderTimeoutStartedAt < 2_000, "decoder timeout must ki
 const definitions = createExtractionRecoveryDefinitions([modelId]);
 const pdfDefinition = definitions.find((definition) => definition.allowedMediaTypes.includes("application/pdf"))!;
 const spreadsheetDefinition = definitions.find((definition) => definition.definitionId === SPREADSHEET_ROLE_DEFINITION_ID)!;
-assert.equal(pdfDefinition.definitionVersion, "1.0.3");
+assert.equal(pdfDefinition.definitionVersion, "1.0.4");
+assert.equal(pdfDefinition.limits.maximumInputTokens, 40_000);
 assert.equal(spreadsheetDefinition.definitionVersion, "1.0.0");
+assert.equal(spreadsheetDefinition.limits.maximumInputTokens, 24_000);
 assert.equal(assessExtractionRecoveryEligibility({
   definition: pdfDefinition,
   outcome: { errorCode: null, plausibilityPassed: true, relationshipPassed: true, state: "complete" },
@@ -248,8 +252,19 @@ const validPdfCandidate = {
   },
   unknowns: [],
 };
+const houseWorkerContract = resolveHybridEvidenceWorkerContract(HOUSE_DOCUMENT_ROW_DEFINITION_ID);
+assert.ok(houseWorkerContract);
+assert.equal(houseWorkerContract.completion.inputSchema.safeParse(validPdfCandidate).success, true);
+assert.equal(houseWorkerContract.completion.inputSchema.safeParse({
+  ...validPdfCandidate,
+  fields: {
+    ...validPdfCandidate.fields,
+    rows: [{ ...validPdfCandidate.fields.rows[0]!, amountRange: "Unknown" }],
+  },
+}).success, false);
 const validIndependentText = [
   "Periodic Transaction Report",
+  "reportStatus=initial",
   "Filing ID #20000011",
   "Filer Hon. Jordan Sample",
   "State/District OR03",
@@ -485,6 +500,7 @@ let currentRows: Array<{
 function currentIndependentOcr(): string {
   return [
     "Periodic Transaction Report",
+    "reportStatus=initial",
     "Filing ID #20000011",
     `Filer ${currentFilerName}`,
     "State/District OR03",
@@ -522,7 +538,9 @@ const recovery = createHouseHybridEvidenceRecovery({
       assert.equal(files.length, 1);
       assert.equal(files[0]?.mediaType, "image/png");
       assert.match(String(files[0]?.data), /^data:image\/png;base64,/u);
-      assert.match(promptPart?.text ?? "", /fields\.document must contain docId/u);
+      assert.match(promptPart?.text ?? "", /copy docId, filerName, filingDate/u);
+      assert.match(promptPart?.text ?? "", /"docId":"20000011"/u);
+      assert.match(promptPart?.text ?? "", /Purchase=P, Sale=S, Partial Sale=S/u);
       assert.match(promptPart?.text ?? "", /attached images map one-to-one/u);
       const envelope = verifyHybridEvidenceWorkerToken(prepared.token, {}, environment);
       await completeThroughWorker({
