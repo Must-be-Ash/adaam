@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import {
   finishWorkspaceMonitorDispatchBudget,
   readGlobalDispatchBudgetLedger,
+  reconcileHybridEvidenceDeploymentBudget,
+  reserveHybridEvidenceDeploymentBudget,
   reserveWorkspaceMonitorDispatchBudget,
   resolveWorkspaceGlobalBudgetLimits,
   WorkspaceDispatchBudgetError,
@@ -443,6 +445,41 @@ assert.equal(
   summarizeWorkspaceBudgetUsage(nestedLedger, now, nestedPolicy.ownerTimezone)
     .activeWorkers,
   0,
+);
+
+const releasedHybridGlobal = new MemoryStore();
+const hybridEnvironment = {
+  EVE_HYBRID_SOURCE_RECOVERY_MAXIMUM_CONCURRENT_WORKERS: "1",
+  EVE_HYBRID_SOURCE_RECOVERY_MAXIMUM_INPUT_TOKENS_PER_DAY: "1000",
+  EVE_HYBRID_SOURCE_RECOVERY_MAXIMUM_OUTPUT_TOKENS_PER_DAY: "1000",
+  EVE_HYBRID_SOURCE_RECOVERY_MAXIMUM_PAID_PER_CALL: "1",
+  EVE_HYBRID_SOURCE_RECOVERY_MAXIMUM_PAID_PER_DAY: "1",
+  EVE_HYBRID_SOURCE_RECOVERY_MAXIMUM_PAID_PER_MONTH: "1",
+  EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS: "fixture/extractor",
+};
+const releasedHybrid = await reserveHybridEvidenceDeploymentBudget({
+  inputTokens: 100,
+  modelId: "fixture/extractor",
+  now,
+  outputTokens: 100,
+  paidCostCeiling: "0.10",
+  reservationKey: "hybrid.released.fixture",
+}, { client: releasedHybridGlobal, environment: hybridEnvironment });
+await reconcileHybridEvidenceDeploymentBudget({
+  now,
+  outcome: "released",
+  reservationKey: releasedHybrid.runId,
+}, releasedHybridGlobal);
+await assert.rejects(
+  reserveHybridEvidenceDeploymentBudget({
+    inputTokens: 100,
+    modelId: "fixture/extractor",
+    now,
+    outputTokens: 100,
+    paidCostCeiling: "0.10",
+    reservationKey: "hybrid.released.fixture",
+  }, { client: releasedHybridGlobal, environment: hybridEnvironment }),
+  (error) => error instanceof WorkspaceDispatchBudgetError && error.code === "global_budget_conflict",
 );
 
 const scheduleSource = await readFile(

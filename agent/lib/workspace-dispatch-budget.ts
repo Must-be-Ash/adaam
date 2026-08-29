@@ -379,6 +379,7 @@ export async function reserveHybridEvidenceDeploymentBudget(input: {
     const existing = current.reservations.find(({ runId }) => runId === input.reservationKey);
     if (existing) {
       if (
+        existing.state === "released" ||
         existing.kind !== "hybrid_model_attempt" ||
         existing.inputTokens !== input.inputTokens ||
         existing.outputTokens !== input.outputTokens ||
