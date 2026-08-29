@@ -47,6 +47,7 @@ const houseAmountRangeSchema = z.enum([
   "$5,000,001 - $25,000,000",
   "$25,000,001 - $50,000,000",
   "Over $50,000,000",
+  "Spouse/DC Asset Over $1,000,000",
 ]);
 
 export const houseDocumentRowWorkerCandidateSchema = z.object({
@@ -134,6 +135,9 @@ function injectionDetected(values: Iterable<string>): boolean {
 
 function range(label: string) {
   const normalized = label.replace(/\s+/gu, " ").trim();
+  if (normalized === "Spouse/DC Asset Over $1,000,000") {
+    return Object.freeze({ label: normalized, lower: "1000001", upper: null });
+  }
   const closed = /^\$\s*([\d,]+)\s*-\s*\$\s*([\d,]+)$/u.exec(normalized);
   const over = /^Over\s+\$\s*([\d,]+)$/iu.exec(normalized);
   if (!closed && !over) throw new HybridEvidencePdfError("independent_value_mismatch");

@@ -305,6 +305,37 @@ const transactionFact = canonicalPublicFactRevisionSchema.parse({
 });
 assert.notEqual(fact.revisionId, transactionFact.revisionId);
 
+const factWithAmountRange = (amountRange: {
+  readonly label: string;
+  readonly lower: string | null;
+  readonly upper: string | null;
+}) => {
+  const payload = { ...transactionFact.payload, amountRange };
+  const payloadDigest = digestPublicSourceValue(payload);
+  return {
+    ...transactionFact,
+    payload,
+    payloadDigest,
+    revisionId: deriveCanonicalPublicFactRevisionId({
+      logicalKey: transactionFact.logicalKey,
+      payloadDigest,
+    }),
+  };
+};
+const openEndedTransaction = canonicalPublicFactRevisionSchema.parse(factWithAmountRange({
+  label: "Spouse/DC Asset Over $1,000,000",
+  lower: "1000001",
+  upper: null,
+}));
+assert.equal(openEndedTransaction.payload.schemaVersion, "house-ptr-transaction/v1");
+assert.equal(openEndedTransaction.payload.amountRange.upper, null);
+for (const amountRange of [
+  { label: "invalid upper only", lower: null, upper: "15000" },
+  { label: "invalid descending", lower: "15000", upper: "1001" },
+]) {
+  assert.throws(() => canonicalPublicFactRevisionSchema.parse(factWithAmountRange(amountRange)));
+}
+
 const correction = publicSourceCorrectionSchema.parse({
   correctionId: `correction.${digestPublicSourceValue([
     fact.logicalKey,

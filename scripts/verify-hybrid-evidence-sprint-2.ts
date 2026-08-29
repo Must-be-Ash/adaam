@@ -153,7 +153,7 @@ assert.ok(Date.now() - decoderTimeoutStartedAt < 2_000, "decoder timeout must ki
 const definitions = createExtractionRecoveryDefinitions([modelId]);
 const pdfDefinition = definitions.find((definition) => definition.allowedMediaTypes.includes("application/pdf"))!;
 const spreadsheetDefinition = definitions.find((definition) => definition.definitionId === SPREADSHEET_ROLE_DEFINITION_ID)!;
-assert.equal(pdfDefinition.definitionVersion, "1.0.6");
+assert.equal(pdfDefinition.definitionVersion, "1.0.7");
 assert.equal(pdfDefinition.limits.maximumInputTokens, 40_000);
 assert.equal(pdfDefinition.limits.maximumRuntimeMs, 300_000);
 assert.equal(spreadsheetDefinition.definitionVersion, "1.0.0");
@@ -258,6 +258,18 @@ const validPdfCandidate = {
 const houseWorkerContract = resolveHybridEvidenceWorkerContract(HOUSE_DOCUMENT_ROW_DEFINITION_ID);
 assert.ok(houseWorkerContract);
 assert.equal(houseWorkerContract.completion.inputSchema.safeParse(validPdfCandidate).success, true);
+const kPdfCandidate = {
+  ...validPdfCandidate,
+  fields: {
+    ...validPdfCandidate.fields,
+    rows: [{
+      ...validPdfCandidate.fields.rows[0]!,
+      amountRange: "Spouse/DC Asset Over $1,000,000",
+      capitalGainsIndicator: "unknown" as const,
+    }],
+  },
+};
+assert.equal(houseWorkerContract.completion.inputSchema.safeParse(kPdfCandidate).success, true);
 assert.equal(houseWorkerContract.completion.inputSchema.safeParse({
   ...validPdfCandidate,
   fields: {
@@ -282,6 +294,29 @@ const directValidation = validateHouseDocumentRowCandidate({
   projection: scannedProjection,
 });
 assert.equal(directValidation.rows.length, 1);
+const kValidation = validateHouseDocumentRowCandidate({
+  artifactDigest: scannedProjection.documentDigest,
+  candidate: kPdfCandidate,
+  expected: kPdfCandidate.fields.document,
+  independentTextByPage: new Map([[1, [
+    "Periodic Transaction Report reportStatus=initial Filing ID #20000011",
+    "Filer Hon. Jordan Sample State/District OR03 Filing Date 03/04/2026",
+    "SP Fixture Corp (FIX) [ST] P 03/01/2026 03/04/2026",
+    "Spouse/DC Asset Over $1,000,000 capitalGainsIndicator=unknown",
+  ].join(" ")]]),
+  projection: scannedProjection,
+});
+assert.deepEqual(kValidation.rows[0]?.amountRange, {
+  label: "Spouse/DC Asset Over $1,000,000",
+  lower: "1000001",
+  upper: null,
+});
+const recoverySource = await readFile(
+  new URL("../agent/lib/house-hybrid-evidence-recovery.ts", import.meta.url),
+  "utf8",
+);
+assert.match(recoverySource, /capital-gains Yes or No selection/u);
+assert.match(recoverySource, /K=Spouse\/DC Asset Over \$1,000,000/u);
 for (const fields of [
   { document: { ...validPdfCandidate.fields.document, isAmendment: true }, rows: validPdfCandidate.fields.rows },
   { document: validPdfCandidate.fields.document, rows: [{ ...validPdfCandidate.fields.rows[0]!, ownerCode: "JT" }] },
@@ -638,7 +673,7 @@ assert.equal(workerCalls, 3);
 assert.equal(recoveryObservations.length, 3);
 assert.equal(recoveryObservations.every((observation) =>
   observation.outcome === "accepted" &&
-  observation.definitionVersion === "1.0.6" &&
+  observation.definitionVersion === "1.0.7" &&
   observation.jobId?.startsWith("hybrid-job.") === true &&
   observation.modelId === modelId &&
   observation.rowCount >= 0 &&

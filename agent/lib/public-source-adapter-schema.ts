@@ -452,7 +452,10 @@ const amountRangeSchema = z.object({
   lower: z.string().regex(/^(?:0|[1-9]\d*)$/u).nullable(),
   upper: z.string().regex(/^(?:0|[1-9]\d*)$/u).nullable(),
 }).strict().superRefine((range, context) => {
-  if ((range.lower === null) !== (range.upper === null)) {
+  if (
+    (range.lower === null && range.upper !== null) ||
+    (range.lower !== null && range.upper !== null && BigInt(range.lower) > BigInt(range.upper))
+  ) {
     context.addIssue({ code: "custom", message: "house_amount_range_invalid" });
   }
 });
