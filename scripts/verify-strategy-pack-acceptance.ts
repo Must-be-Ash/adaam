@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mock } from "node:test";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
@@ -347,6 +348,7 @@ const routing = {
   threadId: "imessage:fixture-thread",
 };
 const acceptanceNow = new Date("2026-08-14T16:00:00.000Z");
+mock.timers.enable({ apis: ["Date"], now: acceptanceNow });
 const store = new MemoryAcceptanceStore();
 const stateReader: WorkspaceStateStoreClient = {
   compareAndSet: async () => false,
@@ -454,6 +456,19 @@ assert.deepEqual(monitor.schedule, {
   times: ["09:00", "16:00"],
   timezone: "America/Vancouver",
 });
+const createdInspection = await inspectStrategyPackWorkspace({
+  scope: ipoScope,
+  workspaceGeneration: ipo.generation,
+}, {
+  catalog: strategyPackCatalog,
+  environment,
+  hybridSemanticClient: budget,
+  monitorClient: store,
+  publicSourceAcquisitionClient: budget,
+  publicSourceSubscriptionClient: budget,
+  stateClient: stateReader,
+});
+assert.equal(createdInspection.managedMonitors[0]?.lastErrorCode, null);
 assert.equal(
   ensuredAlertSubscriptions.length,
   1,
@@ -538,7 +553,7 @@ let activeBody = initialBody;
 let fetches = 0;
 let deliveryCards: Array<{ discussUrl: string; heading: string }> = [];
 let prepared: PreparedWorkspaceWorkerRun | null = null;
-let tickNow = new Date();
+let tickNow = new Date(monitor.nextOccurrenceAt!);
 let claimCalls = 0;
 const workerErrors: unknown[] = [];
 
@@ -546,6 +561,7 @@ async function runScheduleTick(input: {
   photonAlerts: boolean;
   workspaceDispatch: boolean;
 }) {
+  mock.timers.setTime(tickNow.getTime());
   const schedule = createEventTriggerSchedule({
     claimEventTriggers: async () => [],
     claimWorkspaceMonitors: async (claimInput) => {
@@ -610,7 +626,7 @@ async function runScheduleTick(input: {
           strategyPackCatalog,
         },
         environment,
-        now: new Date(),
+        now: tickNow,
       });
       return prepared;
     },
@@ -647,8 +663,8 @@ async function runScheduleTick(input: {
       sourceEvents: false,
       state: true,
     }),
-    startWorkspaceWorker: async (request) => {
-      assert.equal(request.continuationToken, prepared?.envelope.runId);
+    runWorkspaceEvaluator: async ({ prepared: evaluatorPrepared }) => {
+      assert.equal(evaluatorPrepared.envelope.runId, prepared?.envelope.runId);
       fetches += 1;
       try {
         await evaluateSecIpoSourceForWorker({
@@ -663,10 +679,11 @@ async function runScheduleTick(input: {
             }),
             finding: findings,
             monitor: store,
+            publishReport: async ({ artifactId }) => ({ artifactId, kind: "report" as const }),
             sourceCoverage: coverage,
             state: stateReader,
           },
-          ctx: { session: { auth: { current: request.auth } } },
+          ctx: { session: { auth: { current: evaluatorPrepared.request.auth } } },
           environment,
           now: tickNow,
         });
@@ -674,9 +691,6 @@ async function runScheduleTick(input: {
         workerErrors.push(error);
         throw error;
       }
-      return {
-        events: (async function* () {})(),
-      } as Awaited<ReturnType<NonNullable<Parameters<typeof createEventTriggerSchedule>[0]["startWorkspaceWorker"]>>>;
     },
   });
   assert.ok("run" in schedule && schedule.run);
@@ -705,7 +719,13 @@ activeBody = laterBody;
 tickNow = new Date(monitor.nextOccurrenceAt!);
 await runScheduleTick({ photonAlerts: true, workspaceDispatch: true });
 assert.equal(fetches, 2);
-assert.equal(deliveryCards.length, 1);
+assert.equal(
+  deliveryCards.length,
+  1,
+  workerErrors.map((error) => error instanceof Error
+    ? `${error.name}:${error.message}`
+    : typeof error).join(","),
+);
 assert.match(deliveryCards[0]!.heading, /IPO Filings/u);
 assert.equal((await getPhotonWorkspaceState(routing, store)).activeWorkspace.id, research.id);
 
@@ -785,7 +805,10 @@ assert.equal((await inspectStrategyPackWorkspace({
 }, {
   catalog: strategyPackCatalog,
   environment: runtimeOff,
+  hybridSemanticClient: budget,
   monitorClient: store,
+  publicSourceAcquisitionClient: budget,
+  publicSourceSubscriptionClient: budget,
   stateClient: stateReader,
 })).state, "unavailable");
 assert.throws(
@@ -811,12 +834,16 @@ const inspection = await inspectStrategyPackWorkspace({
 }, {
   catalog: strategyPackCatalog,
   environment,
+  hybridSemanticClient: budget,
   monitorClient: store,
+  publicSourceAcquisitionClient: budget,
+  publicSourceSubscriptionClient: budget,
   stateClient: stateReader,
 });
 assert.equal(inspection.state, "active");
 assert.equal(inspection.pack?.id, "ipo-filings");
 assert.equal(inspection.managedMonitors[0]?.lifecycleState, "enabled");
+assert.equal(inspection.managedMonitors[0]?.lastErrorCode, null);
 
 const pack = strategyPackCatalog.resolve({ id: "ipo-filings", version: "1.0.0" });
 assert.ok(pack);

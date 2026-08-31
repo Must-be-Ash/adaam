@@ -88,19 +88,14 @@ const contracts = new Map<string, WorkspaceMonitorLifecycleContract>([
     sourcelessInstall: "allowed",
   }),
   /*
-   * Reproduces exactly what Congressional already did with no declared
-   * contract at all (the "no contract resolves" default at every consumer:
-   * requiresManagedMonitorActivationWatermark, usesDeferredSourceRetry, and
-   * resolveWorkspaceWorkerEvaluationWindow's "preceding_interval" check are
-   * all false when the contract is null; admitsActivationSources is skipped
-   * entirely; sourceless install stays refused, which the pack's one fixed
-   * House source never exercises anyway). Only 1.4.0+ declares this
-   * contract - 1.0.0 through 1.3.0 remain immutable and unbound, matching
-   * their original acceptance exactly.
+   * House's bounded acquisitions may need several source attempts before a
+   * complete baseline exists. Reuse occurrence-scoped source retry without
+   * changing its activation, source admission, or historical-alert boundary.
+   * Legacy pack bindings receive this same runtime retry safety below.
    */
   defineContract({
     activationWatermark: "none",
-    deferredSourceRetry: "none",
+    deferredSourceRetry: "occurrence_scoped",
     id: CONGRESSIONAL_HOUSE_DISCLOSURES_MONITOR_LIFECYCLE_CONTRACT_ID,
     initialEvaluationWindow: "created_at",
     initialOccurrence: "scheduled",
@@ -110,6 +105,8 @@ const contracts = new Map<string, WorkspaceMonitorLifecycleContract>([
 ].map((contract) => [contract.id, contract]));
 
 const legacyBindings = new Map<string, string>([
+  ...["1.0.0", "1.1.0", "1.2.0", "1.3.0"].map((version): [string, string] =>
+    [`congressional-signals@${version}/evaluate-house-ptrs`, CONGRESSIONAL_HOUSE_DISCLOSURES_MONITOR_LIFECYCLE_CONTRACT_ID]),
   ["inverse-cramer@1.0.0/evaluate-public-commentary", PUBLIC_COMMENTARY_LEGACY_MONITOR_LIFECYCLE_CONTRACT_ID],
   ["inverse-cramer@1.1.0/evaluate-public-commentary", PUBLIC_COMMENTARY_LEGACY_MONITOR_LIFECYCLE_CONTRACT_ID],
   ["inverse-cramer@1.2.0/evaluate-public-commentary", PUBLIC_COMMENTARY_CADENCE_MONITOR_LIFECYCLE_CONTRACT_ID],

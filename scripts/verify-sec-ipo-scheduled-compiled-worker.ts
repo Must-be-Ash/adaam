@@ -825,6 +825,7 @@ const [
   { setWorld },
   { WorkflowBundleBuilder },
   { bundleWorkflowStepRegistrations },
+  { WORKFLOW_STEP_EXTERNAL_PACKAGES },
   { writeCompiledArtifactsFiles },
   { resolvePackageRoot, resolveWorkflowModulePath },
   { deriveEveWorkflowQueuePrefix },
@@ -846,6 +847,9 @@ const [
   >,
   import(new URL("./internal/workflow-bundle/builder-support.js", eveEntry).href) as Promise<
     typeof import("../node_modules/eve/dist/src/internal/workflow-bundle/builder-support.js")
+  >,
+  import(new URL("./internal/workflow-bundle/vercel-workflow-output.js", eveEntry).href) as Promise<
+    typeof import("../node_modules/eve/dist/src/internal/workflow-bundle/vercel-workflow-output.js")
   >,
   import(new URL("./internal/application/compiled-artifacts.js", eveEntry).href) as Promise<
     typeof import("../node_modules/eve/dist/src/internal/application/compiled-artifacts.js")
@@ -889,6 +893,14 @@ assert.deepEqual(
   ["@adaam/eve-workspace-runtime-bridge", "@napi-rs/canvas", "pdfjs-dist", "pdfjs-dist*"],
   "The hosted worker runtime must retain its node-targeted bridge and PDF dependencies.",
 );
+const workflowStepExternalPackages = WORKFLOW_STEP_EXTERNAL_PACKAGES as unknown as string[];
+// This local Rolldown pass predates agent-config external dependencies. Keep the
+// native Canvas entry external so the fixture loads its installed platform
+// package at runtime, matching the hosted Nitro build without externalizing the
+// workspace bridge away from this temporary bundle.
+if (!workflowStepExternalPackages.includes("@napi-rs/canvas")) {
+  workflowStepExternalPackages.push("@napi-rs/canvas");
+}
 const jiti = createJiti(import.meta.url, { interopDefault: false });
 const moduleMapModule = await jiti.import<{ moduleMap: unknown }>(
   pathToFileURL(join(appRoot, ".eve/compile/module-map.mjs")).href,

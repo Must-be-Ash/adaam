@@ -236,6 +236,35 @@ const monitor = await createWorkspaceMonitor(
   },
   client,
 );
+// Delivery progress uses a near-term continuation even for a daily/one-time
+// schedule, while only the final page publishes a source checkpoint.
+for (const kind of ["one_time", "daily_local"] as const) {
+  const pages = new MemoryStore();
+  const pageMonitor = await createWorkspaceMonitor({
+    deliverySubscriptionId: `delivery.pages-${kind}`, instruction: "Deliver the complete source backlog.",
+    name: `Paged ${kind}`, nextOccurrenceAt: scheduledFor, now, scope, sources: [source(0)],
+    schedule: kind === "one_time" ? { kind, at: scheduledFor } : { kind, times: ["12:05"], timezone: "UTC" },
+  }, pages);
+  const first = await claimWorkspaceMonitorOccurrence({ configurationRevision: pageMonitor.configurationRevision,
+    leaseForMs: 60_000, monitorId: pageMonitor.monitorId, now: new Date(scheduledFor),
+    occurrenceIdentity: scheduledFor, scheduledFor, scope }, pages);
+  const progress = await completeWorkspaceMonitorCheckpoint({ completedAt: new Date(scheduledFor),
+    configurationRevision: pageMonitor.configurationRevision, contentDigest: "a".repeat(64), holdSourceCheckpoint: true,
+    leaseTokenDigest: first.occurrence.leaseTokenDigest, monitorId: pageMonitor.monitorId,
+    occurrenceKey: first.occurrence.occurrenceKey, scheduledFor, scope, watermark: scheduledFor }, pages);
+  assert.deepEqual(progress.sourceCheckpoint, { contentDigest: null, watermark: null });
+  assert.equal(progress.nextOccurrenceAt, "2026-08-14T12:06:00.000Z");
+  assert.ok([...pages.due.values()].includes(Date.parse(progress.nextOccurrenceAt!)));
+  const second = await claimWorkspaceMonitorOccurrence({ configurationRevision: pageMonitor.configurationRevision,
+    leaseForMs: 60_000, monitorId: pageMonitor.monitorId, now: new Date(progress.nextOccurrenceAt!),
+    occurrenceIdentity: progress.nextOccurrenceAt!, scheduledFor: progress.nextOccurrenceAt!, scope }, pages);
+  const final = await completeWorkspaceMonitorCheckpoint({ completedAt: new Date(progress.nextOccurrenceAt!),
+    configurationRevision: pageMonitor.configurationRevision, contentDigest: "a".repeat(64),
+    leaseTokenDigest: second.occurrence.leaseTokenDigest, monitorId: pageMonitor.monitorId,
+    occurrenceKey: second.occurrence.occurrenceKey, scheduledFor: progress.nextOccurrenceAt!, scope, watermark: progress.nextOccurrenceAt! }, pages);
+  assert.equal(final.nextOccurrenceAt, kind === "one_time" ? null : "2026-08-15T12:05:00.000Z");
+  assert.equal(final.sourceCheckpoint.contentDigest, "a".repeat(64));
+}
 assert.equal(monitor.schemaVersion, 1);
 assert.equal(monitor.configurationRevision, 1);
 assert.equal(monitor.workspaceBindingImmutable, true);

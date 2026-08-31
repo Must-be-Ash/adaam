@@ -1,0 +1,1443 @@
+{
+  "schemaVersion": 1,
+  "candidate": {
+    "citations": [
+      {
+        "artifactDigest": "f9a70eab14f09a3ee99748058a7eed7dfa9be2f62817066a35d6acfd673b097e",
+        "evidenceDigest": "ecf8c66548713fae533e27f641fffa104d900ab00bd2e0469b6794f538ca4b35",
+        "kind": "pdf_page",
+        "page": 1,
+        "region": null
+      },
+      {
+        "artifactDigest": "f9a70eab14f09a3ee99748058a7eed7dfa9be2f62817066a35d6acfd673b097e",
+        "evidenceDigest": "f621c25f1a6581d33bdf7ef186dade2e7563d12a329f79f7d9cead11d1866ff4",
+        "kind": "pdf_page",
+        "page": 2,
+        "region": null
+      },
+      {
+        "artifactDigest": "f9a70eab14f09a3ee99748058a7eed7dfa9be2f62817066a35d6acfd673b097e",
+        "evidenceDigest": "5e8a03071efd946dcceb92f4758303d5166261d88c1fdd73666c81292b95acc8",
+        "kind": "pdf_page",
+        "page": 3,
+        "region": null
+      },
+      {
+        "artifactDigest": "f9a70eab14f09a3ee99748058a7eed7dfa9be2f62817066a35d6acfd673b097e",
+        "evidenceDigest": "f8072b6328b11b79860626db1507550fa23ed10f36ccb47d80ca5e499f05c856",
+        "kind": "pdf_page",
+        "page": 4,
+        "region": null
+      },
+      {
+        "artifactDigest": "f9a70eab14f09a3ee99748058a7eed7dfa9be2f62817066a35d6acfd673b097e",
+        "evidenceDigest": "59207eae9976bf5f321af310154234d4aeaca793ee96c5487f2e4a55651f506a",
+        "kind": "pdf_page",
+        "page": 5,
+        "region": null
+      }
+    ],
+    "disposition": "accepted",
+    "fields": {
+      "document": {
+        "docId": "8221359",
+        "filerName": "Hon. Michael T. McCaul",
+        "filingDate": "2026-03-10",
+        "isAmendment": false,
+        "stateDistrict": "TX10"
+      },
+      "rows": [
+        {
+          "amountRange": "Spouse/DC Asset Over $1,000,000",
+          "assetDescription": "NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$500,001 - $1,000,000",
+          "assetDescription": "NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$500,001 - $1,000,000",
+          "assetDescription": "NORTHERN INTERMED TAX EXEMPT FUND",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$250,001 - $500,000",
+          "assetDescription": "NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$250,001 - $500,000",
+          "assetDescription": "NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$250,001 - $500,000",
+          "assetDescription": "NORTHERN INTERMED TAX EXEMPT FUND",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "NORTHERN INTERMED TAX EXEMPT FUND",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "NORTHERN INTERMED TAX EXEMPT FUND",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "HAWAII ST GO BDS",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-26",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "PHOENIX ARIZ CIVIC IMPT CORP WTR SYS",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-04",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$50,001 - $100,000",
+          "assetDescription": "NORTHERN INTERMED TAX EXEMPT FUND",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$50,001 - $100,000",
+          "assetDescription": "Mays-Allocate 2025 LP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-24",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$50,001 - $100,000",
+          "assetDescription": "NORTHERN INTERMED TAX EXEMPT FUND",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$50,001 - $100,000",
+          "assetDescription": "NORTHERN INTERMED TAX EXEMPT FUND",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$50,001 - $100,000",
+          "assetDescription": "NORTHERN INTERMED TAX EXEMPT FUND",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$50,001 - $100,000",
+          "assetDescription": "NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$50,001 - $100,000",
+          "assetDescription": "CAVCO INDUSTRIES INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-04",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "HURON CONSULTING GROUP INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-12",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "HPS Special Opp Fund II LP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "Formentera Partners Fund III LP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 1,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-26",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "MUELLER WATER PRODUCTS INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-03",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "NORTHERN INTERMED TAX EXEMPT FUND",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "CH Private Equity 2025 Fund LP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-13",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "PRIMERICA INC COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-18",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "HOULIHAN LOKEY INC CL A",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-13",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "FTI CONSULTING INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-12",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "NORTHERN INTERMED TAX EXEMPT FUND",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "HURON CONSULTING GROUP INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "LOUISIANA-PACIFIC CORP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "FTI CONSULTING INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "ABBOTT LABORATORIES",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-05",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "Mays-Allocate 2025 LP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-04",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "PURE STORAGE INC CL A",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-13",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "FAIR ISAAC CORP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-04",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "SAP ADR",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-03",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "TERADYNE INC COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-04",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "AUTODESK INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "INTUIT INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-17",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "SPOTIFY TECHNOLOGY S.A. COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "Mays-Allocate LP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-05",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "ENTEGRIS INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-04",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "SPOTIFY TECHNOLOGY S.A. COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-04",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "SPOTIFY TECHNOLOGY S.A. COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-10",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "ENTEGRIS INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-10",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "SAP ADR",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-13",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "MERCADOLIBRE INC COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 2,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "NETFLIX INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-17",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "META PLATFORMS INC CLASS A",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-20",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "META PLATFORMS INC CLASS A",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "WORKDAY INC COM CL A",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "ORACLE CORP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "REDDIT INC CL A",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "PURE STORAGE INC CL A",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-26",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "SAP ADR",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-10",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "SAP ADR",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-05",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "INTUIT INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-05",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "NETFLIX INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-05",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "WORKDAY INC COM CL A",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-05",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "LONDON STOCK EXCHANGE GROUP SPON ADS",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-17",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "ORACLE CORP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "LONDON STOCK EXCHANGE GROUP SPON ADS",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-10",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "NETFLIX INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "HPS Special Opp Fund II LP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "Mays-Allocate 2025 LP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-20",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "AERCAP HOLDINGS N.V.",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-03",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "WORKDAY INC COM CL A",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-09",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "COMCAST CORP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-26",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "UBER TECHNOLOGIES INC COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "NVIDIA CORPORATION COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-26",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "GE AEROSPACE COM NEW",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-04",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "BAYER AG SPON ADR",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-05",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "ASML HOLDING NV",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 3,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-05",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-17",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "MICROSOFT CORP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "BAYER AG SPON ADR",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-17",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "WORKDAY INC COM CL A",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-10",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "GE VERNOVA INC COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-04",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "UBER TECHNOLOGIES INC COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-13",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "AMAZON.COM INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-13",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "VULCAN MATERIALS CO",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-23",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "WOODWARD INC COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "WOODWARD INC COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-03",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "WOODWARD INC COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-18",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "MARTIN MARIETTA MATERIALS INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-17",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "HILTON WORLDWIDE HLDGS INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-06",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "ESTEE LAUDER COMPANIES INC CLASS A",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-02",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-17",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "BAYER AG SPON ADR",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-06",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "PTC INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-24",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "INTUIT INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "DEXCOM INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-04",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$1,001 - $15,000",
+          "assetDescription": "MARTIN MARIETTA MATERIALS INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-23",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "WOODWARD INC COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-10",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "AERCAP HOLDINGS N.V.",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-13",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "HILTON WORLDWIDE HLDGS INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-23",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "ALPHABET INC CAP STK CL A",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-04",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "AMAZON.COM INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-10",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "GE VERNOVA INC COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 4,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-05",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "ABBOTT LABORATORIES",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "PLEXUS CORP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-04",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$50,001 - $100,000",
+          "assetDescription": "PLEXUS CORP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-12",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$50,001 - $100,000",
+          "assetDescription": "KANE CNTY ILL CMNTY UNIT SCH DIST",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-27",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$50,001 - $100,000",
+          "assetDescription": "WOODRIDGE ILL GO REF",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-02",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "DONALDSON COMPANY INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-18",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "EAGLE MTN & SAGINAW TEX INDPT SCH DIST",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-17",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "DALLAS TEX INDPT SCH",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-17",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$250,001 - $500,000",
+          "assetDescription": "KENTUCKY ST PPTY & BLDGS COMMN REVS BDS",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-02",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "BAXTER INTERNATIONAL INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-17",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "HEALTHPEAK PROPERTIES INC COM",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-06",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$50,001 - $100,000",
+          "assetDescription": "NORTHERN INTERMED TAX EXEMPT FUND",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-11",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "GENUINE PARTS CO",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-20",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "CVS HEALTH CORPORATION",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-20",
+          "transactionType": "P"
+        },
+        {
+          "amountRange": "$15,001 - $50,000",
+          "assetDescription": "VISHAY INTERTECHNOLOGY INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-12",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$50,001 - $100,000",
+          "assetDescription": "MURPHY OIL CORP",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-20",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$50,001 - $100,000",
+          "assetDescription": "HUMANA INC",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-17",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "$100,001 - $250,000",
+          "assetDescription": "ALEXANDRIA REAL ESTATE EQUITIES",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-06",
+          "transactionType": "S"
+        },
+        {
+          "amountRange": "Spouse/DC Asset Over $1,000,000",
+          "assetDescription": "NORTHERN INTERMED TAX EXEMPT FUND",
+          "capitalGainsIndicator": "unknown",
+          "notificationDate": "2026-03-05",
+          "ownerCode": "SP",
+          "page": 5,
+          "reportedTicker": null,
+          "transactionDate": "2026-02-19",
+          "transactionType": "P"
+        }
+      ]
+    },
+    "unknowns": []
+  },
+  "extractionUsage": {
+    "inputTokens": 40646,
+    "outputTokens": 8848,
+    "paidCostUsd": "0.084886"
+  },
+  "independentEvidence": {
+    "pageUsage": [],
+    "textByPage": [
+      [
+        1,
+        "documentType=Periodic Transaction Report; reportStatus=legacy_grid_no_status; filerName=MICHAEL MCCAUL; filingDate=2026-03-10; SP | NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC | P | 2026-02-11 | 2026-03-05 | Spouse/DC Asset Over $1,000,000 | unknown SP | NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC | P | 2026-02-11 | 2026-03-05 | $500,001 - $1,000,000 | unknown SP | NORTHERN INTERMED TAX EXEMPT FUND | P | 2026-02-11 | 2026-03-05 | $500,001 - $1,000,000 | unknown SP | NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC | P | 2026-02-11 | 2026-03-05 | $250,001 - $500,000 | unknown SP | NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC | P | 2026-02-11 | 2026-03-05 | $250,001 - $500,000 | unknown SP | NORTHERN INTERMED TAX EXEMPT FUND | P | 2026-02-11 | 2026-03-05 | $250,001 - $500,000 | unknown SP | NORTHERN INTERMED TAX EXEMPT FUND | P | 2026-02-11 | 2026-03-05 | $100,001 - $250,000 | unknown SP | NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC | P | 2026-02-11 | 2026-03-05 | $100,001 - $250,000 | unknown SP | NORTHERN INTERMED TAX EXEMPT FUND | P | 2026-02-11 | 2026-03-05 | $100,001 - $250,000 | unknown SP | NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC | P | 2026-02-11 | 2026-03-05 | $100,001 - $250,000 | unknown SP | NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC | P | 2026-02-11 | 2026-03-05 | $100,001 - $250,000 | unknown SP | NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC | P | 2026-02-11 | 2026-03-05 | $100,001 - $250,000 | unknown SP | HAWAII ST GO BDS | P | 2026-02-26 | 2026-03-05 | $100,001 - $250,000 | unknown SP | PHOENIX ARIZ CIVIC IMPT CORP WTR SYS | P | 2026-02-04 | 2026-03-05 | $100,001 - $250,000 | unknown SP | NORTHERN INTERMED TAX EXEMPT FUND | P | 2026-02-11 | 2026-03-05 | $50,001 - $100,000 | unknown SP | Mays-Allocate 2025 LP | P | 2026-02-24 | 2026-03-05 | $50,001 - $100,000 | unknown SP | NORTHERN INTERMED TAX EXEMPT FUND | P | 2026-02-11 | 2026-03-05 | $50,001 - $100,000 | unknown SP | NORTHERN INTERMED TAX EXEMPT FUND | P | 2026-02-11 | 2026-03-05 | $50,001 - $100,000 | unknown SP | NORTHERN INTERMED TAX EXEMPT FUND | P | 2026-02-11 | 2026-03-05 | $50,001 - $100,000 | unknown SP | NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC | P | 2026-02-11 | 2026-03-05 | $50,001 - $100,000 | unknown SP | CAVCO INDUSTRIES INC | P | 2026-02-04 | 2026-03-05 | $50,001 - $100,000 | unknown SP | NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC | P | 2026-02-11 | 2026-03-05 | $15,001 - $50,000 | unknown SP | HURON CONSULTING GROUP INC | P | 2026-02-12 | 2026-03-05 | $15,001 - $50,000 | unknown SP | HPS Special Opp Fund II LP | P | 2026-02-27 | 2026-03-05 | $15,001 - $50,000 | unknown SP | Formentera Partners Fund III LP | P | 2026-02-26 | 2026-03-05 | $15,001 - $50,000 | unknown"
+      ],
+      [
+        2,
+        "documentType=Periodic Transaction Report; reportStatus=legacy_grid_no_status; filerName=MICHAEL MCCAUL; SP | MUELLER WATER PRODUCTS INC | P | 2026-02-03 | 2026-03-05 | $15,001 - $50,000 | unknown SP | NORTHERN INTERMED TAX EXEMPT FUND | P | 2026-02-11 | 2026-03-05 | $15,001 - $50,000 | unknown SP | CH Private Equity 2025 Fund LP | P | 2026-02-13 | 2026-03-05 | $15,001 - $50,000 | unknown SP | PRIMERICA INC COM | P | 2026-02-18 | 2026-03-05 | $15,001 - $50,000 | unknown SP | HOULIHAN LOKEY INC CL A | P | 2026-02-13 | 2026-03-05 | $15,001 - $50,000 | unknown SP | FTI CONSULTING INC | P | 2026-02-12 | 2026-03-05 | $15,001 - $50,000 | unknown SP | NORTHERN INTERMED TAX EXEMPT FUND | P | 2026-02-11 | 2026-03-05 | $15,001 - $50,000 | unknown SP | HURON CONSULTING GROUP INC | P | 2026-02-27 | 2026-03-05 | $15,001 - $50,000 | unknown SP | LOUISIANA-PACIFIC CORP | P | 2026-02-27 | 2026-03-05 | $15,001 - $50,000 | unknown SP | FTI CONSULTING INC | P | 2026-02-27 | 2026-03-05 | $15,001 - $50,000 | unknown SP | ABBOTT LABORATORIES | P | 2026-02-05 | 2026-03-05 | $15,001 - $50,000 | unknown SP | Mays-Allocate 2025 LP | P | 2026-02-04 | 2026-03-05 | $15,001 - $50,000 | unknown SP | PURE STORAGE INC CL A | P | 2026-02-13 | 2026-03-05 | $15,001 - $50,000 | unknown SP | FAIR ISAAC CORP | P | 2026-02-04 | 2026-03-05 | $15,001 - $50,000 | unknown SP | SAP ADR | P | 2026-02-03 | 2026-03-05 | $1,001 - $15,000 | unknown SP | TERADYNE INC COM | P | 2026-02-04 | 2026-03-05 | $1,001 - $15,000 | unknown SP | AUTODESK INC | P | 2026-02-27 | 2026-03-05 | $1,001 - $15,000 | unknown SP | INTUIT INC | P | 2026-02-17 | 2026-03-05 | $1,001 - $15,000 | unknown SP | SPOTIFY TECHNOLOGY S.A. COM | P | 2026-02-27 | 2026-03-05 | $1,001 - $15,000 | unknown SP | Mays-Allocate LP | P | 2026-02-05 | 2026-03-05 | $1,001 - $15,000 | unknown SP | ENTEGRIS INC | P | 2026-02-04 | 2026-03-05 | $1,001 - $15,000 | unknown SP | SPOTIFY TECHNOLOGY S.A. COM | P | 2026-02-04 | 2026-03-05 | $1,001 - $15,000 | unknown SP | SPOTIFY TECHNOLOGY S.A. COM | P | 2026-02-10 | 2026-03-05 | $1,001 - $15,000 | unknown SP | ENTEGRIS INC | P | 2026-02-10 | 2026-03-05 | $1,001 - $15,000 | unknown SP | SAP ADR | P | 2026-02-13 | 2026-03-05 | $1,001 - $15,000 | unknown SP | MERCADOLIBRE INC COM | P | 2026-02-27 | 2026-03-05 | $1,001 - $15,000 | unknown"
+      ],
+      [
+        3,
+        "documentType=Periodic Transaction Report; reportStatus=legacy_grid_no_status; filerName=MICHAEL MCCAUL; SP | NETFLIX INC | P | 2026-02-17 | 2026-03-05 | $1,001 - $15,000 | unknown SP | META PLATFORMS INC CLASS A | P | 2026-02-20 | 2026-03-05 | $1,001 - $15,000 | unknown SP | META PLATFORMS INC CLASS A | P | 2026-02-11 | 2026-03-05 | $1,001 - $15,000 | unknown SP | WORKDAY INC COM CL A | P | 2026-02-27 | 2026-03-05 | $1,001 - $15,000 | unknown SP | ORACLE CORP | P | 2026-02-11 | 2026-03-05 | $1,001 - $15,000 | unknown SP | REDDIT INC CL A | P | 2026-02-11 | 2026-03-05 | $1,001 - $15,000 | unknown SP | PURE STORAGE INC CL A | P | 2026-02-26 | 2026-03-05 | $1,001 - $15,000 | unknown SP | SAP ADR | P | 2026-02-10 | 2026-03-05 | $1,001 - $15,000 | unknown SP | SAP ADR | P | 2026-02-05 | 2026-03-05 | $1,001 - $15,000 | unknown SP | INTUIT INC | P | 2026-02-05 | 2026-03-05 | $1,001 - $15,000 | unknown SP | NETFLIX INC | P | 2026-02-05 | 2026-03-05 | $1,001 - $15,000 | unknown SP | WORKDAY INC COM CL A | P | 2026-02-05 | 2026-03-05 | $1,001 - $15,000 | unknown SP | LONDON STOCK EXCHANGE GROUP SPON ADS | P | 2026-02-17 | 2026-03-05 | $1,001 - $15,000 | unknown SP | ORACLE CORP | P | 2026-02-27 | 2026-03-05 | $1,001 - $15,000 | unknown SP | LONDON STOCK EXCHANGE GROUP SPON ADS | P | 2026-02-10 | 2026-03-05 | $1,001 - $15,000 | unknown SP | NETFLIX INC | P | 2026-02-27 | 2026-03-05 | $1,001 - $15,000 | unknown SP | HPS Special Opp Fund II LP | P | 2026-02-27 | 2026-03-05 | $1,001 - $15,000 | unknown SP | Mays-Allocate 2025 LP | P | 2026-02-20 | 2026-03-05 | $1,001 - $15,000 | unknown SP | AERCAP HOLDINGS N.V. | S | 2026-02-03 | 2026-03-05 | $1,001 - $15,000 | unknown SP | WORKDAY INC COM CL A | S | 2026-02-09 | 2026-03-05 | $1,001 - $15,000 | unknown SP | COMCAST CORP | S | 2026-02-26 | 2026-03-05 | $1,001 - $15,000 | unknown SP | UBER TECHNOLOGIES INC COM | S | 2026-02-11 | 2026-03-05 | $1,001 - $15,000 | unknown SP | NVIDIA CORPORATION COM | S | 2026-02-26 | 2026-03-05 | $1,001 - $15,000 | unknown SP | GE AEROSPACE COM NEW | S | 2026-02-04 | 2026-03-05 | $1,001 - $15,000 | unknown SP | BAYER AG SPON ADR | S | 2026-02-05 | 2026-03-05 | $1,001 - $15,000 | unknown SP | ASML HOLDING NV | S | 2026-02-05 | 2026-03-05 | $1,001 - $15,000 | unknown"
+      ],
+      [
+        4,
+        "documentType=Periodic Transaction Report; reportStatus=legacy_grid_no_status; filerName=MICHAEL MCCAUL; SP | NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC | S | 2026-02-17 | 2026-03-05 | $1,001 - $15,000 | unknown SP | MICROSOFT CORP | S | 2026-02-27 | 2026-03-05 | $1,001 - $15,000 | unknown SP | BAYER AG SPON ADR | S | 2026-02-17 | 2026-03-05 | $1,001 - $15,000 | unknown SP | WORKDAY INC COM CL A | S | 2026-02-10 | 2026-03-05 | $1,001 - $15,000 | unknown SP | GE VERNOVA INC COM | S | 2026-02-04 | 2026-03-05 | $1,001 - $15,000 | unknown SP | UBER TECHNOLOGIES INC COM | S | 2026-02-13 | 2026-03-05 | $1,001 - $15,000 | unknown SP | AMAZON.COM INC | S | 2026-02-13 | 2026-03-05 | $1,001 - $15,000 | unknown SP | VULCAN MATERIALS CO | S | 2026-02-23 | 2026-03-05 | $1,001 - $15,000 | unknown SP | WOODWARD INC COM | S | 2026-02-27 | 2026-03-05 | $1,001 - $15,000 | unknown SP | WOODWARD INC COM | S | 2026-02-03 | 2026-03-05 | $1,001 - $15,000 | unknown SP | WOODWARD INC COM | S | 2026-02-18 | 2026-03-05 | $1,001 - $15,000 | unknown SP | MARTIN MARIETTA MATERIALS INC | S | 2026-02-17 | 2026-03-05 | $1,001 - $15,000 | unknown SP | HILTON WORLDWIDE HLDGS INC | S | 2026-02-06 | 2026-03-05 | $1,001 - $15,000 | unknown SP | ESTEE LAUDER COMPANIES INC CLASS A | S | 2026-02-02 | 2026-03-05 | $1,001 - $15,000 | unknown SP | NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC | S | 2026-02-17 | 2026-03-05 | $1,001 - $15,000 | unknown SP | BAYER AG SPON ADR | S | 2026-02-06 | 2026-03-05 | $1,001 - $15,000 | unknown SP | PTC INC | S | 2026-02-24 | 2026-03-05 | $1,001 - $15,000 | unknown SP | INTUIT INC | S | 2026-02-11 | 2026-03-05 | $1,001 - $15,000 | unknown SP | DEXCOM INC | S | 2026-02-04 | 2026-03-05 | $1,001 - $15,000 | unknown SP | MARTIN MARIETTA MATERIALS INC | S | 2026-02-23 | 2026-03-05 | $1,001 - $15,000 | unknown SP | WOODWARD INC COM | S | 2026-02-10 | 2026-03-05 | $15,001 - $50,000 | unknown SP | AERCAP HOLDINGS N.V. | S | 2026-02-13 | 2026-03-05 | $15,001 - $50,000 | unknown SP | HILTON WORLDWIDE HLDGS INC | S | 2026-02-23 | 2026-03-05 | $15,001 - $50,000 | unknown SP | ALPHABET INC CAP STK CL A | S | 2026-02-04 | 2026-03-05 | $15,001 - $50,000 | unknown SP | AMAZON.COM INC | S | 2026-02-10 | 2026-03-05 | $15,001 - $50,000 | unknown SP | GE VERNOVA INC COM | S | 2026-02-05 | 2026-03-05 | $15,001 - $50,000 | unknown"
+      ],
+      [
+        5,
+        "documentType=Periodic Transaction Report; reportStatus=legacy_grid_no_status; filerName=MICHAEL MCCAUL; SP | ABBOTT LABORATORIES | S | 2026-02-27 | 2026-03-05 | $15,001 - $50,000 | unknown SP | PLEXUS CORP | S | 2026-02-04 | 2026-03-05 | $15,001 - $50,000 | unknown SP | PLEXUS CORP | S | 2026-02-12 | 2026-03-05 | $50,001 - $100,000 | unknown SP | KANE CNTY ILL CMNTY UNIT SCH DIST | S | 2026-02-27 | 2026-03-05 | $50,001 - $100,000 | unknown SP | WOODRIDGE ILL GO REF | S | 2026-02-02 | 2026-03-05 | $50,001 - $100,000 | unknown SP | DONALDSON COMPANY INC | S | 2026-02-18 | 2026-03-05 | $100,001 - $250,000 | unknown SP | EAGLE MTN & SAGINAW TEX INDPT SCH DIST | S | 2026-02-17 | 2026-03-05 | $100,001 - $250,000 | unknown SP | DALLAS TEX INDPT SCH | S | 2026-02-17 | 2026-03-05 | $100,001 - $250,000 | unknown SP | KENTUCKY ST PPTY & BLDGS COMMN REVS BDS | S | 2026-02-02 | 2026-03-05 | $250,001 - $500,000 | unknown SP | BAXTER INTERNATIONAL INC | P | 2026-02-17 | 2026-03-05 | $100,001 - $250,000 | unknown SP | NORTHERN TAX-ADVGT ULTRA-SHRT FIXED INC | P | 2026-02-11 | 2026-03-05 | $100,001 - $250,000 | unknown SP | HEALTHPEAK PROPERTIES INC COM | P | 2026-02-06 | 2026-03-05 | $100,001 - $250,000 | unknown SP | NORTHERN INTERMED TAX EXEMPT FUND | P | 2026-02-11 | 2026-03-05 | $50,001 - $100,000 | unknown SP | GENUINE PARTS CO | P | 2026-02-20 | 2026-03-05 | $15,001 - $50,000 | unknown SP | CVS HEALTH CORPORATION | P | 2026-02-20 | 2026-03-05 | $15,001 - $50,000 | unknown SP | VISHAY INTERTECHNOLOGY INC | S | 2026-02-12 | 2026-03-05 | $15,001 - $50,000 | unknown SP | MURPHY OIL CORP | S | 2026-02-20 | 2026-03-05 | $50,001 - $100,000 | unknown SP | HUMANA INC | S | 2026-02-17 | 2026-03-05 | $50,001 - $100,000 | unknown SP | ALEXANDRIA REAL ESTATE EQUITIES | S | 2026-02-06 | 2026-03-05 | $100,001 - $250,000 | unknown SP | NORTHERN INTERMED TAX EXEMPT FUND | P | 2026-02-19 | 2026-03-05 | Spouse/DC Asset Over $1,000,000 | unknown"
+      ]
+    ],
+    "usage": {
+      "inputTokens": 160359,
+      "outputTokens": 6938,
+      "paidCostUsd": "0.100995"
+    }
+  }
+}

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { Redis } from "@upstash/redis";
+import { z } from "zod";
 
 import {
   canonicalPublicFactRevisionSchema,
@@ -23,6 +24,95 @@ import {
 
 const KEY_PREFIX = "eve:public-source:v1:";
 const MAX_RECORD_BYTES = 128 * 1_024;
+const pendingWorkSchema = z.object({
+  acquisitionId: z.string().optional(),
+  sourceInstanceId: z.string().max(160), cursorRevision: z.number().int().nonnegative(),
+  archiveDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+  pending: z.array(z.object({ docId: z.string().regex(/^\d{1,20}$/u), nextAttemptAt: z.string().datetime().nullable(), replayExisting: z.boolean().optional() }).strict()).max(10_000),
+}).strict();
+export type PublicSourcePendingWork = z.infer<typeof pendingWorkSchema>;
+
+// One immutable entry per committed House batch, not a growing year-sized list.
+const sequenceStartSchema = z.object({ sourceInstanceId: z.string(), revision: z.number().int().nonnegative() }).strict();
+export async function readPublicSourceSequenceStart(sourceInstanceId: string,
+  client: PublicSourceAcquisitionStoreClient = store()): Promise<number | null> {
+  const raw = await readRaw(recordKey("acquisition-eligibility", `sequence-start:${sourceInstanceId}`), client);
+  if (raw === null) return null;
+  const value = sequenceStartSchema.parse(JSON.parse(raw));
+  if (value.sourceInstanceId !== sourceInstanceId) throw new PublicSourceAcquisitionStoreError("journal_conflict");
+  return value.revision;
+}
+
+export async function readNextPublicSourceAcquisition(input: {
+  sourceInstanceId: string; afterAcquisitionId: string | null; throughRevision: number;
+}, client: PublicSourceAcquisitionStoreClient = store()): Promise<ReusablePublicSourceAcquisition | null> {
+  const start = await readPublicSourceSequenceStart(input.sourceInstanceId, client);
+  if (start === null) return null;
+  const previous = input.afterAcquisitionId ? await readPublicSourceAcquisitionJournal(input.afterAcquisitionId, client) : null;
+  if (previous && previous.sourceInstanceId !== input.sourceInstanceId) throw new PublicSourceAcquisitionStoreError("journal_conflict");
+  const first = Math.max(start, previous ? previous.expectedCursorRevision + 1 : start);
+  for (let revision = first; revision <= input.throughRevision && revision < first + 32; revision++) {
+    const identity = `sequence:${input.sourceInstanceId}:${revision}`;
+    const result = await readIndexedPublicSourceAcquisition({ identityField: "eligibilityId", identityValue: identity,
+      recordId: identity, validateJournal: (journal) => journal.sourceInstanceId === input.sourceInstanceId && journal.expectedCursorRevision === revision }, client);
+    if (!result) throw new PublicSourceAcquisitionStoreError("journal_conflict");
+    if (result.result.candidateFactRevisionIds.length || result.result.retractionIds.length || revision === first + 31) return result;
+  }
+  return null;
+}
+
+async function publishHouseSequence(result: PublicSourceAcquisitionResult, client: PublicSourceAcquisitionStoreClient) {
+  if (result.adapterId !== "house-financial-disclosures" || !result.proposedNextCursor) return;
+  const revision = result.proposedNextCursor.expectedRevision;
+  const identity = `sequence:${result.sourceInstanceId}:${revision}`;
+  const key = recordKey("acquisition-eligibility", identity);
+  const raw = JSON.stringify({ eligibilityId: identity, acquisitionId: result.acquisitionId });
+  if (!(await client.compareAndSet(key, null, raw)) && await readRaw(key, client) !== raw) {
+    throw new PublicSourceAcquisitionStoreError("journal_conflict");
+  }
+  const startKey = recordKey("acquisition-eligibility", `sequence-start:${result.sourceInstanceId}`);
+  await client.compareAndSet(startKey, null, JSON.stringify({ sourceInstanceId: result.sourceInstanceId, revision }));
+}
+
+export async function readPublicSourcePendingWork(sourceInstanceId: string,
+  client: PublicSourceAcquisitionStoreClient = store(), cursorRevision?: number): Promise<PublicSourcePendingWork | null> {
+  const key = `${KEY_PREFIX}pending:${createHash("sha256").update(sourceInstanceId).digest("hex")}`;
+  const versioned = cursorRevision === undefined ? null : await client.get(`${key}:slot:${cursorRevision % 2}`);
+  const raw = versioned ?? await client.get(key);
+  if (raw === null || raw === undefined) return null;
+  const value = typeof raw === "string" ? raw : JSON.stringify(raw);
+  if (Buffer.byteLength(value) > 1_000_000) throw new PublicSourceAcquisitionStoreError("public_source_record_corrupt");
+  const parsed = pendingWorkSchema.parse(JSON.parse(value));
+  if (parsed.sourceInstanceId !== sourceInstanceId) throw new PublicSourceAcquisitionStoreError("public_source_record_corrupt");
+  return parsed;
+}
+
+export async function writePublicSourcePendingWork(input: PublicSourcePendingWork,
+  client: PublicSourceAcquisitionStoreClient = store()): Promise<void> {
+  const value = pendingWorkSchema.parse(input);
+  const key = `${KEY_PREFIX}pending:${createHash("sha256").update(value.sourceInstanceId).digest("hex")}`;
+  // Two slots retain the current queue while its successor is prepared, without
+  // retaining hundreds of progressively smaller year-sized queue snapshots.
+  const versionKey = `${key}:slot:${value.cursorRevision % 2}`;
+  const serialized = JSON.stringify(value);
+  let versioned = false;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const previous = rawValue(await client.get(versionKey));
+    if (previous === serialized) { versioned = true; break; }
+    if (previous && pendingWorkSchema.parse(JSON.parse(previous)).cursorRevision >= value.cursorRevision) {
+      throw new PublicSourceAcquisitionStoreError("source_cursor_conflict");
+    }
+    if (await client.compareAndSet(versionKey, previous, serialized)) { versioned = true; break; }
+  }
+  if (!versioned) throw new PublicSourceAcquisitionStoreError("source_cursor_conflict");
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const previous = await client.get(key);
+    const raw = previous === null || previous === undefined ? null : typeof previous === "string" ? previous : JSON.stringify(previous);
+    if (raw && pendingWorkSchema.parse(JSON.parse(raw)).cursorRevision > value.cursorRevision) return;
+    if (await client.compareAndSet(key, raw, JSON.stringify(value))) return;
+  }
+  throw new PublicSourceAcquisitionStoreError("source_cursor_conflict");
+}
 const CAS_SCRIPT = `
 local current = redis.call("GET", KEYS[1])
 if ARGV[1] == "" then
@@ -40,6 +130,7 @@ export interface PublicSourceAcquisitionStoreClient {
 }
 
 export interface PublicSourcePreparedAcquisition {
+  readonly pendingWork?: PublicSourcePendingWork;
   readonly corrections: readonly PublicSourceCorrection[];
   readonly facts: readonly CanonicalPublicFactRevision[];
   readonly retractions: readonly PublicSourceRetraction[];
@@ -137,6 +228,38 @@ export interface PublicSourceAcquisitionEligibility {
 export interface ReusablePublicSourceAcquisition {
   readonly journal: PublicSourceAcquisitionJournal;
   readonly result: PublicSourceAcquisitionResult;
+}
+
+/** Roll forward a committed House journal whose cursor write was interrupted. */
+export async function repairPendingHouseAcquisition(source: PublicSourceInstance,
+  client: PublicSourceAcquisitionStoreClient = store()): Promise<PublicSourceInstance> {
+  if (source.adapterId !== "house-financial-disclosures") return source;
+  const identity = `sequence:${source.sourceInstanceId}:${source.cursor.revision}`;
+  let pending = await readIndexedPublicSourceAcquisition({ identityField: "eligibilityId", identityValue: identity,
+    recordId: identity, validateJournal: (journal) => journal.sourceInstanceId === source.sourceInstanceId &&
+      journal.expectedCursorRevision === source.cursor.revision }, client);
+  const queued = await readPublicSourcePendingWork(source.sourceInstanceId, client, source.cursor.revision + 1);
+  if (!pending && queued?.cursorRevision === source.cursor.revision + 1 && queued.acquisitionId) {
+    const journal = await readPublicSourceAcquisitionJournal(queued.acquisitionId, client);
+    const result = await readPublicSourceAcquisitionResult(queued.acquisitionId, client);
+    if (!journal || journal.status !== "committed" || !result || journal.sourceInstanceId !== source.sourceInstanceId ||
+      journal.expectedCursorRevision !== source.cursor.revision) throw new PublicSourceAcquisitionStoreError("journal_conflict");
+    pending = { journal, result };
+  }
+  if (!pending) return source;
+  const [facts, corrections, retractions] = await Promise.all([
+    Promise.all(pending.result.candidateFactRevisionIds.map((id) => readPublicSourceFactRevision(id, client))),
+    Promise.all(pending.result.correctionIds.map((id) => readPublicSourceCorrection(id, client))),
+    Promise.all(pending.result.retractionIds.map((id) => readPublicSourceRetraction(id, client))),
+  ]);
+  if (facts.some((value) => value === null) || corrections.some((value) => value === null) || retractions.some((value) => value === null)) {
+    throw new PublicSourceAcquisitionStoreError("journal_conflict");
+  }
+  return (await commitPublicSourceAcquisition({ client, acquisition: {
+    result: pending.result, window: pending.journal.window,
+    facts: facts as CanonicalPublicFactRevision[], corrections: corrections as PublicSourceCorrection[],
+    retractions: retractions as PublicSourceRetraction[],
+  } })).sourceInstance;
 }
 
 export type PublicSourceAcquisitionWindow = Omit<
@@ -974,9 +1097,17 @@ export async function commitPublicSourceAcquisition(input: {
   const retractionsReused = retractionOutcomes.length - retractionsCreated;
 
   const journal = await commitJournal(prepared, result.observedAt, client);
+  // Publish repairable bounded replay state before advancing the source cursor.
+  // A crash may leave a committed journal to roll forward, never a cursor gap.
+  const house = result.adapterId === "house-financial-disclosures";
+  if (house) {
+    await writeAcquisitionResult(result, client);
+    if (input.acquisition.pendingWork) await writePublicSourcePendingWork({ ...input.acquisition.pendingWork, acquisitionId: result.acquisitionId }, client);
+    await publishHouseSequence(result, client);
+  }
   const currentSource = await readPublicSourceInstance(result.sourceInstanceId, client);
   if (!currentSource) throw new PublicSourceAcquisitionStoreError("source_instance_conflict");
-  const sourceInstance = await advanceCursor(currentSource, result, client);
+  const advancedSource = house ? null : await advanceCursor(currentSource, result, client);
   const correctionsByRevision = new Map(
     corrections.map((correction) => [correction.toRevisionId, correction] as const),
   );
@@ -989,7 +1120,8 @@ export async function commitPublicSourceAcquisition(input: {
   for (const retraction of retractions) {
     await advanceFactRetraction(retraction, client);
   }
-  await writeAcquisitionResult(result, client);
+  const sourceInstance = advancedSource ?? await advanceCursor(currentSource, result, client);
+  if (!house) await writeAcquisitionResult(result, client);
   await publishPublicSourceAcquisition({
     accessClassification: "public",
     adapterDefinitionDigest: result.adapterDefinitionDigest,

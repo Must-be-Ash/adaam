@@ -274,7 +274,7 @@ await reconcileWorkspaceRunBudget({
   runId: modelChild.runId,
   scope,
 }, store);
-await assert.rejects(reserveWorkspaceRunBudget({
+const overEnvelope = await reserveWorkspaceRunBudget({
   inputTokens: 5_001,
   kind: "hybrid_model_attempt",
   now,
@@ -285,9 +285,10 @@ await assert.rejects(reserveWorkspaceRunBudget({
   policyRevision: 1,
   runId: "child-over-parent-envelope",
   scope,
-}, store), (error: unknown) =>
-  error instanceof WorkspaceBudgetError && error.code === "budget_exhausted"
-);
+}, store);
+assert.equal(overEnvelope.state, "reserved", "the parent occurrence envelope is soft, while day/month limits remain hard");
+assert.equal(summarizeWorkspaceBudgetUsage(await readWorkspaceBudgetLedger(scope, store), now, policy.ownerTimezone).paidMicrosToday, "500001");
+await reconcileWorkspaceRunBudget({ runId: overEnvelope.runId, scope, now, outcome: "released" }, store);
 
 await reconcileWorkspaceRunBudget({
   actualInputTokens: 3_000,
@@ -333,13 +334,14 @@ assert.deepEqual(replayedDocument, firstDocument);
 assert.equal(documentCalls, 1);
 
 const deniedStore = new MemoryStore();
+const deniedPolicy = { ...policy, maximumPaidPerCall: "0.400000", maximumPaidPerDay: "0.400000" };
 const deniedParent = await reserveWorkspaceRunBudget({
   inputTokens: 10_000,
   kind: "scheduled_monitor",
   now,
   outputTokens: 2_000,
   paidCostCeiling: { amount: "0.400000", kind: "known" },
-  policy,
+  policy: deniedPolicy,
   policyRevision: 1,
   runId: "denied-parent",
   scope,
@@ -351,7 +353,7 @@ await reserveWorkspaceRunBudget({
   outputTokens: 1_000,
   paidCostCeiling: { amount: "0.400000", kind: "known" },
   parentRunId: deniedParent.runId,
-  policy,
+  policy: deniedPolicy,
   policyRevision: 1,
   runId: "denied-model",
   scope,
@@ -359,6 +361,7 @@ await reserveWorkspaceRunBudget({
 let deniedProviderCalls = 0;
 await assert.rejects(executeReplaySafeExaResearch({
   ...searchInput,
+  budget: { policy: deniedPolicy, policyRevision: 1 },
   clients: { budget: deniedStore, receipts: deniedStore },
   parentRunId: deniedParent.runId,
   provider: {

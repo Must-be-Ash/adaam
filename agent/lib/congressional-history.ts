@@ -540,6 +540,12 @@ export function shouldCreateCongressionalCorrectionAlert(input: {
   return prior.memberResolution.bioguideId !== current.memberResolution.bioguideId ||
     prior.securityResolution.canonicalSecurityId !== current.securityResolution.canonicalSecurityId ||
     prior.transactionType !== current.transactionType ||
+    JSON.stringify(prior.asset) !== JSON.stringify(current.asset) ||
+    JSON.stringify(prior.amountRange) !== JSON.stringify(current.amountRange) ||
+    JSON.stringify(prior.owner) !== JSON.stringify(current.owner) ||
+    prior.transactionDate !== current.transactionDate ||
+    prior.notificationDate !== current.notificationDate ||
+    prior.filingDate !== current.filingDate ||
     prior.eligibility.state !== current.eligibility.state ||
     input.priorEntry.band !== input.currentBand ||
     current.lineage.state === "retracted";
@@ -556,7 +562,8 @@ export function createCongressionalRetractionSignal(input: {
     !priorEvaluation ||
     (input.priorSignal.packBinding.packVersion !== "1.2.0" &&
       input.priorSignal.packBinding.packVersion !== "1.3.0" &&
-      input.priorSignal.packBinding.packVersion !== "1.4.0") ||
+      input.priorSignal.packBinding.packVersion !== "1.4.0" &&
+      input.priorSignal.packBinding.packVersion !== "1.5.0") ||
     input.retractedTransaction.lineage.retractionId === null
   ) {
     throw new Error("congressional_retraction_signal_invalid");

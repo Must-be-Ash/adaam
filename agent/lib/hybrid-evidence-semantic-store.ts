@@ -127,7 +127,7 @@ const jobSummarySchema = z.object({
   usage: z.object({
     inputTokens: z.number().int().nonnegative(),
     outputTokens: z.number().int().nonnegative(),
-    paidCostUsd: z.string().regex(/^(?:0|[1-9]\d{0,3})(?:\.\d{1,4})?$/u),
+    paidCostUsd: z.string().regex(/^(?:0|[1-9]\d{0,3})(?:\.\d{1,6})?$/u),
   }).strict(),
 }).strict();
 const headSchema = z.object({

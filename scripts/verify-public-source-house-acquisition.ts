@@ -238,6 +238,11 @@ assert.deepEqual(parseHouseTransactionAmountRange("Over $5,000,000"), {
   lower: "5000001",
   upper: null,
 });
+assert.deepEqual(parseHouseTransactionAmountRange("Spouse/DC Asset Over $1,000,000"), {
+  label: "Spouse/DC Asset Over $1,000,000",
+  lower: "1000001",
+  upper: null,
+});
 
 // A representative-scale yearly index is accepted, but each occurrence reads
 // only the reviewed document budget and advances a durable baseline batch.
@@ -471,6 +476,108 @@ for (const [name, documentBytes, expectedState, expectedError] of [
   assert.equal(result.acquisition.result.coverage, expectedState);
   assert.equal(result.acquisition.facts.length, 1);
   assert.deepEqual(result.acquisition.facts[0]?.extraction, { errorCode: expectedError, state: expectedState });
+}
+
+// One bounded recovery miss is document-local: preserve the degraded filing,
+// continue with later documents in the source-global batch, and retry only the
+// unresolved filing even when the official archive itself is unchanged.
+{
+  const client = new MemoryStore();
+  const observedAt = "2026-08-16T04:00:00.000Z";
+  const rows = [
+    { docId: "20000010", filingDate: "03/03/2026", first: "Morgan", last: "Legacy", stateDistrict: "TX10" },
+    { docId: "20000011", filingDate: "03/04/2026", first: "Jordan", last: "Sample", stateDistrict: "OR03", suffix: "Jr." },
+  ] as const;
+  const archive = await zipXml(indexXml(rows));
+  const documentReads: string[] = [];
+  let recoveryCalls = 0;
+  const run = (endAt: string) => runHousePublicSourceAcquisition({
+    client,
+    fetchDocument: async (url) => {
+      documentReads.push(url);
+      return response({
+        body: url === ptrUrl("20000010") ? scannedPdf : singlePdf,
+        contentType: "application/pdf",
+        observedAt: endAt,
+        url,
+      });
+    },
+    fetchIndex: async (url) => response({
+      body: archive,
+      contentType: "application/zip",
+      observedAt: endAt,
+      url,
+    }),
+    recovery: {
+      async recover() {
+        recoveryCalls += 1;
+        return null;
+      },
+    },
+    sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+    window: window(endAt),
+  });
+
+  const first = await run(observedAt);
+  assert.equal(first.acquisition.result.status, "complete");
+  assert.equal(first.acquisition.result.coverage, "unsupported");
+  assert.deepEqual(documentReads, [ptrUrl("20000010"), ptrUrl("20000011")]);
+  assert.equal(recoveryCalls, 1);
+  assert.equal(first.acquisition.facts.filter(({ factSchemaVersion }) =>
+    factSchemaVersion === "house-ptr-filing/v1").length, 2);
+  assert.equal(first.acquisition.facts.filter(({ factSchemaVersion }) =>
+    factSchemaVersion === "house-ptr-transaction/v1").length, 1);
+
+  documentReads.length = 0;
+  const retry = await run("2026-08-16T05:00:00.000Z");
+  assert.equal(retry.acquisition.result.status, "no_change");
+  assert.equal(retry.acquisition.result.coverage, "unsupported");
+  assert.deepEqual(documentReads, [ptrUrl("20000010")]);
+  assert.equal(recoveryCalls, 2);
+}
+
+// A plausible text PDF with the wrong document identity must remain retryable
+// after a recovery miss; it must never retain the parser's false success.
+{
+  const client = new MemoryStore();
+  let calls = 0;
+  const run = (observedAt: string) => runHousePublicSourceAcquisition({
+    client,
+    fetchDocument: async (url) => response({ body: noTransactionsPdf, contentType: "application/pdf", observedAt, url }),
+    fetchIndex: async (url) => response({ body: representativeIndex, contentType: "application/zip", observedAt, url }),
+    recovery: { async recover() { calls += 1; return null; } },
+    sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+    window: window(observedAt),
+  });
+  const first = await run("2026-08-17T04:00:00.000Z");
+  assert.equal(first.acquisition.facts[0]?.extraction.state, "partial");
+  assert.equal(first.acquisition.facts.filter(({ factSchemaVersion }) => factSchemaVersion === "house-ptr-transaction/v1").length, 0);
+  assert.match(first.commit!.sourceInstance.cursor.watermark!, /^baseline:/u);
+  await run("2026-08-17T05:00:00.000Z");
+  assert.equal(calls, 2);
+}
+
+// Old unresolved rows cannot monopolize every batch and hide newer filings.
+{
+  const client = new MemoryStore();
+  const archive = await zipXml(indexXml(Array.from({ length: 27 }, (_, index) => ({
+    docId: String(30000000 + index), filingDate: "03/03/2026", first: "Morgan", last: "Legacy", stateDistrict: "TX10",
+  }))));
+  const fetched: string[] = [];
+  const run = (observedAt: string) => runHousePublicSourceAcquisition({
+    client,
+    fetchDocument: async (url) => { fetched.push(url); return response({ body: scannedPdf, contentType: "application/pdf", observedAt, url }); },
+    fetchIndex: async (url) => response({ body: archive, contentType: "application/zip", observedAt, url }),
+    recovery: { async recover() { return null; } },
+    sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+    window: window(observedAt),
+  });
+  await run("2026-08-17T06:00:00.000Z");
+  fetched.length = 0;
+  const second = await run("2026-08-17T07:00:00.000Z");
+  assert.ok(fetched.includes(ptrUrl("30000026")), "new filings must progress beside unresolved retries");
+  assert.equal(second.acquisition.baselineEstablished, true);
+  assert.match(second.commit!.sourceInstance.cursor.watermark!, /^baseline:/u);
 }
 
 // The owner-authorized 2026-08-16 sample is a retained, immutable regression
@@ -722,6 +829,44 @@ function captureWarnings(): { readonly calls: unknown[][]; restore(): void } {
   assert.equal(notFound.acquisition.result.status, "uncertain");
   assert.equal(notFound.acquisition.result.errorCode, "acquisition_uncertain");
   assert.equal(notFound.acquisition.result.retryAfterSeconds, null);
+}
+
+// Five dense, independently recovered filings exceed a single 500-fact page.
+// The overflowing filing remains queued and its durable recovery is reusable.
+{
+  const denseStore = new MemoryStore();
+  const denseArchive = await zipXml(indexXml(Array.from({ length: 5 }, (_, index) => ({
+    docId: String(22000000 + index), filingDate: "03/04/2026", first: "Jordan", last: "Sample", stateDistrict: "OR03",
+  }))));
+  const recovered = new Map<string, Awaited<ReturnType<NonNullable<Parameters<typeof runHousePublicSourceAcquisition>[0]["recovery"]>["recover"]>>>();
+  let extractionCalls = 0;
+  const pages = [];
+  for (let page = 0; page < 2; page++) {
+    const observedAt = `2026-08-16T08:0${page}:00.000Z`;
+    pages.push(await runHousePublicSourceAcquisition({ client: denseStore, hybridLineageClient: denseStore,
+      sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID, window: window(observedAt),
+      fetchIndex: async (url) => response({ body: denseArchive, contentType: "application/zip", observedAt, url }),
+      fetchDocument: async (url) => response({ body: scannedPdf, contentType: "application/pdf", observedAt, url }),
+      recovery: { recover: async ({ row }) => {
+        if (recovered.has(row.docId)) return recovered.get(row.docId)!;
+        extractionCalls++;
+        const result = { document: { docId: row.docId, filerName: "Hon. Jordan Sample", filingDate: row.filingDate,
+          isAmendment: false, stateDistrict: row.filer.stateDistrict }, resultId: `hybrid-result.dense-${row.docId}`,
+          rows: Array.from({ length: 123 }, (_, index) => ({ amountRange: { label: "$1,001 - $15,000", lower: "1001", upper: "15000" },
+            assetDescription: `Dense security ${index}`, capitalGainsIndicator: "unknown" as const, notificationDate: "2026-03-04",
+            ownerCode: null, reportedTicker: null, rowEvidenceDigest: index.toString(16).padStart(64, "0"),
+            transactionDate: "2026-03-03", transactionType: "P" as const })) };
+        recovered.set(row.docId, result);
+        return result;
+      } },
+    }));
+  }
+  assert.deepEqual(pages.map(({ acquisition }) => acquisition.facts.length), [496, 124]);
+  assert.equal(pages[0]!.acquisition.result.coverage, "partial");
+  assert.equal(pages[1]!.acquisition.result.coverage, "complete");
+  assert.equal(extractionCalls, 5, "overflow recovery must be reusable on the next page");
+  assert.equal(pages.flatMap(({ acquisition }) => acquisition.facts).filter(({ payload }) =>
+    payload.schemaVersion === "house-ptr-transaction/v1").length, 615, "no dense transaction may disappear at the page cap");
 }
 
 console.log("public-source House acquisition verification passed");

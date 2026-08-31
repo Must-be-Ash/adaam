@@ -13,6 +13,8 @@ import {
   type EvidenceLocator,
 } from "./hybrid-evidence-schema";
 import {
+  HybridEvidencePdfError,
+  HYBRID_EVIDENCE_MAX_RENDER_EDGE,
   projectHybridEvidencePdf,
   readHybridEvidencePdfPage,
 } from "./hybrid-evidence-pdf";
@@ -667,13 +669,29 @@ export function createHybridEvidenceArtifactStore(options: {
           throw new HybridEvidenceArtifactStoreError("artifact_digest_mismatch");
         }
       } else if (locator.kind === "pdf_page") {
-        const projection = await projectHybridEvidencePdf(bytes);
-        const page = await readHybridEvidencePdfPage({
-          evidenceDigest: locator.evidenceDigest,
-          page: locator.page,
-          projection,
-          region: locator.region,
-        });
+        let page: Awaited<ReturnType<typeof readHybridEvidencePdfPage>> | null = null;
+        let lastError: unknown;
+        for (const maximumRenderEdge of [undefined, HYBRID_EVIDENCE_MAX_RENDER_EDGE] as const) {
+          try {
+            const projection = await projectHybridEvidencePdf(bytes, maximumRenderEdge === undefined
+              ? {}
+              : { maximumRenderEdge });
+            page = await readHybridEvidencePdfPage({
+              evidenceDigest: locator.evidenceDigest,
+              page: locator.page,
+              projection,
+              region: locator.region,
+            });
+            break;
+          } catch (error) {
+            lastError = error;
+            if (
+              !(error instanceof HybridEvidencePdfError) ||
+              error.code !== "artifact_digest_mismatch"
+            ) throw error;
+          }
+        }
+        if (!page) throw lastError;
         content = page.imageBase64;
         contentKind = "image";
         mediaType = page.mediaType;
@@ -721,7 +739,7 @@ export function createHybridEvidenceArtifactStore(options: {
           throw new HybridEvidenceArtifactStoreError("artifact_store_conflict");
         }
         const references = entry.references.filter(
-          ({ referenceId }) => referenceId !== input.referenceId,
+          ({ referenceId, kind }) => referenceId !== input.referenceId || kind !== input.kind,
         );
         references.push({
           active: input.kind === "accepted_result" && !retainAcceptedResultReferences

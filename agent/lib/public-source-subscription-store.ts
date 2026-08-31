@@ -414,9 +414,10 @@ export async function projectPublicSourceAcquisition(input: {
         throw new PublicSourceSubscriptionStoreError("projection_conflict");
       }
       const existing = parseRaw(existingRaw, (value) => publicSourceProjectionSchema.parse(value));
-      const { projectedAt: _existingAt, ...existingIdentity } = existing;
-      const { projectedAt: _candidateAt, ...candidateIdentity } = projection;
-      if (JSON.stringify(existingIdentity) !== JSON.stringify(candidateIdentity)) {
+      const { projectedAt: _existingAt, acquisitionId: _existingAcquisition, ...existingIdentity } = existing;
+      const { projectedAt: _candidateAt, acquisitionId: _candidateAcquisition, ...candidateIdentity } = projection;
+      if ((acquisition.adapterId !== "house-financial-disclosures" && existing.acquisitionId !== projection.acquisitionId) ||
+        JSON.stringify(existingIdentity) !== JSON.stringify(candidateIdentity)) {
         throw new PublicSourceSubscriptionStoreError("projection_conflict");
       }
       durable = existing;

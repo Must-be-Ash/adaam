@@ -114,7 +114,7 @@ function store(): CongressionalSignalStoreClient {
 
 function recordKey(
   scope: AuthorizedWorkspaceStoreScope,
-  kind: "history" | "history-head" | "signal" | "transaction",
+  kind: "history" | "history-head" | "occurrence-history" | "signal" | "transaction",
   id: string,
 ): string {
   const digest = congressionalSignalContractDigest([scope.ownerId, scope.workspaceId, id]);
@@ -280,6 +280,32 @@ export async function readCongressionalHistory(
     MAX_HISTORY_RECORD_BYTES,
   );
   if (history.workspaceId !== scope.workspaceId) {
+    throw new CongressionalSignalStoreError("congressional_record_conflict");
+  }
+  return history;
+}
+
+// Pin the pre-occurrence history before mutating its head. A crash after the
+// history write must not erase the prior alert/correction evidence on retry.
+export async function snapshotCongressionalHistoryForOccurrence(input: {
+  scope: AuthorizedWorkspaceStoreScope; occurrenceKey: string;
+}, client: CongressionalSignalStoreClient = store()): Promise<CongressionalHistoryRevision | null> {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  const current = await readCongressionalHistory(input.scope, client);
+  const observed = await client.createOrRead(recordKey(input.scope, "occurrence-history", input.occurrenceKey),
+    serialize({ historyRevisionId: current?.historyRevisionId ?? null }));
+  const raw = rawValue(observed.value);
+  if (raw === null) throw new CongressionalSignalStoreError("congressional_record_corrupt");
+  const snapshot = parseRecord(raw, (value) => z.object({ historyRevisionId: z.string().min(2).max(240).nullable() }).strict().parse(value));
+  if (observed.created) {
+    if (snapshot.historyRevisionId !== (current?.historyRevisionId ?? null)) throw new CongressionalSignalStoreError("congressional_record_conflict");
+    return current;
+  }
+  if (snapshot.historyRevisionId === null) return null;
+  const revisionRaw = rawValue(await client.get(recordKey(input.scope, "history", snapshot.historyRevisionId)));
+  if (revisionRaw === null) throw new CongressionalSignalStoreError("congressional_record_corrupt");
+  const history = parseRecord(revisionRaw, (value) => congressionalHistoryRevisionSchema.parse(value), MAX_HISTORY_RECORD_BYTES);
+  if (history.workspaceId !== input.scope.workspaceId || history.historyRevisionId !== snapshot.historyRevisionId) {
     throw new CongressionalSignalStoreError("congressional_record_conflict");
   }
   return history;

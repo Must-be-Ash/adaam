@@ -263,13 +263,15 @@ export function identifyHousePtrTransactionStructures(
       .sort((left, right) => left.x - right.x);
     if (dates.length !== 2) continue;
     const amountFragments = band
-      .filter((fragment) => fragment.x > dates[1]!.x && /\$|^Over\b/iu.test(fragment.text));
+      .filter((fragment) =>
+        fragment.x > dates[1]!.x && /\$|^Over\b|^Spouse\/DC\b/iu.test(fragment.text)
+      );
     const amountLabel = amountFragments
       .map((fragment) => fragment.text)
       .join(" ")
       .replace(/\s+/gu, " ")
       .trim();
-    if (!/^(?:\$\s*[\d,]+\s*-\s*\$\s*[\d,]+|Over\s+\$\s*[\d,]+)$/iu.test(amountLabel)) {
+    if (!/^(?:\$\s*[\d,]+\s*-\s*\$\s*[\d,]+|Over\s+\$\s*[\d,]+|Spouse\/DC\s+Asset\s+Over\s+\$\s*1,000,000)$/iu.test(amountLabel)) {
       continue;
     }
     structures.push(Object.freeze({

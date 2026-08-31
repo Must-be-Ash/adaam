@@ -246,6 +246,48 @@ function isTopLevelReservation(
   return reservation.parentRunId == null;
 }
 
+/** Count each family once, without hiding children behind a soft envelope.
+ * Filter by the reservation's own period before grouping: a retained child
+ * remains charged even when its parent belongs to another period or is gone.
+ */
+function effectivePeriodUsage(
+  reservations: readonly WorkspaceBudgetReservation[],
+  periodField: "calendarDay" | "calendarMonth",
+  period: string,
+) {
+  const families = new Map<string, {
+    parentInput: number; parentOutput: number; parentPaid: bigint;
+    childInput: number; childOutput: number; childPaid: bigint;
+  }>();
+  for (const reservation of reservations) {
+    if (reservation[periodField] !== period || reservation.state === "released") continue;
+    const familyId = reservation.parentRunId ?? reservation.runId;
+    const family = families.get(familyId) ?? {
+      parentInput: 0, parentOutput: 0, parentPaid: 0n,
+      childInput: 0, childOutput: 0, childPaid: 0n,
+    };
+    if (isTopLevelReservation(reservation)) {
+      family.parentInput = usageTokens(reservation, "input");
+      family.parentOutput = usageTokens(reservation, "output");
+      family.parentPaid = usagePaid(reservation);
+    } else {
+      family.childInput += usageTokens(reservation, "input");
+      family.childOutput += usageTokens(reservation, "output");
+      family.childPaid += usagePaid(reservation);
+    }
+    families.set(familyId, family);
+  }
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let paidMicros = 0n;
+  for (const family of families.values()) {
+    inputTokens += Math.max(family.parentInput, family.childInput);
+    outputTokens += Math.max(family.parentOutput, family.childOutput);
+    paidMicros += family.parentPaid > family.childPaid ? family.parentPaid : family.childPaid;
+  }
+  return { inputTokens, outputTokens, paidMicros };
+}
+
 export interface WorkspaceChildBudgetUsage {
   hasUnsettledReservation: boolean;
   inputTokens: number;
@@ -303,12 +345,8 @@ export function summarizeWorkspaceBudgetUsage(
       reservation.calendarDay === calendar.day &&
       reservation.state !== "released",
   );
-  const thisMonth = ledger.reservations.filter(
-    (reservation) =>
-      isTopLevelReservation(reservation) &&
-      reservation.calendarMonth === calendar.month &&
-      reservation.state !== "released",
-  );
+  const dailyUsage = effectivePeriodUsage(ledger.reservations, "calendarDay", calendar.day);
+  const monthlyUsage = effectivePeriodUsage(ledger.reservations, "calendarMonth", calendar.month);
   return Object.freeze({
     activeWorkers: ledger.reservations.filter(
       (reservation) =>
@@ -316,22 +354,10 @@ export function summarizeWorkspaceBudgetUsage(
     ).length,
     calendarDay: calendar.day,
     calendarMonth: calendar.month,
-    inputTokensToday: today.reduce(
-      (total, reservation) => total + usageTokens(reservation, "input"),
-      0,
-    ),
-    outputTokensToday: today.reduce(
-      (total, reservation) => total + usageTokens(reservation, "output"),
-      0,
-    ),
-    paidMicrosThisMonth: thisMonth.reduce(
-      (total, reservation) => total + usagePaid(reservation),
-      0n,
-    ).toString(),
-    paidMicrosToday: today.reduce(
-      (total, reservation) => total + usagePaid(reservation),
-      0n,
-    ).toString(),
+    inputTokensToday: dailyUsage.inputTokens,
+    outputTokensToday: dailyUsage.outputTokens,
+    paidMicrosThisMonth: monthlyUsage.paidMicros.toString(),
+    paidMicrosToday: dailyUsage.paidMicros.toString(),
     runsToday: today.filter((reservation) => reservation.kind === "scheduled_monitor").length,
   });
 }
@@ -467,56 +493,6 @@ export async function reserveWorkspaceRunBudget(
     ) {
       throw new WorkspaceBudgetError("budget_reservation_conflict");
     }
-    const today = reservations.filter(
-      (reservation) =>
-        isTopLevelReservation(reservation) &&
-        reservation.calendarDay === calendar.day,
-    );
-    const active = reservations.filter(
-      (reservation) =>
-        isTopLevelReservation(reservation) && reservation.state === "reserved",
-    );
-    const dailyRuns = today.filter(
-      (reservation) =>
-        reservation.kind === "scheduled_monitor" && reservation.state !== "released",
-    ).length;
-    const dailyInput = today.reduce(
-      (total, reservation) => total + usageTokens(reservation, "input"),
-      0,
-    );
-    const dailyOutput = today.reduce(
-      (total, reservation) => total + usageTokens(reservation, "output"),
-      0,
-    );
-    const dailyPaid = today.reduce(
-      (total, reservation) => total + usagePaid(reservation),
-      0n,
-    );
-    const monthlyPaid = reservations
-      .filter((reservation) =>
-        isTopLevelReservation(reservation) &&
-        reservation.calendarMonth === calendar.month
-      )
-      .reduce((total, reservation) => total + usagePaid(reservation), 0n);
-    const nestedUsage = parent === null
-      ? null
-      : summarizeWorkspaceChildBudgetUsage(current, parent.runId);
-    const exceedsParent = parent !== null && nestedUsage !== null && (
-      nestedUsage.inputTokens + input.inputTokens > parent.inputTokens ||
-      nestedUsage.outputTokens + input.outputTokens > parent.outputTokens ||
-      BigInt(nestedUsage.paidMicros) + paid > BigInt(parent.paidMicros)
-    );
-    const exceedsTopLevel = parent === null && (
-      dailyRuns + (kind === "scheduled_monitor" ? 1 : 0) > policy.maximumScheduledRunsPerDay ||
-      active.length + 1 > policy.maximumConcurrentWorkers ||
-      dailyInput + input.inputTokens > policy.maximumInputTokensPerDay ||
-      dailyOutput + input.outputTokens > policy.maximumOutputTokensPerDay ||
-      (caps !== undefined && dailyPaid + paid > caps.day) ||
-      (caps !== undefined && monthlyPaid + paid > caps.month)
-    );
-    if (exceedsParent || exceedsTopLevel || reservations.length >= MAX_RESERVATIONS) {
-      throw new WorkspaceBudgetError("budget_exhausted");
-    }
     const reservation: WorkspaceBudgetReservation = {
       calendarDay: calendar.day,
       calendarMonth: calendar.month,
@@ -534,10 +510,27 @@ export async function reserveWorkspaceRunBudget(
       state: "reserved",
       updatedAt: timestamp,
     };
+    const nextReservations = [...reservations, reservation];
+    // The parent is a soft accounting envelope. Evaluate the proposed ledger
+    // inside this CAS using the same effective family totals operators see.
+    const usage = summarizeWorkspaceBudgetUsage({ ...current, reservations: nextReservations }, now, policy.ownerTimezone);
+    if (
+      usage.inputTokensToday > policy.maximumInputTokensPerDay ||
+      usage.outputTokensToday > policy.maximumOutputTokensPerDay ||
+      (caps !== undefined && BigInt(usage.paidMicrosToday) > caps.day) ||
+      (caps !== undefined && BigInt(usage.paidMicrosThisMonth) > caps.month) ||
+      (parent === null && (
+        usage.runsToday > policy.maximumScheduledRunsPerDay ||
+        usage.activeWorkers > policy.maximumConcurrentWorkers
+      )) ||
+      nextReservations.length > MAX_RESERVATIONS
+    ) {
+      throw new WorkspaceBudgetError("budget_exhausted");
+    }
     return {
       ledger: {
         ...current,
-        reservations: [...reservations, reservation],
+        reservations: nextReservations,
         revision: current.revision + 1,
       },
       result: reservation,
@@ -566,7 +559,12 @@ export async function reconcileWorkspaceRunBudget(
     const existing = current.reservations[index]!;
     const paid =
       input.actualPaidCost === undefined ? null : toMicros(input.actualPaidCost);
-    if (paid !== null && paid > BigInt(existing.paidMicros)) {
+    // Positive reservations are estimates and may be exceeded by actual
+    // metering. Explicit zero is a real no-spend/no-token contract.
+    if (
+      paid !== null && paid > 0n && BigInt(existing.paidMicros) === 0n &&
+      existing.kind !== "scheduled_monitor"
+    ) {
       throw new WorkspaceBudgetError("budget_reservation_conflict");
     }
     const normalized = {
@@ -587,8 +585,8 @@ export async function reconcileWorkspaceRunBudget(
       throw new WorkspaceBudgetError("budget_reservation_conflict");
     }
     if (
-      (normalized.inputTokens !== null && normalized.inputTokens > existing.inputTokens) ||
-      (normalized.outputTokens !== null && normalized.outputTokens > existing.outputTokens)
+      (normalized.inputTokens !== null && normalized.inputTokens > 0 && existing.inputTokens === 0) ||
+      (normalized.outputTokens !== null && normalized.outputTokens > 0 && existing.outputTokens === 0)
     ) {
       throw new WorkspaceBudgetError("budget_reservation_conflict");
     }

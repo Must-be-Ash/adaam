@@ -33,23 +33,35 @@ const chunks = [];
 for await (const chunk of process.stdin) chunks.push(chunk);
 const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
 try {
-  if (input.operation === "region") {
+  if (input.operation === "region" || input.operation === "regions") {
     const source = await loadImage(Buffer.from(input.imageBase64, "base64"));
-    const sourceX = Math.floor(input.region.x * input.width);
-    const sourceY = Math.floor(input.region.y * input.height);
-    const width = Math.max(1, Math.ceil(input.region.width * input.width));
-    const height = Math.max(1, Math.ceil(input.region.height * input.height));
-    const canvas = createCanvas(width, height);
-    canvas.getContext("2d").drawImage(source, sourceX, sourceY, width, height, 0, 0, width, height);
-    const png = canvas.toBuffer("image/png");
-    if (png.byteLength > input.maximumRenderBytes) throw new Error("evidence_bounds_exceeded");
-    process.stdout.write(JSON.stringify({
-      byteCount: png.byteLength,
-      evidenceDigest: digest(png),
-      height,
-      imageBase64: png.toString("base64"),
-      width,
-    }));
+    if (source.width !== input.width || source.height !== input.height) throw new Error("artifact_digest_mismatch");
+    const regions = input.operation === "regions" ? input.regions : [input.region];
+    if (!Array.isArray(regions) || regions.length < 1 || regions.length > 42) throw new Error("evidence_bounds_exceeded");
+    let totalBytes = 0;
+    const results = regions.map((region) => {
+      if (![region.x, region.y, region.width, region.height].every(Number.isFinite) ||
+          region.x < 0 || region.y < 0 || region.width <= 0 || region.height <= 0 ||
+          region.x + region.width > 1 || region.y + region.height > 1) throw new Error("evidence_bounds_exceeded");
+      const sourceX = Math.floor(region.x * input.width + 1e-7);
+      const sourceY = Math.floor(region.y * input.height + 1e-7);
+      const width = Math.max(1, Math.ceil(region.width * input.width - 1e-7));
+      const height = Math.max(1, Math.ceil(region.height * input.height - 1e-7));
+      const canvas = createCanvas(width, height);
+      canvas.getContext("2d").drawImage(source, sourceX, sourceY, width, height, 0, 0, width, height);
+      const png = canvas.toBuffer("image/png");
+      if (png.byteLength > input.maximumRenderBytes) throw new Error("evidence_bounds_exceeded");
+      totalBytes += png.byteLength;
+      if (totalBytes > input.maximumRenderBytes) throw new Error("evidence_bounds_exceeded");
+      return {
+        byteCount: png.byteLength,
+        evidenceDigest: digest(png),
+        height,
+        imageBase64: png.toString("base64"),
+        width,
+      };
+    });
+    process.stdout.write(JSON.stringify(input.operation === "regions" ? results : results[0]));
   } else {
     const bytes = Buffer.from(input.bytesBase64, "base64");
     const loadingTask = getDocument({ data: Uint8Array.from(bytes), useSystemFonts: false, wasmUrl });
@@ -78,7 +90,7 @@ try {
           : normalized(content.items.flatMap((item) => "str" in item ? [item.str] : []).join(" "));
         if (text.length > input.maximumCharactersPerPage) throw new Error("evidence_bounds_exceeded");
         const initial = page.getViewport({ scale: 1 });
-        let scale = Math.min(2, input.maximumRenderEdge / Math.max(initial.width, initial.height));
+        let scale = Math.min(4, input.maximumRenderEdge / Math.max(initial.width, initial.height));
         let png;
         let width = 0;
         let height = 0;

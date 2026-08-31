@@ -224,7 +224,9 @@ const extensionResult = await coordinatePublicSourceOccurrence({
     ...routedRecovery,
     EVE_HYBRID_EVIDENCE_ENABLED: "1",
     EVE_HYBRID_EXTRACTION_RECOVERY_ENABLED: "1",
-    EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS: "fixture/extractor,fixture/independent-ocr",
+    EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS: "fixture/extractor,fixture/independent-ocr,fixture/frontier,fixture/reviewed-ocr",
+    EVE_HOUSE_EXTRACTION_MODEL_ID: "fixture/frontier",
+    EVE_HOUSE_INDEPENDENT_OCR_MODEL_ID: "fixture/reviewed-ocr",
     EVE_WORKSPACE_DISPATCH_ENABLED: "1",
     EVE_WORKSPACE_STATE_ENABLED: "1",
   },
@@ -241,9 +243,11 @@ const extensionResult = await coordinatePublicSourceOccurrence({
   },
   hybridRecoveryExtensions: [{
     adapterId: "house-financial-disclosures",
-    create({ modelIds }) {
+    create({ budgetScope, modelIds, parentBudgetRunId }) {
       extensionCreations += 1;
-      assert.deepEqual(modelIds, ["fixture/extractor", "fixture/independent-ocr"]);
+      assert.equal(budgetScope?.workspaceId, scopeA.workspaceId);
+      assert.deepEqual(modelIds, ["fixture/frontier", "fixture/reviewed-ocr"]);
+      assert.equal(parentBudgetRunId, "parent-run.fixture-extension");
       return {
         async recover({ row }) {
           return {
@@ -264,6 +268,7 @@ const extensionResult = await coordinatePublicSourceOccurrence({
   }],
   monitor: monitor({ monitorId: houseMonitorA, sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID, workspaceId: workspaceA }),
   observedAt: new Date(extensionObservedAt),
+  parentBudgetRunId: "parent-run.fixture-extension",
   scope: scopeA,
   sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
   window: { startAt: "2026-08-15T16:30:00.000Z", endAt: extensionObservedAt },
@@ -348,8 +353,11 @@ const houseA = await coordinatePublicSourceOccurrence({
   sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
   window: houseWindow,
 });
-assert.equal(houseA.acquisition.status, "complete");
-assert.equal(houseA.projection?.projections.length, 1);
+assert.equal(houseA.acquisition.status, "partial");
+assert.equal(houseA.sourceRetryAfterSeconds, 30 * 60, "only cooling-down filings should retry at their earliest due time");
+assert.equal(houseA.projection, null);
+assert.equal(houseA.workspaceCheckpoint, null);
+assert.equal(houseA.acquisition.proposedNextCursor, null);
 assert.equal(houseFetches, 2);
 
 const referenceB = resolvePublicSourceWorkspaceReference({
@@ -384,15 +392,15 @@ const houseB = await coordinatePublicSourceOccurrence({
 });
 assert.equal(houseB.reused, true);
 assert.equal(houseFetches, 2);
-assert.equal(houseB.projection?.projections.length, 1);
+assert.equal(houseB.projection, null);
 const caughtUp = await readPublicSourceWorkspaceHealth({
   clients: { acquisition: store, subscription: store },
   environment: fullyEnabled,
   reference: referenceB,
   scope: scopeB,
 });
-assert.equal(caughtUp.subscription.state, "caught_up");
-assert.equal(caughtUp.subscription.lag, 0);
+assert.equal(caughtUp.subscription.state, "behind");
+assert.equal(caughtUp.subscription.lag, 1);
 assert.ok(observations.some((item) => item.counter === "public_source_acquisition_reused_total"));
 assert.ok(observations.some((item) => item.counter === "public_source_fact_revision_total"));
 assert.ok(observations.some((item) => item.counter === "public_source_projection_total"));
@@ -432,7 +440,7 @@ const degradedAfterFailure = await readPublicSourceWorkspaceHealth({
 assert.equal(degradedAfterFailure.lastCompleteAcquisition?.observedAt, houseObservedAt);
 assert.equal(degradedAfterFailure.lastOutcome?.status, "terminal_failure");
 assert.equal(degradedAfterFailure.lastOutcome?.failureStage, "archive");
-assert.equal(degradedAfterFailure.subscription.state, "caught_up");
+assert.equal(degradedAfterFailure.subscription.state, "behind");
 assert.ok(observations.some((item) => item.counter === "public_source_failure_total"));
 
 await assert.rejects(

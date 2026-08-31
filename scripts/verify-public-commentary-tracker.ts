@@ -527,11 +527,8 @@ assert.ok(
 );
 
 /*
- * The failure this version exists to fix, reproduced at the ledger. An
- * occurrence reserves a paid envelope, the source read consumes it, and each
- * statement's classification then reserves its own ceiling as a child of that
- * envelope. At $0.25 per attempt the four-statement fan-out is refused before
- * it can commit; at a zero ceiling every attempt fits.
+ * Child work may exceed the soft occurrence envelope, but must still fit the
+ * workspace's hard daily and monthly limits.
  */
 class MemoryCas implements WorkspaceBudgetLedgerClient {
   readonly values = new Map<string, string>();
@@ -543,13 +540,13 @@ class MemoryCas implements WorkspaceBudgetLedgerClient {
   async get(key: string) { return this.values.get(key) ?? null; }
 }
 
-async function fanOutAttempts(perAttemptCeiling: string): Promise<number> {
+async function fanOutAttempts(perAttemptCeiling: string, paidLimits: Partial<typeof marketBudget> = {}): Promise<number> {
   const ledger = new MemoryCas();
   const scope = authorizeDeploymentWorkspaceStore(
     { ownerId: "owner_fixture", workspaceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
     { EVE_DEPLOYMENT_OWNER_ID: "owner_fixture" },
   );
-  const policy = marketBudget;
+  const policy = { ...marketBudget, ...paidLimits };
   const shared = { now: new Date("2026-08-22T22:00:00.000Z"), policy, policyRevision: 1, scope };
   await reserveWorkspaceRunBudget({
     ...shared,
@@ -593,9 +590,13 @@ async function fanOutAttempts(perAttemptCeiling: string): Promise<number> {
 
 assert.equal(
   await fanOutAttempts("0.2500"),
-  0,
-  "at the 1.0.0 ceiling the source read consumes the envelope and no classification can commit",
+  4,
+  "the per-run envelope is soft: paid classifiers can use the remaining day/month allowance",
 );
+assert.equal(await fanOutAttempts("0.2500", { maximumPaidPerDay: "1" }), 0,
+  "the daily ceiling remains hard after the timeline spends the allowance");
+assert.equal(await fanOutAttempts("0.2500", { maximumPaidPerMonth: "1" }), 0,
+  "the monthly ceiling remains hard after the timeline spends the allowance");
 assert.equal(
   await fanOutAttempts("0"),
   4,

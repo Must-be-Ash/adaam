@@ -14,6 +14,7 @@ import {
   type HybridEvidenceBlobClient,
 } from "../agent/lib/hybrid-evidence-artifact-store";
 import type { HybridEvidenceJobStoreClient } from "../agent/lib/hybrid-evidence-job-store";
+import { readHybridEvidenceJob } from "../agent/lib/hybrid-evidence-job-store";
 import { verifyHybridEvidenceWorkerToken } from "../agent/lib/hybrid-evidence-auth";
 import type { HybridEvidenceLineageStoreClient } from "../agent/lib/hybrid-evidence-lineage-store";
 import { resolveHybridEvidenceFlags } from "../agent/lib/hybrid-evidence-flags";
@@ -38,6 +39,7 @@ import {
 import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization";
 import type { WorkspaceBudgetLedgerClient } from "../agent/lib/workspace-budget-ledger";
 import type { WorkspaceGlobalBudgetClient } from "../agent/lib/workspace-dispatch-budget";
+import { readGlobalDispatchBudgetLedger } from "../agent/lib/workspace-dispatch-budget";
 
 class MemoryCas implements HybridEvidenceArtifactIndexClient,
   HybridEvidenceJobStoreClient, HybridEvidenceLineageStoreClient,
@@ -221,6 +223,61 @@ const budgetFailure = await runEarningsCallTranscriptLayoutRecovery({
   eventRevisionId: "fact.earnings.changed.budget",
 });
 assert.deepEqual(budgetFailure, { reason: "budget_unavailable", state: "unavailable" });
+const fundedRetry = await runEarningsCallTranscriptLayoutRecovery({
+  ...recoveryInput, acquisitionId: "acquisition.earnings.recovery.funded-retry",
+  artifactDigest: "c".repeat(64), eventRevisionId: "fact.earnings.changed.budget",
+  initiatingWorkspaceId: "123e4567-e89b-42d3-a456-426614174401",
+});
+assert.equal(fundedRetry.state, "accepted", "a denied subscriber must not poison the globally reusable Earnings job");
+
+// The real Earnings entry must leave a live claim alone, then settle an expired
+// claim conservatively. Earnings' existing one-attempt policy forbids a replacement.
+let earningsStarted!: () => void;
+let earningsResume!: () => void;
+const earningsAtDispatch = new Promise<void>((resolve) => { earningsStarted = resolve; });
+const earningsDispatchGate = new Promise<void>((resolve) => { earningsResume = resolve; });
+let expiryDispatches = 0;
+let oldEarningsPrepared!: PreparedHybridEvidenceWorkerRun;
+const expiryInput = { ...recoveryInput, acquisitionId: "acquisition.earnings.expired",
+  artifactDigest: "d".repeat(64), eventRevisionId: "fact.earnings.expired",
+  dispatch: async ({ prepared }: { prepared: PreparedHybridEvidenceWorkerRun }) => {
+    expiryDispatches++;
+    if (expiryDispatches === 1) {
+      oldEarningsPrepared = prepared;
+      earningsStarted();
+      await earningsDispatchGate;
+    }
+    return complete(prepared, candidate);
+  },
+};
+const oldEarningsRun = runEarningsCallTranscriptLayoutRecovery(expiryInput);
+await earningsAtDispatch;
+assert.deepEqual(await runEarningsCallTranscriptLayoutRecovery(expiryInput), { reason: "execution_unavailable", state: "unavailable" });
+assert.equal(expiryDispatches, 1, "a live Earnings claim must not dispatch again");
+const oldEarningsJobId = verifyHybridEvidenceWorkerToken(oldEarningsPrepared.token, {}, environment).jobId;
+const oldEarningsJob = (await readHybridEvidenceJob(oldEarningsJobId, memory))!;
+assert.equal(oldEarningsJob.job.state, "running");
+for (const [key, raw] of memory.values) {
+  const record = JSON.parse(raw);
+  if (record.job?.jobId === oldEarningsJobId) memory.values.set(key,
+    JSON.stringify({ ...record, claimExpiresAt: new Date(Date.now() - 1_000).toISOString() }));
+}
+const earningsResumptions = await Promise.allSettled([
+  runEarningsCallTranscriptLayoutRecovery(expiryInput), runEarningsCallTranscriptLayoutRecovery(expiryInput),
+]);
+assert.ok(earningsResumptions.every((result) => result.status === "fulfilled" && result.value.state === "unavailable"));
+assert.equal(expiryDispatches, 1, "the existing single-attempt Earnings limit must remain enforced");
+await assert.rejects(completeHybridEvidenceJobForWorker({ candidate,
+  ctx: { session: { auth: { current: oldEarningsPrepared.request.auth } } }, environment, jobClient: memory }),
+  /job_conflict|worker_auth_invalid/u);
+earningsResume();
+await oldEarningsRun;
+const expiredEarningsAllowance = (await readGlobalDispatchBudgetLedger(memory)).reservations.find(({ runId }) =>
+  runId === oldEarningsJob.attemptReceipt!.reservationKey)!;
+assert.equal(expiredEarningsAllowance.state, "uncertain");
+assert.equal(expiredEarningsAllowance.reconciledPaidMicros, null);
+assert.equal((await readHybridEvidenceJob(oldEarningsJobId, memory))!.job.attempt, 1);
+assert.equal((await readHybridEvidenceJob(oldEarningsJobId, memory))!.job.state, "uncertain");
 
 const citation = {
   artifactDigest: "a".repeat(64), end: 24, eventRevisionId: "event.current",

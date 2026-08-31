@@ -233,7 +233,7 @@ const packBindingSchema = z.object({
   bindingRevision: z.number().int().positive(),
   packContentDigest: digestSchema,
   packId: z.literal("congressional-signals"),
-  packVersion: z.enum(["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0"]),
+  packVersion: z.enum(["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.5.0"]),
 }).strict();
 
 const policyReferenceSchema = z.object({
@@ -464,14 +464,14 @@ export const congressionalFilingSignalSchema = filingSignalCoreSchema.extend({
     signal.transactionEvaluations.some((evaluation) => !sortedUnique(evaluation.reasonCodes)) ||
     signal.transactionEvaluations.some((evaluation) =>
       (signal.packBinding.packVersion === "1.2.0" || signal.packBinding.packVersion === "1.3.0" ||
-        signal.packBinding.packVersion === "1.4.0") && (
+        signal.packBinding.packVersion === "1.4.0" || signal.packBinding.packVersion === "1.5.0") && (
         evaluation.committeeResolution.committeeKeys === undefined ||
         evaluation.clusterRevisionIds === undefined ||
         evaluation.patternResolution === undefined
       )) ||
     signal.transactionEvaluations.some((evaluation) =>
       signal.packBinding.packVersion !== "1.2.0" && signal.packBinding.packVersion !== "1.3.0" &&
-        signal.packBinding.packVersion !== "1.4.0" && (
+        signal.packBinding.packVersion !== "1.4.0" && signal.packBinding.packVersion !== "1.5.0" && (
         evaluation.committeeResolution.committeeKeys !== undefined ||
         evaluation.clusterRevisionIds !== undefined ||
         evaluation.patternResolution !== undefined

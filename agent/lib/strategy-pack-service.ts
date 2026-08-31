@@ -7,6 +7,7 @@ import { resolveManagedMonitorLifecycleContract } from "./workspace-monitor-life
 import { photonApprovalGuardKey } from "./photon-approval-store";
 import { resolvePhotonOwnerConversationIdentity } from "./owner-identity";
 import { savePhotonAlertDeliverySubscription } from "./photon-alert-subscription-store";
+import { resolveEarningsCallPublicSource } from "./earnings-call-public-source-contract";
 import {
   activePhotonWorkspaceCount,
   normalizePhotonWorkspaceName,
@@ -89,6 +90,10 @@ import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisi
 import type { PublicSourceSubscriptionStoreClient } from "./public-source-subscription-store";
 import { marketSymbolSchema, strategyPackIntervalMinutes } from "./strategy-pack-schema";
 import {
+  EARNINGS_CALL_TRANSCRIPTS_SOURCE_ID,
+  HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+} from "./strategy-pack-reference-catalog";
+import {
   parseConfirmedXPublicIdentity,
   verifyXPublicIdentityResolutionReceipt,
   xPublicIdentityResolutionReceiptSchema,
@@ -124,6 +129,7 @@ export const WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS = 16_000;
  * never refused mid-occurrence, while still capping an unattended runaway.
  */
 export const DEFAULT_PAID_BUDGET = Object.freeze({
+  perCall: "1.000000",
   perDay: "10.000000",
   perMonth: "50.000000",
 });
@@ -131,6 +137,10 @@ export const DEFAULT_PAID_BUDGET = Object.freeze({
 // Public sources that bill per read. A monitor bound to one needs its run's
 // paid envelope to cover that read.
 const PAID_PUBLIC_SOURCE_ORIGINS = Object.freeze(["https://api.x.com"]);
+const needsHybridRecoveryBudget = (sourceId: string) =>
+  sourceId === HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID ||
+  sourceId === EARNINGS_CALL_TRANSCRIPTS_SOURCE_ID ||
+  resolveEarningsCallPublicSource(sourceId) !== null;
 
 const DEFAULT_BUDGET_CEILINGS = Object.freeze({
   maximumInputTokensPerDay: 12_000_000,
@@ -589,7 +599,7 @@ export async function inspectStrategyPackWorkspace(
       return Object.freeze({
         configurationRevision: monitor?.configurationRevision ?? null,
         lastCompletedAt: monitor?.lastCompletedAt ?? null,
-        lastErrorCode: monitor?.lastErrorCode ?? "managed_monitor_missing",
+        lastErrorCode: monitor ? monitor.lastErrorCode : "managed_monitor_missing",
         lastRunAt: monitor?.lastRunAt ?? null,
         lifecycleState: monitor?.lifecycleState ?? "unavailable",
         monitorId: resource.monitorId,
@@ -1054,6 +1064,9 @@ export function resolveStrategyPackInitialBudgetPolicy(
   const usesPaidXTimeline = resolvedSources.some((source) =>
     source.allowedOrigins.some((origin) => PAID_PUBLIC_SOURCE_ORIGINS.includes(origin))
   );
+  const usesPaidHybridRecovery = resolvedSources.some((source) =>
+    needsHybridRecoveryBudget(source.sourceId)
+  );
   const researchBudget = resolveStrategyPackResearchWorkerContract(pack)?.research?.budget ?? null;
   const requestedRunsPerDay = Math.min(
     ceilings.maximumScheduledRunsPerDay,
@@ -1088,11 +1101,10 @@ export function resolveStrategyPackInitialBudgetPolicy(
       outputPerRun * requestedRunsPerDay,
     ),
     maximumOutputTokensPerRun: outputPerRun,
-    maximumPaidPerCall: usesPaidXTimeline
-      ? "1.000000"
-      : researchBudget
-        ? researchBudget.maximumPaidPerCall
-        : null,
+    maximumPaidPerCall: usesPaidXTimeline || usesPaidHybridRecovery
+      ? researchBudget && Number(researchBudget.maximumPaidPerCall) > Number(DEFAULT_PAID_BUDGET.perCall)
+        ? researchBudget.maximumPaidPerCall : DEFAULT_PAID_BUDGET.perCall
+      : researchBudget?.maximumPaidPerCall ?? null,
     /*
      * The workspace budget is the only real spend control: a job's declared
      * ceiling is a reservation against this envelope, not a licence to spend.
@@ -1108,7 +1120,7 @@ export function resolveStrategyPackInitialBudgetPolicy(
      * these are brakes, not budgets. The owner can edit any workspace's budget
      * from the session manager.
      */
-    maximumPaidPerDay: usesPaidXTimeline
+    maximumPaidPerDay: usesPaidXTimeline || usesPaidHybridRecovery
       ? researchBudget
         ? (Number(researchBudget.maximumPaidPerDay) > Number(DEFAULT_PAID_BUDGET.perDay)
             ? researchBudget.maximumPaidPerDay
@@ -1117,8 +1129,9 @@ export function resolveStrategyPackInitialBudgetPolicy(
       : researchBudget
         ? researchBudget.maximumPaidPerDay
         : null,
-    maximumPaidPerMonth: usesPaidXTimeline
-      ? DEFAULT_PAID_BUDGET.perMonth
+    maximumPaidPerMonth: usesPaidXTimeline || usesPaidHybridRecovery
+      ? researchBudget && Number(researchBudget.maximumPaidPerMonth) > Number(DEFAULT_PAID_BUDGET.perMonth)
+        ? researchBudget.maximumPaidPerMonth : DEFAULT_PAID_BUDGET.perMonth
       : researchBudget
         ? researchBudget.maximumPaidPerMonth
         : null,
@@ -1363,7 +1376,9 @@ export function monitorPreparations(input: {
         paidPerRun: resolveStrategyPackResearchWorkerContract(input.pack)?.research?.budget.paidPerRun ??
           (sources.some(({ origin }) => PAID_PUBLIC_SOURCE_ORIGINS.includes(origin))
             ? input.budget.maximumPaidPerCall
-            : null),
+            : sources.some(({ sourceId }) => needsHybridRecoveryBudget(sourceId))
+              ? input.budget.maximumPaidPerCall
+              : null),
       },
     });
   });

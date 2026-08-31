@@ -734,6 +734,12 @@ const noMatch = await completeWorkspaceRunForWorker({
 });
 assert.equal(noMatch.outcome, "no_match");
 assert.equal(noMatch.finding, null);
+for (const invalid of [{ ...noMatch, sourcePending: true }, { ...noMatch, outcome: "source_pending" }]) {
+  await assert.rejects(readWorkspaceRunOutcome(scope, noMatch.occurrenceKey, storedOutcomeReader(invalid)),
+    (error) => error instanceof WorkspaceFindingError && error.code === "finding_invalid");
+}
+assert.equal((await readWorkspaceRunOutcome(scope, noMatch.occurrenceKey,
+  storedOutcomeReader({ ...noMatch, outcome: "source_pending", sourcePending: true })))!.outcome, "source_pending");
 assert.deepEqual(
   await completeWorkspaceRunForWorker({ clients, ctx: noMatchCtx, environment, now }),
   noMatch,

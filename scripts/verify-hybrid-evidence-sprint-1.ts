@@ -12,6 +12,8 @@ import {
   HybridEvidenceBudgetError,
   reconcileHybridEvidenceAttempt,
   reserveHybridEvidenceAttempt,
+  reserveAdmittedHybridEvidenceAttempt,
+  releaseCancelledHybridEvidenceAdmissions,
 } from "../agent/lib/hybrid-evidence-budget";
 import {
   advanceHybridSourceResultLineage,
@@ -21,12 +23,16 @@ import {
 import {
   acceptHybridEvidenceJob,
   claimHybridEvidenceJob,
+  claimHybridEvidenceJobAdmission,
   completeHybridEvidenceJob,
   failHybridEvidenceJob,
   markHybridEvidenceJobUncertain,
   prepareHybridEvidenceJob,
   quarantineHybridEvidenceJob,
   readHybridEvidenceJob,
+  recordHybridEvidenceRecoveryObservation,
+  readHybridEvidenceRecoveryObservations,
+  resetHybridEvidenceJobAdmission,
   type HybridEvidenceJobStoreClient,
 } from "../agent/lib/hybrid-evidence-job-store";
 import {
@@ -37,6 +43,13 @@ import {
   type EvidenceLocator,
   type HybridEvidenceJobDefinition,
 } from "../agent/lib/hybrid-evidence-schema";
+import {
+  bindHybridEvidenceWorkerSessionCapability,
+  decodeHybridEvidenceWorkerToken,
+  hybridEvidenceWorkerTokenFromSessionAuth,
+  requireHybridEvidenceWorkerAuth,
+  signHybridEvidenceWorkerEnvelope,
+} from "../agent/lib/hybrid-evidence-auth";
 import {
   completeHybridEvidenceJobForWorker,
   prepareHybridEvidenceWorkerRun,
@@ -433,6 +446,67 @@ const workerCtx = { session: { auth: { current: worker.request.auth } } };
 assert.equal((await readHybridEvidenceSliceForWorker({
   clients: { artifacts, jobs }, ctx: workerCtx, environment, locator,
 })).content, evidenceText);
+const replacedCurrentAuth = {
+  ...worker.request.auth,
+  attributes: {
+    ...worker.request.auth.attributes,
+    hybrid_evidence_runtime_token: "invalid.current-token",
+  },
+};
+const durableWorkerAuth = {
+  current: replacedCurrentAuth,
+  initiator: worker.request.auth,
+};
+assert.equal(
+  hybridEvidenceWorkerTokenFromSessionAuth(durableWorkerAuth),
+  worker.token,
+  "the immutable worker initiator must outrank a replaced active-turn principal",
+);
+assert.equal((await requireHybridEvidenceWorkerAuth({
+  session: { auth: durableWorkerAuth, id: "fixture-durable-worker-session" },
+}, { jobId: preparedA.job.jobId }, environment)).token, worker.token);
+const sessionBoundId = "fixture-session-bound-worker";
+const alternateValidToken = signHybridEvidenceWorkerEnvelope({
+  ...decodeHybridEvidenceWorkerToken(worker.token, { now }),
+  expiresAt: new Date(now.getTime() + 90_000).toISOString(),
+}, environment);
+assert.notEqual(alternateValidToken, worker.token);
+const previousFixtureTransport = process.env.EVE_HYBRID_EVIDENCE_WORKER_LOCAL_TRANSPORT;
+process.env.EVE_HYBRID_EVIDENCE_WORKER_LOCAL_TRANSPORT = "1";
+try {
+  await bindHybridEvidenceWorkerSessionCapability({
+    sessionId: sessionBoundId,
+    token: worker.token,
+  }, environment);
+  assert.equal((await requireHybridEvidenceWorkerAuth({
+    session: {
+      auth: {
+        current: {
+          ...worker.request.auth,
+          attributes: {
+            ...worker.request.auth.attributes,
+            hybrid_evidence_runtime_token: alternateValidToken,
+          },
+        },
+        initiator: {
+          ...worker.request.auth,
+          attributes: {
+            ...worker.request.auth.attributes,
+            hybrid_evidence_runtime_token: alternateValidToken,
+          },
+        },
+      },
+      id: sessionBoundId,
+    },
+  }, { jobId: preparedA.job.jobId }, environment)).token, worker.token,
+  "the session-bound claim token must outrank alternate valid Eve principals");
+} finally {
+  if (previousFixtureTransport === undefined) {
+    delete process.env.EVE_HYBRID_EVIDENCE_WORKER_LOCAL_TRANSPORT;
+  } else {
+    process.env.EVE_HYBRID_EVIDENCE_WORKER_LOCAL_TRANSPORT = previousFixtureTransport;
+  }
+}
 await assert.rejects(
   readHybridEvidenceSliceForWorker({
     clients: { artifacts, jobs },
@@ -658,9 +732,10 @@ const uncertain = await prepareHybridEvidenceJob({
   now, scope: sourceScope(workspaceB),
 }, uncertainJobs);
 await claimHybridEvidenceJob({ claimToken: "claim-a", jobId: uncertain.job.jobId, now }, uncertainJobs);
-assert.equal((await claimHybridEvidenceJob({
+await assert.rejects(claimHybridEvidenceJob({
   claimToken: "claim-b", jobId: uncertain.job.jobId, now: new Date(now.getTime() + 1_000),
-}, uncertainJobs)).job.state, "uncertain");
+}, uncertainJobs), /job_conflict/u);
+assert.equal((await readHybridEvidenceJob(uncertain.job.jobId, uncertainJobs))?.job.state, "running");
 
 const terminalJobs = new MemoryCas();
 const failedPrepared = await prepareHybridEvidenceJob({
@@ -704,6 +779,127 @@ const explicitUncertainPrepared = await prepareHybridEvidenceJob({
 assert.equal((await markHybridEvidenceJobUncertain({
   jobId: explicitUncertainPrepared.job.jobId, now,
 }, explicitUncertain)).job.state, "uncertain");
+
+// Admission is owned before ledger writes: a losing subscriber cannot release
+// the winner's allowance, and an unfunded subscriber cannot poison public work.
+const admissionStore = new MemoryCas();
+const admissionJob = await prepareHybridEvidenceJob({
+  artifacts: [artifact], definition: extractionDefinition, locators: [locator], modelId, now,
+  scope: sourceScope(workspaceA),
+}, admissionStore);
+const admissionClients = { jobs: admissionStore, global: admissionStore, workspace: admissionStore, state: admissionStore };
+const authorizedB = authorizeDeploymentWorkspaceStore({ ownerId, workspaceId: workspaceB }, environment);
+const observations = new MemoryCas();
+const observation = { acquisitionId: "acquisition.fixture", definitionId: "house-ptr-document-row-recovery",
+  definitionVersion: "1.0.13", docId: "8221359", jobId: null, modelId: "fixture/extractor",
+  sourceInstanceId: "source.house-financial-disclosures.2026", outcome: "failed", code: "execution_uncertain" };
+await recordHybridEvidenceRecoveryObservation({ scope: authorizedA, observation,
+  now: new Date(Date.now() - 15 * 86400000) }, observations);
+assert.equal((await readHybridEvidenceRecoveryObservations(authorizedA, observations)).length, 0);
+for (let index = 0; index < 34; index++) {
+  await recordHybridEvidenceRecoveryObservation({ scope: authorizedA, observation: { ...observation, docId: String(index) } }, observations);
+}
+assert.equal((await readHybridEvidenceRecoveryObservations(authorizedA, observations)).length, 32);
+assert.deepEqual(await readHybridEvidenceRecoveryObservations(authorizedB, observations), []);
+await assert.rejects(recordHybridEvidenceRecoveryObservation({ scope: authorizedA,
+  observation: { ...observation, detail: "raw prompt with spaces and a secret" } }, observations));
+await assert.rejects(reserveAdmittedHybridEvidenceAttempt({
+  definition: extractionDefinition, environment, job: admissionJob.job, record: admissionJob,
+  initiatingWorkspaceId: workspaceA, scope: authorizedA, parentRunId: "unfunded-parent",
+}, admissionClients));
+assert.equal((await readHybridEvidenceJob(admissionJob.job.jobId, admissionStore))!.job.state, "prepared");
+assert.ok((await readGlobalDispatchBudgetLedger(admissionStore)).reservations.every(({ state }) => state === "released"));
+for (let denial = 0; denial < 520; denial++) {
+  await assert.rejects(reserveAdmittedHybridEvidenceAttempt({
+    definition: extractionDefinition, environment: { ...environment, EVE_HYBRID_SOURCE_RECOVERY_INPUT_TOKENS_PER_DAY: "0" }, job: admissionJob.job, record: admissionJob,
+    initiatingWorkspaceId: workspaceA, scope: authorizedA, parentRunId: "unfunded-parent",
+  }, admissionClients), /global_budget_exhausted/u);
+}
+assert.equal((await readHybridEvidenceJob(admissionJob.job.jobId, admissionStore))!.cancelledAdmissions.length, 0,
+  "completed denials must not exhaust the cancelled-admission journal");
+await writeWorkspaceDocument("budget", { expectedRevision: 0, now, scope: authorizedB, value: workspacePolicy }, admissionStore);
+await reserveWorkspaceRunBudget({ inputTokens: 10, outputTokens: 10, now, policy: workspacePolicy,
+  policyRevision: 1, runId: "funded-parent", scope: authorizedB }, admissionStore);
+const attempts = await Promise.allSettled([0, 1].map(() => reserveAdmittedHybridEvidenceAttempt({
+  definition: extractionDefinition, environment, job: admissionJob.job, record: admissionJob,
+  initiatingWorkspaceId: workspaceB, scope: authorizedB, parentRunId: "funded-parent",
+}, admissionClients)));
+assert.equal(attempts.filter(({ status }) => status === "fulfilled").length, 1);
+const winner = attempts.find((entry) => entry.status === "fulfilled")!;
+assert.equal(winner.status, "fulfilled");
+if (winner.status !== "fulfilled") throw new Error("missing_admission_winner");
+assert.equal((await readGlobalDispatchBudgetLedger(admissionStore)).reservations.filter(({ state }) => state === "reserved").length, 1);
+assert.equal(winner.value.record.attemptReceipt!.workspace!.workspaceId, workspaceB);
+await assert.rejects(claimHybridEvidenceJob({ claimToken: "wrong", admissionToken: "wrong", jobId: admissionJob.job.jobId }, admissionStore), /job_conflict/u);
+// Simulate a process death after reservation, then claim the expired admission.
+const successor = await claimHybridEvidenceJobAdmission({ jobId: admissionJob.job.jobId,
+  initiatingWorkspaceId: workspaceA, workspace: null, token: "successor", now: new Date(Date.now() + 121_000) }, admissionStore);
+await releaseCancelledHybridEvidenceAdmissions({ record: successor, environment }, admissionClients);
+await assert.rejects(claimHybridEvidenceJob({ claimToken: "old-worker", admissionToken: winner.value.admissionToken,
+  jobId: admissionJob.job.jobId }, admissionStore), /job_conflict/u);
+assert.equal((await readGlobalDispatchBudgetLedger(admissionStore)).reservations.filter(({ state }) => state === "reserved").length, 0);
+assert.equal((await readWorkspaceBudgetLedger(authorizedB, admissionStore)).reservations.find(({ runId }) => runId === winner.value.reservation.reservationKey)!.state, "released");
+await resetHybridEvidenceJobAdmission({ jobId: successor.job.jobId, admissionToken: "successor",
+  reservationKey: successor.job.budgetReservation.key }, admissionStore);
+
+// A takeover must retain an absent/partially written admission until late
+// writes can be repaired. The old owner must never return a dispatchable budget.
+class LateAdmissionStore extends MemoryCas {
+  held: { key: string; expected: string | null; next: string } | null = null;
+  mode: "lost_ack" | "paused" = "lost_ack";
+  armed = true;
+  arrived!: () => void;
+  resume!: () => void;
+  readonly atWrite = new Promise<void>((resolve) => { this.arrived = resolve; });
+  readonly gate = new Promise<void>((resolve) => { this.resume = resolve; });
+  async compareAndSet(key: string, expected: string | null, next: string) {
+    if (this.armed && key.endsWith("global-dispatch-budget")) {
+      this.armed = false;
+      this.held = { key, expected, next };
+      this.arrived();
+      if (this.mode === "lost_ack") throw new Error("fixture_ambiguous_admission_write");
+      await this.gate;
+    }
+    return super.compareAndSet(key, expected, next);
+  }
+}
+for (const mode of ["lost_ack", "paused"] as const) {
+  const late = new LateAdmissionStore();
+  late.mode = mode;
+  const record = await prepareHybridEvidenceJob({ artifacts: [artifact], definition: extractionDefinition,
+    locators: [locator], modelId, now, scope: sourceScope(workspaceA) }, late);
+  const lateClients = { jobs: late, global: late, workspace: late, state: late };
+  await writeWorkspaceDocument("budget", { expectedRevision: 0, now, scope: authorizedB, value: workspacePolicy }, late);
+  await reserveWorkspaceRunBudget({ inputTokens: 10, outputTokens: 10, now, policy: workspacePolicy,
+    policyRevision: 1, runId: "late-parent", scope: authorizedB }, late);
+  const pending = reserveAdmittedHybridEvidenceAttempt({ definition: extractionDefinition, environment,
+    job: record.job, record, initiatingWorkspaceId: workspaceB, scope: authorizedB, parentRunId: "late-parent" }, lateClients);
+  const rejected = assert.rejects(pending, mode === "lost_ack" ? /fixture_ambiguous_admission_write/u : /job_not_dispatchable/u);
+  await late.atWrite;
+  if (mode === "paused") {
+    const taken = await claimHybridEvidenceJobAdmission({ jobId: record.job.jobId, initiatingWorkspaceId: workspaceA,
+      workspace: null, token: "late-successor", now: new Date(Date.now() + 121_000) }, late);
+    await releaseCancelledHybridEvidenceAdmissions({ record: taken, environment }, lateClients);
+    assert.equal((await readHybridEvidenceJob(record.job.jobId, late))!.cancelledAdmissions.length, 1);
+    late.resume();
+  }
+  await rejected;
+  if (mode === "lost_ack") {
+    assert.equal((await readHybridEvidenceJob(record.job.jobId, late))!.cancelledAdmissions.length, 1,
+      "a caught storage exception does not prove the old write stopped");
+    const held = late.held!;
+    assert.equal(await late.compareAndSet(held.key, held.expected, held.next), true);
+  }
+  await releaseCancelledHybridEvidenceAdmissions({ record: (await readHybridEvidenceJob(record.job.jobId, late))!, environment }, lateClients);
+  assert.ok((await readGlobalDispatchBudgetLedger(late)).reservations.every(({ state }) => state === "released"));
+  assert.ok((await readWorkspaceBudgetLedger(authorizedB, late)).reservations.filter(({ kind }) => kind === "hybrid_model_attempt")
+    .every(({ state }) => state === "released"));
+  assert.equal((await readHybridEvidenceJob(record.job.jobId, late))!.cancelledAdmissions.length, 1,
+    "ambiguous/taken-over receipts remain available to repair any later write");
+  await assert.rejects(claimHybridEvidenceJob({ claimToken: "late-old-worker", admissionToken: "old-owner",
+    attemptReceipt: (await readHybridEvidenceJob(record.job.jobId, late))!.cancelledAdmissions[0],
+    jobId: record.job.jobId }, late), /job_conflict|workspace_scope_mismatch/u);
+}
 
 const eveEntry = import.meta.resolve("eve");
 const { compileAgent } = await import(new URL("./compiler/compile-agent.js", eveEntry).href) as

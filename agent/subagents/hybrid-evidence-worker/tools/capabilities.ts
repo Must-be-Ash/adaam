@@ -183,21 +183,21 @@ export async function resolveHybridEvidenceWorkerCapabilities(
   if (!token) return null;
   try {
     const envelope = decodeHybridEvidenceWorkerToken(token);
+    const contract = resolveHybridEvidenceWorkerContract(envelope.definitionId);
+    const completionTool = contract
+      ? defineTool({
+          description: contract.completion.description,
+          inputSchema: contract.completion.inputSchema,
+          async execute(candidate, toolCtx) {
+            return completeHybridEvidenceJobForWorker({
+              candidate: workerCandidateSchema.parse(candidate),
+              ctx: toolCtx,
+              jobClient: resolveHybridEvidenceWorkerFixtureClients()?.jobs,
+            });
+          },
+        })
+      : completeHybridEvidenceJob;
     if (envelope.scope.kind === "workspace") {
-      const contract = resolveHybridEvidenceWorkerContract(envelope.definitionId);
-      const completionTool = contract
-        ? defineTool({
-            description: contract.completion.description,
-            inputSchema: contract.completion.inputSchema,
-            async execute(candidate, toolCtx) {
-              return completeHybridEvidenceJobForWorker({
-                candidate: workerCandidateSchema.parse(candidate),
-                ctx: toolCtx,
-                jobClient: resolveHybridEvidenceWorkerFixtureClients()?.jobs,
-              });
-            },
-          })
-        : completeHybridEvidenceJob;
       if (contract?.research) {
         const fixture = resolveHybridEvidenceWorkerFixtureClients();
         const names = await resolveHybridEvidenceResearchToolNamesForWorker({
@@ -234,7 +234,7 @@ export async function resolveHybridEvidenceWorkerCapabilities(
     }
     return {
       read_hybrid_evidence_slice: readHybridEvidenceSlice,
-      complete_hybrid_evidence_job: completeHybridEvidenceJob,
+      complete_hybrid_evidence_job: completionTool,
     };
   } catch {
     return null;
