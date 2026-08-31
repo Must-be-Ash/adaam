@@ -1,9 +1,51 @@
 # Congressional Signals release acceptance
 
-Status (2026-08-31): Congressional 1.5.0 is deployed and the owner's existing
-binding is active. The monitor remains paused pending acceptance of the source
-progress fixes below. Extraction and research canaries are not evidence that
-the owner's scheduled monitor has reached its durable baseline.
+Status (2026-08-31, 19:08 UTC): The fixes are deployed and seven production
+batches have completed successfully. The monitor is safely paused at the
+unchanged daily limit of twenty attempts, with two committed batches still
+undelivered. Congressional 1.5.0 and the owner's existing binding remain active.
+Full baseline acceptance and normal monitoring are **not yet complete**.
+
+## Latest production checkpoint
+
+PR #20 shipped independent filing progress; PR #21 fixed scheduled continuation.
+The app alias was verified on production commit
+`2c67193dae352c069eca134f5ce34f8de60c0ffe` before the final bounded run.
+
+One initial batch and six resumed batches completed, including automatic
+scheduled continuations and a historical filing from a watched member. All
+seven outcomes are durably `source_pending`, with no finding. Every new parent
+reservation reconciled to **$0 actual spend** and zero model tokens; no active
+or unreconciled reservation remains from acceptance. A $1 admission ceiling
+per parent was a reservation limit, not a charge.
+
+The subscription acknowledged delivery revision 7 and retains its frozen
+initial baseline through source revision 12. Source revision 13 did not move;
+all 263 unresolved filings remain queued. Two committed batches remain. The
+current active history contains 500 baseline entries, zero live or alert-eligible
+entries, and explicitly incomplete coverage. The monitor's aggregate source
+checkpoint is intentionally still unset while delivery is pending; each
+completed occurrence has its own durable outcome and checkpoint.
+
+The final monitor is paused at configuration revision 94, with no next
+occurrence or continuation marker. Its original daily 20:35 America/Vancouver
+schedule is restored. Strategy, watchlist, capabilities, brief, and budget
+documents were checked unchanged. No UI, manual test message, trade, cursor
+reset, pending-work deletion, model-route change, or budget increase was used.
+
+### Remaining acceptance
+
+The August 31 daily allowance is exhausted (20/20), despite this acceptance
+having no paid model cost. Its next calendar window begins September 1 at
+00:00 America/Vancouver. Do not reset or raise the allowance to continue early.
+After the normal reset, resume through the existing backend monitor and delivery
+queue; do not rerun pack preparation, binding migration, or budget initialization.
+Drain the two remaining committed batches, verify the final durable monitor
+checkpoint and reconciled accounting, and check that historical filings remain
+silent. Enable the preserved normal schedule only after acceptance passes.
+Unresolved filings must remain visible coverage gaps; full-history conclusions
+remain unavailable while coverage is incomplete. No automatic follow-up or
+normal monitor was left running by this acceptance.
 
 ## Source progress release
 
