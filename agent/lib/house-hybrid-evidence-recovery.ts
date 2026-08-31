@@ -905,6 +905,18 @@ export function createHouseHybridEvidenceRecovery(input: {
           rows: payload.rows,
         });
       }
+      if (record.job.state === "quarantined") {
+        // Terminal validation may have committed before settlement/retention
+        // failed. Repair its original receipt; never buy another model attempt.
+        try {
+          const usage = record.independentEvidence?.state === "completed"
+            ? knownIndependentAttemptUsage(record) : undefined;
+          await settleRecorded(record, usage ? "reconciled" : "uncertain", usage);
+        } catch (error) {
+          await observeFailure("failure_finalization", error, record.job.jobId);
+        }
+        return null;
+      }
       if (record.job.state === "running") {
         try {
           record = await expireHybridEvidenceJobClaim({ definition, jobId: record.job.jobId }, input.clients?.jobs);
@@ -1188,12 +1200,14 @@ export function createHouseHybridEvidenceRecovery(input: {
               jobId: latest.job.jobId,
               now: new Date(),
             }, input.clients?.jobs);
+            // Artifact retention is independent of billing. A retention CAS
+            // conflict must not strand a completed attempt's budget reservation.
+            await settleRecorded(latest, "reconciled", workerUsage || undefined);
             await artifacts.setRetention({
               artifactDigest: manifest.contentDigest,
               now: new Date(),
               state: "quarantined",
             });
-            await settleRecorded(latest, "reconciled", workerUsage || undefined);
           } else if (latest?.job.state === "accepted" && latest.acceptedResult) {
             // Acceptance is the durable truth even if references/lineage or one
             // ledger failed. Replays repair those idempotent projections.

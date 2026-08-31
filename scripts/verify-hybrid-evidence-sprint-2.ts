@@ -1344,12 +1344,20 @@ assert.throws(
 // but the degraded filing classification still commits so unrelated documents
 // and workspace projections are not rolled back with it.
 const invalidPdfClient = new MemoryCas();
-const invalidArtifacts = createHybridEvidenceArtifactStore({ blob: new MemoryBlob(), index: invalidPdfClient });
+const invalidArtifactStore = createHybridEvidenceArtifactStore({ blob: new MemoryBlob(), index: invalidPdfClient });
+const invalidArtifacts = { ...invalidArtifactStore,
+  async setRetention(input: Parameters<typeof invalidArtifactStore.setRetention>[0]) {
+    if (input.state === "quarantined") throw new Error("artifact_store_conflict");
+    return invalidArtifactStore.setRetention(input);
+  },
+};
+let invalidDispatches = 0;
 const invalidRecoveryObservations: HouseHybridEvidenceRecoveryObservation[] = [];
 const invalidRecovery = createHouseHybridEvidenceRecovery({
   clients: { artifacts: invalidArtifacts, globalBudget: invalidPdfClient, jobs: invalidPdfClient, lineage: invalidPdfClient },
   dependencies: {
     async dispatch({ prepared }) {
+      invalidDispatches += 1;
       const envelope = verifyHybridEvidenceWorkerToken(prepared.token, {}, environment);
       const badCitation = { ...(envelope.allowedLocators[0] as Extract<EvidenceLocator, { kind: "pdf_page" }>), page: 2 };
       const ctx = { session: { auth: { current: prepared.request.auth } } };
@@ -1382,12 +1390,13 @@ const invalidRecovery = createHouseHybridEvidenceRecovery({
   initiatingWorkspaceId: "123e4567-e89b-42d3-a456-426614174200",
   modelId,
 });
+let invalidRecoveryInput: Parameters<typeof invalidRecovery.recover>[0] | undefined;
 const invalid = await runHousePublicSourceAcquisition({
   client: invalidPdfClient,
   fetchDocument: async (url) => response(scannedPdf, "2026-08-18T00:00:00.000Z", url, "application/pdf"),
   fetchIndex: async (url) => response(await houseIndex({ suffix: null }), "2026-08-18T00:00:00.000Z", url, "application/zip"),
   hybridLineageClient: invalidPdfClient,
-  recovery: invalidRecovery,
+  recovery: { async recover(input) { invalidRecoveryInput = input; return invalidRecovery.recover(input); } },
   sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
   window: acquisitionWindow("2026-08-18T00:00:00.000Z"),
 });
@@ -1415,7 +1424,22 @@ assert.deepEqual(invalidRecoveryObservations.filter((observation) =>
   detail: "citation_invalid",
   hasJobId: true,
   stage: "validation",
-}]);
+}, { code: "validator_failed", detail: "artifact_store_conflict", hasJobId: true, stage: "failure_finalization" }]);
+
+// Repair the exact old-runtime state: terminal quarantine with a still-open
+// reservation. Revisit must settle durable receipts without another model call.
+const orphanKey = "eve:workspace-runtime:v1:global-dispatch-budget";
+const orphanLedger = JSON.parse(invalidPdfClient.values.get(orphanKey)!);
+for (const reservation of orphanLedger.reservations) Object.assign(reservation, {
+  state: "reserved", reconciledInputTokens: null, reconciledOutputTokens: null, reconciledPaidMicros: null,
+});
+invalidPdfClient.values.set(orphanKey, JSON.stringify(orphanLedger));
+assert.ok(invalidRecoveryInput);
+assert.equal(await invalidRecovery.recover(invalidRecoveryInput), null);
+const repairedQuarantine = (await readGlobalDispatchBudgetLedger(invalidPdfClient)).reservations.at(-1)!;
+assert.equal(repairedQuarantine.state, "settled");
+assert.equal(repairedQuarantine.reconciledPaidMicros, "22001");
+assert.equal(invalidDispatches, 1, "terminal receipt repair cannot purchase another extraction");
 
 assert.equal(sourceUrl.endsWith("2026FD.zip"), true);
 assert.equal(ptrUrl.endsWith("20000011.pdf"), true);
