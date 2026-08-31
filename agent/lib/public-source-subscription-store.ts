@@ -205,12 +205,14 @@ export async function ensurePublicSourceSubscription(
   assertSubscriptionScope(existing, scope);
   const {
     deliveryCursor: _existingCursor,
+    initialBaselineThroughRevision: _existingBaseline,
     lifecycleState: _existingLifecycle,
     packBinding: _existingBinding,
     ...existingIdentity
   } = existing;
   const {
     deliveryCursor: _seedCursor,
+    initialBaselineThroughRevision: _seedBaseline,
     lifecycleState: _seedLifecycle,
     packBinding: _seedBinding,
     ...seedIdentity
@@ -239,6 +241,26 @@ export async function ensurePublicSourceSubscription(
     JSON.stringify(current.packBinding) === JSON.stringify(subscription.packBinding)
   ) {
     return current;
+  }
+  throw new PublicSourceSubscriptionStoreError("subscription_conflict");
+}
+
+/** Freeze before source I/O; later archive revisions cannot expand history. */
+export async function establishPublicSourceSubscriptionBaseline(input: {
+  readonly scope: AuthorizedWorkspaceStoreScope;
+  readonly subscriptionId: string;
+  readonly throughRevision: number;
+}, client: PublicSourceSubscriptionStoreClient = store()): Promise<PublicSourceSubscription> {
+  assertAuthorizedWorkspaceStoreScope(input.scope);
+  const key = recordKey("subscription", input.subscriptionId, input.scope);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const raw = rawValue(await client.get(key));
+    if (raw === null) throw new PublicSourceSubscriptionStoreError("subscription_conflict");
+    const current = parseRaw(raw, (value) => publicSourceSubscriptionSchema.parse(value));
+    assertSubscriptionScope(current, input.scope);
+    if (current.initialBaselineThroughRevision !== undefined) return current;
+    const next = publicSourceSubscriptionSchema.parse({ ...current, initialBaselineThroughRevision: input.throughRevision });
+    if (await client.compareAndSet(key, raw, serialize(next))) return next;
   }
   throw new PublicSourceSubscriptionStoreError("subscription_conflict");
 }
@@ -359,7 +381,13 @@ export async function projectPublicSourceAcquisition(input: {
   ) {
     throw new PublicSourceSubscriptionStoreError("projection_conflict");
   }
-  const matching = facts.filter((fact) => matchesFilter(initial, fact));
+  // Journals may retain unresolved filing headers as coverage evidence. Never
+  // project them (or any rows belonging to them) into a strategy workspace.
+  const completeFilings = new Set(facts.filter((fact) => fact.payload.schemaVersion === "house-ptr-filing/v1" &&
+    fact.extraction.state === "complete").map((fact) => fact.logicalKey));
+  const matching = facts.filter((fact) => matchesFilter(initial, fact) &&
+    (acquisition.adapterId !== "house-financial-disclosures" || (fact.extraction.state === "complete" &&
+      (fact.payload.schemaVersion !== "house-ptr-transaction/v1" || completeFilings.has(fact.payload.filingLogicalKey)))));
   const retractions = (await Promise.all(acquisition.retractionIds.map(
     (retractionId) => readPublicSourceRetraction(retractionId, clients.acquisition),
   ))).filter((retraction): retraction is PublicSourceRetraction => retraction !== null);

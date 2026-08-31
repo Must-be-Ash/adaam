@@ -494,6 +494,8 @@ export const canonicalPublicFactPayloadSchema = z.discriminatedUnion("schemaVers
 export const canonicalPublicFactRevisionSchema = z.object({
   adapterId: adapterIdSchema,
   createdObservedAt: timestampSchema,
+  // Source observation order, separate from the later extraction timestamp.
+  firstObservedCursorRevision: z.number().int().nonnegative().optional(),
   extraction: extractionSchema,
   factSchemaVersion: factSchemaVersionSchema,
   logicalKey: idSchema,
@@ -646,6 +648,7 @@ const subscriptionFilterSchema = z.discriminatedUnion("kind", [
 export const publicSourceSubscriptionSchema = z.object({
   adapterDefinitionDigest: digestSchema,
   adapterVersion: semverSchema,
+  initialBaselineThroughRevision: z.number().int().min(-1).optional(),
   deliveryCursor: z.object({
     lastAcquisitionId: idSchema.nullable(),
     revision: z.number().int().nonnegative(),

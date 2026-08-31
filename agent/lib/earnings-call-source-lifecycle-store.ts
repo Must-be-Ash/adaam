@@ -24,6 +24,7 @@ return 1
 const idSchema = z.string().min(3).max(200);
 const acknowledgementSchema = z.object({
   acquisitionId: idSchema,
+  deliveryThroughRevision: z.number().int().nonnegative().optional(),
   expectedDeliveryRevision: z.number().int().nonnegative(),
   sourceId: idSchema,
   subscriptionId: idSchema,
@@ -223,6 +224,7 @@ export function createEarningsCallSourceLifecycleStore(
       await update(input, (record) => {
         const acknowledgement = acknowledgementSchema.parse({
           acquisitionId: input.acquisitionId,
+          deliveryThroughRevision: input.deliveryThroughRevision,
           expectedDeliveryRevision: input.expectedDeliveryRevision,
           sourceId: input.sourceId,
           subscriptionId: input.subscriptionId,

@@ -43,6 +43,9 @@ const sourceSchema = z.object({
   }
 });
 const successSchema = z.object({
+  // Completion of this occurrence does not imply complete source history.
+  acquisitionCoverage: z.enum(["complete", "partial", "unsupported"]).optional(),
+  unresolvedItemCount: z.number().int().nonnegative().optional(),
   contentDigest: z.string().regex(/^[a-f0-9]{64}$/u),
   sourceId: idSchema,
   succeededAt: timestampSchema,
@@ -391,6 +394,8 @@ export async function reserveWorkspaceSourceAttempt(
 
 export async function markWorkspaceSourceSuccess(
   input: {
+    acquisitionCoverage?: "complete" | "partial" | "unsupported";
+    unresolvedItemCount?: number;
     contentDigest: string;
     now?: Date;
     runId: string;
@@ -405,6 +410,8 @@ export async function markWorkspaceSourceSuccess(
     }
     const existing = record.successes.find((entry) => entry.sourceId === input.sourceId);
     if (existing) {
+      // Coverage fields describe the first successful observation, not run
+      // identity: old receipts omit them and the shared pending queue can move.
       if (existing.contentDigest !== input.contentDigest) {
         throw new WorkspaceSourceCoverageError("source_coverage_conflict");
       }
@@ -415,7 +422,9 @@ export async function markWorkspaceSourceSuccess(
       ...record,
       successes: [
         ...record.successes,
-        { contentDigest: input.contentDigest, sourceId: input.sourceId, succeededAt: timestamp },
+        { contentDigest: input.contentDigest, sourceId: input.sourceId, succeededAt: timestamp,
+          ...(input.acquisitionCoverage === undefined ? {} : { acquisitionCoverage: input.acquisitionCoverage }),
+          ...(input.unresolvedItemCount === undefined ? {} : { unresolvedItemCount: input.unresolvedItemCount }) },
       ],
       updatedAt: timestamp,
     });

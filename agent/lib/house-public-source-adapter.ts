@@ -614,6 +614,7 @@ function assertDocumentIdentity(text: string, row: HouseIndexRow): void {
 
 function completeCanonicalFact(source: PublicSourceInstance, input: {
   readonly createdObservedAt: string;
+  readonly firstObservedCursorRevision: number;
   readonly documentDigest: string;
   readonly extraction: {
     readonly errorCode: "pdf_layout_ambiguous" | "pdf_scanned_unsupported" | null;
@@ -629,6 +630,7 @@ function completeCanonicalFact(source: PublicSourceInstance, input: {
   const base = {
     adapterId: "house-financial-disclosures" as const,
     createdObservedAt: input.createdObservedAt,
+    firstObservedCursorRevision: input.firstObservedCursorRevision,
     extraction: input.extraction,
     factSchemaVersion: input.payload.schemaVersion,
     payload: input.payload,
@@ -879,14 +881,15 @@ async function candidateWithLineage(input: {
   readonly candidate: CanonicalPublicFactRevision;
   readonly client?: PublicSourceAcquisitionStoreClient;
   readonly observedAt: string;
-}): Promise<{ readonly correction: PublicSourceCorrection | null; readonly fact: CanonicalPublicFactRevision | null }> {
+}): Promise<{ readonly correction: PublicSourceCorrection | null; readonly fact: CanonicalPublicFactRevision | null; readonly latest: CanonicalPublicFactRevision | null }> {
   const latest = await readLatestPublicSourceFactRevision(input.candidate.logicalKey, input.client);
   if (latest?.revisionId === input.candidate.revisionId) {
-    return Object.freeze({ correction: null, fact: null });
+    return Object.freeze({ correction: null, fact: null, latest });
   }
   return Object.freeze({
     correction: latest ? correction(latest, input.candidate, input.observedAt) : null,
     fact: input.candidate,
+    latest,
   });
 }
 
@@ -929,20 +932,26 @@ async function acquireHouse(input: {
     const cachedPending = unchangedComplete ? null : await readPublicSourcePendingWork(source.sourceInstanceId, input.client, source.cursor.revision);
     const matchingQueue = cachedPending?.cursorRevision === source.cursor.revision &&
       cachedPending.archiveDigest === archive.xmlDigest ? cachedPending : null;
-    const pendingWork = new Map((matchingQueue?.pending ?? []).map((entry) => [entry.docId, entry]));
+    // An archive revision must not erase first observation or retry state for
+    // unresolved filings. The digest only controls whether a full scan is needed.
+    const pendingWork = new Map((cachedPending?.cursorRevision === source.cursor.revision ? cachedPending.pending : [])
+      .map((entry) => [entry.docId, entry]));
     if (bootstrapReplay) for (const row of rows) pendingWork.set(row.docId, { docId: row.docId, nextAttemptAt: null, replayExisting: true });
     // A plain watermark means every filing was resolved. In that case an
     // unchanged archive needs no per-filing Redis reads or PDF downloads.
     const rowsToInspect = unchangedComplete ? [] : matchingQueue ? rows.filter(({ docId }) => pendingWork.has(docId)) : rows;
     for (const row of rowsToInspect) {
       const latest = await readLatestPublicSourceFactRevision(filingLogicalKey(source, row), input.client);
+      const queued = pendingWork.get(row.docId);
+      const firstObservedCursorRevision = latest?.firstObservedCursorRevision ?? queued?.firstObservedCursorRevision ??
+        (latest || (queued && !queued.replayExisting) ? 0 : source.cursor.revision);
       if (!latest || !rowMatchesLatestIndex(latest, row)) {
         newRows.push(row);
-        pendingWork.set(row.docId, { docId: row.docId, nextAttemptAt: null });
+        pendingWork.set(row.docId, { docId: row.docId, nextAttemptAt: null, firstObservedCursorRevision });
       } else if (latest.extraction.state === "complete" && pendingWork.get(row.docId)?.replayExisting) {
         newRows.push(row);
       } else if (latest.extraction.state !== "complete") {
-        const pending = pendingWork.get(row.docId) ?? { docId: row.docId, nextAttemptAt: null };
+        const pending = { ...(queued ?? { docId: row.docId, nextAttemptAt: null }), firstObservedCursorRevision };
         pendingWork.set(row.docId, pending);
         if (!pending.nextAttemptAt || pending.nextAttemptAt <= input.indexResponse.observedAt) retryRows.push(row);
       } else pendingWork.delete(row.docId);
@@ -1061,8 +1070,10 @@ async function acquireHouse(input: {
       // A dense PDF is indivisible: leave it queued for the next acquisition
       // instead of discarding all previously resolved siblings at the cap.
       if (facts.length > 0 && facts.length + transactions.length + 1 > PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition) break;
+      const firstObservedCursorRevision = pendingWork.get(row.docId)?.firstObservedCursorRevision ?? 0;
       if (extractionState.state === "complete") pendingWork.delete(row.docId);
       else pendingWork.set(row.docId, { docId: row.docId,
+        firstObservedCursorRevision,
         nextAttemptAt: new Date(Date.parse(input.indexResponse.observedAt) + 30 * 60_000).toISOString() });
       const filingPayload = {
         amendedDocId,
@@ -1077,6 +1088,7 @@ async function acquireHouse(input: {
       };
       const filingFact = completeCanonicalFact(source, {
         createdObservedAt: input.indexResponse.observedAt,
+        firstObservedCursorRevision,
         documentDigest: extraction.documentDigest,
         extraction: extractionState,
         payload: filingPayload,
@@ -1108,6 +1120,8 @@ async function acquireHouse(input: {
           })
         : [];
       const stableRows = assignStableRowIdentities(transactions, priorTransactionFacts);
+      const transactionFactStart = facts.length;
+      const retractionStart = retractions.length;
 
       for (const [index, transaction] of transactions.entries()) {
         const transactionPayload = {
@@ -1129,6 +1143,7 @@ async function acquireHouse(input: {
         };
         const transactionFact = completeCanonicalFact(source, {
           createdObservedAt: input.indexResponse.observedAt,
+          firstObservedCursorRevision,
           documentDigest: extraction.documentDigest,
           extraction: extractionState,
           payload: transactionPayload,
@@ -1155,6 +1170,13 @@ async function acquireHouse(input: {
           retractions.push(retraction(latest, input.indexResponse.observedAt));
           if (promotionInput) promotionInput.retractionIds.push(retractions.at(-1)!.retractionId);
         }
+      }
+      if (!filingCandidate.fact && (facts.length > transactionFactStart || retractions.length > retractionStart)) {
+        // A transaction correction still needs its validated filing header in
+        // the same delivery batch, even when that header's payload is unchanged.
+        const existingFiling = filingCandidate.latest;
+        if (!existingFiling || existingFiling.extraction.state !== "complete") throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
+        facts.splice(transactionFactStart, 0, existingFiling);
       }
       if (promotionInput) hybridPromotionInputs.push(promotionInput);
       pdfReceipts.push({
