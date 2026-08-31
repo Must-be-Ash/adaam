@@ -79,6 +79,23 @@ export const houseDocumentRowWorkerCandidateSchema = z.object({
   unknowns: z.array(z.string().min(1).max(200)).max(64),
 }).strict();
 
+export type HouseDocumentRowWorkerCandidate = z.infer<
+  typeof houseDocumentRowWorkerCandidateSchema
+>;
+
+/* The direct extractor already has a signed page set. It identifies pages;
+ * application code restores the opaque trusted locator fields before validation. */
+export const houseDocumentRowModelCandidateSchema =
+  houseDocumentRowWorkerCandidateSchema.extend({
+    citations: z.array(z.object({
+      page: z.number().int().positive().max(8),
+    }).strict()).min(1).max(64),
+  });
+
+export type HouseDocumentRowModelCandidate = z.infer<
+  typeof houseDocumentRowModelCandidateSchema
+>;
+
 const houseCandidateSchema = houseDocumentRowWorkerCandidateSchema;
 
 const spreadsheetCandidateSchema = z.object({
@@ -136,7 +153,11 @@ function injectionDetected(values: Iterable<string>): boolean {
 function range(label: string) {
   const normalized = label.replace(/\s+/gu, " ").trim();
   if (normalized === "Spouse/DC Asset Over $1,000,000") {
-    return Object.freeze({ label: normalized, lower: "1000001", upper: null });
+    return Object.freeze({
+      label: normalized,
+      lower: "1000001",
+      upper: null,
+    });
   }
   const closed = /^\$\s*([\d,]+)\s*-\s*\$\s*([\d,]+)$/u.exec(normalized);
   const over = /^Over\s+\$\s*([\d,]+)$/iu.exec(normalized);
@@ -152,6 +173,11 @@ function range(label: string) {
 
 function independentValueVariants(value: string): readonly string[] {
   const normalized = value.replace(/\s+/gu, " ").trim().toLocaleLowerCase("en-US");
+  // The legacy printed heading uses "Amount over"; the canonical K label
+  // uses "Asset Over". Both retain the spouse/DC qualifier and exact amount.
+  if (normalized === "spouse/dc asset over $1,000,000") {
+    return Object.freeze([normalized, "spouse/dc amount over $1,000,000"]);
+  }
   const date = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(normalized);
   return date
     ? Object.freeze([
@@ -160,6 +186,15 @@ function independentValueVariants(value: string): readonly string[] {
         `${Number(date[2])}/${Number(date[3])}/${date[1]}`,
       ])
     : Object.freeze([normalized]);
+}
+
+function normalizeIndependentEvidence(text: string): string {
+  return text
+    // OCR uses pipes as visual column separators. They are not evidence data.
+    .replace(/[|\s]+/gu, " ")
+    .replace(/(\$[\d,]+)\s*-\s*(\$[\d,]+)/gu, "$1 - $2")
+    .trim()
+    .toLocaleLowerCase("en-US");
 }
 
 function findIndependentValue(
@@ -188,24 +223,28 @@ function assertIndependentDocument(input: {
   readonly document: z.infer<typeof houseCandidateSchema>["fields"]["document"];
   readonly textByPage: ReadonlyMap<number, string>;
 }): void {
-  const text = [...input.textByPage.values()]
-    .join(" ")
-    .replace(/\s+/gu, " ")
-    .trim()
-    .toLocaleLowerCase("en-US");
-  for (const value of [
-    input.document.filerName,
-    input.document.filingDate,
-  ]) {
-    if (!findIndependentValue(text, value)) {
-      throw new HybridEvidencePdfError("independent_value_mismatch");
-    }
+  const text = normalizeIndependentEvidence([...input.textByPage.values()].join(" "));
+  const filerTokens = input.document.filerName
+    .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
+    .split(/\s+/gu)
+    .map((value) => value.trim())
+    .filter((value) => value.length > 1 && !/^(?:hon|honorable|mr|mrs|ms|dr)$/iu.test(value));
+  const identityTokens = filerTokens.length < 2
+    ? filerTokens
+    : [filerTokens[0]!, filerTokens.at(-1)!];
+  if (
+    identityTokens.length < 2 ||
+    identityTokens.some((value) => !findIndependentValue(text, value)) ||
+    !findIndependentValue(text, input.document.filingDate)
+  ) {
+    throw new HybridEvidencePdfError("independent_value_mismatch");
   }
   const initial = /\breportstatus\s*=\s*initial\b|\binitial report\s*\[x\]|\[x\]\s*initial report\b/iu.test(text);
   const amendment = /\breportstatus\s*=\s*amendment\b|\bamendment\s*\[x\]|\[x\]\s*amendment\b/iu.test(text);
+  const legacyGrid = /\breportstatus\s*=\s*legacy_grid_no_status\b/iu.test(text);
   if (
-    (input.document.isAmendment && (!amendment || initial)) ||
-    (!input.document.isAmendment && (!initial || amendment))
+    (input.document.isAmendment && (!amendment || initial || legacyGrid)) ||
+    (!input.document.isAmendment && (amendment || (!initial && !legacyGrid)))
   ) {
     throw new HybridEvidencePdfError("independent_value_mismatch");
   }
@@ -219,14 +258,13 @@ function assertedTicker(assetDescription: string): string | null {
 }
 
 function assertIndependentRow(input: {
+  readonly startAt: number;
   readonly page: number;
   readonly row: z.infer<typeof houseCandidateSchema>["fields"]["rows"][number];
   readonly textByPage: ReadonlyMap<number, string>;
-}): void {
-  const evidence = input.textByPage.get(input.page)
-    ?.replace(/\s+/gu, " ")
-    .trim()
-    .toLocaleLowerCase("en-US");
+}): number {
+  const pageText = input.textByPage.get(input.page);
+  const evidence = pageText === undefined ? undefined : normalizeIndependentEvidence(pageText);
   if (evidence === undefined) throw new HybridEvidencePdfError("citation_invalid");
   if (assertedTicker(input.row.assetDescription) !== input.row.reportedTicker) {
     throw new Error("source_relationship_invalid");
@@ -244,12 +282,13 @@ function assertIndependentRow(input: {
   ].filter((value): value is string => value !== null);
   let cursor: number | null = null;
   for (const value of values) {
-    const found = findIndependentValue(evidence, value, cursor ?? 0);
+    const found = findIndependentValue(evidence, value, cursor ?? input.startAt);
     if (!found || (cursor !== null && found.start - cursor > 600)) {
       throw new Error("source_relationship_invalid");
     }
     cursor = found.end;
   }
+  return cursor ?? input.startAt;
 }
 
 export interface ValidatedHouseDocumentCandidate {
@@ -280,6 +319,14 @@ export function validateHouseDocumentRowCandidate(input: {
   readonly independentTextByPage: ReadonlyMap<number, string>;
   readonly projection: HybridEvidencePdfProjection;
 }): ValidatedHouseDocumentCandidate {
+  const expectedPages = new Set(input.projection.pages.map(({ page }) => page));
+  if (
+    input.independentTextByPage.size !== expectedPages.size ||
+    [...input.independentTextByPage].some(([page, text]) =>
+      !expectedPages.has(page) || normalizeIndependentEvidence(text).length === 0)
+  ) {
+    throw new HybridEvidencePdfError("independent_value_mismatch");
+  }
   if (injectionDetected(input.independentTextByPage.values())) {
     throw new Error("prompt_injection_detected");
   }
@@ -318,24 +365,52 @@ export function validateHouseDocumentRowCandidate(input: {
   });
   if (
     candidate.fields.rows.length === 0 &&
-    ![...input.independentTextByPage.values()].some((text) =>
-      /\bno reportable transactions\b/iu.test(text))
+    !(
+      [...input.independentTextByPage.values()].some((text) =>
+        /\bno reportable transactions\b/iu.test(text)) ||
+      [...input.independentTextByPage.values()].every((text) =>
+        /\bno_transaction_rows\s*=\s*true\b/iu.test(normalizeIndependentEvidence(text)))
+    )
   ) throw new Error("source_relationship_invalid");
-  const rows = candidate.fields.rows.map((row) => {
+  const pageCursors = new Map<number, number>();
+  let priorPage = 0;
+  const rows = candidate.fields.rows.map((row, index) => {
     if (!citations.has(row.page)) throw new HybridEvidencePdfError("citation_invalid");
-    assertIndependentRow({ page: row.page, row, textByPage: input.independentTextByPage });
+    if (row.page < priorPage) throw new Error("row_identity_ambiguous");
+    priorPage = row.page;
+    pageCursors.set(row.page, assertIndependentRow({
+      startAt: pageCursors.get(row.page) ?? 0,
+      page: row.page, row, textByPage: input.independentTextByPage,
+    }));
     return Object.freeze({
       ...row,
       amountRange: range(row.amountRange),
       rowEvidenceDigest: digestHybridEvidenceValue([
         input.artifactDigest,
         row.page,
+        index,
         row,
       ]),
     });
   });
-  if (new Set(rows.map((row) => row.rowEvidenceDigest)).size !== rows.length) {
-    throw new Error("row_identity_ambiguous");
+  // The normalized independent row contract carries two dates and an amount
+  // after a transaction code. Count those rows independently: a supported
+  // subset is not a complete extraction, even if each returned row is valid.
+  for (const [page, text] of input.independentTextByPage) {
+    const evidence = normalizeIndependentEvidence(text);
+    const date = String.raw`(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})`;
+    const rowPattern = new RegExp(String.raw`\b[PSE]\s+${date}\s+${date}\s+(?:\$|Over\s+\$|Spouse/DC)`, "giu");
+    const independentCount = [...evidence.matchAll(rowPattern)].length;
+    const candidateCount = rows.filter((row) => row.page === page).length;
+    if (independentCount === 0 && candidateCount === 0) {
+      // Legitimate cover/footer/instruction pages must say so explicitly; an
+      // unreadable page is never evidence that it has no transactions.
+      if (!/\bno_transaction_rows\s*=\s*true\b|\bno reportable transactions\b/iu.test(evidence)) {
+        throw new HybridEvidencePdfError("independent_value_mismatch");
+      }
+    } else if (independentCount !== candidateCount) {
+      throw new Error("row_identity_ambiguous");
+    }
   }
   return Object.freeze({ document: candidate.fields.document, rows: Object.freeze(rows) });
 }

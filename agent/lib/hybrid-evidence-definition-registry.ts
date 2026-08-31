@@ -92,6 +92,8 @@ export const HOUSE_DOCUMENT_ROW_INSTRUCTION = [
   "Recover one House Periodic Transaction Report from the signed PDF-page locators.",
   "The deterministic parser trigger explains why hybrid recovery is needed; unsupported or partial layout alone is not a reason to abstain when the bounded page evidence is explicit.",
   "For accepted output, copy docId, filerName, filingDate (YYYY-MM-DD), and compact stateDistrict from the signed inputProjection exactly; derive isAmendment only from the report's checked Initial Report or Amendment box.",
+  "A reviewed legacy grid-only PTR has FULL ASSET NAME, transaction/date/amount columns, a House received stamp, and page numbering but no Initial Report or Amendment box. For that legacy layout, set isAmendment=false; the signed House index establishes that the document is a PTR. Do not abstain merely because that legacy form omits the newer report-status box.",
+  "Rows that only name an account, trust, partnership, or other grouping and have no transaction type, transaction date, notification date, or checked amount are non-transaction headers. Omit those header rows; when every actual transaction is legible, their omission is not an unknown and accepted output must keep unknowns empty.",
   "Submit exactly the completion-tool shape {citations, disposition, fields: {document, rows}, unknowns}; never put document fields at the top level or rename rows, ownerCode, assetDescription, or amountRange.",
   "fields.rows must be an ordered array containing ownerCode, assetDescription, reportedTicker, transactionType, transactionDate, notificationDate, amountRange, capitalGainsIndicator, and page. Map checked transaction columns Purchase=P, Sale=S, Partial Sale=S, and Exchange=E.",
   "Map the checked amount column in the same horizontal row exactly: A=$1,001 - $15,000; B=$15,001 - $50,000; C=$50,001 - $100,000; D=$100,001 - $250,000; E=$250,001 - $500,000; F=$500,001 - $1,000,000; G=$1,000,001 - $5,000,000; H=$5,000,001 - $25,000,000; I=$25,000,001 - $50,000,000; J=Over $50,000,000; K=Spouse/DC Asset Over $1,000,000. K is a distinct substitute category for a transaction over $1,000,000 in an asset held solely by a spouse or dependent child: preserve that exact K label, never map it to J, and do not infer an upper bound.",
@@ -416,6 +418,8 @@ function reviewedDefinition(input: {
   readonly inputSchemaId: string;
   readonly instruction: string;
   readonly maximumInputTokens?: number;
+  readonly maximumAttempts?: number;
+  readonly maximumOutputTokens?: number;
   readonly maximumRuntimeMs?: number;
   readonly maximumPages: number;
   readonly maximumRows: number;
@@ -447,10 +451,10 @@ function reviewedDefinition(input: {
       version: "1.0.0",
     },
     limits: {
-      maximumAttempts: 1,
+      maximumAttempts: input.maximumAttempts ?? 1,
       maximumEvidenceBytes: 8 * 1_024 * 1_024,
       maximumInputTokens: input.maximumInputTokens ?? 24_000,
-      maximumOutputTokens: 4_000,
+      maximumOutputTokens: input.maximumOutputTokens ?? 4_000,
       maximumPages: input.maximumPages,
       maximumPaidCostUsd: "1.0000",
       maximumRows: input.maximumRows,
@@ -477,10 +481,12 @@ export function createExtractionRecoveryDefinitions(
     reviewedDefinition({
       adapterId: "house-financial-disclosures",
       definitionId: HOUSE_DOCUMENT_ROW_DEFINITION_ID,
-      definitionVersion: "1.0.7",
+      definitionVersion: "1.0.13",
       inputSchemaId: "house-ptr-pdf-pages",
       instruction: HOUSE_DOCUMENT_ROW_INSTRUCTION,
+      maximumAttempts: 3,
       maximumInputTokens: 40_000,
+      maximumOutputTokens: 20_000,
       maximumRuntimeMs: 300_000,
       maximumPages: 8,
       maximumRows: 0,

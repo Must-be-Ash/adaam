@@ -47,7 +47,9 @@ import {
 } from "./congressional-history";
 import type { HousePublicSourceBinaryResponse } from "./house-public-source-adapter";
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
-import { coordinatePublicSourceOccurrence } from "./public-source-coordinator";
+import type { WorkspaceBudgetLedgerClient } from "./workspace-budget-ledger";
+import { createEarningsCallSourceLifecycleStore, type EarningsCallSourceLifecycleStore } from "./earnings-call-source-lifecycle-store";
+import { coordinatePublicSourceOccurrence, PublicSourceCoordinatorError } from "./public-source-coordinator";
 import {
   acknowledgePublicSourceProjection,
   readAuthorizedPublicSourceProjection,
@@ -136,7 +138,10 @@ function congressionalRuntime(version: CongressionalPackVersion) {
 export { CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID } from "./strategy-pack-reference-catalog";
 
 export interface CongressionalWorkspaceWorkerClients extends WorkspaceWorkerControlPlaneClients {
+  readonly hybridRecoveryExtensions?: Parameters<typeof coordinatePublicSourceOccurrence>[0]["hybridRecoveryExtensions"];
+  readonly sourceLifecycle?: EarningsCallSourceLifecycleStore;
   readonly acquisition?: PublicSourceAcquisitionStoreClient;
+  readonly budget?: WorkspaceBudgetLedgerClient;
   readonly fetchDocument?: (url: string) => Promise<HousePublicSourceBinaryResponse>;
   readonly fetchIndex?: (url: string) => Promise<HousePublicSourceBinaryResponse>;
   readonly signal?: CongressionalSignalStoreClient;
@@ -276,6 +281,14 @@ export async function evaluateCongressionalSignalsForWorker(input: {
   const envelope = requireWorkspaceWorkerAuth(input.ctx, {}, environment);
   const scope = authorizeWorkspaceWorkerStore(input.ctx, environment);
   const existing = await readWorkspaceRunOutcome(scope, envelope.occurrenceKey, input.clients?.finding);
+  const sourceLifecycle = input.clients?.sourceLifecycle ?? createEarningsCallSourceLifecycleStore(input.clients?.subscription);
+  const acknowledgeDelivered = async () => {
+    for (const acknowledgement of await sourceLifecycle.listAcknowledgements({ occurrenceKey: envelope.occurrenceKey, scope })) {
+      await acknowledgePublicSourceProjection({ ...acknowledgement, scope }, input.clients?.subscription);
+      await sourceLifecycle.completeAcknowledgement({ ...acknowledgement, occurrenceKey: envelope.occurrenceKey, scope });
+    }
+    await sourceLifecycle.clearRetry({ occurrenceKey: envelope.occurrenceKey, scope });
+  };
   if (existing) {
     const outcome = await finalizeExistingWorkspaceRunOutcomeForWorker({
       clients: input.clients,
@@ -285,6 +298,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
       outcome: existing,
       toolId: CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
     });
+    await acknowledgeDelivered();
     return Object.freeze({
       baselineEstablished: false,
       checkpoint: outcome.checkpoint,
@@ -378,8 +392,21 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     }, input.clients?.sourceCoverage);
   }
   const requestObservedAt = now.toISOString();
+  // A process can disappear inside a multi-document acquisition. Persist the
+  // continuation before any source I/O so recovery never mistakes missing
+  // output for a completed (and therefore non-repeatable) paid attempt.
+  await sourceLifecycle.recordRetry({ acquisitionId: `pending.${envelope.occurrenceKey}`,
+    monitorId: monitor.monitorId, occurrenceKey: envelope.occurrenceKey, runId: envelope.runId,
+    scope, sourceId: source.sourceId, now, retryAfterSeconds: 60 });
   const coordinated = await coordinatePublicSourceOccurrence({
-    clients: { acquisition: input.clients?.acquisition, subscription: input.clients?.subscription },
+    continueIncompleteHouse: true,
+    hybridRecoveryExtensions: input.clients?.hybridRecoveryExtensions,
+    clients: {
+      acquisition: input.clients?.acquisition,
+      hybridState: input.clients?.state,
+      hybridWorkspaceBudget: input.clients?.budget,
+      subscription: input.clients?.subscription,
+    },
     deferProjectionAcknowledgement: true,
     environment,
     fetch: {
@@ -403,16 +430,30 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     },
     monitor,
     observedAt: now,
+    parentBudgetRunId: envelope.runId,
     scope,
     sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
     window: envelope.window,
+  }).catch(async (error: unknown) => {
+    if (error instanceof PublicSourceCoordinatorError) {
+      await sourceLifecycle.clearRetry({ occurrenceKey: envelope.occurrenceKey, scope });
+    }
+    throw error;
   });
   const cursor = coordinated.acquisition.proposedNextCursor;
   if (
-    coordinated.acquisition.status !== "complete" &&
-    coordinated.acquisition.status !== "no_change"
+    (coordinated.acquisition.status !== "complete" &&
+    coordinated.acquisition.status !== "no_change") ||
+    coordinated.acquisition.coverage !== "complete" ||
+    coordinated.acquisition.stageReceipts.some(({ status }) => status !== "complete")
   ) {
+    if (coordinated.acquisition.status === "partial") {
+      await sourceLifecycle.recordRetry({ acquisitionId: coordinated.acquisition.acquisitionId,
+        monitorId: monitor.monitorId, occurrenceKey: envelope.occurrenceKey, runId: envelope.runId,
+        scope, sourceId: source.sourceId, now, retryAfterSeconds: coordinated.sourceRetryAfterSeconds ?? 60 });
+    }
     if (coordinated.acquisition.status === "terminal_failure") {
+      await sourceLifecycle.clearRetry({ occurrenceKey: envelope.occurrenceKey, scope });
       /*
        * A deterministic House acquisition failure (malformed archive, forbidden
        * origin, oversized response) will recur identically on retry, so letting
@@ -421,8 +462,8 @@ export async function evaluateCongressionalSignalsForWorker(input: {
        * (docs/congressional-monitor-retry-defect.md). Pause the monitor here,
        * on this first attempt, so the occurrence terminalizes exactly once. An
        * "uncertain" status (transport/network ambiguity, no HTTP response to
-       * classify) intentionally falls through unchanged below to the
-       * scheduler's existing bounded-recovery path.
+       * classify) retains the armed continuation below; source-global claims
+       * and the existing scheduler budget limits fence the resumed attempt.
        */
       await recordWorkspaceMonitorFailure({
         errorCode: "congressional_source_unavailable",
@@ -440,6 +481,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     throw new CongressionalWorkspaceWorkerError("congressional_source_unavailable");
   }
   if (!cursor || !coordinated.projection) {
+    await sourceLifecycle.clearRetry({ occurrenceKey: envelope.occurrenceKey, scope });
     throw new CongressionalWorkspaceWorkerError("congressional_projection_invalid");
   }
   const observedAt = coordinated.acquisition.observedAt;
@@ -488,7 +530,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     observedAt,
     packBinding,
     policy: runtime.policy,
-    processingMode: coordinated.baselineEstablished ? "baseline" as const : "live" as const,
+    processingMode: initialBaseline || coordinated.baselineEstablished ? "baseline" as const : "live" as const,
     selectedMemberBioguideIds,
   };
   const normalized = filingGroups.flatMap((group) =>
@@ -501,7 +543,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     maximumGapDays: CONGRESSIONAL_POLICY_V1_2.coverageMaximumGapDays!,
     observedOn: observedAt.slice(0, 10),
     requiredDays: CONGRESSIONAL_POLICY_V1_2.historyCoverageDays!,
-    sourceComplete: coordinated.acquisition.coverage === "complete" &&
+    sourceComplete: coordinated.deliveryPending !== true && coordinated.acquisition.coverage === "complete" &&
       coordinated.acquisition.stageReceipts.every(({ status }) => status === "complete"),
   });
   const historyChanges = applyCongressionalHistoryChanges({
@@ -516,6 +558,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
   });
   const memberCatalog = runtime.member;
   if (memberCatalog.kind !== "house_members") {
+    await sourceLifecycle.clearRetry({ occurrenceKey: envelope.occurrenceKey, scope });
     throw new CongressionalWorkspaceWorkerError("congressional_strategy_invalid");
   }
   const partyFor = (transaction: (typeof historyChanges.currentTransactions)[number]) =>
@@ -737,7 +780,14 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     scope,
     sourceId: source.sourceId,
   }, input.clients?.sourceCoverage);
+  await sourceLifecycle.recordAcknowledgement({
+    acquisitionId: coordinated.deliveryAcquisitionId ?? coordinated.acquisition.acquisitionId,
+    expectedDeliveryRevision: coordinated.projection.subscription.deliveryCursor.revision,
+    monitorId: monitor.monitorId, occurrenceKey: envelope.occurrenceKey, sourceId: source.sourceId,
+    scope, subscriptionId: coordinated.projection.subscription.subscriptionId,
+  });
   const outcome = await commitDeterministicWorkspaceEvaluationForWorker({
+    sourcePending: coordinated.deliveryPending,
     alertPresentation: alertPresentation(alertEvaluations),
     checkpoint,
     clients: input.clients,
@@ -748,12 +798,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     now,
     toolId: CONGRESSIONAL_SIGNALS_EVALUATION_TOOL_ID,
   });
-  await acknowledgePublicSourceProjection({
-    acquisitionId: coordinated.acquisition.acquisitionId,
-    expectedDeliveryRevision: coordinated.projection.subscription.deliveryCursor.revision,
-    scope,
-    subscriptionId: coordinated.projection.subscription.subscriptionId,
-  }, input.clients?.subscription);
+  await acknowledgeDelivered();
   return Object.freeze({
     baselineEstablished: coordinated.baselineEstablished,
     checkpoint,
@@ -771,7 +816,7 @@ export const congressionalWorkspaceWorkerOutputSchema = z.object({
     watermark: z.string().datetime({ offset: true }),
   }).strict(),
   filingCount: z.number().int().min(0).max(500),
-  outcome: z.enum(["finding_staged", "no_match"]),
+  outcome: z.enum(["finding_staged", "no_match", "source_pending"]),
   replayed: z.boolean(),
   runId: z.string().min(1).max(160),
   signalCount: z.number().int().min(0).max(500),

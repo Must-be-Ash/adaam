@@ -8,6 +8,10 @@ import {
   ensurePublicSourceInstance,
   readCommittedPublicSourceAcquisitionForWindow,
   readLatestPublicSourceFactRevision,
+  readPublicSourcePendingWork,
+  readPublicSourceSequenceStart,
+  repairPendingHouseAcquisition,
+  type PublicSourcePendingWork,
   readPublicSourceAcquisitionJournal,
   readReusablePublicSourceAcquisition,
   recordPublicSourceAcquisitionOutcome,
@@ -63,6 +67,7 @@ export interface HousePublicSourceBinaryResponse {
 }
 
 export interface HousePublicSourceAcquisition extends PublicSourcePreparedAcquisition {
+  readonly pendingWork?: PublicSourcePendingWork;
   readonly baselineEstablished: boolean;
   readonly hybridPromotions: readonly HybridPromotionRecord[];
 }
@@ -476,6 +481,13 @@ function assignStableRowIdentities(
 
 export function parseHouseTransactionAmountRange(label: string): HouseTransactionRow["amountRange"] {
   const normalized = label.replace(/\s+/gu, " ").trim();
+  if (normalized === "Spouse/DC Asset Over $1,000,000") {
+    return Object.freeze({
+      label: normalized,
+      lower: "1000001",
+      upper: null,
+    });
+  }
   const closed = /^\$\s*([\d,]+)\s*-\s*\$\s*([\d,]+)$/u.exec(normalized);
   const over = /^Over\s+\$\s*([\d,]+)$/iu.exec(normalized);
   return Object.freeze({
@@ -545,7 +557,7 @@ function parseTransactions(
   const positioned = parsePositionedTransactions(structures);
   if (positioned.length > 0) return positioned;
 
-  const rowPattern = /(?:^|\s)([A-Z]{1,3})\s+(.+?)\s+([EPS])\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\$\s*[\d,]+\s*-\s*\$\s*[\d,]+|Over\s+\$\s*[\d,]+)\s+(Yes|No)(?=\s+(?:[A-Z]{1,3}\s+|Periodic Transaction Report)|$)/gu;
+  const rowPattern = /(?:^|\s)([A-Z]{1,3})\s+(.+?)\s+([EPS])\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\$\s*[\d,]+\s*-\s*\$\s*[\d,]+|Over\s+\$\s*[\d,]+|Spouse\/DC\s+Asset\s+Over\s+\$\s*1,000,000)(?:\s+(Yes|No))?(?=\s+(?:[A-Z]{1,3}\s+|Periodic Transaction Report)|$)/gu;
   const rows: HouseTransactionRow[] = [];
   for (const match of text.matchAll(rowPattern)) {
     const assetDescription = match[2]!.replace(/\s+/gu, " ").trim();
@@ -554,7 +566,9 @@ function parseTransactions(
     rows.push(Object.freeze({
       amountRange: parseHouseTransactionAmountRange(match[6]!),
       assetDescription,
-      capitalGainsIndicator: match[7]!.toLowerCase() as "no" | "yes",
+      capitalGainsIndicator: match[7]
+        ? match[7].toLowerCase() as "no" | "yes"
+        : "unknown",
       notificationDate: exactDate(
         match[5]!,
         new HouseAdapterError("parser_incomplete", "normalize", "partial"),
@@ -900,31 +914,49 @@ async function acquireHouse(input: {
       source.configuration.year,
     );
     const rows = normalizeIndex(archive.xml, source.configuration.year);
-    const pendingBatch = /^(?:baseline|incremental):/u.test(source.cursor.watermark ?? "");
     const baselineEstablished = source.cursor.revision === 0 ||
       source.cursor.watermark?.startsWith("baseline:") === true;
-    if (!pendingBatch && !baselineEstablished && source.cursor.contentDigest === archive.xmlDigest) {
-      return successfulAcquisition({
-        archiveDigest: archive.archiveDigest,
-        baselineEstablished,
-        corrections: [],
-        facts: [],
-        pdfReceipts: [],
-        retractions: [],
-        source,
-        status: "no_change",
-        watermark: source.cursor.watermark ?? `${source.configuration.year}:none`,
-        window: input.window,
-        xmlDigest: archive.xmlDigest,
-        observedAt: input.indexResponse.observedAt,
-      });
-    }
-
-    const selected: HouseIndexRow[] = [];
-    for (const row of rows) {
+    const newRows: HouseIndexRow[] = [];
+    const retryRows: HouseIndexRow[] = [];
+    // Pre-sequence deployments have canonical heads but no delivery history.
+    // Re-journal those heads in bounded batches, without resetting the cursor
+    // or re-buying extraction, so an initial subscriber can recover old facts.
+    const bootstrapReplay = source.cursor.revision > 0 &&
+      await readPublicSourceSequenceStart(source.sourceInstanceId, input.client) === null;
+    const unchangedComplete = !bootstrapReplay && source.cursor.contentDigest === archive.xmlDigest &&
+      source.cursor.watermark !== null &&
+      !/^(?:baseline|incremental):/u.test(source.cursor.watermark);
+    const cachedPending = unchangedComplete ? null : await readPublicSourcePendingWork(source.sourceInstanceId, input.client, source.cursor.revision);
+    const matchingQueue = cachedPending?.cursorRevision === source.cursor.revision &&
+      cachedPending.archiveDigest === archive.xmlDigest ? cachedPending : null;
+    const pendingWork = new Map((matchingQueue?.pending ?? []).map((entry) => [entry.docId, entry]));
+    if (bootstrapReplay) for (const row of rows) pendingWork.set(row.docId, { docId: row.docId, nextAttemptAt: null, replayExisting: true });
+    // A plain watermark means every filing was resolved. In that case an
+    // unchanged archive needs no per-filing Redis reads or PDF downloads.
+    const rowsToInspect = unchangedComplete ? [] : matchingQueue ? rows.filter(({ docId }) => pendingWork.has(docId)) : rows;
+    for (const row of rowsToInspect) {
       const latest = await readLatestPublicSourceFactRevision(filingLogicalKey(source, row), input.client);
-      if (!latest || !rowMatchesLatestIndex(latest, row)) selected.push(row);
+      if (!latest || !rowMatchesLatestIndex(latest, row)) {
+        newRows.push(row);
+        pendingWork.set(row.docId, { docId: row.docId, nextAttemptAt: null });
+      } else if (latest.extraction.state === "complete" && pendingWork.get(row.docId)?.replayExisting) {
+        newRows.push(row);
+      } else if (latest.extraction.state !== "complete") {
+        const pending = pendingWork.get(row.docId) ?? { docId: row.docId, nextAttemptAt: null };
+        pendingWork.set(row.docId, pending);
+        if (!pending.nextAttemptAt || pending.nextAttemptAt <= input.indexResponse.observedAt) retryRows.push(row);
+      } else pendingWork.delete(row.docId);
     }
+    const retryAfterId = source.cursor.watermark?.split(":").at(-1);
+    const retryPivot = retryRows.findIndex(({ docId }) => docId === retryAfterId);
+    const rotatedRetries = [...retryRows.slice(retryPivot + 1), ...retryRows.slice(0, retryPivot + 1)];
+    const batchLimit = PUBLIC_SOURCE_LIMITS.maximumHouseDocumentsPerAcquisition;
+    // Reserve capacity for unseen filings; rotate retries with the durable
+    // source cursor so an old failed cohort cannot starve its siblings.
+    const replayRows = newRows.filter(({ docId }) => pendingWork.get(docId)?.replayExisting);
+    const freshBatch = (replayRows.length ? replayRows : newRows).slice(0, input.recovery && retryRows.length ? Math.ceil(batchLimit / 2) : batchLimit);
+    const retryBatch = input.recovery && replayRows.length === 0 ? rotatedRetries.slice(0, batchLimit - freshBatch.length) : [];
+    const selectedBatch = [...freshBatch, ...retryBatch];
 
     const facts: CanonicalPublicFactRevision[] = [];
     const corrections: PublicSourceCorrection[] = [];
@@ -941,11 +973,20 @@ async function acquireHouse(input: {
       outputDigest: string;
       status: "complete" | "partial" | "unsupported";
     }> = [];
-    const selectedBatch = selected.slice(
-      0,
-      PUBLIC_SOURCE_LIMITS.maximumHouseDocumentsPerAcquisition,
-    );
+    const processedRows: HouseIndexRow[] = [];
     for (const row of selectedBatch) {
+      if (pendingWork.get(row.docId)?.replayExisting) {
+        const filing = await readLatestPublicSourceFactRevision(filingLogicalKey(source, row), input.client);
+        if (filing?.extraction.state === "complete" && rowMatchesLatestIndex(filing, row)) {
+          const existing = [filing, ...await readPriorTransactionFacts({ client: input.client, filing, row, source })];
+          if (facts.length > 0 && facts.length + existing.length > PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition) break;
+          if (existing.length > PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition) throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
+          facts.push(...existing);
+          pendingWork.delete(row.docId);
+          processedRows.push(row);
+          continue;
+        }
+      }
       const publicUrl = exactPtrUrl(source, row);
       const documentResponse = await input.fetchDocument(publicUrl);
       validateResponse({ expectedUrl: publicUrl, kind: "pdf", response: documentResponse });
@@ -969,6 +1010,8 @@ async function acquireHouse(input: {
           }
         } catch (error) {
           if (!(error instanceof HouseAdapterError) || !input.recovery) throw error;
+          transactions = Object.freeze([]);
+          extractionState = { errorCode: "pdf_layout_ambiguous", state: "partial" };
           recoveryOutcome = { errorCode: "deterministic_false_success", state: "suspicious" };
         }
       } else if (input.recovery) {
@@ -1000,26 +1043,26 @@ async function acquireHouse(input: {
             `hybrid_recovery_${boundedAdapterDetail(error instanceof Error ? error.name : typeof error)}`,
           );
         }
-        if (!recovered) {
-          throw new HouseAdapterError(
-            "parser_incomplete",
-            "normalize",
-            "partial",
-            "hybrid_recovery_no_result",
-          );
+        if (recovered) {
+          const expectedFilerName = [row.filer.prefix, row.filer.firstName, row.filer.lastName, row.filer.suffix]
+            .filter((value): value is string => value !== null).join(" ");
+          if (
+            recovered.document.docId !== row.docId ||
+            recovered.document.filerName !== expectedFilerName ||
+            recovered.document.filingDate !== row.filingDate ||
+            recovered.document.stateDistrict !== row.filer.stateDistrict
+          ) throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
+          transactions = recovered.rows;
+          extractionState = { errorCode: null, state: "complete" };
         }
-        const expectedFilerName = [row.filer.prefix, row.filer.firstName, row.filer.lastName, row.filer.suffix]
-          .filter((value): value is string => value !== null).join(" ");
-        if (
-          recovered.document.docId !== row.docId ||
-          recovered.document.filerName !== expectedFilerName ||
-          recovered.document.filingDate !== row.filingDate ||
-          recovered.document.stateDistrict !== row.filer.stateDistrict
-        ) throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
-        transactions = recovered.rows;
-        extractionState = { errorCode: null, state: "complete" };
       }
       const amendedDocId = null;
+      // A dense PDF is indivisible: leave it queued for the next acquisition
+      // instead of discarding all previously resolved siblings at the cap.
+      if (facts.length > 0 && facts.length + transactions.length + 1 > PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition) break;
+      if (extractionState.state === "complete") pendingWork.delete(row.docId);
+      else pendingWork.set(row.docId, { docId: row.docId,
+        nextAttemptAt: new Date(Date.parse(input.indexResponse.observedAt) + 30 * 60_000).toISOString() });
       const filingPayload = {
         amendedDocId,
         docId: row.docId,
@@ -1125,28 +1168,39 @@ async function acquireHouse(input: {
       if (facts.length > PUBLIC_SOURCE_LIMITS.maximumFactsPerAcquisition) {
         throw new HouseAdapterError("parser_incomplete", "normalize", "partial");
       }
+      processedRows.push(row);
     }
-    const hasMore = selectedBatch.length < selected.length;
-    const lastProcessed = selectedBatch.at(-1);
-    return successfulAcquisition({
+    const hasMore = selectedBatch.length < newRows.length + retryRows.length;
+    const pending = pendingWork.size > 0;
+    const lastProcessed = processedRows.at(-1);
+    const finalRow = rows.at(-1);
+    let watermark: string;
+    if (pending && lastProcessed) {
+      watermark = `${baselineEstablished ? "baseline" : "incremental"}:${lastProcessed.filingDate}:${lastProcessed.docId}`;
+    } else if (pending && source.cursor.watermark) {
+      watermark = source.cursor.watermark;
+    } else {
+      watermark = finalRow ? `${finalRow.filingDate}:${finalRow.docId}` : `${source.configuration.year}:none`;
+    }
+    return { ...successfulAcquisition({
       archiveDigest: archive.archiveDigest,
-      baselineEstablished,
+      baselineEstablished: baselineEstablished || replayRows.length > 0,
       corrections,
       facts,
       observedAt: input.indexResponse.observedAt,
       pdfReceipts,
+      pending,
       source,
       status: facts.length === 0 && retractions.length === 0 && !hasMore ? "no_change" : "complete",
-      watermark: hasMore && lastProcessed
-        ? `${baselineEstablished ? "baseline" : "incremental"}:${lastProcessed.filingDate}:${lastProcessed.docId}`
-        : rows.at(-1)
-          ? `${rows.at(-1)!.filingDate}:${rows.at(-1)!.docId}`
-          : `${source.configuration.year}:none`,
+      watermark,
       window: input.window,
       xmlDigest: archive.xmlDigest,
       retractions,
       hybridPromotionInputs,
-    });
+    }), ...(unchangedComplete ? {} : { pendingWork: {
+      sourceInstanceId: source.sourceInstanceId, archiveDigest: archive.xmlDigest,
+      cursorRevision: source.cursor.revision + 1, pending: [...pendingWork.values()],
+    } }) };
   } catch (error) {
     return failureAcquisition({
       bodyDigest,
@@ -1164,6 +1218,7 @@ function successfulAcquisition(input: {
   readonly corrections: readonly PublicSourceCorrection[];
   readonly facts: readonly CanonicalPublicFactRevision[];
   readonly observedAt: string;
+  readonly pending?: boolean;
   readonly pdfReceipts: readonly {
     readonly errorCode: "pdf_layout_ambiguous" | "pdf_scanned_unsupported" | null;
     readonly inputDigest: string;
@@ -1191,8 +1246,9 @@ function successfulAcquisition(input: {
     ? "partial" as const
     : input.pdfReceipts.some((receipt) => receipt.status === "unsupported")
       ? "unsupported" as const
-      : "complete" as const;
-  const pdfError = input.pdfReceipts.find((receipt) => receipt.errorCode !== null)?.errorCode ?? null;
+      : input.pending ? "partial" as const : "complete" as const;
+  const pdfError = input.pdfReceipts.find((receipt) => receipt.errorCode !== null)?.errorCode ??
+    (input.pending ? "parser_incomplete" : null);
   return Object.freeze({
     baselineEstablished: input.baselineEstablished,
     corrections: Object.freeze([...input.corrections]),
@@ -1259,7 +1315,7 @@ export async function runHousePublicSourceAcquisition(input: {
   readonly commit: PublicSourceAcquisitionCommit | null;
 }> {
   const reviewed = resolveReviewedPublicSource(input.sourceId);
-  const source = await ensurePublicSourceInstance(reviewed.sourceInstance, input.client);
+  const source = await repairPendingHouseAcquisition(await ensurePublicSourceInstance(reviewed.sourceInstance, input.client), input.client);
   let indexResponse: HousePublicSourceBinaryResponse;
   try {
     indexResponse = await input.fetchIndex(source.configuration.canonicalUrl);
@@ -1294,6 +1350,7 @@ export async function runHousePublicSourceAcquisition(input: {
 }
 
 export async function runSharedHousePublicSourceAcquisition(input: {
+  readonly continueIncomplete?: boolean;
   readonly client?: PublicSourceAcquisitionStoreClient;
   readonly fetchDocument: (url: string) => Promise<HousePublicSourceBinaryResponse>;
   readonly fetchIndex: (url: string) => Promise<HousePublicSourceBinaryResponse>;
@@ -1309,7 +1366,8 @@ export async function runSharedHousePublicSourceAcquisition(input: {
     sourceInstanceId: reviewed.sourceInstance.sourceInstanceId,
     window: input.window,
   }, input.client);
-  if (committedForWindow) {
+  if (committedForWindow && (!input.continueIncomplete || committedForWindow.result.coverage === "complete") &&
+    await readPublicSourceSequenceStart(reviewed.sourceInstance.sourceInstanceId, input.client) !== null) {
     return Object.freeze({
       acquisition: committedForWindow.result,
       baselineEstablished: committedForWindow.result.baselineEstablished,
@@ -1318,7 +1376,7 @@ export async function runSharedHousePublicSourceAcquisition(input: {
       reused: true,
     });
   }
-  const source = await ensurePublicSourceInstance(reviewed.sourceInstance, input.client);
+  const source = await repairPendingHouseAcquisition(await ensurePublicSourceInstance(reviewed.sourceInstance, input.client), input.client);
   const eligibility = {
     accessClassification: "public" as const,
     adapterDefinitionDigest: source.adapterDefinitionDigest,

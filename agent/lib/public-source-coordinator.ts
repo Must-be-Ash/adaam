@@ -2,7 +2,9 @@ import type {
   PublicSourceAcquisitionResult,
   PublicSourceSubscription,
 } from "./public-source-adapter-schema";
+import { publicSourceAcquisitionResultSchema } from "./public-source-adapter-schema";
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
+import { readNextPublicSourceAcquisition, readPublicSourcePendingWork } from "./public-source-acquisition-store";
 import type { HybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
 import type { HybridEvidenceJobStoreClient } from "./hybrid-evidence-job-store";
 import type { HybridEvidenceLineageStoreClient } from "./hybrid-evidence-lineage-store";
@@ -18,6 +20,7 @@ import {
 } from "./house-hybrid-evidence-recovery";
 import type { WorkspaceBudgetLedgerClient } from "./workspace-budget-ledger";
 import type { WorkspaceGlobalBudgetClient } from "./workspace-dispatch-budget";
+import type { WorkspaceStateStoreClient } from "./workspace-state-store";
 import {
   resolveEarningsCallPublicSourceRuntimePath,
   resolveHousePublicSourceRuntimePath,
@@ -122,10 +125,12 @@ type CoordinatorFetch =
 export interface PublicSourceHybridRecoveryExtension {
   readonly adapterId: "house-financial-disclosures";
   create(input: {
+    readonly budgetScope?: AuthorizedWorkspaceStoreScope;
     readonly clients?: HouseHybridEvidenceRecoveryClients;
     readonly environment?: NodeJS.ProcessEnv;
     readonly initiatingWorkspaceId: string;
     readonly modelIds: readonly [extraction: string, independentOcr: string];
+    readonly parentBudgetRunId?: string;
     readonly reasoning: "provider-default" | "low";
   }): HouseHybridRecovery;
 }
@@ -143,6 +148,9 @@ function resolveHybridRecoveryExtension(input: {
 }
 
 export interface PublicSourceCoordinatorResult {
+  readonly sourceRetryAfterSeconds?: number;
+  readonly deliveryAcquisitionId?: string;
+  readonly deliveryPending?: boolean;
   readonly acquisition: PublicSourceAcquisitionResult;
   readonly baselineEstablished: boolean;
   readonly projection: PublicSourceProjectionCommit | null;
@@ -229,12 +237,14 @@ function emitWriteCount(input: {
 }
 
 export async function coordinatePublicSourceOccurrence(input: {
+  readonly continueIncompleteHouse?: boolean;
   readonly clients?: {
     readonly acquisition?: PublicSourceAcquisitionStoreClient;
     readonly hybridArtifacts?: HybridEvidenceArtifactStore;
     readonly hybridGlobalBudget?: WorkspaceGlobalBudgetClient;
     readonly hybridJobs?: HybridEvidenceJobStoreClient;
     readonly hybridLineage?: HybridEvidenceLineageStoreClient;
+    readonly hybridState?: WorkspaceStateStoreClient;
     readonly hybridWorkspaceBudget?: WorkspaceBudgetLedgerClient;
     readonly subscription?: PublicSourceSubscriptionStoreClient;
   };
@@ -244,6 +254,7 @@ export async function coordinatePublicSourceOccurrence(input: {
   readonly hybridRecoveryExtensions?: readonly PublicSourceHybridRecoveryExtension[];
   readonly monitor: PublicSourceMonitor;
   readonly observedAt?: Date;
+  readonly parentBudgetRunId?: string;
   readonly scope: AuthorizedWorkspaceStoreScope;
   readonly sink?: PublicSourceRuntimeObservationSink;
   readonly sourceId: string;
@@ -285,10 +296,29 @@ export async function coordinatePublicSourceOccurrence(input: {
       throw new PublicSourceCoordinatorError("public_source_misconfigured");
     }
   }
-  const independentOcrModelId = recoveryRoute
-    ? recoveryModelIds.find((modelId) =>
-        modelId !== recoveryRoute.modelId &&
-        modelId !== frontierModelId) ?? null
+  const configuredIndependentOcrModelId = environment.EVE_HOUSE_INDEPENDENT_OCR_MODEL_ID;
+  const configuredHouseExtractionModelId = environment.EVE_HOUSE_EXTRACTION_MODEL_ID;
+  const houseExtractionModelId = recoveryRoute
+    ? configuredHouseExtractionModelId === undefined
+      ? recoveryRoute.modelId
+      : configuredHouseExtractionModelId === configuredHouseExtractionModelId.trim() &&
+        /^[a-z0-9-]+\/[a-z0-9._-]+$/u.test(configuredHouseExtractionModelId) &&
+        recoveryModelIds.includes(configuredHouseExtractionModelId)
+      ? configuredHouseExtractionModelId
+      : null
+    : null;
+  const independentOcrModelId = recoveryRoute && houseExtractionModelId
+    ? configuredIndependentOcrModelId === undefined
+      ? recoveryModelIds.find((modelId) =>
+          modelId !== houseExtractionModelId &&
+          modelId !== frontierModelId) ?? null
+      : configuredIndependentOcrModelId === configuredIndependentOcrModelId.trim() &&
+        /^[a-z0-9-]+\/[a-z0-9._-]+$/u.test(configuredIndependentOcrModelId) &&
+        configuredIndependentOcrModelId !== houseExtractionModelId &&
+        configuredIndependentOcrModelId !== frontierModelId &&
+        recoveryModelIds.includes(configuredIndependentOcrModelId)
+      ? configuredIndependentOcrModelId
+      : null
     : null;
   const recoveryExtension = input.fetch.adapterId === "house-financial-disclosures"
     ? resolveHybridRecoveryExtension({
@@ -301,6 +331,7 @@ export async function coordinatePublicSourceOccurrence(input: {
     hybridFlags.extractionRecovery &&
     (
       !recoveryRoute ||
+      !houseExtractionModelId ||
       !independentOcrModelId ||
       !recoveryExtension
     )
@@ -372,22 +403,26 @@ export async function coordinatePublicSourceOccurrence(input: {
               window,
             })
         : await runSharedHousePublicSourceAcquisition({
+            continueIncomplete: input.continueIncompleteHouse,
             client: input.clients?.acquisition,
             fetchDocument: houseFetch!.fetchDocument,
             fetchIndex: houseFetch!.fetchIndex,
             hybridLineageClient: input.clients?.hybridLineage,
             recovery: hybridFlags.extractionRecovery
               ? recoveryExtension!.create({
+                  budgetScope: input.scope,
                   clients: {
                     artifacts: input.clients?.hybridArtifacts,
                     globalBudget: input.clients?.hybridGlobalBudget,
                     jobs: input.clients?.hybridJobs,
                     lineage: input.clients?.hybridLineage,
+                    state: input.clients?.hybridState,
                     workspaceBudget: input.clients?.hybridWorkspaceBudget,
                   },
                   environment,
                   initiatingWorkspaceId: input.scope.workspaceId,
-                  modelIds: [recoveryRoute!.modelId, independentOcrModelId!],
+                  modelIds: [houseExtractionModelId!, independentOcrModelId!],
+                  parentBudgetRunId: input.parentBudgetRunId,
                   reasoning: recoveryRoute!.reasoning,
                 })
               : undefined,
@@ -412,9 +447,31 @@ export async function coordinatePublicSourceOccurrence(input: {
     emitWriteCount({ counter: "public_source_retraction_total", count: shared.commit.retractionsReused, operation: "reused", sink: input.sink });
   }
 
-  if (!shared.journal || (shared.acquisition.status !== "complete" && shared.acquisition.status !== "no_change")) {
+  // Canonical source batches can commit resolved siblings, but an unresolved
+  // House filing is not a successful workspace occurrence or delivery cursor.
+  const incompleteHouse = houseFetch !== null && (
+    shared.acquisition.coverage !== "complete" ||
+    shared.acquisition.stageReceipts.some(({ status }) => status !== "complete")
+  );
+  if (!shared.journal || incompleteHouse || (shared.acquisition.status !== "complete" && shared.acquisition.status !== "no_change")) {
+    const pending = incompleteHouse ? await readPublicSourcePendingWork(shared.acquisition.sourceInstanceId, input.clients?.acquisition,
+      shared.acquisition.proposedNextCursor ? shared.acquisition.proposedNextCursor.expectedRevision + 1 : undefined) : null;
+    const due = pending?.pending.length ? Math.min(...pending.pending.map(({ nextAttemptAt }) =>
+      nextAttemptAt ? Date.parse(nextAttemptAt) : 0)) : 0;
+    const sourceRetryAfterSeconds = Math.min(86_400, Math.max(60,
+      Math.ceil((due - (input.observedAt ?? new Date()).getTime()) / 1000)));
     return Object.freeze({
-      acquisition: shared.acquisition,
+      ...(incompleteHouse ? { sourceRetryAfterSeconds } : {}),
+      acquisition: incompleteHouse && shared.journal
+        ? publicSourceAcquisitionResultSchema.parse({
+            ...shared.acquisition,
+            coverage: shared.acquisition.coverage === "complete" ? "partial" : shared.acquisition.coverage,
+            errorCode: "parser_incomplete",
+            proposedNextCursor: null,
+            retryAfterSeconds: null,
+            status: "partial",
+          })
+        : shared.acquisition,
       baselineEstablished: shared.baselineEstablished,
       projection: null,
       reused: shared.reused,
@@ -423,8 +480,19 @@ export async function coordinatePublicSourceOccurrence(input: {
       xReceipt,
     });
   }
+  const delivery = houseFetch ? await readNextPublicSourceAcquisition({
+    sourceInstanceId: shared.acquisition.sourceInstanceId,
+    afterAcquisitionId: subscription.deliveryCursor.lastAcquisitionId,
+    throughRevision: shared.acquisition.proposedNextCursor!.expectedRevision,
+  }, input.clients?.acquisition) : null;
+  const deliveryAcquisition = delivery?.result ?? shared.acquisition;
+  const deliveryPending = houseFetch && delivery ? await readNextPublicSourceAcquisition({
+    sourceInstanceId: shared.acquisition.sourceInstanceId,
+    afterAcquisitionId: deliveryAcquisition.acquisitionId,
+    throughRevision: shared.acquisition.proposedNextCursor!.expectedRevision,
+  }, input.clients?.acquisition) !== null : false;
   const projection = await projectPublicSourceAcquisition({
-    acquisition: shared.acquisition,
+    acquisition: deliveryAcquisition,
     advanceDeliveryCursor: input.deferProjectionAcknowledgement !== true,
     projectedAt: input.observedAt,
     scope: input.scope,
@@ -443,8 +511,10 @@ export async function coordinatePublicSourceOccurrence(input: {
     sink: input.sink,
   });
   return Object.freeze({
+    deliveryAcquisitionId: deliveryAcquisition.acquisitionId,
+    deliveryPending,
     acquisition: shared.acquisition,
-    baselineEstablished: shared.baselineEstablished,
+    baselineEstablished: deliveryAcquisition.baselineEstablished,
     projection,
     reused: shared.reused,
     subscription: projection.subscription,

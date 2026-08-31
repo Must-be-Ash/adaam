@@ -135,13 +135,14 @@ export function workspaceRunAttemptForOccurrence(
 }
 
 const outcomeSchema = z.object({
+  sourcePending: z.boolean().optional(),
   checkpoint: checkpointSchema,
   configurationRevision: z.number().int().positive(),
   createdAt: timestampSchema,
   finding: findingSchema.nullable(),
   monitorId: z.string().uuid(),
   occurrenceKey: z.string().regex(/^[a-f0-9]{64}$/u),
-  outcome: z.enum(["finding_staged", "no_match"]),
+  outcome: z.enum(["finding_staged", "no_match", "source_pending"]),
   ownerId: z.string().regex(/^[a-z][a-z0-9_-]{2,63}$/u),
   recordType: z.literal("workspace_run_outcome"),
   runId: z.string().min(1).max(160),
@@ -149,6 +150,10 @@ const outcomeSchema = z.object({
   strategyPack: strategyPackWorkerSnapshotSchema.nullable().default(null),
   workspaceId: z.string().uuid(),
 }).strict().superRefine((value, context) => {
+  if ((value.outcome === "source_pending" && value.sourcePending !== true) ||
+    (value.outcome === "no_match" && value.sourcePending === true)) {
+    context.addIssue({ code: "custom", message: "finding_outcome_invalid" });
+  }
   if ((value.outcome === "finding_staged") !== (value.finding !== null)) {
     context.addIssue({ code: "custom", message: "finding_outcome_invalid" });
   }
@@ -512,6 +517,7 @@ async function createOutcome(
 
 export async function stageWorkspaceFinding(
   input: {
+    sourcePending?: boolean;
     coverage: WorkspaceSourceCoverage;
     envelope: WorkspaceWorkerEnvelope;
     finding: WorkspaceFindingCandidate;
@@ -549,6 +555,7 @@ export async function stageWorkspaceFinding(
     workspaceId: input.scope.workspaceId,
   });
   const outcome = {
+    ...(input.sourcePending ? { sourcePending: true } : {}),
     checkpoint: input.coverage.checkpoint,
     configurationRevision: input.envelope.configurationRevision,
     createdAt: (input.now ?? new Date()).toISOString(),
@@ -581,6 +588,7 @@ export async function stageWorkspaceFinding(
 
 export async function completeWorkspaceRunNoMatch(
   input: {
+    sourcePending?: boolean;
     coverage: WorkspaceSourceCoverage;
     envelope: WorkspaceWorkerEnvelope;
     now?: Date;
@@ -590,13 +598,14 @@ export async function completeWorkspaceRunNoMatch(
 ): Promise<WorkspaceRunOutcome> {
   assertCoverage(input.envelope, input.coverage, input.scope);
   return createOutcome(input.scope, {
+    ...(input.sourcePending ? { sourcePending: true } : {}),
     checkpoint: input.coverage.checkpoint,
     configurationRevision: input.envelope.configurationRevision,
     createdAt: (input.now ?? new Date()).toISOString(),
     finding: null,
     monitorId: input.envelope.monitorId,
     occurrenceKey: input.envelope.occurrenceKey,
-    outcome: "no_match",
+    outcome: input.sourcePending ? "source_pending" : "no_match",
     ownerId: input.scope.ownerId,
     recordType: "workspace_run_outcome",
     runId: input.envelope.runId,

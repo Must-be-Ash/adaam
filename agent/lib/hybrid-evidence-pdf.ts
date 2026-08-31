@@ -164,6 +164,19 @@ export interface IndependentPdfTextResult {
   }>;
 }
 
+export class IndependentPdfOcrAggregateError extends Error {
+  readonly code = "independent_ocr_failed";
+
+  constructor(
+    readonly usage: IndependentPdfTextResult["usage"],
+    options?: ErrorOptions,
+    readonly textByPage: ReadonlyMap<number, string> = new Map(),
+  ) {
+    super("independent_ocr_failed", options);
+    this.name = "IndependentPdfOcrAggregateError";
+  }
+}
+
 function normalizedText(value: string): string {
   return value.replaceAll("\0", "").replace(/\s+/gu, " ").trim();
 }
@@ -237,6 +250,9 @@ function decimalUsd(value: bigint): string {
 }
 
 export async function readIndependentPdfTextWithUsage(input: {
+  readonly onPage?: (input: { page: number; text: string; usage: { inputTokens: number; outputTokens: number; paidCostUsd?: string } }) => Promise<void>;
+  readonly retainedTextByPage?: ReadonlyMap<number, string>;
+  readonly forceOcr?: boolean;
   readonly ocr?: IndependentPdfOcr;
   readonly projection: HybridEvidencePdfProjection;
 }): Promise<IndependentPdfTextResult> {
@@ -245,8 +261,11 @@ export async function readIndependentPdfTextWithUsage(input: {
   let outputTokens = 0;
   let paidMicros = 0n;
   let paidCostKnown = true;
-  for (const page of input.projection.pages) {
-    const recognized = page.text.length > 0
+  const recognize = async (page: HybridEvidencePdfPage) => {
+    const retained = input.retainedTextByPage?.get(page.page);
+    const recognized = retained !== undefined
+      ? { text: retained, usage: { inputTokens: 0, outputTokens: 0, paidCostUsd: "0" } }
+      : page.text.length > 0 && !input.forceOcr
       ? page.text
       : input.ocr
         ? await input.ocr.recognize({
@@ -255,28 +274,52 @@ export async function readIndependentPdfTextWithUsage(input: {
             page: page.page,
           })
         : "";
+    const text = normalizedText(typeof recognized === "string" ? recognized : recognized.text);
+    if (text.length > MAX_OCR_CHARACTERS_PER_PAGE) throw new HybridEvidencePdfError("evidence_bounds_exceeded");
+    await input.onPage?.({ page: page.page, text, usage: typeof recognized === "string"
+      ? { inputTokens: 0, outputTokens: 0, ...(!input.ocr ? { paidCostUsd: "0" } : {}) }
+      : { inputTokens: recognized.usage.inputTokens ?? 0, outputTokens: recognized.usage.outputTokens ?? 0,
+        ...(recognized.usage.paidCostUsd === undefined ? {} : { paidCostUsd: recognized.usage.paidCostUsd }) },
+    });
+    return Object.freeze({ page, recognized });
+  };
+  const recognizedPages: PromiseSettledResult<Awaited<ReturnType<typeof recognize>>>[] = [];
+  // One admission covers the whole finite page set; never launch an unbounded
+  // fanout. allSettled retains usage from successful siblings after failures.
+  for (let offset = 0; offset < input.projection.pages.length; offset += 4) {
+    recognizedPages.push(...await Promise.allSettled(input.projection.pages.slice(offset, offset + 4).map(recognize)));
+  }
+  let firstFailure: unknown;
+  for (const settled of recognizedPages) {
+    if (settled.status === "rejected") {
+      firstFailure ??= settled.reason;
+      continue;
+    }
+    const { page, recognized } = settled.value;
     const value = normalizedText(typeof recognized === "string" ? recognized : recognized.text);
     if (typeof recognized !== "string") {
       inputTokens += recognized.usage.inputTokens ?? 0;
       outputTokens += recognized.usage.outputTokens ?? 0;
       if (recognized.usage.paidCostUsd === undefined) paidCostKnown = false;
       else paidMicros += decimalMicros(recognized.usage.paidCostUsd);
-    } else if (page.text.length === 0 && input.ocr) {
+    } else if ((page.text.length === 0 || input.forceOcr) && input.ocr) {
       paidCostKnown = false;
     }
     if (value.length > MAX_OCR_CHARACTERS_PER_PAGE) {
-      throw new HybridEvidencePdfError("evidence_bounds_exceeded");
+      firstFailure ??= new HybridEvidencePdfError("evidence_bounds_exceeded");
+      continue;
     }
     values.set(page.page, value);
   }
-  return Object.freeze({
-    textByPage: values,
-    usage: Object.freeze({
-      inputTokens,
-      outputTokens,
-      paidCostUsd: paidCostKnown ? decimalUsd(paidMicros) : null,
-    }),
+  const usage = Object.freeze({
+    inputTokens,
+    outputTokens,
+    paidCostUsd: paidCostKnown ? decimalUsd(paidMicros) : null,
   });
+  if (firstFailure !== undefined) {
+    throw new IndependentPdfOcrAggregateError(usage, { cause: firstFailure }, values);
+  }
+  return Object.freeze({ textByPage: values, usage });
 }
 
 export function assertIndependentPdfValue(input: {

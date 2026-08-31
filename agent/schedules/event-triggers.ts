@@ -430,6 +430,9 @@ async function executeWorkspaceJob(
       actualOutputTokens: 0,
       outcome: "reconciled",
     });
+    // A fully evaluated delivery page may durably stage an alert while the
+    // source checkpoint is held for later pages; it is not a completed scan.
+    if (outcome.sourcePending) return;
     /*
      * A completed occurrence emitted only identity-free counters, so when two
      * monitors ran in the same window - IPO Live and Tracker Live share a

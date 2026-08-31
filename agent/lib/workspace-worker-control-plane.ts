@@ -204,6 +204,7 @@ async function prepareCommit(input: {
 async function completeMonitorCheckpoint(
   prepared: Awaited<ReturnType<typeof prepareCommit>>,
   input: {
+    holdSourceCheckpoint?: boolean;
     client?: WorkspaceMonitorStoreClient;
     now?: Date;
   },
@@ -212,6 +213,7 @@ async function completeMonitorCheckpoint(
     throw new WorkspaceWorkerCommitError("workspace_worker_run_stale");
   }
   await completeWorkspaceMonitorCheckpoint({
+    holdSourceCheckpoint: input.holdSourceCheckpoint,
     completedAt: input.now,
     configurationRevision: prepared.envelope.configurationRevision,
     contentDigest: prepared.coverage.checkpoint.contentDigest,
@@ -269,6 +271,7 @@ export async function stageWorkspaceAlertPresentations(input: {
 }
 
 export async function commitDeterministicWorkspaceEvaluationForWorker(input: {
+  sourcePending?: boolean;
   alertPresentation?: { title: string; whyMatched: string };
   alertPresentations?: readonly { artifactRefs?: readonly string[]; key: string; title: string; whyMatched: string }[];
   checkpoint: { contentDigest: string; watermark: string };
@@ -295,6 +298,7 @@ export async function commitDeterministicWorkspaceEvaluationForWorker(input: {
   let outcome: WorkspaceRunOutcome;
   if (input.finding === null) {
     outcome = await completeWorkspaceRunNoMatch({
+      sourcePending: input.sourcePending,
       coverage: prepared.coverage,
       envelope: prepared.envelope,
       now: input.now,
@@ -310,6 +314,7 @@ export async function commitDeterministicWorkspaceEvaluationForWorker(input: {
       );
     }
     outcome = await stageWorkspaceFinding({
+      sourcePending: input.sourcePending,
       coverage: prepared.coverage,
       envelope: prepared.envelope,
       finding: input.finding,
@@ -343,6 +348,7 @@ export async function commitDeterministicWorkspaceEvaluationForWorker(input: {
     }, input.clients?.alert);
   }
   await completeMonitorCheckpoint(prepared, {
+    holdSourceCheckpoint: outcome.sourcePending,
     client: input.clients?.monitor,
     now: input.now,
   });
@@ -392,6 +398,7 @@ export async function finalizeExistingWorkspaceRunOutcomeForWorker(input: {
     }, input.clients?.alert);
   }
   await completeMonitorCheckpoint(prepared, {
+    holdSourceCheckpoint: input.outcome.sourcePending,
     client: input.clients?.monitor,
     now: input.now,
   });
@@ -489,6 +496,7 @@ export async function finalizePriorWorkspaceRunOutcomeForControlPlane(input: {
     }, input.clients?.alert);
   }
   await completeWorkspaceMonitorCheckpoint({
+    holdSourceCheckpoint: input.outcome.sourcePending,
     completedAt: input.now,
     configurationRevision: envelope.configurationRevision,
     contentDigest: input.outcome.checkpoint.contentDigest,

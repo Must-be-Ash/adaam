@@ -1677,6 +1677,7 @@ export async function inspectWorkspaceMonitorOccurrenceLease(
 
 export async function completeWorkspaceMonitorCheckpoint(
   input: {
+    holdSourceCheckpoint?: boolean;
     completedAt?: Date;
     configurationRevision: number;
     contentDigest: string;
@@ -1712,6 +1713,9 @@ export async function completeWorkspaceMonitorCheckpoint(
   }
   const next = nextWorkspaceMonitorOccurrence(monitor.schedule, afterOccurrence);
   const completedAt = (input.completedAt ?? new Date()).toISOString();
+  const nextOccurrenceAt = input.holdSourceCheckpoint
+    ? new Date(Date.parse(completedAt) + 60_000).toISOString()
+    : next?.scheduledAt ?? null;
   const expectedRaw = rawValue(await client.get(workspaceMonitorRecordStorageKey(input.scope, input.monitorId)));
   if (expectedRaw === null) throw new WorkspaceMonitorError("monitor_not_found");
   const expectedMonitor = parseMonitor(expectedRaw, input.scope);
@@ -1724,8 +1728,8 @@ export async function completeWorkspaceMonitorCheckpoint(
     lastCompletedAt: completedAt,
     lastErrorCode: null,
     lastRunAt: completedAt,
-    nextOccurrenceAt: next?.scheduledAt ?? null,
-    sourceCheckpoint: {
+    nextOccurrenceAt,
+    sourceCheckpoint: input.holdSourceCheckpoint ? expectedMonitor.sourceCheckpoint : {
       contentDigest: input.contentDigest,
       watermark: input.watermark,
     },
@@ -1739,7 +1743,7 @@ export async function completeWorkspaceMonitorCheckpoint(
     inflightKey: INFLIGHT_KEY,
     leaseKey: leaseKey(input.scope, input.monitorId),
     leaseTokenDigest: input.leaseTokenDigest,
-    nextDueAtMs: next ? Date.parse(next.scheduledAt) : null,
+    nextDueAtMs: nextOccurrenceAt ? Date.parse(nextOccurrenceAt) : null,
     nextRaw: JSON.stringify(nextMonitor),
     occurrenceRecordKey: `${OCCURRENCE_PREFIX}${input.occurrenceKey}`,
     recordKey: workspaceMonitorRecordStorageKey(input.scope, input.monitorId),
