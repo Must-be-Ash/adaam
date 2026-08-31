@@ -13,3 +13,16 @@ Replay without paid calls from the repository root:
 The default verification also checks ambiguous/missing grid marks, forged crops, row membership/order, date validity, incomplete evidence, bounded retry, durable paid receipts, and lost acknowledgments. The Dallas row on page 5 prints `02-17-2026`; exact four-digit-year US dates with either slashes or hyphens must normalize to ISO without accepting appended text or guessing incomplete dates. Zero-padded physical row keys keep lexical schema order consistent with source order. Independent OCR receives exact row strips; candidate type/amount values come from checked grid pixels, not model guesses.
 
 Uncertain spend remains conservative. Successful pages/extraction are reused on a missing-page retry, which reserves remaining work with the signed worker minimum rather than reserving the entire filing again. A test covers a 400k uncertain allowance plus a 100k missing-page retry within a 500k/day input cap. Hard monetary limits are unchanged. Factual disagreement still quarantines and cannot pass by row count alone.
+
+`ptr-8221359.research.json` is the public-only GPT-5.4 report-now acceptance for
+Congressional 1.5.0. All 123 extracted rows were projected through the production
+evidence builder. The model returned a review signal and a valid source-linked
+executive brief, with $0.092581 reported cost (17339 input / 4415 output tokens).
+The preflight ceiling was $0.40362; the explicit cap was $0.50. No production
+monitor, store, search provider, alert, or trade was used.
+
+Replay this research result without a paid call:
+
+```sh
+./node_modules/.bin/jiti scripts/accept-congressional-research-real-model.ts --replay=scripts/fixtures/public-source-adapters/house/live-review-2026-08-30/ptr-8221359.research.json
+```

@@ -1,3 +1,4 @@
+import { CONGRESSIONAL_RESEARCH_DEFINITION_ID, CONGRESSIONAL_RESEARCH_BUDGET, congressionalResearchWorkerCandidateSchema } from "./congressional-research";
 import {
   COMMENTARY_SEMANTIC_DEFINITION_ID,
   commentarySemanticWorkerCandidateSchema,
@@ -37,6 +38,12 @@ import { houseDocumentRowWorkerCandidateSchema } from "./hybrid-evidence-extract
 import { HOUSE_DOCUMENT_ROW_DEFINITION_ID } from "./hybrid-evidence-definition-registry";
 
 const contracts = Object.freeze([
+  Object.freeze({
+    capabilityRevisions: Object.freeze([2]),
+    completion: Object.freeze({ description: "Commit one evidence-linked Congressional Signals materiality decision and executive brief.", inputSchema: congressionalResearchWorkerCandidateSchema }),
+    definitionId: CONGRESSIONAL_RESEARCH_DEFINITION_ID,
+    research: Object.freeze({ approvedUrlPolicy: "evidence_sources" as const, budget: CONGRESSIONAL_RESEARCH_BUDGET, requiresParentRunId: true as const }),
+  }),
   Object.freeze({
     capabilityRevisions: Object.freeze([2]),
     completion: Object.freeze({

@@ -1,0 +1,94 @@
+{
+  "definitionDigest": "8002272cf591ef97825d66fe9e263459670c1046c0f6e9a5294ffa73db411335",
+  "evidenceDigest": "1b4766b0cdff86147e7eba1f33580918450b86b5832444a2e5d794d2b362297f",
+  "decision": {
+    "decision": "report_now",
+    "reason": "Official filing alone is sufficient for a bounded materiality assessment; supplementary research is unavailable and not required to summarize the disclosed spouse transactions and uncertainty."
+  },
+  "candidate": {
+    "citations": [
+      {
+        "artifactDigest": "1b4766b0cdff86147e7eba1f33580918450b86b5832444a2e5d794d2b362297f",
+        "end": 16747,
+        "kind": "text_span",
+        "spanDigest": "1b4766b0cdff86147e7eba1f33580918450b86b5832444a2e5d794d2b362297f",
+        "start": 0
+      }
+    ],
+    "disposition": "accepted",
+    "fields": {
+      "band": "review",
+      "brief": {
+        "confidence": "medium",
+        "implications": [
+          "Watch later filings for repeated additions to tax-advantaged short-duration or municipal fixed-income vehicles; repetition would strengthen a defensive or liquidity-parking interpretation.",
+          "Watch whether the many small equity sales and scattered equity buys resolve into a clearer sector rotation in later disclosures; this filing alone shows repositioning, not a single high-conviction stock call.",
+          "Because these were disclosed as the spouse's transactions and reported after the fact, any signal is conditional and should not be read as the member's current holdings, timing, or intent."
+        ],
+        "interpretation": "The filing shows the spouse, not the member, making a high-volume February 2026 portfolio rebalance. The clearest disclosed pattern is multiple large purchases in Northern Tax-Advantaged Ultra-Short Fixed Income and Northern Intermediate Tax Exempt Fund, alongside municipal-bond, private-fund, REIT, healthcare, industrial, and technology trades, while many other equity and municipal positions were sold. That is potentially useful as a tentative household risk-positioning signal toward tax-advantaged cash or short-duration income, but the disclosure is delayed, lacks exact values, includes duplicate rows, and does not establish current holdings or intent.",
+        "materialFacts": [
+          {
+            "sourceUrls": [
+              "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/8221359.pdf"
+            ],
+            "statement": "Filed March 10, 2026, the PTR reports spouse transactions notified March 5, 2026, with trade dates concentrated in February 2026."
+          },
+          {
+            "sourceUrls": [
+              "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/8221359.pdf"
+            ],
+            "statement": "The filing lists numerous separate spouse purchases of Northern Tax-Advantaged Ultra-Short Fixed Income on Feb. 11, 2026, with disclosed amount bands from $15,001-$50,000 up to one line labeled 'Spouse/DC Asset Over $1,000,000'; duplicate rows are present and the filing does not give exact totals."
+          },
+          {
+            "sourceUrls": [
+              "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/8221359.pdf"
+            ],
+            "statement": "The filing also lists numerous spouse purchases of Northern Intermediate Tax Exempt Fund on Feb. 11, 2026, plus another purchase on Feb. 19, 2026, including one line labeled 'Spouse/DC Asset Over $1,000,000' and multiple additional lines from $15,001-$50,000 to $500,001-$1,000,000."
+          },
+          {
+            "sourceUrls": [
+              "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/8221359.pdf"
+            ],
+            "statement": "Other disclosed spouse purchases include Hawaii ST GO BDS and Phoenix Ariz Civic Impt Corp Wtr Sys at $100,001-$250,000 each, Baxter International and Healthpeak Properties at $100,001-$250,000 each, and private-fund interests such as Mays-Allocate 2025 LP and HPS Special Opp Fund II LP."
+          },
+          {
+            "sourceUrls": [
+              "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/8221359.pdf"
+            ],
+            "statement": "The sales side includes Kentucky St Ppty & Bldgs Commn Revs Bds at $250,001-$500,000; Donaldson Company, Eagle Mtn & Saginaw Tex Indpt Sch Dist, Dallas Tex Indpt Sch, and Alexandria Real Estate Equities at $100,001-$250,000; and separate Kane Cnty Ill Cmnty Unit Sch Dist and Woodridge Ill GO Ref sales at $50,001-$100,000 each."
+          }
+        ],
+        "research": {
+          "status": "not_needed"
+        },
+        "sources": [
+          {
+            "label": "Signed House periodic transaction report for Michael T. McCaul",
+            "publisher": "Clerk of the U.S. House of Representatives",
+            "role": "official",
+            "sourceId": "fixture.public.8221359",
+            "url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/8221359.pdf"
+          }
+        ],
+        "title": "Spouse disclosed broad February rebalance with very large Northern fund purchases and offsetting sales",
+        "uncertainty": [
+          "The filing provides only amount ranges, not exact dollars, and an 'Over $1,000,000' label does not disclose an upper bound.",
+          "Several Northern fund entries are duplicated, so the filing supports repeated transactions but not a precise aggregate commitment from this evidence alone.",
+          "No tickers or verified security mappings are provided here, and delayed disclosure does not establish current holdings, motive, or performance."
+        ]
+      }
+    },
+    "unknowns": [
+      "Exact aggregate size of the duplicated Northern fund purchases.",
+      "Whether the LP entries were subscriptions or capital calls rather than open-market transactions.",
+      "Whether any sold positions were fully exited or only trimmed."
+    ]
+  },
+  "usage": {
+    "inputTokens": 17339,
+    "outputTokens": 4415,
+    "paidCostUsd": "0.092581",
+    "quotedMaximumUsd": 0.40362,
+    "modelId": "openai/gpt-5.4"
+  }
+}

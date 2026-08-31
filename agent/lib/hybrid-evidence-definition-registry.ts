@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { congressionalResearchValidationContract } from "./congressional-research";
 
 import {
   earningsAssertionSchema,
@@ -409,6 +410,7 @@ export const workspaceSemanticValidationRegistry = createWorkspaceSemanticValida
   publicCommentaryResearchValidationContract,
   publicCommentaryImpactValidationContract,
   secIpoResearchValidationContract,
+  congressionalResearchValidationContract,
 ]);
 
 function reviewedDefinition(input: {

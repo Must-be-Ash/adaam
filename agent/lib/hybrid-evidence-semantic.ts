@@ -704,7 +704,7 @@ function createAcceptedSemanticResult(input: {
 const semanticUsageSchema = z.object({
   inputTokens: z.number().int().nonnegative().max(200_000),
   outputTokens: z.number().int().nonnegative().max(20_000),
-  paidCostUsd: z.string().regex(/^(?:0|[1-9]\d{0,3})(?:\.\d{1,4})?$/u),
+  paidCostUsd: z.string().regex(/^(?:0|[1-9]\d{0,3})(?:\.\d{1,6})?$/u),
 }).strict();
 
 function accountedUsage(

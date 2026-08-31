@@ -1,72 +1,88 @@
 # Congressional Signals release acceptance
 
-Status: **not ready for production activation**. Reliability fixes are complete;
-the exact legacy filing still fails real-model acceptance. No production deploy,
-monitor activation, cursor reset, or canonical-source write was performed by
-this release-validation task. Keep the Congressional monitor paused.
+Status: extraction and Congressional 1.5.0 research pass isolated acceptance;
+production release and monitored acceptance are still pending. The existing
+production monitor remains paused. Do not treat a local capture as a deployment
+receipt.
 
-## Completed
+## Verified recovery
 
-- Six validated code-review findings fixed: ordered replay and legacy migration;
-  cross-parent daily/monthly accounting; midnight retention of uncertain spend;
-  safely reclaimable cancelled-admission receipts; expired-claim accounting and
-  fencing; and OCR completion lost-ack reconciliation.
-- Signed page-number binding removes model-generated opaque citation hashes.
-- Exact-PDF offline test covers 123 transactions, two distinct K transactions,
-  all row values/order/duplicates, canonical projection, baseline alert
-  suppression, unchanged replay, partial OCR retry, and both budget ledgers.
-- Gemini 3 Flash's native minimal-thinking setting prevents its OCR output
-  allowance being exhausted on reasoning. The portable setting did not do so in
-  the measured request. This fixes truncation, not checkbox-reading accuracy.
-- Independent evidence accepts only presentation-equivalent amount dash spacing
-  and the printed K wording, `Spouse/DC Amount over $1,000,000`. Tests still reject
-  different numbers, J substituted for K, missing/extra rows, and bad citations.
-- Rechecked every fixture row against all five rendered source pages. Corrected
-  five manual amount entries: page 1 transaction 20 D to C; page 4 transactions
-  16 and 21 B to A; page 5 transaction 3 B to C and transaction 6 C to D. These
-  are directly visible checked cells, not changes made to accommodate a model.
-  No production fact was altered.
+Definition 1.0.18 recovered all 123 transactions in public House filing 8221359,
+including both distinct K selections. Haiku 4.5 extracted the supported grid;
+Gemini 3 Flash independently transcribed the source row strips. Exact values,
+row order, duplicate rows, signed source provenance, 124 canonical facts,
+complete acquisition, baseline without alerts, accounting, and replay passed.
 
-Review receipt: `20260830-154016-86b92cc9`, status complete, all six actionable
-findings addressed. External adversarial export was blocked before transmission;
-local adversarial review supplied the fallback coverage.
+The real attempt settled $0.185881 (201005 input / 15786 output tokens), against
+an admission ceiling of $1. Its public capture and offline replay instructions
+are in `scripts/fixtures/public-source-adapters/house/live-review-2026-08-30/`.
+Page-4 transaction 21 is B; the earlier acceptance note incorrectly called it A.
+No production fact was changed to match a fixture or model response.
 
-## Verification evidence
+The implementation rejects ambiguous/erased marks, forged crops, missing or
+extra physical rows, invalid dates, and factual disagreement. Missing-page
+retries preserve completed extraction/OCR work and charge only remaining work,
+with uncertain spend retained conservatively. Hard daily/monthly limits remain
+unchanged; the parent occurrence envelope is soft.
 
-- Full `verify:strategies` suite passed, including headless browser checks,
-  Earnings/Commentary/SEC regressions, Eve/Next build, and compiled worker tests.
-  Log: `/private/tmp/congressional-finish-final-regressions-allowed.log`.
-- Final focused House fixture tests, typecheck, and diff whitespace check passed
-  after the native OCR setting and presentation normalization changes.
-- Real five-page canary was **rejected**, with spend settled at $0.153498.
-  Public-only capture: `/private/tmp/congressional-real-8221359-v13.json`.
-  Haiku inserted an account heading as a transaction and misread checkbox columns.
-  Default Flash OCR exhausted its allowance after only a few rows per page.
-- Focused native Flash OCR completed with zero reasoning tokens. A right-half
-  detail view plus the full page enabled correct page-1 transcription, but this
-  view remains a temporary diagnostic, not production implementation.
-- Separate Haiku, Sonnet 4.6, Flash 2.5, and Pro 3.1 attempts did not establish a
-  correct independent extraction/verification pair. Pro's literal-letter test
-  still shifted checked columns, proving the failure is not label conversion.
-- Confirmed aggregate paid diagnostic spend: $0.724631. One timed-out page call
-  has no authoritative receipt and is additionally bounded by $0.022. All calls
-  are finished; reservations are not described as actual spend.
+## Congressional 1.5.0
 
-Offline fixture success is not real-model or production acceptance. The fixture
-supplies independently specified expected text; it must not become production
-source data or be used to patch model results.
+The new immutable pack uses the existing isolated frontier research worker.
+Source acquisition and historical triage remain deterministic. Valid live
+selected-member filings reach frontier materiality assessment even when a
+reported ticker or catalog mapping is missing. Baseline performs no research.
+The frontier can choose report-now or use shared bounded research, and its
+inference/tool costs share the workspace budget.
 
-## Remaining release gate
+New alerts respect the configured frontier band. Prior alerts receive factual
+corrections or retractions. Corrections cover amount, owner, asset, trade date,
+notification date, and filing date changes, including changes beyond the first
+corrected row. An immutable pre-occurrence history snapshot preserves the prior
+alert through a crash after history persistence. Corrections and retractions
+use finding identities consistent with their stored facts.
 
-A grid-aware legacy-form path is needed before more full-filing paid canaries.
-Use the existing bounded PDF/evidence plumbing to locate rows and checkbox cells;
-retain signed provenance and independent validation. Do not weaken agreement,
-hardcode this filing's transactions, change other strategies' model routes, or
-increase the hard daily/monthly budgets. This is additional extraction scope and
-has not been implemented or approved as a new architecture.
+Separate filing briefs become one bounded report with direct numbered sources,
+uncertainty, confidence, and conditional implications. No trade capability is
+granted. Semantic usage accepts six-decimal USD receipts consistently with the
+shared budget ledger.
 
-Then: prove all 123 real rows including both K selections, rerun regressions,
-merge the isolated release branch to main, deploy its clean commit, and run one
-bounded monitored production acceptance. Require durable outcome/checkpoint,
-ordered continuation of the existing source frontier, no historical alerts, and
-reconciled accounting. Pause the affected monitor on any failed acceptance.
+A real GPT-5.4 report-now canary assessed the validated 123-row capture and
+returned a review signal with spouse ownership, range uncertainty, and delayed
+disclosure caveats. It used 17339 input / 4415 output tokens and reported
+$0.092581, below its $0.40362 preflight ceiling and explicit $0.50 cap. The
+registered validator and report schema accepted it; offline replay also passes.
+This proves the report-now model path, not a live paid-search or production
+message-delivery run.
+
+Offline checks cover baseline suppression, frontier materiality, report
+publication, a crash before finding commit followed by replay without another
+model call, six-decimal child reconciliation, all 224 rows of a dense filing,
+source/disposition rejection, record-only abstention, and temporary evidence
+cleanup. Shared research U1–U4 and semantic Sprint 3 checks pass. The complete
+cross-strategy/build suite (`verify:strategies`) also passes, with its offline
+Redis fixture URL and local browser launch permission.
+
+## Release safeguards
+
+Preserve the original dirty checkout. Publish only the isolated release tree.
+Confirm the exact production commit, then upgrade the existing Congressional
+binding with its watchlist, schedule, source/history/checkpoints, and owner
+budget intact. Keep it paused until the binding and capabilities agree. Run one
+bounded production acceptance and require a durable outcome/checkpoint, ordered
+source continuation, no historical alert, and reconciled accounting. Pause the
+affected monitor if acceptance fails. Never reset the source frontier or use
+fixture rows in production.
+
+Vercel's local environment runner returns blank values for some protected
+settings. Blank local values are not evidence that production settings are
+missing and must never be written back over them.
+
+## Diagnostic spend
+
+The current extraction/research task has $1.267748 in confirmed reported model
+costs, including the two successful canaries above. Separate failed requests
+lack authoritative receipts: two full attempts were each bounded by $1 and one
+early rejected request by less than $0.10. Those ceilings are exposure bounds,
+not actual spend. The preceding handoff reported a separate $0.724631 confirmed
+plus one unknown completion bounded by $0.022. No further extraction debugging
+is needed after the successful recovery proof.

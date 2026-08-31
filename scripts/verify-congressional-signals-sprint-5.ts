@@ -1,3 +1,11 @@
+import { congressionalResearchEvidenceContent, congressionalResearchValidationContract } from "../agent/lib/congressional-research";
+import { createHybridEvidenceEphemeralArtifactStore } from "../agent/lib/hybrid-evidence-artifact-store";
+import { decodeHybridEvidenceWorkerToken } from "../agent/lib/hybrid-evidence-auth";
+import { completeHybridEvidenceJobForWorker, persistHybridEvidenceResearchDecisionForWorker, readHybridEvidenceSliceForWorker } from "../agent/lib/hybrid-evidence-worker";
+import { reserveWorkspaceRunBudget, reconcileWorkspaceRunBudget, readWorkspaceBudgetLedger } from "../agent/lib/workspace-budget-ledger";
+import { readWorkspaceDocument } from "../agent/lib/workspace-state-store";
+import { researchReportSchema } from "../agent/lib/artifact-schema";
+import { shouldCreateCongressionalCorrectionAlert } from "../agent/lib/congressional-history";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
@@ -164,6 +172,10 @@ class MemoryMonitorStore implements WorkspaceMonitorStoreClient {
 }
 
 const environment = {
+  EVE_HYBRID_EVIDENCE_ENABLED: "1", EVE_HYBRID_SEMANTIC_REASONING_ENABLED: "1",
+  EVE_HYBRID_EVIDENCE_AUTH_SECRET: Buffer.alloc(32, 48).toString("base64url"),
+  EVE_HYBRID_FAST_MODEL_ID: "anthropic/claude-haiku-4.5", EVE_HYBRID_FAST_MODEL_REASONING: "provider-default",
+  EVE_HYBRID_FRONTIER_MODEL_ID: "openai/gpt-5.4", EVE_HYBRID_FRONTIER_MODEL_REASONING: "high",
   EVE_CONGRESSIONAL_SIGNALS_EXECUTION_ENABLED: "1",
   EVE_DEPLOYMENT_OWNER_ID: "owner_fixture",
   EVE_HOUSE_PUBLIC_SOURCE_ADAPTER_ENABLED: "1",
@@ -177,6 +189,7 @@ const environment = {
   EVE_WORKSPACE_STATE_ENABLED: "1",
 };
 const state = new MemoryCasStore();
+const researchMemory = new MemoryCasStore();
 const source = new MemoryCasStore();
 const coverage = new MemoryCasStore();
 const signal = new MemorySignalStore();
@@ -243,14 +256,14 @@ function capabilitiesFor(version: string): WorkspaceCapabilityManifestValue {
       origin: new URL(item.canonicalUrl).origin,
       sourceId: item.sourceId,
     })),
-    workerModelPolicy: { allowedModelIds: ["zai/glm-5.3-flash"], maximumOutputTokens: 2_000 },
+    workerModelPolicy: { allowedModelIds: version === "1.5.0" ? ["zai/glm-5.3-flash", "openai/gpt-5.4"] : ["zai/glm-5.3-flash"], maximumOutputTokens: version === "1.5.0" ? 12_000 : 2_000 },
   };
 }
 
 function installWorkspace(input: {
   configuration: { minimumAlertBand: "priority" | "review"; selectedMemberBioguideIds: string[] };
   nextOccurrenceAt?: string;
-  version: "1.0.0" | "1.1.0" | "1.2.0" | "1.3.0";
+  version: "1.0.0" | "1.1.0" | "1.2.0" | "1.3.0" | "1.5.0";
   workspaceId: string;
 }) {
   const pack = strategyPackCatalog.resolve({ id: "congressional-signals", version: input.version });
@@ -342,7 +355,7 @@ function installWorkspace(input: {
     prepareInitialWorkspaceDocument("budget", {
       now: baseNow,
       scope,
-      value: {
+      value: input.version === "1.5.0" ? resolveStrategyPackInitialBudgetPolicy(pack, strategy.configuration, baseNow.toISOString()) : {
         effectiveAt: baseNow.toISOString(),
         maximumConcurrentWorkers: 1,
         maximumInputTokensPerDay: 40_000,
@@ -409,6 +422,14 @@ async function prepare(monitor: WorkspaceMonitor, now: Date, scope: ReturnType<t
       reconciledPaidMicros: null,
     },
   } satisfies WorkspaceDispatchReservation;
+  if (monitor.managedBy?.packVersion === "1.5.0") {
+    const budget = await readWorkspaceDocument("budget", scope, state);
+    assert.ok(budget);
+    dispatchBudget.workspace = await reserveWorkspaceRunBudget({
+      inputTokens: 100_000, outputTokens: 12_000, paidCostCeiling: { kind: "known", amount: "1.000000" },
+      now, policy: budget.value, policyRevision: budget.revision, runId: common.runId, scope,
+    }, researchMemory);
+  }
   return prepareWorkspaceWorkerRun({
     claimed,
     clients: { sourceCoverage: coverage, state },
@@ -1017,3 +1038,123 @@ assert.equal(liveBackfillOutcomes.filter((outcome) => outcome === "finding_stage
   "plain-watermark migration suppresses historical heads without suppressing the new live filing");
 
 console.log("Congressional Signals Sprint 5 worker, replay, version, and isolation verification passed.");
+
+// The adopted pack must use the real signed semantic job, with a deterministic
+// completion provider for offline replay. No model, search, message, or trade.
+Object.assign(clients, { budget: researchMemory });
+const researchWorkspace = installWorkspace({ configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: [] },
+  version: "1.5.0", workspaceId: "123e4567-e89b-42d3-a456-426614175590" });
+const researchBytes = new Map<string, Uint8Array>();
+const researchArtifacts = createHybridEvidenceEphemeralArtifactStore({ index: researchMemory, blob: {
+  async put(key, bytes) { researchBytes.set(key, Uint8Array.from(bytes)); },
+  async get(key) { return researchBytes.get(key) ?? null; },
+  async delete(key) { researchBytes.delete(key); },
+} });
+let researchDispatches = 0;
+let researchBand: "priority" | "record_only" = "priority";
+let reportPublications = 0;
+let lastEvidence: { canonicalUrl: string; rows: unknown[][] } | null = null;
+(clients as { research?: CongressionalWorkspaceWorkerClients["research"] }).research = { artifacts: researchArtifacts, publishReport: async ({ artifactId, report }) => {
+  researchReportSchema.parse(report); reportPublications += 1;
+  return { artifactId, kind: "report" } as never;
+}, semantic: { jobs: researchMemory, semantic: researchMemory, lineage: researchMemory,
+  async execute(prepared) {
+    researchDispatches += 1;
+    const envelope = decodeHybridEvidenceWorkerToken(prepared.token);
+    assert.equal(envelope.modelId, "openai/gpt-5.4");
+    const ctx = { session: { id: "fixture-research", auth: { current: prepared.request.auth, initiator: prepared.request.auth } } };
+    const locator = envelope.allowedLocators.find(({ kind }) => kind === "text_span")!;
+    const slice = await readHybridEvidenceSliceForWorker({ ctx, environment, locator,
+      clients: { artifacts: researchArtifacts, jobs: researchMemory } });
+    lastEvidence = JSON.parse(slice.content);
+    assert.ok(lastEvidence && lastEvidence.rows.length > 0);
+    await persistHybridEvidenceResearchDecisionForWorker({ ctx, environment, jobClient: researchMemory, now: researchNow,
+      decision: { decision: "report_now", reason: "The official filing is sufficient for this bounded fixture brief." } });
+    await completeHybridEvidenceJobForWorker({ ctx, environment, jobClient: researchMemory, now: researchNow,
+      candidate: { citations: [locator], disposition: researchBand === "record_only" ? "abstained" : "accepted", unknowns: researchBand === "record_only" ? ["No supported incremental investment implication."] : [], fields: { band: researchBand, brief: {
+        confidence: "low", title: "House disclosure merits a closer look", interpretation: "The disclosed transactions warrant review; their present investment significance is uncertain.",
+        materialFacts: [{ statement: "The official PTR reports financial transactions.", sourceUrls: [lastEvidence.canonicalUrl] }],
+        implications: ["Review the disclosed activity before drawing a current positioning conclusion."],
+        uncertainty: ["The disclosure is delayed and does not establish current holdings or intent."], research: { status: "not_needed" },
+        sources: [{ label: "Official House PTR", role: "official", url: lastEvidence.canonicalUrl }],
+      } } } });
+    return { inputTokens: 300, outputTokens: 150, paidCostUsd: "0.010001" };
+  },
+} };
+const researchSource = new MemoryCasStore();
+const researchBaseline = await prepare(researchWorkspace.monitor, baseNow, researchWorkspace.scope);
+const researchBaselineResult = await execute({ document: baselineDocument, now: baseNow, prepared: researchBaseline, shouldFetch: true, sourceClient: researchSource });
+await reconcileWorkspaceRunBudget({ runId: researchBaselineResult.result.outcome.runId, scope: researchWorkspace.scope,
+  now: baseNow, outcome: "reconciled", actualInputTokens: 0, actualOutputTokens: 0, actualPaidCost: "0" }, researchMemory);
+assert.equal(researchDispatches, 0, "baseline must not purchase research or emit historical alerts");
+const researchMonitor = await getWorkspaceMonitor(researchWorkspace.scope, researchWorkspace.monitor.monitorId, monitorStore);
+assert.ok(researchMonitor);
+const researchNow = new Date(baseNow.getTime() + 60_000);
+const researchLive = await prepare(researchMonitor, researchNow, researchWorkspace.scope);
+finding.failNextOutcome = true;
+await assert.rejects(execute({ document: fixture("ptr-14.pdf"), now: researchNow, prepared: researchLive, shouldFetch: true, sourceClient: researchSource }), /fixture_post_history_interruption/);
+const attemptsBeforeRetry = researchDispatches;
+assert.ok(attemptsBeforeRetry > 0);
+const researchRetry = await execute({ document: fixture("ptr-14.pdf"), now: researchNow, prepared: researchLive, shouldFetch: false, sourceClient: researchSource });
+assert.equal(researchDispatches, attemptsBeforeRetry, "replay must reuse the accepted semantic result without a second model charge");
+assert.equal(researchRetry.result.outcome.outcome, "finding_staged");
+assert.equal(researchRetry.result.outcome.finding?.artifactRefs.length, 1);
+assert.equal(researchRetry.result.outcome.finding?.facts?.[0]?.band, "priority");
+assert.ok(reportPublications > 0);
+const researchLedger = await readWorkspaceBudgetLedger(researchWorkspace.scope, researchMemory);
+const researchChildren = researchLedger.reservations.filter(({ parentRunId }) => parentRunId === researchLive.envelope.runId);
+assert.equal(researchChildren.length, attemptsBeforeRetry);
+assert.ok(researchChildren.every((entry) => entry.state === "reconciled" && entry.reconciledPaidMicros === "10001" && entry.reconciledInputTokens === 300));
+
+const historyForCorrection = await readCongressionalHistory(researchWorkspace.scope, signal);
+const priorEntry = historyForCorrection!.activeEntries.find(({ alertEligible }) => alertEligible)!;
+assert.ok(priorEntry);
+for (const mutation of [
+  { amountRange: { ...priorEntry.transaction.amountRange, label: "Different disclosed range" } },
+  { owner: { ...priorEntry.transaction.owner, relationship: priorEntry.transaction.owner.relationship === "spouse" ? "self" : "spouse" } },
+  { transactionDate: "2026-01-01" },
+  { notificationDate: "2026-01-02" },
+  { asset: { ...priorEntry.transaction.asset, description: "Changed unmapped asset" } },
+]) assert.equal(shouldCreateCongressionalCorrectionAlert({ currentBand: priorEntry.band, priorEntry,
+  currentTransaction: { ...priorEntry.transaction, ...mutation } as typeof priorEntry.transaction }), true);
+console.log("Congressional frontier research baseline, materiality, artifact, crash replay, and correction verification passed.");
+
+const denseEvidence = congressionalResearchEvidenceContent({
+  evaluation: { transactions: largeFilingTransactions, signal: largeFilingSignal,
+    filing: { fact: { revisionId: "fixture-dense-filing" } } } as never,
+  minimumAlertBand: "review", previousAlert: false,
+});
+assert.equal(JSON.parse(denseEvidence).rows.length, 224, "research must receive rows beyond the finding preview's first fifty");
+const validationLocator = { kind: "text_span", artifactDigest: "a".repeat(64), start: 0, end: denseEvidence.length, spanDigest: "b".repeat(64) } as const;
+const denseUrl = largeFilingTransactions[0]!.source.publicDocumentUrl;
+const validationFields = { band: "record_only", brief: {
+  confidence: "low", title: "No supported implication", interpretation: "The disclosed transactions alone do not support an incremental conclusion.",
+  materialFacts: [{ statement: "The official PTR discloses transactions.", sourceUrls: [denseUrl] }],
+  implications: ["Do not infer a current position from this disclosure."], uncertainty: ["Current holdings are unknown."],
+  research: { status: "not_needed" }, sources: [{ label: "Official PTR", role: "official", url: denseUrl }],
+} };
+const validateResearch = (fields: unknown, disposition: "accepted" | "abstained", unknowns = ["No supported implication."]) =>
+  congressionalResearchValidationContract.validate({ disposition, fields, unknowns,
+    evidenceTexts: [{ content: denseEvidence, locator: validationLocator }], inputProjection: {} });
+assert.equal(validateResearch(validationFields, "abstained").requireExactCitations, true);
+assert.throws(() => validateResearch(validationFields, "accepted"), /congressional_research_output_invalid/);
+assert.throws(() => validateResearch(validationFields, "abstained", []), /congressional_research_output_invalid/);
+assert.throws(() => validateResearch({ ...validationFields, brief: { ...validationFields.brief,
+  sources: [{ label: "Wrong official source", role: "official", url: "https://example.com/" }] } }, "abstained"));
+researchBand = "record_only";
+const abstentionWorkspace = installWorkspace({ configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: [] },
+  version: "1.5.0", workspaceId: "123e4567-e89b-42d3-a456-426614175591" });
+const abstentionSource = new MemoryCasStore();
+const abstentionBaseline = await prepare(abstentionWorkspace.monitor, baseNow, abstentionWorkspace.scope);
+const abstentionBaselineResult = await execute({ document: baselineDocument, now: baseNow, prepared: abstentionBaseline, shouldFetch: true, sourceClient: abstentionSource });
+await reconcileWorkspaceRunBudget({ runId: abstentionBaselineResult.result.outcome.runId, scope: abstentionWorkspace.scope,
+  now: baseNow, outcome: "reconciled", actualInputTokens: 0, actualOutputTokens: 0, actualPaidCost: "0" }, researchMemory);
+const abstentionMonitor = await getWorkspaceMonitor(abstentionWorkspace.scope, abstentionWorkspace.monitor.monitorId, monitorStore);
+assert.ok(abstentionMonitor);
+const abstentionLive = await prepare(abstentionMonitor, researchNow, abstentionWorkspace.scope);
+const publicationsBeforeAbstention = reportPublications;
+const abstentionResult = await execute({ document: liveDocument, now: researchNow, prepared: abstentionLive, shouldFetch: true, sourceClient: abstentionSource });
+assert.equal(abstentionResult.result.outcome.outcome, "no_match");
+assert.equal(reportPublications, publicationsBeforeAbstention, "an unalerted record-only decision must not publish an alert report");
+assert.equal(researchBytes.size, 0, "temporary evidence bytes must be removed after acceptance and replay");
+console.log("Congressional dense evidence, validator rejection, abstention, and artifact cleanup verification passed.");

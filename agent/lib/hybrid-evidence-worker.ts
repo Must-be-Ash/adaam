@@ -111,7 +111,7 @@ export async function drainHybridEvidenceWorker(handle: RunHandle): Promise<{ in
     ? Object.freeze({
         inputTokens,
         outputTokens,
-        ...(sawMissingCost ? {} : { paidCostUsd: String(paidCostUsd) }),
+        ...(sawMissingCost ? {} : { paidCostUsd: paidCostUsd.toFixed(6) }),
       })
     : undefined;
 }
