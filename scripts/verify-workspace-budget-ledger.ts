@@ -118,6 +118,105 @@ await assert.rejects(
     error instanceof WorkspaceBudgetError && error.code === "budget_exhausted",
 );
 
+// Per-run reservations are soft dispatch envelopes: once a bounded child call
+// starts below the envelope, its actual usage may finish slightly above it.
+// The true usage must be recorded so hard day/month limits stop later work.
+const softClient = new MemoryStore();
+const softParent = await reserveWorkspaceRunBudget({
+  inputTokens: 100,
+  kind: "scheduled_monitor",
+  now,
+  outputTokens: 50,
+  paidCostCeiling: { amount: "0.10", kind: "known" },
+  policy,
+  policyRevision: 1,
+  runId: "soft-parent",
+  scope,
+}, softClient);
+const softChildOne = await reserveWorkspaceRunBudget({
+  inputTokens: 400,
+  kind: "hybrid_model_attempt",
+  now,
+  outputTokens: 200,
+  paidCostCeiling: { amount: "0.40", kind: "known" },
+  parentRunId: softParent.runId,
+  policy,
+  policyRevision: 1,
+  runId: "soft-child-one",
+  scope,
+}, softClient);
+await reconcileWorkspaceRunBudget({
+  actualInputTokens: 350,
+  actualOutputTokens: 150,
+  actualPaidCost: "0.30",
+  outcome: "reconciled",
+  runId: softChildOne.runId,
+  scope,
+}, softClient);
+const softChildTwo = await reserveWorkspaceRunBudget({
+  inputTokens: 200,
+  kind: "hybrid_model_attempt",
+  now,
+  outputTokens: 100,
+  paidCostCeiling: { amount: "0.40", kind: "known" },
+  parentRunId: softParent.runId,
+  policy,
+  policyRevision: 1,
+  runId: "soft-child-two",
+  scope,
+}, softClient);
+await reconcileWorkspaceRunBudget({
+  actualInputTokens: 200,
+  actualOutputTokens: 100,
+  actualPaidCost: "0.30",
+  outcome: "reconciled",
+  runId: softChildTwo.runId,
+  scope,
+}, softClient);
+const softChildAfterEnvelope = await reserveWorkspaceRunBudget({
+  inputTokens: 1,
+  kind: "hybrid_model_attempt",
+  now,
+  outputTokens: 1,
+  paidCostCeiling: { amount: "0.10", kind: "known" },
+  parentRunId: softParent.runId,
+  policy,
+  policyRevision: 1,
+  runId: "soft-child-after-envelope",
+  scope,
+}, softClient);
+await reconcileWorkspaceRunBudget({
+  actualInputTokens: 1,
+  actualOutputTokens: 1,
+  actualPaidCost: "0.01",
+  outcome: "reconciled",
+  runId: softChildAfterEnvelope.runId,
+  scope,
+}, softClient);
+const softCompleted = await reconcileWorkspaceRunBudget({
+  actualInputTokens: 551,
+  actualOutputTokens: 251,
+  actualPaidCost: "0.61",
+  outcome: "reconciled",
+  runId: softParent.runId,
+  scope,
+}, softClient);
+assert.equal(softCompleted.reconciledPaidMicros, "610000");
+await assert.rejects(
+  reserveWorkspaceRunBudget({
+    inputTokens: 1,
+    kind: "scheduled_monitor",
+    now,
+    outputTokens: 1,
+    paidCostCeiling: { amount: "0.50", kind: "known" },
+    policy,
+    policyRevision: 1,
+    runId: "hard-daily-limit-still-blocks",
+    scope,
+  }, softClient),
+  (error) => error instanceof WorkspaceBudgetError && error.code === "budget_exhausted",
+);
+
 const completed = await reconcileWorkspaceRunBudget(
   {
     actualInputTokens: 350,
@@ -356,5 +455,105 @@ await assert.rejects(
   /authoritative owner and workspace scope/u,
 );
 assert.equal(deniedClient.getCalls, 0);
+
+// Every active parent's child overrun must be visible to other admissions,
+// including new top-level runs, before the parent itself is reconciled.
+for (const limit of ["input", "output", "paid-day", "paid-month"] as const) {
+  for (const admission of ["child", "top-level"] as const) {
+    const interleavedClient = new MemoryStore();
+    const interleavedPolicy = {
+      ...policy,
+      maximumConcurrentWorkers: 3,
+      maximumInputTokensPerRun: 1_000,
+      maximumInputTokensPerDay: 1_000,
+      maximumOutputTokensPerRun: 1_000,
+      maximumOutputTokensPerDay: 1_000,
+      maximumPaidPerCall: "10",
+      maximumPaidPerDay: limit === "paid-day" ? "10" : "20",
+      maximumPaidPerMonth: limit === "paid-month" ? "10" : "20",
+    };
+    const paidLimit = limit.startsWith("paid");
+    const reserve = (runId: string, amount: number, parentRunId?: string) => reserveWorkspaceRunBudget({
+      inputTokens: limit === "input" ? amount : 0,
+      outputTokens: limit === "output" ? amount : 0,
+      paidCostCeiling: { amount: paidLimit ? String(amount / 100) : "0", kind: "known" },
+      kind: parentRunId ? "hybrid_model_attempt" : "scheduled_monitor",
+      parentRunId,
+      now,
+      policy: interleavedPolicy,
+      policyRevision: 1,
+      runId,
+      scope,
+    }, interleavedClient);
+    await reserve("parent-a", 200);
+    await reserve("parent-b", 200);
+    await reserve("child-a", 700, "parent-a");
+    await assert.rejects(reserve("over-hard-cap", 700, admission === "child" ? "parent-b" : undefined),
+      (error) => error instanceof WorkspaceBudgetError && error.code === "budget_exhausted",
+      `${limit}: ${admission} must see another parent's overrun`);
+    const before = await readWorkspaceBudgetLedger(scope, interleavedClient);
+    const usage = summarizeWorkspaceBudgetUsage(before, now, policy.ownerTimezone);
+    assert.equal(usage.inputTokensToday, limit === "input" ? 900 : 0);
+    assert.equal(usage.outputTokensToday, limit === "output" ? 900 : 0);
+    assert.equal(usage.paidMicrosToday, paidLimit ? "9000000" : "0");
+    assert.equal(usage.paidMicrosThisMonth, paidLimit ? "9000000" : "0");
+    // Soft envelopes still permit the exact hard boundary, and a failed CAS
+    // admission must not have left a reservation behind.
+    assert.equal(before.reservations.length, 3);
+    await reserve("at-hard-cap", admission === "child" ? 300 : 100,
+      admission === "child" ? "parent-b" : undefined);
+    const boundary = summarizeWorkspaceBudgetUsage(await readWorkspaceBudgetLedger(scope, interleavedClient), now, policy.ownerTimezone);
+    assert.equal(boundary.inputTokensToday, limit === "input" ? 1_000 : 0);
+    assert.equal(boundary.outputTokensToday, limit === "output" ? 1_000 : 0);
+    assert.equal(boundary.paidMicrosToday, paidLimit ? "10000000" : "0");
+    assert.equal(boundary.paidMicrosThisMonth, paidLimit ? "10000000" : "0");
+  }
+}
+
+// Periods belong to each reservation, not to its parent's creation date.
+// Retained/legacy children must remain charged even if their parent is no
+// longer present or has been released. These seeded records also exercise
+// accounting after old parent records have been pruned.
+const softLedger = await readWorkspaceBudgetLedger(scope, softClient);
+for (const parentState of ["reserved", "reconciled", "released", "missing", "previous-day", "previous-month"] as const) {
+  const family = {
+    ...softLedger,
+    reservations: softLedger.reservations.filter(({ runId }) => runId === softParent.runId || runId === softChildOne.runId)
+      .filter(({ runId }) => parentState !== "missing" || runId !== softParent.runId)
+      .map((entry) => entry.runId !== softParent.runId ? entry : {
+        ...entry,
+        state: parentState === "released" ? "released" as const : parentState === "reconciled" ? "reconciled" as const : "reserved" as const,
+        inputTokens: 100,
+        outputTokens: 50,
+        paidMicros: "100000",
+        reconciledInputTokens: parentState === "reconciled" ? 350 : null,
+        reconciledOutputTokens: parentState === "reconciled" ? 150 : null,
+        reconciledPaidMicros: parentState === "reconciled" ? "300000" : null,
+        calendarDay: parentState === "previous-month" ? "2026-07-31" : parentState === "previous-day" ? "2026-08-13" : entry.calendarDay,
+        calendarMonth: parentState === "previous-month" ? "2026-07" : entry.calendarMonth,
+      }),
+  };
+  const familyUsage = summarizeWorkspaceBudgetUsage(family, now, policy.ownerTimezone);
+  assert.equal(familyUsage.inputTokensToday, 350, `${parentState}: retained child input`);
+  assert.equal(familyUsage.outputTokensToday, 150, `${parentState}: retained child output`);
+  assert.equal(familyUsage.paidMicrosToday, "300000", `${parentState}: retained child paid/day`);
+  assert.equal(familyUsage.paidMicrosThisMonth, "300000", `${parentState}: retained child paid/month`);
+  for (const hardLimit of ["input", "output", "paid-day", "paid-month"] as const) {
+    const familyClient = new MemoryStore();
+    familyClient.values.set([...softClient.values.keys()][0]!, JSON.stringify(family));
+    await assert.rejects(reserveWorkspaceRunBudget({
+      inputTokens: hardLimit === "input" ? 1 : 0,
+      outputTokens: hardLimit === "output" ? 1 : 0,
+      paidCostCeiling: { amount: hardLimit.startsWith("paid") ? "0.01" : "0", kind: "known" },
+      kind: "scheduled_monitor", now, policyRevision: 1, runId: "retained-child-blocks", scope,
+      policy: { ...policy, maximumConcurrentWorkers: 2,
+        maximumInputTokensPerRun: 350, maximumInputTokensPerDay: 350,
+        maximumOutputTokensPerRun: 150, maximumOutputTokensPerDay: 150,
+        maximumPaidPerDay: hardLimit === "paid-day" ? "0.30" : "1",
+        maximumPaidPerMonth: hardLimit === "paid-month" ? "0.30" : "2" },
+    }, familyClient), (error) => error instanceof WorkspaceBudgetError && error.code === "budget_exhausted",
+    `${parentState}: ${hardLimit} admission must agree with summary`);
+  }
+}
 
 console.log("Atomic workspace budget ledger verification passed.");

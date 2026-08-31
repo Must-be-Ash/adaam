@@ -20,6 +20,11 @@ const MAX_CAS_ATTEMPTS = 8;
 const MAX_LEDGER_BYTES = 128 * 1_024;
 const MAX_RESERVATIONS = 1_024;
 const LEGACY_GLOBAL_RUNS_PER_DAY = 500;
+// Monitor leases are capped at one hour and hybrid jobs at five minutes. A
+// reservation untouched for two hours cannot still represent legitimate live
+// work; retain its full conservative charge as uncertain, but release the
+// concurrency slot so a process death cannot deadlock the deployment.
+const GLOBAL_RESERVATION_STALE_AFTER_MS = 2 * 60 * 60_000;
 const CAS_SCRIPT = `
 local current = redis.call("GET", KEYS[1])
 if ARGV[1] == "" then
@@ -183,6 +188,17 @@ function utcDay(now: Date): string {
   return now.toISOString().slice(0, 10);
 }
 
+function expireStaleGlobalReservations(
+  reservations: readonly GlobalDispatchReservation[],
+  now: Date,
+): GlobalDispatchReservation[] {
+  const staleBefore = now.getTime() - GLOBAL_RESERVATION_STALE_AFTER_MS;
+  return reservations.map((entry) =>
+    entry.state === "reserved" && Date.parse(entry.updatedAt) < staleBefore
+      ? { ...entry, state: "uncertain" as const, updatedAt: now.toISOString() }
+      : entry);
+}
+
 async function updateGlobalLedger<T>(
   client: WorkspaceGlobalBudgetClient,
   mutate: (ledger: GlobalDispatchLedger) => { ledger: GlobalDispatchLedger; result: T },
@@ -210,11 +226,21 @@ async function reserveGlobal(
   client: WorkspaceGlobalBudgetClient,
 ): Promise<GlobalDispatchReservation> {
   return updateGlobalLedger(client, (current) => {
-    const existing = current.reservations.find((entry) => entry.runId === runId);
-    if (existing) return { ledger: current, result: existing };
+    const currentReservations = expireStaleGlobalReservations(current.reservations, now);
+    const existing = currentReservations.find((entry) => entry.runId === runId);
+    if (existing) return { ledger: {
+      ...current,
+      revision: current.revision + (currentReservations.some((entry, index) => entry !== current.reservations[index]) ? 1 : 0),
+      reservations: currentReservations,
+    }, result: existing };
     const day = utcDay(now);
-    const reservations = current.reservations.filter(
-      (entry) => entry.calendarDay === day || entry.state === "reserved",
+    const month = day.slice(0, 7);
+    // This ledger also owns recovery spend. Keep unresolved receipts for
+    // reconciliation and current-month hybrid totals for the hard paid cap;
+    // neither settled nor uncertain work consumes active concurrency below.
+    const reservations = currentReservations.filter(
+      (entry) => entry.calendarDay === day || entry.state === "reserved" || entry.state === "uncertain" ||
+        (entry.kind === "hybrid_model_attempt" && entry.calendarDay.startsWith(month)),
     );
     const active = reservations.filter(
       (entry) => entry.kind === "scheduled_monitor" && entry.state === "reserved",
@@ -315,12 +341,12 @@ export function resolveHybridEvidenceDeploymentBudgetLimits(
     ),
     maximumInputTokensPerDay: nonnegativeInteger(
       environment.EVE_HYBRID_SOURCE_RECOVERY_INPUT_TOKENS_PER_DAY,
-      100_000,
+      200_000,
       10_000_000,
     ),
     maximumOutputTokensPerDay: nonnegativeInteger(
       environment.EVE_HYBRID_SOURCE_RECOVERY_OUTPUT_TOKENS_PER_DAY,
-      20_000,
+      100_000,
       1_000_000,
     ),
     maximumPaidMicrosPerCall: decimalMicros(
@@ -376,7 +402,8 @@ export async function reserveHybridEvidenceDeploymentBudget(input: {
     throw new WorkspaceDispatchBudgetError("global_budget_exhausted");
   }
   return updateGlobalLedger(options.client ?? store(), (current) => {
-    const existing = current.reservations.find(({ runId }) => runId === input.reservationKey);
+    const currentReservations = expireStaleGlobalReservations(current.reservations, now);
+    const existing = currentReservations.find(({ runId }) => runId === input.reservationKey);
     if (existing) {
       if (
         existing.state === "released" ||
@@ -385,11 +412,15 @@ export async function reserveHybridEvidenceDeploymentBudget(input: {
         existing.outputTokens !== input.outputTokens ||
         existing.paidMicros !== paidMicros
       ) throw new WorkspaceDispatchBudgetError("global_budget_conflict");
-      return { ledger: current, result: existing };
+      return { ledger: {
+        ...current,
+        revision: current.revision + (currentReservations.some((entry, index) => entry !== current.reservations[index]) ? 1 : 0),
+        reservations: currentReservations,
+      }, result: existing };
     }
     const day = utcDay(now);
     const month = day.slice(0, 7);
-    const reservations = current.reservations.filter(
+    const reservations = currentReservations.filter(
       (entry) => entry.calendarDay.startsWith(month) || entry.state === "reserved" || entry.state === "uncertain",
     );
     const hybrid = reservations.filter(

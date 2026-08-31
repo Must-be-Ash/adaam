@@ -23,7 +23,10 @@ import {
 } from "./hybrid-evidence-auth";
 import type { HybridEvidenceWorkerArtifactReader } from "./hybrid-evidence-artifact-store";
 import { createHybridEvidenceWorkerArtifactStore } from "./hybrid-evidence-artifact-store";
-import type { HybridEvidenceBudgetReservation } from "./hybrid-evidence-budget";
+import {
+  createHybridEvidenceAttemptReceipt,
+  type HybridEvidenceBudgetReservation,
+} from "./hybrid-evidence-budget";
 import type { HybridModelReasoning } from "./hybrid-evidence-model-routing";
 import { readPublicSourceFactRevision } from "./public-source-acquisition-store";
 import {
@@ -80,6 +83,39 @@ import {
 import { authorizeDeploymentWorkspaceStore } from "./workspace-store-authorization";
 
 export const HYBRID_EVIDENCE_WORKER_NODE_ID = "subagents/hybrid-evidence-worker";
+export async function drainHybridEvidenceWorker(handle: RunHandle): Promise<{ inputTokens: number; outputTokens: number; paidCostUsd?: string } | undefined> {
+  const reader = handle.events.getReader();
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let paidCostUsd = 0;
+  let sawUsage = false;
+  let sawMissingCost = false;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      if (next.value.type === "step.completed") {
+        const usage = next.value.data.usage;
+        if (!usage || usage.inputTokens === undefined || usage.outputTokens === undefined) continue;
+        sawUsage = true;
+        inputTokens += usage.inputTokens;
+        outputTokens += usage.outputTokens;
+        if (usage.costUsd === undefined) sawMissingCost = true;
+        else paidCostUsd += usage.costUsd;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return sawUsage
+    ? Object.freeze({
+        inputTokens,
+        outputTokens,
+        ...(sawMissingCost ? {} : { paidCostUsd: String(paidCostUsd) }),
+      })
+    : undefined;
+}
+
 export const HYBRID_EVIDENCE_CAPABILITY_REVISION = 2;
 const LEGACY_HYBRID_EVIDENCE_CAPABILITY_REVISION = 1;
 
@@ -330,6 +366,7 @@ function typedPrompt(input: {
 }
 
 interface PrepareHybridEvidenceWorkerRunInput {
+  admissionToken?: string;
   approvedResearchUrls?: readonly string[];
   budget: HybridEvidenceBudgetReservation;
   definition: HybridEvidenceJobDefinition;
@@ -405,21 +442,22 @@ export async function prepareHybridEvidenceWorkerRun(
     envelope,
     resolveHybridEvidenceWorkerAuthEnvironment(input.environment),
   );
-  const record = await claimHybridEvidenceJob({
-    claimToken: token,
-    jobId: input.prepared.job.jobId,
-    now: recordNow,
-  }, input.jobClient);
   const prompt = typedPrompt({
     attachedPdfEvidence: input.initialEvidenceImages !== undefined,
     definition,
     inputProjection: input.inputProjection,
-    job: record.job,
+    job: input.prepared.job,
     locators,
   });
   if (Buffer.byteLength(prompt, "utf8") > MAX_PROMPT_BYTES) {
     throw new HybridEvidenceWorkerError("worker_prompt_too_large");
   }
+  const record = await claimHybridEvidenceJob({
+    admissionToken: input.admissionToken,
+    attemptReceipt: createHybridEvidenceAttemptReceipt(input.budget),
+    claimToken: token, expiresAt,
+    jobId: input.prepared.job.jobId, now: recordNow,
+  }, input.jobClient);
   const message = input.initialEvidenceImages === undefined
     ? prompt
     : [

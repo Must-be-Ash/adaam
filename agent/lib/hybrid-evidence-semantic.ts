@@ -21,6 +21,8 @@ import {
   prepareHybridEvidenceJob,
   quarantineHybridEvidenceJob,
   readHybridEvidenceJob,
+  readHybridEvidenceRecoveryObservations,
+  waitForHybridEvidenceJobSettlement,
   type HybridEvidenceJobRecord,
   type HybridEvidenceJobStoreClient,
 } from "./hybrid-evidence-job-store";
@@ -94,6 +96,8 @@ import {
   type PublicSourceWorkspaceHealth,
 } from "./public-source-health";
 import type { PublicSourceWorkspaceReference } from "./public-source-workspace-reference";
+
+const WORKER_DISPATCH_ERROR_SETTLEMENT_GRACE_MS = 15_000;
 
 const semanticCandidateSchema = z.object({
   citations: z.array(evidenceLocatorSchema).min(1).max(HYBRID_EVIDENCE_LIMITS.maximumCitations),
@@ -993,11 +997,18 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
       });
       record = worker.record;
       await recordWorkspaceSemanticJob({ job: record.job, scope: input.scope, source: prepared.source }, clients.semantic);
+      const workerSettlementDeadline = Date.now() + prepared.definition.limits.maximumRuntimeMs;
       try {
         modelAttempted = true;
         executionUsage = await clients.execute(worker);
       } catch (error) {
-        record = (await readHybridEvidenceJob(record.job.jobId, clients.jobs)) ?? record;
+        record = (await waitForHybridEvidenceJobSettlement({
+          jobId: record.job.jobId,
+          maximumWaitMs: Math.min(
+            Math.max(0, workerSettlementDeadline - Date.now()),
+            WORKER_DISPATCH_ERROR_SETTLEMENT_GRACE_MS,
+          ),
+        }, clients.jobs)) ?? record;
         if (record.job.state !== "completed") {
           if (record.job.state === "running" || record.job.state === "prepared") {
             record = await markHybridEvidenceJobUncertain({
@@ -1028,7 +1039,10 @@ export async function runWorkspaceSemanticEvidenceJob(input: Parameters<
           throw error;
         }
       }
-      record = (await readHybridEvidenceJob(record.job.jobId, clients.jobs)) ?? record;
+      record = (await waitForHybridEvidenceJobSettlement({
+        jobId: record.job.jobId,
+        maximumWaitMs: Math.max(0, workerSettlementDeadline - Date.now()),
+      }, clients.jobs)) ?? record;
     }
     if (record.job.state !== "completed" || !record.candidate) {
       if (record.job.state === "running" || record.job.state === "prepared") {
@@ -1539,7 +1553,7 @@ export async function inspectWorkspaceHybridEvidence(input: {
     `${reference.sourceInstanceId}\0${reference.subscriptionId}`,
     reference,
   ])).values()];
-  const [budget, capabilities, jobs, sourceHealth] = await Promise.all([
+  const [budget, capabilities, jobs, sourceHealth, recoveryReceipts] = await Promise.all([
     readWorkspaceDocument("budget", input.scope, clients.state),
     readWorkspaceDocument("capabilities", input.scope, clients.state),
     listWorkspaceSemanticJobSummaries(input.scope, clients.semantic),
@@ -1550,6 +1564,7 @@ export async function inspectWorkspaceHybridEvidence(input: {
         reference,
         scope: input.scope,
       }).catch(() => unavailablePublicSourceWorkspaceHealth(reference, input.environment)))),
+    readHybridEvidenceRecoveryObservations(input.scope, clients.state),
   ]);
   const counts = { accepted: 0, completed: 0, failed: 0, prepared: 0, quarantined: 0, running: 0, uncertain: 0 };
   let paidCostUsd = "0";
@@ -1618,6 +1633,7 @@ export async function inspectWorkspaceHybridEvidence(input: {
   return Object.freeze({
     counts: Object.freeze(counts),
     history: Object.freeze({
+      recoveryReceipts: Object.freeze(recoveryReceipts),
       sourceGlobalExtraction: Object.freeze(sourceHistory),
       workspaceSemantic: Object.freeze([...results, ...quarantines].slice(0, 16)),
     }),

@@ -4,7 +4,8 @@ import type { RunHandle } from "../../node_modules/eve/dist/src/channel/types.js
 
 import {
   reconcileHybridEvidenceAttempt,
-  reserveHybridEvidenceAttempt,
+  reconcileRecordedHybridEvidenceAttempt,
+  reserveAdmittedHybridEvidenceAttempt,
   type HybridEvidenceBudgetReservation,
 } from "./hybrid-evidence-budget";
 import {
@@ -19,11 +20,15 @@ import { createAcceptedExtractionResult } from "./hybrid-evidence-extraction-rec
 import type { HybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
 import {
   acceptHybridEvidenceJob,
-  failHybridEvidenceJob,
+  expireHybridEvidenceJobClaim,
+  retryUncertainHybridEvidenceJob,
+  resetHybridEvidenceJobAdmission,
+  persistHybridEvidenceExtractionUsage,
   markHybridEvidenceJobUncertain,
   prepareHybridEvidenceJob,
   quarantineHybridEvidenceJob,
   readHybridEvidenceJob,
+  waitForHybridEvidenceJobSettlement,
   type HybridEvidenceJobStoreClient,
 } from "./hybrid-evidence-job-store";
 import {
@@ -36,11 +41,14 @@ import {
 } from "./hybrid-evidence-schema";
 import {
   prepareHybridEvidenceWorkerRun,
+  drainHybridEvidenceWorker,
   startHybridEvidenceWorkerTask,
   workerCandidateSchema,
   type PreparedHybridEvidenceWorkerRun,
 } from "./hybrid-evidence-worker";
 import type { WorkspaceBudgetLedgerClient } from "./workspace-budget-ledger";
+import type { WorkspaceStateStoreClient } from "./workspace-state-store";
+import type { AuthorizedWorkspaceStoreScope } from "./workspace-store-authorization";
 import {
   resolveHybridEvidenceDeploymentBudgetLimits,
   type WorkspaceGlobalBudgetClient,
@@ -62,6 +70,7 @@ export interface EarningsCallTranscriptRecoveryClients {
   readonly globalBudget?: WorkspaceGlobalBudgetClient;
   readonly jobs?: HybridEvidenceJobStoreClient;
   readonly lineage?: HybridEvidenceLineageStoreClient;
+  readonly state?: WorkspaceStateStoreClient;
   readonly workspaceBudget?: WorkspaceBudgetLedgerClient;
 }
 
@@ -77,37 +86,8 @@ export type EarningsCallTranscriptRecoveryResult =
       state: "unavailable";
     }>;
 
-async function drain(handle: RunHandle): Promise<ModelUsage | undefined> {
-  const reader = handle.events.getReader();
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let paidCostUsd = 0;
-  let sawUsage = false;
-  let missingCost = false;
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      if (next.value.type !== "step.completed") continue;
-      const usage = next.value.data.usage;
-      if (!usage || usage.inputTokens === undefined || usage.outputTokens === undefined) continue;
-      sawUsage = true;
-      inputTokens += usage.inputTokens;
-      outputTokens += usage.outputTokens;
-      if (usage.costUsd === undefined) missingCost = true;
-      else paidCostUsd += usage.costUsd;
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return sawUsage
-    ? Object.freeze({
-        inputTokens,
-        outputTokens,
-        ...(missingCost ? {} : { paidCostUsd: String(paidCostUsd) }),
-      })
-    : undefined;
-}
+const WORKER_DISPATCH_ERROR_SETTLEMENT_GRACE_MS = 15_000;
+
 
 export async function runEarningsCallTranscriptLayoutRecovery(input: {
   readonly acquisitionId: string;
@@ -123,6 +103,8 @@ export async function runEarningsCallTranscriptLayoutRecovery(input: {
   readonly eventRevisionId: string;
   readonly initiatingWorkspaceId: string;
   readonly observedAt: string;
+  readonly parentBudgetRunId?: string;
+  readonly scope?: AuthorizedWorkspaceStoreScope;
   readonly sourceInstanceId: string;
   readonly sourceLogicalKey: string;
   readonly sourceText: string;
@@ -196,10 +178,10 @@ export async function runEarningsCallTranscriptLayoutRecovery(input: {
       transcript.artifactDigest !== input.artifactDigest ||
       transcript.eventRevisionId !== input.eventRevisionId
     ) throw new Error("validator_failed");
-    await input.clients.artifacts.setReference({
+    for (const kind of ["accepted_result", "current_lineage"] as const) await input.clients.artifacts.setReference({
       active: true,
       artifactDigest: manifest.contentDigest,
-      kind: "accepted_result",
+      kind,
       referenceId: acceptedRecord.acceptedResult.resultId,
     });
     await advanceHybridSourceResultLineage({
@@ -210,6 +192,13 @@ export async function runEarningsCallTranscriptLayoutRecovery(input: {
       sourceRevision: input.eventRevisionId,
     }, input.clients.lineage);
     await input.clients.artifacts.deleteUnreferenced(manifest.contentDigest);
+    await reconcileRecordedHybridEvidenceAttempt({
+      receipt: acceptedRecord.attemptReceipt ?? { lane: "source_global_extraction", reservationKey: acceptedRecord.job.budgetReservation.key, workspace: null },
+      environment: input.environment, outcome: "reconciled",
+      actualInputTokens: acceptedRecord.acceptedResult.usage.inputTokens,
+      actualOutputTokens: acceptedRecord.acceptedResult.usage.outputTokens,
+      actualPaidCost: acceptedRecord.acceptedResult.usage.paidCostUsd,
+    }, { global: input.clients.globalBudget, workspace: input.clients.workspaceBudget });
     return Object.freeze({
       normalizedText: input.sourceText,
       resultId: acceptedRecord.acceptedResult.resultId,
@@ -224,33 +213,51 @@ export async function runEarningsCallTranscriptLayoutRecovery(input: {
       return Object.freeze({ reason: "candidate_invalid", state: "unavailable" as const });
     }
   }
-  if (record.job.state !== "prepared") {
+  if (record.job.state === "running") {
+    record = await expireHybridEvidenceJobClaim({ definition, jobId: record.job.jobId }, input.clients.jobs);
+  }
+  if (record.job.state === "uncertain" && record.attemptReceipt) {
+    await reconcileRecordedHybridEvidenceAttempt({ receipt: record.attemptReceipt, environment: input.environment,
+      outcome: "uncertain" }, { global: input.clients.globalBudget, workspace: input.clients.workspaceBudget });
+    if (record.job.attempt < definition.limits.maximumAttempts) {
+      record = await retryUncertainHybridEvidenceJob({ definition, jobId: record.job.jobId }, input.clients.jobs);
+    }
+  }
+  if (record.job.state !== "prepared" && record.job.state !== "completed") {
     return Object.freeze({ reason: "execution_unavailable", state: "unavailable" as const });
   }
 
-  let reservation: HybridEvidenceBudgetReservation;
-  try {
-    reservation = await reserveHybridEvidenceAttempt({
+  let reservation: HybridEvidenceBudgetReservation | undefined;
+  let admissionToken: string | undefined;
+  if (record.job.state === "prepared") try {
+    const admitted = await reserveAdmittedHybridEvidenceAttempt({
+      record, initiatingWorkspaceId: input.initiatingWorkspaceId,
       definition,
       environment: input.environment,
       job: record.job,
       now,
+      parentRunId: input.parentBudgetRunId,
+      scope: input.scope,
     }, {
+      jobs: input.clients.jobs,
       global: input.clients.globalBudget,
+      state: input.clients.state,
       workspace: input.clients.workspaceBudget,
     });
+    ({ record, reservation, admissionToken } = admitted);
   } catch {
-    await failHybridEvidenceJob({ code: "budget_exhausted", jobId: record.job.jobId, now }, input.clients.jobs);
-    await input.clients.artifacts.setRetention({
-      artifactDigest: manifest.contentDigest,
-      now,
-      state: "quarantined",
-    }).catch(() => undefined);
     return Object.freeze({ reason: "budget_unavailable", state: "unavailable" as const });
   }
 
+  let validationStarted = false;
+  let validationCompleted = false;
+  let ownedClaimToken: string | undefined;
+  let usage: ModelUsage | void = record.extractionUsage ?? undefined;
+  try {
+  if (record.job.state === "prepared") {
   const prepared = await prepareHybridEvidenceWorkerRun({
-    budget: reservation,
+    admissionToken,
+    budget: reservation!,
     definition,
     environment: input.environment,
     jobClient: input.clients.jobs,
@@ -259,12 +266,32 @@ export async function runEarningsCallTranscriptLayoutRecovery(input: {
     prepared: record,
     reasoning: route.reasoning,
   });
-  try {
-    const usage = input.dispatch
-      ? await input.dispatch({ prepared, reservation })
-      : await drain(await (input.startWorker ?? startHybridEvidenceWorkerTask)(prepared.request));
-    record = (await readHybridEvidenceJob(record.job.jobId, input.clients.jobs))!;
+    ownedClaimToken = prepared.token;
+    const workerSettlementDeadline = Date.now() + definition.limits.maximumRuntimeMs;
+    let dispatchError: unknown;
+    try {
+      usage = input.dispatch
+        ? await input.dispatch({ prepared, reservation: reservation! })
+        : await drainHybridEvidenceWorker(await (input.startWorker ?? startHybridEvidenceWorkerTask)(prepared.request));
+    } catch (error) {
+      dispatchError = error;
+    }
+    record = (await waitForHybridEvidenceJobSettlement({
+      jobId: record.job.jobId,
+      maximumWaitMs: Math.min(
+        Math.max(0, workerSettlementDeadline - Date.now()),
+        dispatchError === undefined
+          ? definition.limits.maximumRuntimeMs
+          : WORKER_DISPATCH_ERROR_SETTLEMENT_GRACE_MS,
+      ),
+    }, input.clients.jobs))!;
+    if (dispatchError !== undefined && record.job.state !== "completed") throw dispatchError;
+    if (record.job.state === "completed" && usage) record = await persistHybridEvidenceExtractionUsage({
+      claimToken: prepared.token, jobId: record.job.jobId, usage,
+    }, input.clients.jobs);
+  }
     if (record.job.state !== "completed" || !record.candidate) throw new Error("validator_failed");
+    validationStarted = true;
     const candidate = workerCandidateSchema.parse(record.candidate);
     if (candidate.disposition !== "accepted" || candidate.unknowns.length > 0) {
       throw new Error("validator_failed");
@@ -275,6 +302,7 @@ export async function runEarningsCallTranscriptLayoutRecovery(input: {
       eventRevisionId: input.eventRevisionId,
       sourceText: input.sourceText,
     });
+    validationCompleted = true;
     const acceptedResult = createAcceptedExtractionResult({
       citations: [locator],
       definition,
@@ -293,36 +321,17 @@ export async function runEarningsCallTranscriptLayoutRecovery(input: {
       result: acceptedResult,
     }, input.clients.jobs);
     const converged = await convergeAccepted(accepted);
-    await reconcileHybridEvidenceAttempt({
-      actualInputTokens: accepted.acceptedResult?.usage.inputTokens,
-      actualOutputTokens: accepted.acceptedResult?.usage.outputTokens,
-      actualPaidCost: accepted.acceptedResult?.usage.paidCostUsd,
-      outcome: "reconciled",
-      reservation,
-    }, { global: input.clients.globalBudget, workspace: input.clients.workspaceBudget });
     return converged;
   } catch {
     const latest = await readHybridEvidenceJob(record.job.jobId, input.clients.jobs);
     if (latest?.job.state === "accepted" && latest.acceptedResult) {
       try {
-        const converged = await convergeAccepted(latest);
-        await reconcileHybridEvidenceAttempt({
-          actualInputTokens: latest.acceptedResult.usage.inputTokens,
-          actualOutputTokens: latest.acceptedResult.usage.outputTokens,
-          actualPaidCost: latest.acceptedResult.usage.paidCostUsd,
-          outcome: "reconciled",
-          reservation,
-        }, { global: input.clients.globalBudget, workspace: input.clients.workspaceBudget });
-        return converged;
+        return await convergeAccepted(latest);
       } catch {
-        await reconcileHybridEvidenceAttempt({ outcome: "uncertain", reservation }, {
-          global: input.clients.globalBudget,
-          workspace: input.clients.workspaceBudget,
-        });
         return Object.freeze({ reason: "execution_unavailable", state: "unavailable" as const });
       }
     }
-    if (latest?.job.state === "completed") {
+    if (latest?.job.state === "completed" && validationStarted && !validationCompleted) {
       await quarantineHybridEvidenceJob({
         codes: ["validator_failed"],
         jobId: latest.job.jobId,
@@ -333,19 +342,26 @@ export async function runEarningsCallTranscriptLayoutRecovery(input: {
         now: new Date(),
         state: "quarantined",
       }).catch(() => undefined);
-      await reconcileHybridEvidenceAttempt({ outcome: "reconciled", reservation }, {
+      await reconcileRecordedHybridEvidenceAttempt({ outcome: "reconciled", environment: input.environment,
+        receipt: latest.attemptReceipt!, actualInputTokens: usage?.inputTokens,
+        actualOutputTokens: usage?.outputTokens, actualPaidCost: usage?.paidCostUsd }, {
         global: input.clients.globalBudget,
         workspace: input.clients.workspaceBudget,
       });
       return Object.freeze({ reason: "candidate_invalid", state: "unavailable" as const });
     }
-    if (latest && (latest.job.state === "prepared" || latest.job.state === "running")) {
+    if (latest?.job.state === "prepared" && reservation) {
+      await reconcileHybridEvidenceAttempt({ outcome: "released", reservation }, {
+        global: input.clients.globalBudget, workspace: input.clients.workspaceBudget,
+      });
+      await resetHybridEvidenceJobAdmission({ admissionToken, jobId: latest.job.jobId, reservationKey: reservation.reservationKey }, input.clients.jobs);
+    } else if (latest?.job.state === "running" && ownedClaimToken &&
+      latest.claimTokenDigest === createHash("sha256").update(ownedClaimToken).digest("hex")) {
       await markHybridEvidenceJobUncertain({ jobId: latest.job.jobId, now: new Date() }, input.clients.jobs);
+      await reconcileRecordedHybridEvidenceAttempt({ outcome: "uncertain", receipt: latest.attemptReceipt!, environment: input.environment }, {
+        global: input.clients.globalBudget, workspace: input.clients.workspaceBudget,
+      });
     }
-    await reconcileHybridEvidenceAttempt({ outcome: "uncertain", reservation }, {
-      global: input.clients.globalBudget,
-      workspace: input.clients.workspaceBudget,
-    });
     return Object.freeze({ reason: "execution_unavailable", state: "unavailable" as const });
   }
 }

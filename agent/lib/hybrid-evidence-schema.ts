@@ -452,7 +452,7 @@ export const hybridEvidenceJobSchema = z.object({
     job.scope.kind !== expectedScope ||
     !timestampsOrdered ||
     (job.state === "prepared" && (
-      job.attempt !== 0 || job.startedAt !== null || job.completedAt !== null
+      job.startedAt !== null || job.completedAt !== null
     )) ||
     (job.state === "running" && (
       job.attempt === 0 || job.startedAt === null || job.completedAt !== null
@@ -512,8 +512,10 @@ export const hybridAcceptedResultSchema = z.object({
   }).strict(),
   usage: z.object({
     inputTokens: z.number().int().nonnegative().max(200_000),
-    outputTokens: z.number().int().nonnegative().max(20_000),
-    paidCostUsd: z.string().regex(/^(?:0|[1-9]\d{0,3})(?:\.\d{1,4})?$/u),
+    // An extraction result includes the separately bounded independent OCR
+    // evidence: 20k extractor + at most eight 4k OCR page responses.
+    outputTokens: z.number().int().nonnegative().max(52_000),
+    paidCostUsd: z.string().regex(/^(?:0|[1-9]\d{0,3})(?:\.\d{1,6})?$/u),
   }).strict(),
   validatedAt: timestampSchema,
   validationTrace: z.array(validationTraceSchema).min(1).max(

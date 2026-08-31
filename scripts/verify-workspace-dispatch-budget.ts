@@ -4,9 +4,9 @@ import { readFile } from "node:fs/promises";
 import {
   finishWorkspaceMonitorDispatchBudget,
   readGlobalDispatchBudgetLedger,
-  reconcileHybridEvidenceDeploymentBudget,
-  reserveHybridEvidenceDeploymentBudget,
   reserveWorkspaceMonitorDispatchBudget,
+  reserveHybridEvidenceDeploymentBudget,
+  reconcileHybridEvidenceDeploymentBudget,
   resolveWorkspaceGlobalBudgetLimits,
   WorkspaceDispatchBudgetError,
   type WorkspaceGlobalBudgetClient,
@@ -46,6 +46,20 @@ class MemoryStore
 }
 
 const now = new Date("2026-08-14T17:00:00.000Z");
+const releasedHybridStore = new MemoryStore();
+const staleHybridStore = new MemoryStore();
+const releasedHybridInput = { inputTokens: 100, outputTokens: 20, modelId: "fixture/recovery", now,
+  paidCostCeiling: "0.1", reservationKey: "released-hybrid-fixture" };
+const releasedHybridOptions = { client: releasedHybridStore,
+  environment: { EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS: "fixture/recovery" } };
+await reserveHybridEvidenceDeploymentBudget(releasedHybridInput, { ...releasedHybridOptions, client: staleHybridStore });
+await reserveHybridEvidenceDeploymentBudget({ ...releasedHybridInput, now: new Date(now.getTime() + 3 * 3600000) },
+  { ...releasedHybridOptions, client: staleHybridStore });
+assert.equal((await readGlobalDispatchBudgetLedger(staleHybridStore)).reservations[0]!.state, "uncertain",
+  "idempotent lookups durably expire stale reservations");
+await reserveHybridEvidenceDeploymentBudget(releasedHybridInput, releasedHybridOptions);
+await reconcileHybridEvidenceDeploymentBudget({ reservationKey: releasedHybridInput.reservationKey, now, outcome: "released" }, releasedHybridStore);
+await assert.rejects(reserveHybridEvidenceDeploymentBudget(releasedHybridInput, releasedHybridOptions), /global_budget_conflict/u);
 const environment = {
   EVE_DEPLOYMENT_OWNER_ID: "owner_fixture",
   EVE_WORKSPACE_GLOBAL_CONCURRENT_WORKERS: "2",
@@ -231,6 +245,83 @@ await finishWorkspaceMonitorDispatchBudget(
 const ledger = await readGlobalDispatchBudgetLedger(global);
 assert.equal(ledger.reservations.filter((entry) => entry.state === "reserved").length, 0);
 assert.equal(ledger.reservations.filter((entry) => entry.state === "settled").length, 1);
+
+// A process death can strand the global reservation after every legitimate
+// monitor lease and hybrid worker deadline has expired. It must stop counting
+// as active concurrency while remaining conservatively charged as uncertain.
+const staleGlobal = new MemoryStore();
+const staleState = new MemoryStore();
+const staleWorkspace = new MemoryStore();
+await Promise.all([putPolicy(scopeA, staleState), putPolicy(scopeB, staleState)]);
+await reserveWorkspaceMonitorDispatchBudget(job(scopeA, "stalea"), {
+  clients: { global: staleGlobal, state: staleState, workspace: staleWorkspace },
+  environment: { ...environment, EVE_WORKSPACE_GLOBAL_CONCURRENT_WORKERS: "1" },
+  now,
+});
+const afterStaleDeadline = new Date(now.getTime() + 2 * 60 * 60_000 + 1);
+await reserveWorkspaceMonitorDispatchBudget(job(scopeB, "staleb"), {
+  clients: { global: staleGlobal, state: staleState, workspace: staleWorkspace },
+  environment: { ...environment, EVE_WORKSPACE_GLOBAL_CONCURRENT_WORKERS: "1" },
+  now: afterStaleDeadline,
+});
+const staleLedger = await readGlobalDispatchBudgetLedger(staleGlobal);
+assert.equal(staleLedger.reservations.find(({ runId }) =>
+  runId.startsWith(job(scopeA, "stalea").occurrence.occurrenceKey))?.state, "uncertain");
+assert.equal(staleLedger.reservations.filter(({ state }) => state === "reserved").length, 1);
+
+// A monitor admitted after UTC midnight must not prune the recovery lane's
+// monthly charges or the receipts needed to reconcile interrupted work.
+for (const scenario of ["expired", "uncertain", "settled", "month-boundary"] as const) {
+  const overnightGlobal = new MemoryStore();
+  const overnightState = new MemoryStore();
+  const overnightWorkspace = new MemoryStore();
+  await Promise.all([putPolicy(scopeA, overnightState), putPolicy(scopeB, overnightState)]);
+  const prior = new Date(scenario === "month-boundary" ? "2026-08-31T21:00:00.000Z" : "2026-08-14T21:00:00.000Z");
+  const next = new Date(scenario === "month-boundary" ? "2026-09-01T01:00:00.000Z" : "2026-08-15T01:00:00.000Z");
+  const recoveryOptions = { client: overnightGlobal, environment: {
+    EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS: "fixture/recovery",
+    EVE_HYBRID_SOURCE_RECOVERY_CONCURRENT_WORKERS: "1",
+    EVE_HYBRID_SOURCE_RECOVERY_PAID_PER_DAY: "1",
+    EVE_HYBRID_SOURCE_RECOVERY_PAID_PER_MONTH: "1",
+  } };
+  const recoveryInput = { ...releasedHybridInput, now: prior, paidCostCeiling: "0.75", reservationKey: "overnight-recovery" };
+  await reserveHybridEvidenceDeploymentBudget(recoveryInput, recoveryOptions);
+  if (scenario === "uncertain" || scenario === "settled") {
+    await reconcileHybridEvidenceDeploymentBudget({ reservationKey: recoveryInput.reservationKey,
+      now: prior, outcome: scenario === "settled" ? "reconciled" : "uncertain",
+      ...(scenario === "settled" ? { actualPaidCost: "0.75", actualInputTokens: 100, actualOutputTokens: 20 } : {}),
+    }, overnightGlobal);
+  }
+  const overnightClients = { global: overnightGlobal, state: overnightState, workspace: overnightWorkspace };
+  const overnightEnvironment = { ...environment, EVE_WORKSPACE_GLOBAL_CONCURRENT_WORKERS: "1" };
+  const oldMonitor = job(scopeA, "overnight-old");
+  const oldMonitorReservation = await reserveWorkspaceMonitorDispatchBudget(oldMonitor, {
+    clients: overnightClients, environment: overnightEnvironment, now: prior,
+  });
+  await reserveWorkspaceMonitorDispatchBudget(job(scopeB, "overnight-new"), {
+    clients: overnightClients, environment: overnightEnvironment, now: next,
+  });
+  const overnightLedger = await readGlobalDispatchBudgetLedger(overnightGlobal);
+  assert.equal(overnightLedger.reservations.find(({ runId }) => runId === recoveryInput.reservationKey)?.state,
+    scenario === "settled" ? "settled" : "uncertain", `${scenario}: monitor admission must retain recovery receipt`);
+  assert.equal(overnightLedger.reservations.find(({ runId }) => runId === oldMonitorReservation.runId)?.state,
+    "uncertain", `${scenario}: preserve interrupted monitor receipt without consuming concurrency`);
+  assert.equal(overnightLedger.reservations.filter(({ kind, state }) => kind === "scheduled_monitor" && state === "reserved").length, 1);
+  // An uncertain recovery no longer occupies the sole hybrid worker slot.
+  await reserveHybridEvidenceDeploymentBudget({ ...recoveryInput, now: next, paidCostCeiling: "0.10", reservationKey: "overnight-affordable" }, recoveryOptions);
+  await reconcileHybridEvidenceDeploymentBudget({ reservationKey: "overnight-affordable", now: next,
+    outcome: "reconciled", actualPaidCost: "0.10", actualInputTokens: 100, actualOutputTokens: 20 }, overnightGlobal);
+  await assert.rejects(reserveHybridEvidenceDeploymentBudget({ ...recoveryInput, now: next,
+    paidCostCeiling: "0.20", reservationKey: "overnight-monthly-denied" }, recoveryOptions),
+  /global_budget_exhausted/u, `${scenario}: prior recovery still consumes the monthly allowance`);
+  const repaired = await reconcileHybridEvidenceDeploymentBudget({ reservationKey: recoveryInput.reservationKey,
+    now: next, outcome: "reconciled", actualInputTokens: 100, actualOutputTokens: 20,
+    actualPaidCost: scenario === "settled" ? "0.75" : "0.40" }, overnightGlobal);
+  assert.equal(repaired.state, "settled", `${scenario}: original attempt remains reconcilable`);
+  assert.equal(repaired.reconciledPaidMicros, scenario === "settled" ? "750000" : "400000");
+  await reserveHybridEvidenceDeploymentBudget({ ...recoveryInput, now: next,
+    paidCostCeiling: scenario === "settled" ? "0.15" : "0.50", reservationKey: "overnight-after-reconciliation" }, recoveryOptions);
+}
 
 const missingGlobal = new MemoryStore();
 const missingWorkspace = new MemoryStore();
@@ -447,39 +538,66 @@ assert.equal(
   0,
 );
 
-const releasedHybridGlobal = new MemoryStore();
-const hybridEnvironment = {
-  EVE_HYBRID_SOURCE_RECOVERY_MAXIMUM_CONCURRENT_WORKERS: "1",
-  EVE_HYBRID_SOURCE_RECOVERY_MAXIMUM_INPUT_TOKENS_PER_DAY: "1000",
-  EVE_HYBRID_SOURCE_RECOVERY_MAXIMUM_OUTPUT_TOKENS_PER_DAY: "1000",
-  EVE_HYBRID_SOURCE_RECOVERY_MAXIMUM_PAID_PER_CALL: "1",
-  EVE_HYBRID_SOURCE_RECOVERY_MAXIMUM_PAID_PER_DAY: "1",
-  EVE_HYBRID_SOURCE_RECOVERY_MAXIMUM_PAID_PER_MONTH: "1",
-  EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS: "fixture/extractor",
-};
-const releasedHybrid = await reserveHybridEvidenceDeploymentBudget({
-  inputTokens: 100,
-  modelId: "fixture/extractor",
+// A scheduled parent without a per-run dollar cap reserves $0 because it is
+// an aggregate occurrence envelope, not a provider call. Paid children still
+// reconcile into that parent; otherwise the parent remains reserved forever
+// and maximumConcurrentWorkers blocks every later occurrence.
+const aggregateGlobal = new MemoryStore();
+const aggregateState = new MemoryStore();
+const aggregateWorkspace = new MemoryStore();
+await writeWorkspaceDocument("budget", {
+  expectedRevision: 0,
   now,
-  outputTokens: 100,
-  paidCostCeiling: "0.10",
-  reservationKey: "hybrid.released.fixture",
-}, { client: releasedHybridGlobal, environment: hybridEnvironment });
-await reconcileHybridEvidenceDeploymentBudget({
+  scope: scopeB,
+  value: nestedPolicy,
+}, aggregateState);
+const aggregateJob = job(scopeB, "aggregate");
+const aggregateReservation = await reserveWorkspaceMonitorDispatchBudget(aggregateJob, {
+  clients: {
+    global: aggregateGlobal,
+    state: aggregateState,
+    workspace: aggregateWorkspace,
+  },
+  environment,
   now,
-  outcome: "released",
-  reservationKey: releasedHybrid.runId,
-}, releasedHybridGlobal);
-await assert.rejects(
-  reserveHybridEvidenceDeploymentBudget({
-    inputTokens: 100,
-    modelId: "fixture/extractor",
-    now,
-    outputTokens: 100,
-    paidCostCeiling: "0.10",
-    reservationKey: "hybrid.released.fixture",
-  }, { client: releasedHybridGlobal, environment: hybridEnvironment }),
-  (error) => error instanceof WorkspaceDispatchBudgetError && error.code === "global_budget_conflict",
+});
+assert.equal(aggregateReservation.workspace.paidMicros, "0");
+const aggregateChild = await reserveWorkspaceRunBudget({
+  inputTokens: 200,
+  kind: "hybrid_model_attempt",
+  now,
+  outputTokens: 50,
+  paidCostCeiling: { amount: "0.400000", kind: "known" },
+  parentRunId: aggregateReservation.runId,
+  policy: nestedPolicy,
+  policyRevision: 1,
+  runId: "aggregate-model",
+  scope: scopeB,
+}, aggregateWorkspace);
+await reconcileWorkspaceRunBudget({
+  actualInputTokens: 100,
+  actualOutputTokens: 25,
+  actualPaidCost: "0.300000",
+  outcome: "reconciled",
+  runId: aggregateChild.runId,
+  scope: scopeB,
+}, aggregateWorkspace);
+await finishWorkspaceMonitorDispatchBudget(
+  aggregateJob,
+  aggregateReservation,
+  { now, outcome: "reconciled" },
+  { global: aggregateGlobal, workspace: aggregateWorkspace },
+);
+const aggregateLedger = await readWorkspaceBudgetLedger(scopeB, aggregateWorkspace);
+const aggregateParent = aggregateLedger.reservations.find(
+  ({ runId }) => runId === aggregateReservation.runId,
+);
+assert.equal(aggregateParent?.state, "reconciled");
+assert.equal(aggregateParent?.reconciledPaidMicros, "300000");
+assert.equal(
+  summarizeWorkspaceBudgetUsage(aggregateLedger, now, nestedPolicy.ownerTimezone)
+    .activeWorkers,
+  0,
 );
 
 const scheduleSource = await readFile(

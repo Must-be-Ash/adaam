@@ -739,7 +739,7 @@ export function createHybridEvidenceArtifactStore(options: {
           throw new HybridEvidenceArtifactStoreError("artifact_store_conflict");
         }
         const references = entry.references.filter(
-          ({ referenceId }) => referenceId !== input.referenceId,
+          ({ referenceId, kind }) => referenceId !== input.referenceId || kind !== input.kind,
         );
         references.push({
           active: input.kind === "accepted_result" && !retainAcceptedResultReferences

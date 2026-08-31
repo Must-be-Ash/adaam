@@ -227,13 +227,19 @@ async function resolveSecIpoResearchRuntime(input: {
     ? strategy.value.pendingSnapshot ?? strategy.value.lastActiveSnapshot
     : null;
   if (
-    !pack || !isSecIpoAgenticResearchPack(pack) ||
+    !pack ||
     strategy?.schemaVersion !== 2 || strategy.value.lifecycleState !== "active" ||
     strategy.value.pack?.id !== pack.id ||
     strategy.value.pack.version !== pack.version ||
-    strategy.value.pack.contentDigest !== pack.contentDigest ||
-    snapshot?.workspaceGeneration === undefined
+    strategy.value.pack.contentDigest !== pack.contentDigest
   ) {
+    throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
+  }
+  // Historical IPO packs intentionally use the deterministic evaluation and
+  // report path below. They remain valid installed workspaces; only the newer
+  // research-capable versions require a semantic runtime snapshot.
+  if (!isSecIpoAgenticResearchPack(pack)) return null;
+  if (snapshot?.workspaceGeneration === undefined) {
     throw new SecIpoWorkspaceWorkerError("sec_ipo_monitor_invalid");
   }
   const configured = resolveHybridTaskModelRoute("semantic_interpretation", input.environment);

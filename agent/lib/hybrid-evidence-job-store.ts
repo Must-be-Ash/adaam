@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { Redis } from "@upstash/redis";
 import { z } from "zod";
+import { assertAuthorizedWorkspaceStoreScope, type AuthorizedWorkspaceStoreScope } from "./workspace-store-authorization";
 
 import {
   HYBRID_EVIDENCE_LIMITS,
@@ -26,7 +27,7 @@ import {
 
 const KEY_PREFIX = "eve:hybrid-evidence:v1:job:";
 const MAX_CAS_ATTEMPTS = 8;
-const MAX_RECORD_BYTES = 256 * 1_024;
+const MAX_RECORD_BYTES = 512 * 1_024;
 const CAS_SCRIPT = `
 local current = redis.call("GET", KEYS[1])
 if ARGV[1] == "" then
@@ -39,6 +40,71 @@ return 1
 `;
 
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+const observationField = z.string().regex(/^[A-Za-z0-9_./:@-]{1,160}$/u);
+const recoveryObservationSchema = z.object({
+  acquisitionId: observationField, definitionId: observationField, definitionVersion: observationField,
+  docId: observationField, jobId: observationField.nullable(), modelId: observationField,
+  sourceInstanceId: observationField, outcome: z.enum(["failed", "accepted", "reused"]),
+  code: observationField.optional(), detail: observationField.optional(), stage: observationField.optional(),
+  resultId: observationField.optional(), rowCount: z.number().int().nonnegative().max(2000).optional(),
+  usage: z.object({ inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative(),
+    paidCostUsd: z.string().regex(/^[0-9]+(?:\.[0-9]{1,6})?$/u) }).strict().optional(),
+  recordedAt: z.string().datetime(),
+}).strict();
+const observationsSchema = z.array(recoveryObservationSchema).max(32);
+
+function observationsKey(scope: AuthorizedWorkspaceStoreScope) {
+  assertAuthorizedWorkspaceStoreScope(scope);
+  return `${KEY_PREFIX}observations:${tokenDigest(`${scope.ownerId}:${scope.workspaceId}`)}`;
+}
+
+/** Bounded, scoped diagnostic receipts contain codes and public IDs, never prompts or credentials. */
+export async function recordHybridEvidenceRecoveryObservation(input: {
+  scope: AuthorizedWorkspaceStoreScope; observation: unknown; now?: Date;
+}, client: HybridEvidenceJobStoreClient = store()): Promise<void> {
+  const now = input.now ?? new Date();
+  const observation = recoveryObservationSchema.parse({ ...(input.observation as object), recordedAt: now.toISOString() });
+  const key = observationsKey(input.scope);
+  for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+    const raw = rawValue(await client.get(key));
+    const previous = raw ? observationsSchema.parse(JSON.parse(raw)) : [];
+    const next = [...previous.filter((entry) => Date.parse(entry.recordedAt) > now.getTime() - 14 * 86_400_000), observation].slice(-32);
+    if (await client.compareAndSet(key, raw, JSON.stringify(next))) return;
+  }
+  throw new HybridEvidenceJobStoreError("job_conflict");
+}
+
+export async function readHybridEvidenceRecoveryObservations(scope: AuthorizedWorkspaceStoreScope,
+  client: HybridEvidenceJobStoreClient = store()) {
+  const raw = rawValue(await client.get(observationsKey(scope)));
+  return (raw ? observationsSchema.parse(JSON.parse(raw)) : []).filter((entry) =>
+    Date.parse(entry.recordedAt) > Date.now() - 14 * 86_400_000);
+}
+const recoveryUsageSchema = z.object({
+  inputTokens: z.number().int().nonnegative().max(1_000_000),
+  outputTokens: z.number().int().nonnegative().max(1_000_000),
+  paidCostUsd: z.string().regex(/^(?:0|[1-9]\d{0,3})(?:\.\d{1,6})?$/u).optional(),
+}).strict();
+export const hybridEvidenceAttemptReceiptSchema = z.object({
+  admissionExpiresAt: z.string().datetime().optional(),
+  cancellationCompleted: z.literal(true).optional(),
+  lane: z.enum(["source_global_extraction", "workspace_semantic"]),
+  reservationKey: z.string().min(1).max(300),
+  workspace: z.object({
+    ownerId: z.string().regex(/^[a-z][a-z0-9_-]{2,63}$/u),
+    workspaceId: z.string().uuid(),
+  }).strict().nullable(),
+}).strict();
+export type HybridEvidenceAttemptReceipt = z.infer<typeof hybridEvidenceAttemptReceiptSchema>;
+export type HybridEvidenceRecoveryUsage = z.infer<typeof recoveryUsageSchema>;
+const independentEvidenceSchema = z.object({
+  expiresAt: z.string().datetime().nullable().default(null),
+  claimTokenDigest: digestSchema,
+  state: z.enum(["running", "completed", "uncertain"]),
+  textByPage: z.array(z.tuple([z.number().int().min(1).max(8), z.string().max(16_000)])).max(8),
+  usage: recoveryUsageSchema.nullable(),
+  pageUsage: z.array(z.tuple([z.number().int().min(1).max(8), recoveryUsageSchema])).max(8).default([]),
+}).strict();
 const candidateSchema = z.record(z.string().min(1).max(120), z.unknown()).superRefine(
   (candidate, context) => {
     try {
@@ -55,6 +121,15 @@ const recordSchema = z.object({
   candidate: candidateSchema.nullable(),
   candidateDigest: digestSchema.nullable(),
   claimTokenDigest: digestSchema.nullable(),
+  claimExpiresAt: z.string().datetime().nullable().default(null),
+  attemptReceipt: hybridEvidenceAttemptReceiptSchema.nullable().default(null),
+  extractionUsage: recoveryUsageSchema.nullable().default(null),
+  independentEvidence: independentEvidenceSchema.nullable().default(null),
+  retainedIndependentPages: z.array(z.tuple([z.number().int().min(1).max(8), z.string().max(16_000)])).max(8).default([]),
+  admissionRevision: z.number().int().nonnegative().default(0),
+  admissionDenied: z.boolean().default(false),
+  admission: z.object({ tokenDigest: digestSchema, expiresAt: z.string().datetime() }).strict().nullable().default(null),
+  cancelledAdmissions: z.array(hybridEvidenceAttemptReceiptSchema).max(512).default([]),
   failureCode: hybridEvidenceErrorCodeSchema.nullable(),
   job: hybridEvidenceJobSchema,
   quarantineCodes: z.array(hybridEvidenceErrorCodeSchema).max(16),
@@ -281,6 +356,14 @@ export async function prepareHybridEvidenceJob(input: {
         ) {
           throw new HybridEvidenceJobStoreError("job_conflict");
         }
+        if (current.job.state === "prepared" && current.admissionDenied && scope.kind === "source_global") {
+          const rebound = recordSchema.parse({
+            ...current,
+            admissionDenied: false,
+            job: { ...current.job, scope, updatedAt: timestamp },
+          });
+          return { record: rebound, result: rebound };
+        }
         return { record: current, result: current };
       }
       const record = Object.freeze({
@@ -288,6 +371,15 @@ export async function prepareHybridEvidenceJob(input: {
         candidate: null,
         candidateDigest: null,
         claimTokenDigest: null,
+        claimExpiresAt: null,
+        attemptReceipt: null,
+        extractionUsage: null,
+        independentEvidence: null,
+        retainedIndependentPages: [],
+        admissionRevision: 0,
+        admissionDenied: false,
+        admission: null,
+        cancelledAdmissions: [],
         failureCode: null,
         job,
         quarantineCodes: [],
@@ -414,12 +506,50 @@ export async function readHybridEvidenceJob(
   return parseRecord(rawValue(await client.get(recordKey(jobId))));
 }
 
+const DEFAULT_JOB_SETTLEMENT_POLL_INTERVAL_MS = 100;
+
+/**
+ * Wait for the canonical durable record to leave its worker-owned states.
+ *
+ * Eve event streams are reconnectable transport connections, not an
+ * authoritative completion signal. In particular, the stream can end before
+ * the completion tool's Redis commit becomes visible to its parent workflow.
+ */
+export async function waitForHybridEvidenceJobSettlement(input: {
+  jobId: string;
+  maximumWaitMs: number;
+  pollIntervalMs?: number;
+}, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord | null> {
+  const maximumWaitMs = Math.max(0, Math.floor(input.maximumWaitMs));
+  let pollIntervalMs = Math.max(
+    1,
+    Math.floor(input.pollIntervalMs ?? DEFAULT_JOB_SETTLEMENT_POLL_INTERVAL_MS),
+  );
+  const deadline = Date.now() + maximumWaitMs;
+  let record = await readHybridEvidenceJob(input.jobId, client);
+  while (
+    record &&
+    (record.job.state === "prepared" || record.job.state === "running") &&
+    Date.now() < deadline
+  ) {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, Math.min(pollIntervalMs, Math.max(1, deadline - Date.now())));
+    });
+    record = await readHybridEvidenceJob(input.jobId, client);
+    pollIntervalMs = Math.min(1_000, pollIntervalMs * 2);
+  }
+  return record;
+}
+
 function tokenDigest(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
 export async function claimHybridEvidenceJob(input: {
+  admissionToken?: string;
+  attemptReceipt?: HybridEvidenceAttemptReceipt;
   claimToken: string;
+  expiresAt?: Date;
   jobId: string;
   now?: Date;
 }, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
@@ -433,23 +563,303 @@ export async function claimHybridEvidenceJob(input: {
       if (current.job.state === "running" && current.claimTokenDigest === digest) {
         return { record: current, result: current };
       }
-      if (current.job.state === "running") {
-        const uncertain = recordSchema.parse({
-          ...current,
-          failureCode: "execution_uncertain",
-          job: { ...current.job, completedAt: timestamp, state: "uncertain", updatedAt: timestamp },
-        });
-        return { record: uncertain, result: uncertain };
-      }
       if (current.job.state !== "prepared") {
         throw new HybridEvidenceJobStoreError("job_conflict");
       }
+      if (current.admission && (current.admission.tokenDigest !== tokenDigest(input.admissionToken ?? "") ||
+        Date.parse(current.admission.expiresAt) <= Date.parse(timestamp))) {
+        throw new HybridEvidenceJobStoreError("job_conflict");
+      }
+      if (input.attemptReceipt && (
+        input.attemptReceipt.reservationKey !== current.job.budgetReservation.key ||
+        (current.job.scope.kind === "source_global" && input.attemptReceipt.workspace &&
+          input.attemptReceipt.workspace.workspaceId !== current.job.scope.initiatingWorkspaceId) ||
+        (current.job.scope.kind === "workspace" && (
+          input.attemptReceipt.workspace?.workspaceId !== current.job.scope.workspaceId ||
+          input.attemptReceipt.workspace.ownerId !== current.job.scope.ownerId
+        ))
+      )) throw new HybridEvidenceJobStoreError("workspace_scope_mismatch");
       const running = recordSchema.parse({
         ...current,
         claimTokenDigest: digest,
-        job: { ...current.job, attempt: 1, startedAt: timestamp, state: "running", updatedAt: timestamp },
+        admission: null,
+        claimExpiresAt: input.expiresAt?.toISOString() ?? null,
+        attemptReceipt: input.attemptReceipt ?? null,
+        job: {
+          ...current.job,
+          attempt: current.job.attempt + 1,
+          startedAt: timestamp,
+          state: "running",
+          updatedAt: timestamp,
+        },
       });
       return { record: running, result: running };
+    },
+  });
+}
+
+/** Own admission before touching either ledger. Every lease has its own key. */
+export async function claimHybridEvidenceJobAdmission(input: {
+  jobId: string;
+  token: string;
+  workspace: HybridEvidenceAttemptReceipt["workspace"];
+  initiatingWorkspaceId: string;
+  now?: Date;
+}, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
+  const now = input.now ?? new Date();
+  return updateRecord({ client, jobId: input.jobId, mutate(current) {
+    if (!current || current.job.state !== "prepared" || current.job.scope.kind !== "source_global" ||
+      (current.admission && Date.parse(current.admission.expiresAt) > now.getTime())) {
+      throw new HybridEvidenceJobStoreError("job_conflict");
+    }
+    const revision = current.admissionRevision + 1;
+    const reservationKey = `hybrid:${current.job.jobId}:attempt:${current.job.attempt + 1}:admission:${revision}`;
+    const next = recordSchema.parse({ ...current,
+      admission: { tokenDigest: tokenDigest(input.token), expiresAt: new Date(now.getTime() + 120_000).toISOString() },
+      admissionRevision: revision, admissionDenied: false,
+      // Never forget a cancelled key before its ledger writes can be repaired.
+      cancelledAdmissions: [...current.cancelledAdmissions,
+        ...(current.admission && current.attemptReceipt ? [current.attemptReceipt] : [])],
+      attemptReceipt: { lane: "source_global_extraction", reservationKey, workspace: input.workspace,
+        admissionExpiresAt: new Date(now.getTime() + 120_000).toISOString() },
+      job: { ...current.job, scope: { ...current.job.scope, initiatingWorkspaceId: input.initiatingWorkspaceId },
+        budgetReservation: { ...current.job.budgetReservation, key: reservationKey }, updatedAt: now.toISOString() },
+    });
+    return { record: next, result: next };
+  } });
+}
+
+/** Only an expired claim is uncertain. A competing caller cannot revoke live work. */
+export async function expireHybridEvidenceJobClaim(input: {
+  definition: HybridEvidenceJobDefinition;
+  jobId: string;
+  now?: Date;
+}, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
+  const now = input.now ?? new Date();
+  return updateRecord({
+    client,
+    jobId: input.jobId,
+    mutate(current) {
+      if (!current) throw new HybridEvidenceJobStoreError("job_not_found");
+      if (current.job.definitionDigest !== input.definition.definitionDigest) {
+        throw new HybridEvidenceJobStoreError("definition_digest_mismatch");
+      }
+      const expiry = current.claimExpiresAt ?? (current.job.startedAt
+        ? new Date(Date.parse(current.job.startedAt) + input.definition.limits.maximumRuntimeMs).toISOString()
+        : null);
+      if (current.job.state !== "running" || !expiry || now.getTime() <= Date.parse(expiry)) {
+        return { record: current, result: current };
+      }
+      const next = recordSchema.parse({
+        ...current,
+        failureCode: "execution_uncertain",
+        job: { ...current.job, completedAt: now.toISOString(), state: "uncertain", updatedAt: now.toISOString() },
+      });
+      return { record: next, result: next };
+    },
+  });
+}
+
+/** Pre-dispatch denial can be retried by another subscriber, without reusing a released key. */
+export async function resetHybridEvidenceJobAdmission(input: {
+  admissionToken?: string;
+  ownerCompleted?: boolean;
+  jobId: string;
+  reservationKey: string;
+  now?: Date;
+}, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
+  return updateRecord({
+    client,
+    jobId: input.jobId,
+    mutate(current) {
+      if (!current) throw new HybridEvidenceJobStoreError("job_not_found");
+      if (current.job.state !== "prepared" || current.claimTokenDigest !== null ||
+        current.job.budgetReservation.key !== input.reservationKey ||
+        (current.admission && current.admission.tokenDigest !== tokenDigest(input.admissionToken ?? ""))) {
+        throw new HybridEvidenceJobStoreError("job_conflict");
+      }
+      const revision = current.admissionRevision + 1;
+      const next = recordSchema.parse({
+        ...current,
+        admissionDenied: true,
+        admission: null,
+        attemptReceipt: null,
+        cancelledAdmissions: [...current.cancelledAdmissions, ...(current.attemptReceipt ? [{ ...current.attemptReceipt,
+          ...(input.ownerCompleted ? { cancellationCompleted: true as const } : {}) }] : [])],
+        admissionRevision: revision,
+        job: {
+          ...current.job,
+          budgetReservation: { ...current.job.budgetReservation,
+            key: `hybrid:${current.job.jobId}:attempt:${current.job.attempt + 1}:admission:${revision}` },
+          updatedAt: (input.now ?? new Date()).toISOString(),
+        },
+      });
+      return { record: next, result: next };
+    },
+  });
+}
+
+/** Forget only owner-completed denials after both ledger repairs succeeded. */
+export async function pruneCompletedHybridEvidenceAdmissions(input: {
+  jobId: string; reservationKeys: readonly string[];
+}, client: HybridEvidenceJobStoreClient = store()): Promise<void> {
+  const repaired = new Set(input.reservationKeys);
+  await updateRecord({ client, jobId: input.jobId, mutate(current) {
+    if (!current) throw new HybridEvidenceJobStoreError("job_not_found");
+    const record = recordSchema.parse({ ...current, cancelledAdmissions: current.cancelledAdmissions.filter((receipt) =>
+      !receipt.cancellationCompleted || !repaired.has(receipt.reservationKey)) });
+    return { record, result: undefined };
+  } });
+}
+
+export async function persistHybridEvidenceExtractionUsage(input: {
+  claimToken: string;
+  jobId: string;
+  usage: HybridEvidenceRecoveryUsage;
+}, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
+  const usage = recoveryUsageSchema.parse(input.usage);
+  return updateRecord({ client, jobId: input.jobId, mutate(current) {
+    if (!current || current.job.state !== "completed" ||
+      current.claimTokenDigest !== tokenDigest(input.claimToken)) {
+      throw new HybridEvidenceJobStoreError("job_conflict");
+    }
+    if (current.extractionUsage && JSON.stringify(current.extractionUsage) !== JSON.stringify(usage)) {
+      throw new HybridEvidenceJobStoreError("job_conflict");
+    }
+    const next = recordSchema.parse({ ...current, extractionUsage: usage });
+    return { record: next, result: next };
+  } });
+}
+
+/** An interrupted OCR phase is retained, never silently purchased a second time. */
+export async function persistHybridEvidenceIndependentEvidence(input: {
+  claimToken: string;
+  jobId: string;
+  state: "running" | "completed" | "uncertain";
+  textByPage?: readonly (readonly [number, string])[];
+  usage?: HybridEvidenceRecoveryUsage;
+}, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
+  const evidence = independentEvidenceSchema.parse({
+    expiresAt: input.state === "running" ? new Date(Date.now() + 90_000).toISOString() : null,
+    claimTokenDigest: tokenDigest(input.claimToken),
+    state: input.state,
+    textByPage: input.textByPage ?? [],
+    usage: input.usage ?? null,
+  });
+  return updateRecord({ client, jobId: input.jobId, mutate(current) {
+    if (!current || current.job.state !== "completed") throw new HybridEvidenceJobStoreError("job_conflict");
+    const previous = current.independentEvidence;
+    if (previous?.state === "completed" && JSON.stringify(previous) === JSON.stringify(evidence)) {
+      return { record: current, result: current };
+    }
+    if ((!previous && evidence.state !== "running") || (previous && (
+      previous.claimTokenDigest !== evidence.claimTokenDigest || previous.state !== "running"
+    ))) throw new HybridEvidenceJobStoreError("job_conflict");
+    const next = recordSchema.parse({ ...current, independentEvidence: input.state === "uncertain" ? {
+      ...evidence, textByPage: input.textByPage ?? previous?.textByPage ?? [],
+      usage: input.usage ?? previous?.usage ?? null, pageUsage: previous?.pageUsage ?? [],
+    } : evidence });
+    return { record: next, result: next };
+  } });
+}
+
+export async function persistHybridEvidenceIndependentPage(input: {
+  claimToken: string; jobId: string; page: number; text: string; usage: HybridEvidenceRecoveryUsage;
+}, client: HybridEvidenceJobStoreClient = store()): Promise<void> {
+  await updateRecord({ client, jobId: input.jobId, mutate(current) {
+    const phase = current?.independentEvidence;
+    if (!current || current.job.state !== "completed" || phase?.state !== "running" ||
+      phase.claimTokenDigest !== tokenDigest(input.claimToken)) throw new HybridEvidenceJobStoreError("job_conflict");
+    const texts = new Map(phase.textByPage);
+    const usages = new Map(phase.pageUsage);
+    if (texts.has(input.page) && (texts.get(input.page) !== input.text || JSON.stringify(usages.get(input.page)) !== JSON.stringify(input.usage))) {
+      throw new HybridEvidenceJobStoreError("job_conflict");
+    }
+    texts.set(input.page, input.text); usages.set(input.page, input.usage);
+    const next = recordSchema.parse({ ...current, independentEvidence: { ...phase,
+      textByPage: [...texts.entries()], pageUsage: [...usages.entries()],
+    } });
+    return { record: next, result: undefined };
+  } });
+}
+
+/** Resume only the unpaid/missing OCR pages under a fresh, bounded admission.
+ * The old allowance remains uncertain; a paid extraction is never repeated. */
+export async function retryHybridEvidenceIndependentPhase(input: {
+  definition: HybridEvidenceJobDefinition; jobId: string; now?: Date;
+}, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
+  const now = input.now ?? new Date();
+  return updateRecord({ client, jobId: input.jobId, mutate(current) {
+    const phase = current?.independentEvidence;
+    if (!current || current.job.state !== "completed" || !current.candidate || !phase ||
+      current.job.definitionDigest !== input.definition.definitionDigest ||
+      current.job.attempt >= input.definition.limits.maximumAttempts ||
+      (phase.state !== "uncertain" && !(phase.state === "running" && phase.expiresAt && Date.parse(phase.expiresAt) < now.getTime()))) {
+      throw new HybridEvidenceJobStoreError("job_conflict");
+    }
+    const next = recordSchema.parse({ ...current,
+      claimTokenDigest: null, claimExpiresAt: null, attemptReceipt: null, independentEvidence: null,
+      retainedIndependentPages: [...new Map([...current.retainedIndependentPages, ...phase.textByPage]).entries()],
+      extractionUsage: { inputTokens: 0, outputTokens: 0, paidCostUsd: "0" },
+      job: { ...current.job, state: "prepared", completedAt: null, startedAt: null, updatedAt: now.toISOString(),
+        budgetReservation: { ...current.job.budgetReservation, key: `hybrid:${current.job.jobId}:attempt:${current.job.attempt + 1}` } },
+    });
+    return { record: next, result: next };
+  } });
+}
+
+export async function retryUncertainHybridEvidenceJob(input: {
+  definition: HybridEvidenceJobDefinition;
+  jobId: string;
+  now?: Date;
+}, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
+  const definition = hybridEvidenceJobDefinitionSchema.parse(input.definition);
+  const requestedTimestamp = (input.now ?? new Date()).toISOString();
+  return updateRecord({
+    client,
+    jobId: input.jobId,
+    mutate(current) {
+      if (!current) throw new HybridEvidenceJobStoreError("job_not_found");
+      if (
+        current.job.definitionDigest !== definition.definitionDigest ||
+        current.job.state !== "uncertain" ||
+        current.job.attempt >= definition.limits.maximumAttempts
+      ) {
+        throw new HybridEvidenceJobStoreError("job_conflict");
+      }
+      const timestamp = requestedTimestamp < current.job.updatedAt
+        ? current.job.updatedAt
+        : requestedTimestamp;
+      const nextAttempt = current.job.attempt + 1;
+      const prepared = recordSchema.parse({
+        ...current,
+        acceptedResult: null,
+        candidate: null,
+        candidateDigest: null,
+        claimTokenDigest: null,
+        claimExpiresAt: null,
+        attemptReceipt: null,
+        extractionUsage: null,
+        independentEvidence: null,
+        failureCode: null,
+        job: {
+          ...current.job,
+          budgetReservation: {
+            ...current.job.budgetReservation,
+            key: `hybrid:${current.job.jobId}:attempt:${nextAttempt}`,
+          },
+          completedAt: null,
+          startedAt: null,
+          state: "prepared",
+          updatedAt: timestamp,
+        },
+        quarantineCodes: [],
+        researchDecision: null,
+        researchFetchCompleted: false,
+        researchSearchCompleted: false,
+        researchUrlGrants: [],
+      });
+      return { record: prepared, result: prepared };
     },
   });
 }
@@ -459,6 +869,7 @@ export async function completeHybridEvidenceJob(input: {
   claimToken: string;
   jobId: string;
   now?: Date;
+  usage?: HybridEvidenceRecoveryUsage;
 }, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
   const candidate = candidateSchema.parse(input.candidate);
   const candidateDigest = digestHybridEvidenceValue(candidate);
@@ -468,7 +879,8 @@ export async function completeHybridEvidenceJob(input: {
     jobId: input.jobId,
     mutate(current) {
       if (!current) throw new HybridEvidenceJobStoreError("job_not_found");
-      if (current.job.state === "completed" && current.candidateDigest === candidateDigest) {
+      if (current.job.state === "completed" && current.candidateDigest === candidateDigest &&
+        current.claimTokenDigest === tokenDigest(input.claimToken)) {
         return { record: current, result: current };
       }
       if (
@@ -481,6 +893,7 @@ export async function completeHybridEvidenceJob(input: {
         ...current,
         candidate,
         candidateDigest,
+        extractionUsage: input.usage ?? current.extractionUsage,
         job: { ...current.job, completedAt: timestamp, state: "completed", updatedAt: timestamp },
       });
       return { record: completed, result: completed };
