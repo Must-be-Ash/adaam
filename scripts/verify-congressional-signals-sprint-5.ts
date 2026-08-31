@@ -915,6 +915,32 @@ for (const [key, raw] of pagedSource.values) {
 const legacyWorkspace = installWorkspace({ configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: [] },
   version: "1.4.0", workspaceId: "123e4567-e89b-42d3-a456-426614175520" });
 const legacySeed = new Map(legacySource.values);
+// A recovery-enabled migration must use all replay slots when an unresolved
+// filing exists: paid retries are deliberately deferred until replay finishes.
+const unresolvedSeed = new MemoryCasStore();
+const unresolvedAt = new Date(baseNow.getTime() + 8_000).toISOString();
+const unresolvedArchive = await index(pagedDocuments.at(-1)!);
+const unresolvedPdf = new Uint8Array(await readFile(new URL("./fixtures/public-source-adapters/house/real-layout/ptr-scanned.pdf", import.meta.url)));
+await runHousePublicSourceAcquisition({ client: unresolvedSeed, sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  window: { startAt: baseNow.toISOString(), endAt: unresolvedAt },
+  fetchIndex: async (url) => response(unresolvedArchive, "application/zip", url, unresolvedAt),
+  fetchDocument: async (url) => response(unresolvedPdf, "application/pdf", url, unresolvedAt),
+});
+const fullReplaySource = new MemoryCasStore();
+for (const [key, raw] of legacySeed) fullReplaySource.values.set(key, raw);
+for (const [key, raw] of unresolvedSeed.values) {
+  if (key.includes(":fact:") || key.includes(":fact-head:")) fullReplaySource.values.set(key, raw);
+}
+const fullReplayAt = new Date(baseNow.getTime() + 9_000).toISOString();
+const fullReplay = await runHousePublicSourceAcquisition({ client: fullReplaySource,
+  sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  window: { startAt: baseNow.toISOString(), endAt: fullReplayAt },
+  fetchIndex: async (url) => response(pagedArchive, "application/zip", url, fullReplayAt),
+  fetchDocument: async () => { throw new Error("migration_replay_must_not_download"); },
+  recovery: { async recover() { throw new Error("migration_replay_must_not_purchase_recovery"); } },
+});
+assert.equal(fullReplay.acquisition.facts.filter(({ factSchemaVersion }) => factSchemaVersion === "house-ptr-filing/v1").length,
+  25, "an unresolved sibling must not halve the stored-fact replay batch");
 for (let page = 0; page < 4; page++) {
   const now = new Date(baseNow.getTime() + (page + 10) * 1000);
   const monitor = (await getWorkspaceMonitor(legacyWorkspace.scope, legacyWorkspace.monitor.monitorId, monitorStore))!;
