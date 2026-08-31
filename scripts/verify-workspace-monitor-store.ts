@@ -238,12 +238,14 @@ const monitor = await createWorkspaceMonitor(
 );
 // Delivery progress uses a near-term continuation even for a daily/one-time
 // schedule, while only the final page publishes a source checkpoint.
-for (const kind of ["one_time", "daily_local"] as const) {
+for (const kind of ["one_time", "daily_local", "interval"] as const) {
   const pages = new MemoryStore();
   const pageMonitor = await createWorkspaceMonitor({
     deliverySubscriptionId: `delivery.pages-${kind}`, instruction: "Deliver the complete source backlog.",
     name: `Paged ${kind}`, nextOccurrenceAt: scheduledFor, now, scope, sources: [source(0)],
-    schedule: kind === "one_time" ? { kind, at: scheduledFor } : { kind, times: ["12:05"], timezone: "UTC" },
+    schedule: kind === "one_time" ? { kind, at: scheduledFor }
+      : kind === "daily_local" ? { kind, times: ["12:05"], timezone: "UTC" }
+      : { kind, anchor: scheduledFor, everyMinutes: 30 },
   }, pages);
   const first = await claimWorkspaceMonitorOccurrence({ configurationRevision: pageMonitor.configurationRevision,
     leaseForMs: 60_000, monitorId: pageMonitor.monitorId, now: new Date(scheduledFor),
@@ -254,16 +256,33 @@ for (const kind of ["one_time", "daily_local"] as const) {
     occurrenceKey: first.occurrence.occurrenceKey, scheduledFor, scope, watermark: scheduledFor }, pages);
   assert.deepEqual(progress.sourceCheckpoint, { contentDigest: null, watermark: null });
   assert.equal(progress.nextOccurrenceAt, "2026-08-14T12:06:00.000Z");
+  assert.equal(progress.sourceContinuationAt, progress.nextOccurrenceAt);
   assert.ok([...pages.due.values()].includes(Date.parse(progress.nextOccurrenceAt!)));
-  const second = await claimWorkspaceMonitorOccurrence({ configurationRevision: pageMonitor.configurationRevision,
-    leaseForMs: 60_000, monitorId: pageMonitor.monitorId, now: new Date(progress.nextOccurrenceAt!),
-    occurrenceIdentity: progress.nextOccurrenceAt!, scheduledFor: progress.nextOccurrenceAt!, scope }, pages);
+  const continuations = await claimDueWorkspaceMonitors({ environment: { EVE_DEPLOYMENT_OWNER_ID: scope.ownerId },
+    leaseForMs: 60_000, limit: 1, now: new Date(progress.nextOccurrenceAt!), recoveryWindowMs: 5 * 60_000 }, pages);
+  assert.equal(continuations.length, 1, `${kind} source continuation must pass the real scheduler`);
+  const second = continuations[0]!;
+  assert.equal(second.occurrence.occurrenceIdentity, `source-continuation:${progress.nextOccurrenceAt}`);
+  assert.equal((await claimDueWorkspaceMonitors({ environment, leaseForMs: 60_000,
+    limit: 1, now: new Date(progress.nextOccurrenceAt!), recoveryWindowMs: 5 * 60_000 }, pages)).length, 0);
   const final = await completeWorkspaceMonitorCheckpoint({ completedAt: new Date(progress.nextOccurrenceAt!),
     configurationRevision: pageMonitor.configurationRevision, contentDigest: "a".repeat(64),
     leaseTokenDigest: second.occurrence.leaseTokenDigest, monitorId: pageMonitor.monitorId,
     occurrenceKey: second.occurrence.occurrenceKey, scheduledFor: progress.nextOccurrenceAt!, scope, watermark: progress.nextOccurrenceAt! }, pages);
-  assert.equal(final.nextOccurrenceAt, kind === "one_time" ? null : "2026-08-15T12:05:00.000Z");
+  assert.equal(final.nextOccurrenceAt, kind === "one_time" ? null
+    : kind === "daily_local" ? "2026-08-15T12:05:00.000Z" : "2026-08-14T12:35:00.000Z");
+  assert.equal(final.sourceContinuationAt, null);
   assert.equal(final.sourceCheckpoint.contentDigest, "a".repeat(64));
+
+  // Explicit owner scheduling changes cancel the pending immediate continuation.
+  const cancelled = new MemoryStore();
+  for (const [key, value] of pages.values) cancelled.values.set(key, value);
+  const recordKey = [...cancelled.values].find(([, value]) => JSON.parse(value).monitorId === pageMonitor.monitorId && JSON.parse(value).schedule)![0];
+  cancelled.values.set(recordKey, JSON.stringify(progress));
+  const edited = await updateWorkspaceMonitor({ expectedRevision: progress.configurationRevision,
+    monitorId: progress.monitorId, scope, now: new Date(scheduledFor),
+    patch: { lifecycleState: "paused", nextOccurrenceAt: null, pausedAt: scheduledFor, pauseReason: "owner_paused" } }, cancelled);
+  assert.equal(edited.sourceContinuationAt, null);
 }
 assert.equal(monitor.schemaVersion, 1);
 assert.equal(monitor.configurationRevision, 1);

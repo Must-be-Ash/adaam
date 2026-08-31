@@ -153,4 +153,19 @@ assert.equal(boundedCatchup.due?.scheduledAt, "2026-08-14T17:00:00.000Z");
 assert.equal(boundedCatchup.skipped.length, 255);
 assert.ok(boundedCatchup.skippedBefore);
 
+const continuationAt = "2026-08-14T12:06:00.000Z";
+const continuation = {
+  nextOccurrenceAt: continuationAt,
+  sourceContinuationAt: continuationAt,
+  now: new Date(continuationAt),
+  recoveryWindowMs: 5 * 60_000,
+  schedule: { kind: "one_time" as const, at: "2026-08-14T12:05:00.000Z" },
+};
+assert.equal(selectWorkspaceMonitorDueOccurrence(continuation).due?.scheduledAt, continuationAt);
+assert.equal(selectWorkspaceMonitorDueOccurrence({ ...continuation, now: new Date("2026-08-14T12:05:59.000Z") }).due, null);
+assert.equal(selectWorkspaceMonitorDueOccurrence({ ...continuation, now: new Date("2026-08-14T12:12:00.000Z") }).due, null);
+assert.equal(selectWorkspaceMonitorDueOccurrence({ ...continuation, sourceContinuationAt: undefined }).due, null);
+assert.equal(selectWorkspaceMonitorDueOccurrence({ ...continuation,
+  completedOccurrenceIdentities: [`source-continuation:${continuationAt}`] }).due, null);
+
 console.log("Workspace monitor schedule verification passed.");

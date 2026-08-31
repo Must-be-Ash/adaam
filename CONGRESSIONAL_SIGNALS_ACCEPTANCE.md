@@ -37,6 +37,32 @@ were already used. Acceptance must respect the remaining seven attempts; it
 must not reset counters, raise budgets/recovery limits, or manufacture coverage.
 Leave the normal monitor paused if the bounded run cannot reach acceptance.
 
+### Production checkpoint after the first batch
+
+PR #20 deployed commit `3f5086d6ca59f1a547135c5c2c8f797df81f8d5e` to
+production on August 31. The custom app alias was verified against that deployment.
+The first scheduled batch committed a durable `source_pending` outcome and
+acknowledged delivery revision 1. Its initial baseline is frozen through source
+revision 12. History contains 42 active baseline transactions, zero live or
+alert-eligible entries, and explicitly incomplete coverage. The source remained
+at revision 13 with all 263 unresolved filings queued. Eight committed batches
+remain undelivered.
+
+The parent reserved a $1 admission ceiling and reconciled to **$0 actual spend**
+and zero model tokens. No reservation remains active or unreconciled. Fourteen
+of twenty daily attempts are now used. The owner watchlist, strategy, capabilities,
+and budget documents were unchanged; the original daily 20:35 America/Vancouver
+schedule was restored with the monitor paused.
+
+This probe also exposed a scheduling gap: pending-source completion wrote a
+near-term retry, but scheduled selection still used the original calendar.
+The follow-up fix records that continuation on the existing monitor and lets
+the ordinary scheduler claim it with a stable occurrence identity. Completion
+returns to the owner's calendar; scheduling edits and pauses cancel the marker.
+Tests now claim continuation through the real scheduler for one-time, daily,
+and interval schedules, including duplicate suppression, bounded recovery,
+and cancellation. This is not yet evidence of a completed production baseline.
+
 ## Verified recovery
 
 Definition 1.0.18 recovered all 123 transactions in public House filing 8221359,
@@ -90,9 +116,10 @@ Offline checks cover baseline suppression, frontier materiality, report
 publication, a crash before finding commit followed by replay without another
 model call, six-decimal child reconciliation, all 224 rows of a dense filing,
 source/disposition rejection, record-only abstention, and temporary evidence
-cleanup. Shared research U1–U4 and semantic Sprint 3 checks pass. The complete
-cross-strategy/build suite (`verify:strategies`) also passes, with its offline
-Redis fixture URL and local browser launch permission.
+cleanup. Shared research U1–U4 and semantic Sprint 3 checks pass. The cross-strategy
+and build checks in `verify:strategies` pass with the offline Redis fixture URL.
+The browser-only check was excluded from this source-progress release in
+accordance with the owner's no-UI instruction.
 
 ## Release safeguards
 

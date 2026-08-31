@@ -288,6 +288,7 @@ export function selectWorkspaceMonitorDueOccurrence(input: {
   now: Date;
   recoveryWindowMs: number;
   schedule: WorkspaceMonitorSchedule;
+  sourceContinuationAt?: string;
 }): WorkspaceMonitorDueSelection {
   const nowMs = input.now.getTime();
   const nextMs = new Date(input.nextOccurrenceAt).getTime();
@@ -305,6 +306,18 @@ export function selectWorkspaceMonitorDueOccurrence(input: {
   }
   const recoveryStart = nowMs - input.recoveryWindowMs;
   const completed = new Set(input.completedOccurrenceIdentities ?? []);
+  // A completed page can schedule another page outside the owner's calendar.
+  // The persisted marker distinguishes this from a missed ordinary occurrence.
+  if (input.sourceContinuationAt === input.nextOccurrenceAt && nextMs >= recoveryStart) {
+    const occurrenceIdentity = `source-continuation:${input.nextOccurrenceAt}`;
+    if (!completed.has(occurrenceIdentity)) {
+      return Object.freeze({
+        due: Object.freeze({ occurrenceIdentity, scheduledAt: input.nextOccurrenceAt }),
+        skipped: Object.freeze([]),
+        skippedBefore: null,
+      });
+    }
+  }
   const immediateMs = input.immediateOccurrenceAt === undefined
     ? null
     : new Date(input.immediateOccurrenceAt).getTime();

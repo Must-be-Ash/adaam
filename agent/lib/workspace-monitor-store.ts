@@ -269,6 +269,7 @@ const monitorSchema = z
         watermark: timestampSchema.nullable(),
       })
       .strict(),
+    sourceContinuationAt: timestampSchema.nullable().optional(),
     sources: workspaceMonitorSourcesSchema.or(z.tuple([])),
     tighteningLimits: z
       .object({
@@ -740,6 +741,7 @@ export async function claimDueWorkspaceMonitors(
       continue;
     }
     const selection = selectWorkspaceMonitorDueOccurrence({
+      sourceContinuationAt: monitor.sourceContinuationAt ?? undefined,
       ...(isWorkspaceMonitorCheckpointOnlyBaseline(monitor) &&
           resolveManagedMonitorLifecycleContract(monitor)?.initialOccurrence === "immediate" &&
           monitor.activationWatermark === monitor.nextOccurrenceAt
@@ -769,6 +771,7 @@ export async function claimDueWorkspaceMonitors(
           : {}),
         lastErrorCode: "missed_occurrences_skipped",
         nextOccurrenceAt: nextOccurrence?.scheduledAt ?? null,
+        ...(monitor.sourceContinuationAt ? { sourceContinuationAt: null } : {}),
         updatedAt: input.now.toISOString(),
       });
       await client.update({
@@ -1279,6 +1282,10 @@ export async function updateWorkspaceMonitor(
   const next = monitorSchema.safeParse({
     ...current,
     ...input.patch,
+    ...(current.sourceContinuationAt &&
+        (input.patch.schedule !== undefined || input.patch.nextOccurrenceAt !== undefined || targetLifecycle !== "enabled")
+      ? { sourceContinuationAt: null }
+      : {}),
     ...(targetLifecycle === "enabled" && current.lifecycleState !== "enabled" &&
         requiresManagedMonitorActivationWatermark(current) && !current.activationWatermark
       ? { activationWatermark: updatedAt }
@@ -1729,6 +1736,7 @@ export async function completeWorkspaceMonitorCheckpoint(
     lastErrorCode: null,
     lastRunAt: completedAt,
     nextOccurrenceAt,
+    sourceContinuationAt: input.holdSourceCheckpoint ? nextOccurrenceAt : null,
     sourceCheckpoint: input.holdSourceCheckpoint ? expectedMonitor.sourceCheckpoint : {
       contentDigest: input.contentDigest,
       watermark: input.watermark,
