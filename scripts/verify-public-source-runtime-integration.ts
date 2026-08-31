@@ -214,7 +214,8 @@ await assert.rejects(coordinatePublicSourceOccurrence({
   scope: scopeA,
   sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
   window: { startAt: "2026-08-15T16:00:00.000Z", endAt: extensionObservedAt },
-}), (error) => error instanceof PublicSourceCoordinatorError && error.code === "public_source_misconfigured");
+}), (error) => error instanceof PublicSourceCoordinatorError &&
+  error.code === "public_source_misconfigured" && error.message === "public_source_house_ocr_invalid");
 assert.equal(singleModelFetches, 0);
 let extensionCreations = 0;
 const extensionResult = await coordinatePublicSourceOccurrence({
