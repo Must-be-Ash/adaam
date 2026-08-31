@@ -954,7 +954,8 @@ async function acquireHouse(input: {
     // Reserve capacity for unseen filings; rotate retries with the durable
     // source cursor so an old failed cohort cannot starve its siblings.
     const replayRows = newRows.filter(({ docId }) => pendingWork.get(docId)?.replayExisting);
-    const freshBatch = (replayRows.length ? replayRows : newRows).slice(0, input.recovery && retryRows.length ? Math.ceil(batchLimit / 2) : batchLimit);
+    // Replay cannot run recovery in this batch, so no retry slots are needed.
+    const freshBatch = (replayRows.length ? replayRows : newRows).slice(0, input.recovery && retryRows.length && replayRows.length === 0 ? Math.ceil(batchLimit / 2) : batchLimit);
     const retryBatch = input.recovery && replayRows.length === 0 ? rotatedRetries.slice(0, batchLimit - freshBatch.length) : [];
     const selectedBatch = [...freshBatch, ...retryBatch];
 
