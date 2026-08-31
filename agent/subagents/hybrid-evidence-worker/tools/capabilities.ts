@@ -1,11 +1,7 @@
 import { defineDynamic, defineTool, toolOutput, toolOutputPart } from "eve/tools";
 import { z } from "zod";
 
-import {
-  requireHybridEvidenceWorkerAuth,
-  decodeHybridEvidenceWorkerToken,
-  hybridEvidenceWorkerTokenFromSessionAuth,
-} from "../../../lib/hybrid-evidence-auth";
+import { requireHybridEvidenceWorkerAuth } from "../../../lib/hybrid-evidence-auth";
 import { createHybridEvidenceWorkerArtifactStore } from "../../../lib/hybrid-evidence-artifact-store";
 import { evidenceLocatorSchema } from "../../../lib/hybrid-evidence-schema";
 import {
@@ -179,10 +175,8 @@ const fixtureCompleteHybridEvidenceJob = defineTool({
 export async function resolveHybridEvidenceWorkerCapabilities(
   ctx: HybridEvidenceWorkerContext,
 ) {
-  const token = hybridEvidenceWorkerTokenFromSessionAuth(ctx.session.auth);
-  if (!token) return null;
   try {
-    const envelope = decodeHybridEvidenceWorkerToken(token);
+    const { envelope } = await requireHybridEvidenceWorkerAuth(ctx);
     const contract = resolveHybridEvidenceWorkerContract(envelope.definitionId);
     const completionTool = contract
       ? defineTool({
