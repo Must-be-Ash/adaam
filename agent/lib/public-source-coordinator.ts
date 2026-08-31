@@ -169,8 +169,14 @@ export class PublicSourceCoordinatorError extends Error {
     | "public_source_misconfigured"
     | "public_source_reference_invalid";
 
-  constructor(code: PublicSourceCoordinatorError["code"]) {
-    super(code);
+  constructor(code: PublicSourceCoordinatorError["code"], diagnostic?:
+    | "public_source_route_flags_invalid"
+    | "public_source_recovery_route_invalid"
+    | "public_source_recovery_route_denied"
+    | "public_source_house_extractor_invalid"
+    | "public_source_house_ocr_invalid"
+    | "public_source_recovery_extension_invalid") {
+    super(diagnostic ?? code);
     this.code = code;
     this.name = "PublicSourceCoordinatorError";
   }
@@ -194,6 +200,7 @@ function requireEnabled(
     path === "public_source_misconfigured"
       ? "public_source_misconfigured"
       : "public_source_disabled",
+    path === "public_source_misconfigured" ? "public_source_route_flags_invalid" : undefined,
   );
 }
 
@@ -292,8 +299,10 @@ export async function coordinatePublicSourceOccurrence(input: {
         environment,
       ).modelId;
       assertHybridModelRouteAllowed(recoveryRoute, recoveryModelIds);
-    } catch {
-      throw new PublicSourceCoordinatorError("public_source_misconfigured");
+    } catch (error) {
+      throw new PublicSourceCoordinatorError("public_source_misconfigured",
+        error instanceof Error && error.message === "hybrid_model_route_denied"
+          ? "public_source_recovery_route_denied" : "public_source_recovery_route_invalid");
     }
   }
   const configuredIndependentOcrModelId = environment.EVE_HOUSE_INDEPENDENT_OCR_MODEL_ID;
@@ -335,7 +344,11 @@ export async function coordinatePublicSourceOccurrence(input: {
       !independentOcrModelId ||
       !recoveryExtension
     )
-  ) throw new PublicSourceCoordinatorError("public_source_misconfigured");
+  ) throw new PublicSourceCoordinatorError("public_source_misconfigured",
+    !recoveryRoute ? "public_source_recovery_route_invalid"
+      : !houseExtractionModelId ? "public_source_house_extractor_invalid"
+      : !independentOcrModelId ? "public_source_house_ocr_invalid"
+      : "public_source_recovery_extension_invalid");
   const earningsFetch = input.fetch.adapterId === "earnings-call-transcripts"
     ? input.fetch
     : null;
