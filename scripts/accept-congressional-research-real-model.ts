@@ -11,7 +11,7 @@ import { congressionalResearchEvidenceContent, congressionalResearchValidationCo
 import { houseDocumentRowWorkerCandidateSchema } from "../agent/lib/hybrid-evidence-extraction-recovery";
 import { parseHouseTransactionAmountRange } from "../agent/lib/house-public-source-adapter";
 import { hybridEvidenceResearchDecisionSchema } from "../agent/lib/hybrid-evidence-research";
-import { publishCongressionalResearchReport } from "../agent/lib/congressional-research-worker";
+import { publishCongressionalResearchReport, type CongressionalReportTransaction } from "../agent/lib/congressional-research-worker";
 import { researchReportSchema } from "../agent/lib/artifact-schema";
 
 const argument = (name: string) => process.argv.find((value) => value.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -19,6 +19,17 @@ const source = JSON.parse(await readFile(new URL("./fixtures/public-source-adapt
 const extracted = houseDocumentRowWorkerCandidateSchema.parse(source.candidate).fields;
 assert.equal(extracted.rows.length, 123);
 const canonicalUrl = `https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/${extracted.document.docId}.pdf`;
+const reportTransactions: CongressionalReportTransaction[] = extracted.rows.map((row, index) => ({
+  amountRange: parseHouseTransactionAmountRange(row.amountRange),
+  asset: { description: row.assetDescription, reportedTicker: row.reportedTicker },
+  disclosedMember: { firstName: "Michael T.", lastName: "McCaul" },
+  filingDate: extracted.document.filingDate,
+  lineage: { state: "active" },
+  owner: { disclosedCode: row.ownerCode, relationship: row.ownerCode === "SP" ? "spouse" : row.ownerCode === "DC" ? "dependent_child" : "unknown" },
+  source: { page: row.page, publicDocumentUrl: canonicalUrl, rowIdentity: `${extracted.document.docId}:${index + 1}` },
+  transactionDate: row.transactionDate,
+  transactionType: row.transactionType,
+}));
 // Project just the fields the production evidence builder consumes; extraction
 // correctness is independently covered by verify-house-legacy-golden/replay.
 const content = congressionalResearchEvidenceContent({ minimumAlertBand: "review", previousAlert: false,
@@ -83,7 +94,7 @@ const validated = congressionalResearchValidationContract.validate({ disposition
   fields: candidate.fields, unknowns: candidate.unknowns, evidenceTexts: [{ content, locator }], inputProjection: {} });
 assert.equal(validated.requireExactCitations, true);
 let report: unknown;
-await publishCongressionalResearchReport({ briefs: [candidate.fields.brief], identities: [digest],
+await publishCongressionalResearchReport({ entries: [{ identity: digest, transactions: reportTransactions, brief: candidate.fields.brief }],
   scope: { ownerId: "owner_fixture", workspaceId: "123e4567-e89b-42d3-a456-426614175599" },
   asOf: extracted.document.filingDate, publishReport: async (input) => {
     report = researchReportSchema.parse(input.report); return { artifactId: input.artifactId, kind: "report" } as never;

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "eval.congressional-signals/v1",
+  "cases": [
+    {
+      "id": "congressional-signals-baseline",
+      "kind": "no_match",
+      "fixtureId": "fixture.congressional-signals.baseline"
+    },
+    {
+      "id": "congressional-signals-forbidden-capability",
+      "kind": "forbidden_capability",
+      "fixtureId": "fixture.congressional-signals.forbidden-capability"
+    },
+    {
+      "id": "congressional-signals-non-qualifying",
+      "kind": "malformed_input",
+      "fixtureId": "fixture.congressional-signals.non-qualifying"
+    },
+    {
+      "id": "congressional-signals-priority",
+      "kind": "positive",
+      "fixtureId": "fixture.congressional-signals.priority"
+    },
+    {
+      "id": "congressional-signals-replay",
+      "kind": "replay",
+      "fixtureId": "fixture.congressional-signals.replay"
+    }
+  ]
+}
+

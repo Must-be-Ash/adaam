@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { congressionalPackSupportsHistory } from "./congressional-pack-version";
 import {
   congressionalSignalContractDigest,
   congressionalFilingSignalSchema,
@@ -560,10 +561,7 @@ export function createCongressionalRetractionSignal(input: {
     transactionRevisionId === input.retractedTransaction.lineage.priorRevisionId);
   if (
     !priorEvaluation ||
-    (input.priorSignal.packBinding.packVersion !== "1.2.0" &&
-      input.priorSignal.packBinding.packVersion !== "1.3.0" &&
-      input.priorSignal.packBinding.packVersion !== "1.4.0" &&
-      input.priorSignal.packBinding.packVersion !== "1.5.0") ||
+    !congressionalPackSupportsHistory(input.priorSignal.packBinding.packVersion) ||
     input.retractedTransaction.lineage.retractionId === null
   ) {
     throw new Error("congressional_retraction_signal_invalid");

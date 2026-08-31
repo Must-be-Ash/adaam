@@ -343,7 +343,7 @@ export function congressionalFindingForSignal(input: {
       origin: HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER.authorityOrigin,
       sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID as typeof HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
     },
-    transactions: input.transactions.slice(0, 50).flatMap((transaction, index) => {
+    transactions: input.transactions.slice(0, 3).flatMap((transaction, index) => {
       if (transaction.transactionDate === null ||
         (transaction.transactionType !== "P" && transaction.transactionType !== "S") ||
         transaction.asset.description === null) return [];

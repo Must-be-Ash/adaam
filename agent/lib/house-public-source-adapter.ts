@@ -80,6 +80,8 @@ export interface SharedHousePublicSourceAcquisitionResult {
   readonly reused: boolean;
 }
 
+export type HousePriorityFiler = Readonly<{ firstName: string; lastName: string; stateDistrict?: string }>;
+
 export interface HouseIndexRow {
   readonly docId: string;
   readonly filer: {
@@ -106,6 +108,7 @@ export interface HouseTransactionRow {
   readonly ownerCode: string | null;
   readonly reportedTicker: string | null;
   readonly rowEvidenceDigest: string;
+  readonly page?: number;
   readonly transactionDate: string;
   readonly transactionType: "E" | "P" | "S";
 }
@@ -540,6 +543,7 @@ function parsePositionedTransactions(
       ownerCode: ownerFragment?.text ?? null,
       reportedTicker: /\(([A-Z0-9.-]{1,20})\)\s*\[[A-Z]{1,8}\]/u.exec(assetDescription)?.[1] ?? null,
       rowEvidenceDigest: digestPublicSourceValue([typeFragment.page, evidence]),
+      page: typeFragment.page,
       transactionDate: exactDate(
         dates[0]!.text,
         new HouseAdapterError("parser_incomplete", "normalize", "partial"),
@@ -624,6 +628,7 @@ function completeCanonicalFact(source: PublicSourceInstance, input: {
   readonly publicUrl: string;
   readonly row: HouseIndexRow;
   readonly rowEvidenceDigest: string | null;
+  readonly page?: number;
   readonly stableRowIdentity: string;
 }): CanonicalPublicFactRevision {
   const payloadDigest = digestPublicSourceValue(input.payload);
@@ -640,6 +645,7 @@ function completeCanonicalFact(source: PublicSourceInstance, input: {
       documentDigest: input.documentDigest,
       publicUrl: input.publicUrl,
       rowEvidenceDigest: input.rowEvidenceDigest,
+      ...(input.page ? { page: input.page } : {}),
     },
     recordType: "canonical_public_fact_revision" as const,
     schemaVersion: 1 as const,
@@ -897,6 +903,7 @@ async function acquireHouse(input: {
   readonly client?: PublicSourceAcquisitionStoreClient;
   readonly fetchDocument: (url: string) => Promise<HousePublicSourceBinaryResponse>;
   readonly indexResponse: HousePublicSourceBinaryResponse;
+  readonly priorityFilers?: readonly HousePriorityFiler[];
   readonly recovery?: HouseHybridRecovery;
   readonly source: PublicSourceInstance;
   readonly window: { readonly endAt: string; readonly startAt: string };
@@ -956,9 +963,27 @@ async function acquireHouse(input: {
         if (!pending.nextAttemptAt || pending.nextAttemptAt <= input.indexResponse.observedAt) retryRows.push(row);
       } else pendingWork.delete(row.docId);
     }
+    const priorityDocIds = input.priorityFilers?.length ? new Set([...newRows, ...retryRows].filter((row) =>
+        input.priorityFilers!.some((filer) =>
+          filer.firstName.localeCompare(row.filer.firstName, undefined, { sensitivity: "base" }) === 0 &&
+          filer.lastName.localeCompare(row.filer.lastName, undefined, { sensitivity: "base" }) === 0 &&
+          (!filer.stateDistrict || filer.stateDistrict === row.filer.stateDistrict))).map(({ docId }) => docId)) : new Set<string>();
+    if (priorityDocIds.size) {
+      const compare = (left: HouseIndexRow, right: HouseIndexRow) =>
+        Number(priorityDocIds.has(right.docId)) - Number(priorityDocIds.has(left.docId)) ||
+        left.filingDate.localeCompare(right.filingDate) || left.docId.localeCompare(right.docId);
+      newRows.sort(compare);
+      retryRows.sort(compare);
+    }
     const retryAfterId = source.cursor.watermark?.split(":").at(-1);
-    const retryPivot = retryRows.findIndex(({ docId }) => docId === retryAfterId);
-    const rotatedRetries = [...retryRows.slice(retryPivot + 1), ...retryRows.slice(0, retryPivot + 1)];
+    const rotateRetries = (rows: readonly HouseIndexRow[]) => {
+      const pivot = rows.findIndex(({ docId }) => docId === retryAfterId);
+      return [...rows.slice(pivot + 1), ...rows.slice(0, pivot + 1)];
+    };
+    const rotatedRetries = priorityDocIds.size
+      ? [...rotateRetries(retryRows.filter(({ docId }) => priorityDocIds.has(docId))),
+        ...rotateRetries(retryRows.filter(({ docId }) => !priorityDocIds.has(docId)))]
+      : rotateRetries(retryRows);
     const batchLimit = PUBLIC_SOURCE_LIMITS.maximumHouseDocumentsPerAcquisition;
     // Reserve capacity for unseen filings; rotate retries with the durable
     // source cursor so an old failed cohort cannot starve its siblings.
@@ -1150,6 +1175,7 @@ async function acquireHouse(input: {
           publicUrl,
           row,
           rowEvidenceDigest: transaction.rowEvidenceDigest,
+          page: transaction.page,
           stableRowIdentity: transactionPayload.rowIdentity,
         });
         const candidate = await candidateWithLineage({
@@ -1330,6 +1356,7 @@ export async function runHousePublicSourceAcquisition(input: {
   readonly fetchDocument: (url: string) => Promise<HousePublicSourceBinaryResponse>;
   readonly fetchIndex: (url: string) => Promise<HousePublicSourceBinaryResponse>;
   readonly hybridLineageClient?: HybridEvidenceLineageStoreClient;
+  readonly priorityFilers?: readonly HousePriorityFiler[];
   readonly recovery?: HouseHybridRecovery;
   readonly sourceId: string;
   readonly window: { readonly endAt: string; readonly startAt: string };
@@ -1358,6 +1385,7 @@ export async function runHousePublicSourceAcquisition(input: {
     client: input.client,
     fetchDocument: input.fetchDocument,
     indexResponse,
+    priorityFilers: input.priorityFilers,
     recovery: input.recovery,
     source,
     window: input.window,
@@ -1378,6 +1406,7 @@ export async function runSharedHousePublicSourceAcquisition(input: {
   readonly fetchDocument: (url: string) => Promise<HousePublicSourceBinaryResponse>;
   readonly fetchIndex: (url: string) => Promise<HousePublicSourceBinaryResponse>;
   readonly hybridLineageClient?: HybridEvidenceLineageStoreClient;
+  readonly priorityFilers?: readonly HousePriorityFiler[];
   readonly recovery?: HouseHybridRecovery;
   readonly sourceId: string;
   readonly window: { readonly endAt: string; readonly startAt: string };

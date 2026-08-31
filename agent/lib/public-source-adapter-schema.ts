@@ -506,6 +506,7 @@ export const canonicalPublicFactRevisionSchema = z.object({
     documentDigest: digestSchema.nullable(),
     publicUrl: publicUrlSchema,
     rowEvidenceDigest: digestSchema.nullable(),
+    page: z.number().int().positive().optional(),
   }).strict(),
   recordType: z.literal("canonical_public_fact_revision"),
   revisionId: idSchema,

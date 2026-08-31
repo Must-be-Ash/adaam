@@ -1,11 +1,13 @@
 import { congressionalResearchEvidenceContent, congressionalResearchValidationContract } from "../agent/lib/congressional-research";
-import { createHybridEvidenceEphemeralArtifactStore } from "../agent/lib/hybrid-evidence-artifact-store";
+import { congressionalPackSupportsResearch, type CongressionalPackVersion } from "../agent/lib/congressional-pack-version";
+import { publishCongressionalResearchReport } from "../agent/lib/congressional-research-worker";
+import { createHybridEvidenceEphemeralArtifactStore, type HybridEvidenceArtifactStore } from "../agent/lib/hybrid-evidence-artifact-store";
 import { decodeHybridEvidenceWorkerToken } from "../agent/lib/hybrid-evidence-auth";
 import { readHybridEvidenceJob } from "../agent/lib/hybrid-evidence-job-store";
 import { completeHybridEvidenceJobForWorker, persistHybridEvidenceResearchDecisionForWorker, readHybridEvidenceSliceForWorker } from "../agent/lib/hybrid-evidence-worker";
 import { reserveWorkspaceRunBudget, reconcileWorkspaceRunBudget, readWorkspaceBudgetLedger } from "../agent/lib/workspace-budget-ledger";
 import { readWorkspaceDocument } from "../agent/lib/workspace-state-store";
-import { researchReportSchema } from "../agent/lib/artifact-schema";
+import { researchReportSchema, type ResearchReport } from "../agent/lib/artifact-schema";
 import { shouldCreateCongressionalCorrectionAlert } from "../agent/lib/congressional-history";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -36,7 +38,9 @@ import {
 } from "../agent/lib/congressional-reference-catalog";
 import {
   CongressionalWorkspaceWorkerError,
+  combineCongressionalFindings,
   evaluateCongressionalSignalsForWorker,
+  isVerifiedSelectedDisclosureTransaction,
   type CongressionalWorkspaceWorkerClients,
 } from "../agent/lib/congressional-workspace-worker";
 import type { HousePublicSourceBinaryResponse } from "../agent/lib/house-public-source-adapter";
@@ -242,7 +246,7 @@ function countRecordType(values: Map<string, string>, recordType: string): numbe
     (JSON.parse(raw) as { recordType?: unknown }).recordType === recordType).length;
 }
 
-function capabilitiesFor(version: string): WorkspaceCapabilityManifestValue {
+function capabilitiesFor(version: CongressionalPackVersion): WorkspaceCapabilityManifestValue {
   const pack = strategyPackCatalog.resolve({ id: "congressional-signals", version });
   assert.ok(pack);
   return {
@@ -262,14 +266,14 @@ function capabilitiesFor(version: string): WorkspaceCapabilityManifestValue {
       origin: new URL(item.canonicalUrl).origin,
       sourceId: item.sourceId,
     })),
-    workerModelPolicy: { allowedModelIds: version === "1.5.0" ? ["zai/glm-5.3-flash", "openai/gpt-5.4"] : ["zai/glm-5.3-flash"], maximumOutputTokens: version === "1.5.0" ? 12_000 : 2_000 },
+    workerModelPolicy: { allowedModelIds: congressionalPackSupportsResearch(version) ? ["zai/glm-5.3-flash", "openai/gpt-5.4"] : ["zai/glm-5.3-flash"], maximumOutputTokens: congressionalPackSupportsResearch(version) ? 12_000 : 2_000 },
   };
 }
 
 function installWorkspace(input: {
-  configuration: { minimumAlertBand: "priority" | "review"; selectedMemberBioguideIds: string[] };
+  configuration: { minimumAlertBand?: "priority" | "review"; selectedMemberBioguideIds: string[] };
   nextOccurrenceAt?: string;
-  version: "1.0.0" | "1.1.0" | "1.2.0" | "1.3.0" | "1.5.0";
+  version: CongressionalPackVersion;
   workspaceId: string;
 }) {
   const pack = strategyPackCatalog.resolve({ id: "congressional-signals", version: input.version });
@@ -318,7 +322,7 @@ function installWorkspace(input: {
     bindingRevision: 1,
     configuration: {
       dailyTimes: ["09:00"],
-      minimumAlertBand: input.configuration.minimumAlertBand,
+      ...(input.configuration.minimumAlertBand ? { minimumAlertBand: input.configuration.minimumAlertBand } : {}),
       selectedMemberBioguideIds: input.configuration.selectedMemberBioguideIds,
       timezone: "UTC",
     },
@@ -361,7 +365,7 @@ function installWorkspace(input: {
     prepareInitialWorkspaceDocument("budget", {
       now: baseNow,
       scope,
-      value: input.version === "1.5.0" ? resolveStrategyPackInitialBudgetPolicy(pack, strategy.configuration, baseNow.toISOString()) : {
+      value: congressionalPackSupportsResearch(input.version) ? resolveStrategyPackInitialBudgetPolicy(pack, strategy.configuration, baseNow.toISOString()) : {
         effectiveAt: baseNow.toISOString(),
         maximumConcurrentWorkers: 1,
         maximumInputTokensPerDay: 40_000,
@@ -428,7 +432,7 @@ async function prepare(monitor: WorkspaceMonitor, now: Date, scope: ReturnType<t
       reconciledPaidMicros: null,
     },
   } satisfies WorkspaceDispatchReservation;
-  if (monitor.managedBy?.packVersion === "1.5.0") {
+  if (monitor.managedBy && congressionalPackSupportsResearch(monitor.managedBy.packVersion as CongressionalPackVersion)) {
     const budget = await readWorkspaceDocument("budget", scope, state);
     assert.ok(budget);
     dispatchBudget.workspace = await reserveWorkspaceRunBudget({
@@ -867,6 +871,33 @@ const pagedSignals = [...signal.values.values()].map((raw) => JSON.parse(raw)).f
 assert.equal(pagedSignals.length, 26, "all 26 baseline filings must survive withheld acquisition batches");
 assert.equal(alert.values.size, alertsBeforePaging, "no historical alert may escape a multi-batch baseline");
 
+// A selected filer gets the first bounded acquisition slot without deleting
+// unrelated work that does not fit in the batch.
+const prioritySource = new MemoryCasStore();
+const priorityDocument = { ...pagedDocuments[0]!, docId: "21999999",
+  disclosedFiler: { firstName: "Jordan", lastName: "Sample", prefix: "Hon.", suffix: "Jr.", stateDistrict: "OR03" } };
+const wrongDistrictDocument = { ...priorityDocument, docId: "21999998",
+  disclosedFiler: { ...priorityDocument.disclosedFiler, stateDistrict: "OR04" } };
+const ordinaryPriorityDocuments = pagedDocuments.slice(0, 25).map((document) => ({ ...document,
+  disclosedFiler: { ...document.disclosedFiler, stateDistrict: "OR04" } }));
+const priorityArchive = await index([...ordinaryPriorityDocuments, wrongDistrictDocument, priorityDocument]);
+const priorityFetches: string[] = [];
+const priorityAt = new Date(baseNow.getTime() + 7_000).toISOString();
+const priorityResult = await runHousePublicSourceAcquisition({ client: prioritySource,
+  sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  priorityFilers: [{ firstName: "jordan", lastName: "sample", stateDistrict: "OR03" }],
+  fetchIndex: async (url) => response(priorityArchive, "application/zip", url, priorityAt),
+  fetchDocument: async (url) => { priorityFetches.push(url); return response(pagedPdf, "application/pdf", url, priorityAt); },
+  window: { startAt: baseNow.toISOString(), endAt: priorityAt },
+});
+assert.equal(priorityResult.acquisition.result.status, "partial",
+  "the synthetic state/district variants intentionally remain unresolved after proving selection order");
+assert.match(priorityFetches[0]!, /21999999\.pdf$/u, "selected-filer matching must be case-insensitive and state/district exact");
+assert.equal(priorityFetches.some((url) => url.endsWith("21999998.pdf")), false,
+  "a state/district mismatch must not consume the selected-filer priority slot");
+assert.equal(pagedSignals.length, 26,
+  "the adjacent multi-batch fixture proves that priority ordering does not weaken durable overflow replay");
+
 // A serverless interruption before the coordinator returns must already have
 // a continuation receipt; the committed source page is reused on resumption.
 class InterruptedWorkerSource extends MemoryCasStore {
@@ -1086,14 +1117,24 @@ const researchArtifacts = createHybridEvidenceEphemeralArtifactStore({ index: re
 } });
 let researchDispatches = 0;
 let researchBand: "priority" | "record_only" = "priority";
+let researchFailure = false;
+let researchCleanupFailure = false;
 let reportPublications = 0;
+const publishedReports: ResearchReport[] = [];
 let lastEvidence: { canonicalUrl: string; rows: unknown[][]; historyCoverage: string; evidenceScope: string } | null = null;
-(clients as { research?: CongressionalWorkspaceWorkerClients["research"] }).research = { artifacts: researchArtifacts, publishReport: async ({ artifactId, report }) => {
-  researchReportSchema.parse(report); reportPublications += 1;
+const researchClientArtifacts: HybridEvidenceArtifactStore = { ...researchArtifacts,
+  async deleteUnreferenced(artifactDigest) {
+    if (researchCleanupFailure) throw new Error("fixture_cleanup_unavailable");
+    return researchArtifacts.deleteUnreferenced(artifactDigest);
+  },
+};
+(clients as { research?: CongressionalWorkspaceWorkerClients["research"] }).research = { artifacts: researchClientArtifacts, publishReport: async ({ artifactId, report }) => {
+  publishedReports.push(researchReportSchema.parse(report)); reportPublications += 1;
   return { artifactId, kind: "report" } as never;
 }, semantic: { jobs: researchMemory, semantic: researchMemory, lineage: researchMemory,
   async execute(prepared) {
     researchDispatches += 1;
+    if (researchFailure) throw new Error("fixture_research_unavailable");
     const envelope = decodeHybridEvidenceWorkerToken(prepared.token);
     const completedAt = new Date((await readHybridEvidenceJob(envelope.jobId, researchMemory))!.job.updatedAt);
     assert.equal(envelope.modelId, "openai/gpt-5.4");
@@ -1144,6 +1185,14 @@ assert.ok(researchChildren.every((entry) => entry.state === "reconciled" && entr
 const historyForCorrection = await readCongressionalHistory(researchWorkspace.scope, signal);
 const priorEntry = historyForCorrection!.activeEntries.find(({ alertEligible }) => alertEligible)!;
 assert.ok(priorEntry);
+assert.ok(priorEntry.transaction.source.page && priorEntry.transaction.source.page > 0,
+  "positioned PDF evidence must retain its page through canonical signal projection");
+assert.equal(isVerifiedSelectedDisclosureTransaction(priorEntry.transaction), true);
+assert.equal(isVerifiedSelectedDisclosureTransaction({ ...priorEntry.transaction, transactionType: "E" }), false,
+  "an exchange beside a verified purchase or sale must not inherit filing-level alert eligibility");
+assert.equal(isVerifiedSelectedDisclosureTransaction({ ...priorEntry.transaction,
+  eligibility: { reasonCodes: ["invalid_date"], state: "record_only" } }), false,
+"a disqualified row beside a valid row must remain excluded from research, history eligibility, and reports");
 // A deployed subscription/fact may predate the durable baseline metadata.
 // Two successive header corrections must retain its established live lineage.
 for (const [key, raw] of researchSource.values) {
@@ -1211,7 +1260,7 @@ const denseEvidence = congressionalResearchEvidenceContent({
     filing: { fact: { revisionId: "fixture-dense-filing" } } } as never,
   minimumAlertBand: "review", previousAlert: false,
 });
-assert.equal(JSON.parse(denseEvidence).rows.length, 224, "research must receive rows beyond the finding preview's first fifty");
+assert.equal(JSON.parse(denseEvidence).rows.length, 224, "research must receive rows beyond the finding preview's first three");
 assert.equal(JSON.parse(denseEvidence).historyCoverage, "incomplete");
 assert.match(JSON.parse(denseEvidence).evidenceScope, /not a complete trading history/u);
 const validationLocator = { kind: "text_span", artifactDigest: "a".repeat(64), start: 0, end: denseEvidence.length, spanDigest: "b".repeat(64) } as const;
@@ -1230,6 +1279,51 @@ assert.throws(() => validateResearch(validationFields, "accepted"), /congression
 assert.throws(() => validateResearch(validationFields, "abstained", []), /congressional_research_output_invalid/);
 assert.throws(() => validateResearch({ ...validationFields, brief: { ...validationFields.brief,
   sources: [{ label: "Wrong official source", role: "official", url: "https://example.com/" }] } }, "abstained"));
+const maximumEntries = Array.from({ length: 25 }, (_, index) => ({
+  identity: `fixture.maximum.${String(index).padStart(2, "0")}`,
+  transactions: [{ ...priorEntry.transaction, source: index === 0 ? {
+    publicDocumentUrl: priorEntry.transaction.source.publicDocumentUrl,
+    rowIdentity: `${priorEntry.transaction.source.rowIdentity}:maximum:${index}`,
+  } : { ...priorEntry.transaction.source, rowIdentity: `${priorEntry.transaction.source.rowIdentity}:maximum:${index}` } }],
+  brief: validationFields.brief,
+}));
+const maximumReports: ResearchReport[] = [];
+const maximumReportRefs = await publishCongressionalResearchReport({
+  entries: maximumEntries,
+  scope: researchWorkspace.scope,
+  asOf: researchNow.toISOString(),
+  publishReport: async ({ artifactId, report }) => {
+    maximumReports.push(researchReportSchema.parse(report));
+    return { artifactId, kind: "report" } as never;
+  },
+});
+assert.equal(maximumReportRefs.length, 2, "25 enriched filings must be split across bounded report artifacts");
+assert.ok(maximumReports.every(({ blocks }) => blocks.length <= 40));
+assert.equal(maximumReports.flatMap(({ blocks }) => blocks.flatMap((block) =>
+  block.type === "table" ? block.rows : [])).length, 25, "report batching must retain every filing row");
+assert.match(maximumReports.flatMap(({ blocks }) => blocks.flatMap((block) =>
+  block.type === "table" ? block.rows.flat() : [])).join(" "), /page citation unavailable/u,
+"a row without retained page provenance must say that the citation is unavailable rather than guessing");
+const partialReportIds: string[] = [];
+await assert.rejects(publishCongressionalResearchReport({ entries: maximumEntries,
+  scope: researchWorkspace.scope, asOf: researchNow.toISOString(),
+  publishReport: async ({ artifactId }) => {
+    partialReportIds.push(artifactId);
+    if (partialReportIds.length === 2) throw new Error("fixture_second_report_unavailable");
+    return { artifactId, kind: "report" } as never;
+  },
+}), /fixture_second_report_unavailable/u);
+const replayedReportIds: string[] = [];
+const replayedReportRefs = await publishCongressionalResearchReport({ entries: maximumEntries,
+  scope: researchWorkspace.scope, asOf: researchNow.toISOString(),
+  publishReport: async ({ artifactId }) => {
+    replayedReportIds.push(artifactId);
+    return { artifactId, kind: "report" } as never;
+  },
+});
+assert.deepEqual(replayedReportIds, partialReportIds,
+  "a partial report publication must replay the same deterministic artifact identities");
+assert.equal(replayedReportRefs.length, 2);
 researchBand = "record_only";
 const abstentionWorkspace = installWorkspace({ configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: [] },
   version: "1.5.0", workspaceId: "123e4567-e89b-42d3-a456-426614175591" });
@@ -1243,8 +1337,41 @@ assert.ok(abstentionMonitor);
 const abstentionLive = await prepare(abstentionMonitor, researchNow, abstentionWorkspace.scope);
 const publicationsBeforeAbstention = reportPublications;
 const abstentionResult = await execute({ document: liveDocument, now: researchNow, prepared: abstentionLive, shouldFetch: true, sourceClient: abstentionSource });
-assert.equal(abstentionResult.result.outcome.outcome, "no_match");
-assert.equal(reportPublications, publicationsBeforeAbstention, "an unalerted record-only decision must not publish an alert report");
+assert.equal(abstentionResult.result.outcome.outcome, "finding_staged", "a verified transaction must alert even when research abstains");
+assert.equal(reportPublications, publicationsBeforeAbstention + 1, "record-only research cannot veto the factual report");
+const abstentionReport = publishedReports.at(-1)!;
+const abstentionRows = abstentionReport.blocks.flatMap((block) => block.type === "table" ? block.rows : []);
+assert.ok(abstentionRows.length > 0 && abstentionRows.every((row) => row.length === 6),
+  "the factual report must retain every P/S row in a structured table");
+const renderedAbstentionFacts = abstentionRows.flat().join(" ");
+for (const required of ["not reported", "Purchase", "filed", "$", "page", ":"]) {
+  assert.match(renderedAbstentionFacts, new RegExp(required.replace("$", "\\$"), "u"),
+    `the factual report must render ${required}`);
+}
+assert.ok(abstentionReport.sources.some(({ url }) => url.endsWith(".pdf")),
+  "the factual report must link the official filing URL referenced by each row");
+assert.ok(abstentionReport.blocks.some((block) => block.type === "text" &&
+  block.body.includes("Optional model interpretation")), "optional interpretation must follow the official facts");
+const combinedFixtureFinding = combineCongressionalFindings([
+  abstentionResult.result.outcome.finding!, researchRetry.result.outcome.finding!,
+])!;
+assert.deepEqual(combinedFixtureFinding.factIdentities,
+  combinedFixtureFinding.facts?.map(({ filingIdentity }) => filingIdentity),
+  "multi-filing facts and identities must remain paired after deterministic ordering");
+const baseFinding = abstentionResult.result.outcome.finding!;
+const baseFact = baseFinding.facts![0]!;
+assert.equal(baseFact.kind, "congressional_filing_signal");
+const maximumFinding = combineCongressionalFindings(Array.from({ length: 25 }, (_, index) => {
+  const identity = `congressional-signal-revision.${String(index).padStart(2, "0")}${"a".repeat(62)}`;
+  return { ...baseFinding, factIdentities: [identity], facts: [{ ...baseFact,
+    filingIdentity: identity, signalRevisionId: identity,
+    transactions: Array.from({ length: 50 }, () => ({ ...baseFact.transactions[0]!,
+      assetDescription: "X".repeat(1_000) })) }] };
+}))!;
+assert.equal(maximumFinding.factIdentities.length, 25, "size compaction must retain every filing identity");
+assert.ok(maximumFinding.facts?.every((fact) => fact.kind !== "congressional_filing_signal" || fact.transactions.length === 1));
+assert.ok(Buffer.byteLength(JSON.stringify(maximumFinding), "utf8") < 512 * 1_024,
+  "a maximum valid acquisition must remain below the atomic finding record limit");
 assert.equal(researchBytes.size, 0, "temporary evidence bytes must be removed after acceptance and replay");
 console.log("Congressional dense evidence, validator rejection, abstention, and artifact cleanup verification passed.");
 
@@ -1402,3 +1529,58 @@ finding.failNextOutcome = true;
 await assert.rejects(execute({ document: liveDocument, now: emptyNow, prepared: emptyPrepared, shouldFetch: true, sourceClient: movingSource }), /fixture_post_history_interruption/);
 assert.equal((await execute({ document: liveDocument, now: emptyNow, prepared: emptyPrepared, shouldFetch: false, sourceClient: movingSource })).result.outcome.outcome, "no_match",
   "a pinned empty acquisition must remain replayable");
+
+researchFailure = true;
+researchCleanupFailure = true;
+try {
+const failedResearchWorkspace = installWorkspace({ configuration: { selectedMemberBioguideIds: [] },
+  version: "1.6.0", workspaceId: "123e4567-e89b-42d3-a456-426614175598" });
+const failedResearchSource = new MemoryCasStore();
+const failedBaseline = await prepare(failedResearchWorkspace.monitor, baseNow, failedResearchWorkspace.scope);
+const failedBaselineResult = await execute({ document: baselineDocument, now: baseNow, prepared: failedBaseline, shouldFetch: true, sourceClient: failedResearchSource });
+await reconcileWorkspaceRunBudget({ runId: failedBaselineResult.result.outcome.runId, scope: failedResearchWorkspace.scope,
+  now: baseNow, outcome: "reconciled", actualInputTokens: 0, actualOutputTokens: 0, actualPaidCost: "0" }, researchMemory);
+const failedMonitor = (await getWorkspaceMonitor(failedResearchWorkspace.scope, failedResearchWorkspace.monitor.monitorId, monitorStore))!;
+const failedPrepared = await prepare(failedMonitor, researchNow, failedResearchWorkspace.scope);
+const reportsBeforeFailedResearch = publishedReports.length;
+const failedResult = await execute({ document: liveDocument, now: researchNow, prepared: failedPrepared, shouldFetch: true, sourceClient: failedResearchSource });
+assert.equal(failedResult.result.outcome.outcome, "finding_staged", "research failure must fall back to verified facts");
+assert.match(failedResult.result.outcome.finding!.summary, /disclosed/u);
+assert.ok(publishedReports.length > reportsBeforeFailedResearch);
+assert.ok(publishedReports.at(-1)!.blocks.some((block) => block.type === "text" &&
+  block.body.includes("interpretation unavailable")), "research failure must produce an explicitly factual-only report");
+const failedLedger = await readWorkspaceBudgetLedger(failedResearchWorkspace.scope, researchMemory);
+const failedChildren = failedLedger.reservations.filter(({ parentRunId }) => parentRunId === failedPrepared.envelope.runId);
+assert.ok(failedChildren.length > 0 && failedChildren.every(({ state, paidMicros, reconciledPaidMicros }) =>
+  state === "uncertain" && BigInt(paidMicros) > 0n && reconciledPaidMicros === null),
+"a dispatched research failure must settle conservatively as uncertain reserved usage");
+assert.equal(failedLedger.reservations.some(({ parentRunId, state }) =>
+  parentRunId === failedPrepared.envelope.runId && state === "reserved"), false,
+"a research failure must not leave an unsettled child reservation");
+} finally { researchFailure = false; researchCleanupFailure = false; }
+console.log("Congressional research failure falls back to factual notification and reconciles conservatively.");
+
+const deniedResearchWorkspace = installWorkspace({ configuration: { selectedMemberBioguideIds: [] },
+  version: "1.6.0", workspaceId: "123e4567-e89b-42d3-a456-426614175599" });
+const deniedResearchSource = new MemoryCasStore();
+const deniedBaseline = await prepare(deniedResearchWorkspace.monitor, baseNow, deniedResearchWorkspace.scope);
+const deniedBaselineResult = await execute({ document: baselineDocument, now: baseNow, prepared: deniedBaseline, shouldFetch: true, sourceClient: deniedResearchSource });
+await reconcileWorkspaceRunBudget({ runId: deniedBaselineResult.result.outcome.runId, scope: deniedResearchWorkspace.scope,
+  now: baseNow, outcome: "reconciled", actualInputTokens: 0, actualOutputTokens: 0, actualPaidCost: "0" }, researchMemory);
+const deniedMonitor = (await getWorkspaceMonitor(deniedResearchWorkspace.scope, deniedResearchWorkspace.monitor.monitorId, monitorStore))!;
+const deniedPrepared = await prepare(deniedMonitor, researchNow, deniedResearchWorkspace.scope);
+const savedBudgetClient = clients.budget;
+(clients as { budget?: WorkspaceBudgetLedgerClient }).budget = {
+  get: (key) => researchMemory.get(key),
+  compareAndSet: async () => { throw new Error("fixture_no_research_budget"); },
+};
+const dispatchesBeforeDeniedResearch = researchDispatches;
+try {
+const deniedResult = await execute({ document: liveDocument, now: researchNow, prepared: deniedPrepared, shouldFetch: true, sourceClient: deniedResearchSource });
+assert.equal(deniedResult.result.outcome.outcome, "finding_staged", "no research allowance must fall back to verified facts");
+assert.equal(researchDispatches, dispatchesBeforeDeniedResearch, "budget denial must occur before model dispatch");
+assert.equal((await readWorkspaceBudgetLedger(deniedResearchWorkspace.scope, researchMemory)).reservations
+  .some(({ parentRunId }) => parentRunId === deniedPrepared.envelope.runId), false,
+"pre-dispatch budget denial must not create a child model reservation");
+} finally { (clients as { budget?: WorkspaceBudgetLedgerClient }).budget = savedBudgetClient; }
+console.log("Congressional research-budget denial falls back to factual notification without model dispatch.");

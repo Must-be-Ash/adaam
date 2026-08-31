@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CONGRESSIONAL_PACK_VERSIONS, congressionalPackSupportsResearch } from "./congressional-pack-version";
 import type { WorkspaceSemanticValidationContract } from "./hybrid-evidence-definition-registry";
 import { digestHybridEvidenceValue, evidenceLocatorSchema, hybridEvidenceJobDefinitionSchema } from "./hybrid-evidence-schema";
 import { workspaceExecutiveBriefSchema } from "./workspace-executive-brief";
@@ -8,6 +9,7 @@ import type { CongressionalCoverage } from "./congressional-history";
 
 export const CONGRESSIONAL_RESEARCH_DEFINITION_ID = "congressional-frontier-research";
 export const CONGRESSIONAL_RESEARCH_PACK_VERSION = "1.5.0";
+export const CONGRESSIONAL_RESEARCH_PACK_VERSIONS = new Set(CONGRESSIONAL_PACK_VERSIONS.filter(congressionalPackSupportsResearch));
 export const CONGRESSIONAL_RESEARCH_BUDGET = Object.freeze({
   // Source recovery and research share the parent's total envelope. The
   // source's $1 admission must fit even though this research child caps at $0.50.
@@ -52,6 +54,7 @@ const evidenceSchema = z.object({
   member: z.string().min(1),
   minimumAlertBand: z.enum(["priority", "review"]),
   previousAlert: z.boolean(),
+  notificationPolicy: z.literal("Every verified watched-member purchase or sale is notified; interpretation cannot veto delivery.").optional(),
   correction: z.boolean(),
   deterministicBand: z.enum(["priority", "review", "record_only"]),
   historyCoverage: z.enum(["complete", "incomplete"]).default("incomplete"),
@@ -80,6 +83,7 @@ export function congressionalResearchEvidenceContent(input: {
     filingRevisionId: evaluation.filing.fact.revisionId,
     member: `${first.disclosedMember.firstName} ${first.disclosedMember.lastName}`,
     minimumAlertBand: input.minimumAlertBand, previousAlert: input.previousAlert,
+    notificationPolicy: "Every verified watched-member purchase or sale is notified; interpretation cannot veto delivery.",
     correction: evaluation.transactions.some(({ lineage }) => lineage.correctionId !== null),
     deterministicBand: evaluation.signal.band,
     historyCoverage: input.historyCoverage ?? "incomplete",
