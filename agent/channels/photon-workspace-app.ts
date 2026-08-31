@@ -58,6 +58,8 @@ import {
 import {
   deleteWorkspaceDocuments,
   readWorkspaceDocument,
+  MAXIMUM_WORKSPACE_SCHEDULED_RUNS_PER_DAY,
+  workspaceScheduledRunsPerDaySchema,
   writeWorkspaceDocument,
 } from "../lib/workspace-state-store";
 import { authorizePhotonWorkspaceControlPlaneStore } from "../lib/workspace-store-authorization";
@@ -271,7 +273,7 @@ const runtimeActionRequestSchema = z.discriminatedUnion("action", [
      */
     maximumPaidPerDay: paidCeilingSchema.optional(),
     maximumPaidPerMonth: paidCeilingSchema.optional(),
-    maximumScheduledRunsPerDay: z.number().int().positive().max(32),
+    maximumScheduledRunsPerDay: workspaceScheduledRunsPerDaySchema,
     workspaceId: workspaceIdSchema,
   }),
 ]);
@@ -1904,8 +1906,8 @@ export function workspaceHtml(nonce: string, origin: string): string {
                 workspace.budgetUsage.outputTokensToday + " output · " +
                 workspace.budgetUsage.activeWorkers + "/" +
                 workspace.budget.value.maximumConcurrentWorkers + " active workers · " +
-                workspace.budgetUsage.paidDisplayToday + " paid today · " +
-                workspace.budgetUsage.paidDisplayThisMonth + " paid this month · " +
+                workspace.budgetUsage.paidDisplayToday + " budget used today · " +
+                workspace.budgetUsage.paidDisplayThisMonth + " budget used this month (includes reservations and unresolved costs) · " +
                 workspace.budget.value.ownerTimezone
               : "Usage unavailable";
             const budgetActions = document.createElement("div");
@@ -2190,9 +2192,24 @@ export function workspaceHtml(nonce: string, origin: string): string {
 
       const handleRuntime = async (action, workspace, monitor) => {
         if (action === "workspace-budget") {
-          const runs = Number(prompt("Maximum scheduled runs per day", workspace.budget.value.maximumScheduledRunsPerDay));
-          const workers = Number(prompt("Maximum concurrent workers", workspace.budget.value.maximumConcurrentWorkers));
-          if (!Number.isInteger(runs) || !Number.isInteger(workers)) return;
+          const runsInput = prompt("Maximum scheduled runs per day (1–${MAXIMUM_WORKSPACE_SCHEDULED_RUNS_PER_DAY})", workspace.budget.value.maximumScheduledRunsPerDay);
+          if (runsInput === null) return;
+          const runs = Number(runsInput);
+          if (!Number.isInteger(runs) || runs < 1 || runs > ${MAXIMUM_WORKSPACE_SCHEDULED_RUNS_PER_DAY}) {
+            actionFeedback = { workspaceId: workspace.id,
+              message: "Scheduled runs must be a whole number from 1 to ${MAXIMUM_WORKSPACE_SCHEDULED_RUNS_PER_DAY}." };
+            render();
+            return;
+          }
+          const workersInput = prompt("Maximum concurrent workers (1–32)", workspace.budget.value.maximumConcurrentWorkers);
+          if (workersInput === null) return;
+          const workers = Number(workersInput);
+          if (!Number.isInteger(workers) || workers < 1 || workers > 32) {
+            actionFeedback = { workspaceId: workspace.id,
+              message: "Concurrent workers must be a whole number from 1 to 32." };
+            render();
+            return;
+          }
           // Paid ceilings only apply to a session whose sources or research
           // actually cost money; a first-party feed has none to set.
           const paid = workspace.budget.value.maximumPaidPerDay !== null
