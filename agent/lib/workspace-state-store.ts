@@ -355,6 +355,10 @@ const capabilityValueSchema = z.object({
   }).strict(),
 }).strict();
 
+export const MAXIMUM_WORKSPACE_SCHEDULED_RUNS_PER_DAY = 144;
+export const workspaceScheduledRunsPerDaySchema = z.number().int().positive()
+  .max(MAXIMUM_WORKSPACE_SCHEDULED_RUNS_PER_DAY);
+
 const budgetValueSchema = z.object({
   effectiveAt: timestampSchema,
   maximumConcurrentWorkers: z.number().int().positive().max(32),
@@ -365,7 +369,7 @@ const budgetValueSchema = z.object({
   maximumPaidPerCall: decimalSchema.nullable(),
   maximumPaidPerDay: decimalSchema.nullable(),
   maximumPaidPerMonth: decimalSchema.nullable(),
-  maximumScheduledRunsPerDay: z.number().int().positive().max(144),
+  maximumScheduledRunsPerDay: workspaceScheduledRunsPerDaySchema,
   ownerTimezone: z.string().min(1).max(80).refine((value) => {
     try {
       new Intl.DateTimeFormat("en", { timeZone: value });

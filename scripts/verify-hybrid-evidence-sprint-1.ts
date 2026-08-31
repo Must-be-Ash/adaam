@@ -67,6 +67,7 @@ import {
 } from "../agent/lib/workspace-dispatch-budget";
 import { authorizeDeploymentWorkspaceStore } from "../agent/lib/workspace-store-authorization";
 import { writeWorkspaceDocument, type WorkspaceStateStoreClient } from "../agent/lib/workspace-state-store";
+import { resolveHybridEvidenceWorkerCapabilities } from "../agent/subagents/hybrid-evidence-worker/tools/capabilities";
 
 class MemoryCas implements HybridEvidenceArtifactIndexClient,
   HybridEvidenceJobStoreClient, WorkspaceBudgetLedgerClient,
@@ -500,12 +501,59 @@ try {
     },
   }, { jobId: preparedA.job.jobId }, environment)).token, worker.token,
   "the session-bound claim token must outrank alternate valid Eve principals");
+
+  const expiredInitiator = {
+    ...worker.request.auth,
+    attributes: {
+      ...worker.request.auth.attributes,
+      hybrid_evidence_runtime_token: signHybridEvidenceWorkerEnvelope({
+        ...decodeHybridEvidenceWorkerToken(worker.token, { now }),
+        issuedAt: new Date(now.getTime() - 120_000).toISOString(),
+        expiresAt: new Date(now.getTime() - 60_000).toISOString(),
+      }, environment),
+    },
+  };
+  for (const [label, id, current] of [
+    ["stored and current", sessionBoundId, worker.request.auth],
+    ["stored only", sessionBoundId, null],
+    ["current only", "fixture-current-only-worker", worker.request.auth],
+  ] as const) {
+    const ctx = { session: { id, auth: { initiator: expiredInitiator, current } } };
+    assert.equal((await requireHybridEvidenceWorkerAuth(ctx, {}, environment)).token, worker.token);
+    assert.ok((await resolveHybridEvidenceWorkerCapabilities(ctx))?.complete_hybrid_evidence_job,
+      `${label}: expired initiator must not hide authorized completion`);
+    assert.equal((await readHybridEvidenceSliceForWorker({
+      clients: { artifacts, jobs }, ctx, environment, locator,
+    })).content, evidenceText, `${label}: the resolved token must still match the stored job claim`);
+  }
+  const expiredOnlyCtx = { session: {
+    id: "fixture-expired-only-worker", auth: { initiator: expiredInitiator, current: null },
+  } };
+  await assert.rejects(requireHybridEvidenceWorkerAuth(expiredOnlyCtx, {}, environment), /token_expired/u);
+  assert.equal(await resolveHybridEvidenceWorkerCapabilities(expiredOnlyCtx), null,
+    "an expired-only session must not inherit another session's stored capability");
+  const mismatchedJobCtx = { session: {
+    id: sessionBoundId,
+    auth: {
+      initiator: worker.request.auth,
+      current: { ...worker.request.auth, attributes: {
+        ...worker.request.auth.attributes, hybrid_evidence_job_id: "fixture.other-job",
+      } },
+    },
+  } };
+  await assert.rejects(requireHybridEvidenceWorkerAuth(mismatchedJobCtx, {}, environment), /claim_mismatch/u);
+  assert.equal(await resolveHybridEvidenceWorkerCapabilities(mismatchedJobCtx), null,
+    "a valid stored token must not override a conflicting asserted job");
 } finally {
   if (previousFixtureTransport === undefined) {
     delete process.env.EVE_HYBRID_EVIDENCE_WORKER_LOCAL_TRANSPORT;
   } else {
     process.env.EVE_HYBRID_EVIDENCE_WORKER_LOCAL_TRANSPORT = previousFixtureTransport;
   }
+}
+if (process.argv.includes("--auth-only")) {
+  console.log("Hybrid evidence auth discovery passed: expired initiator with stored/current capability, expired-only denial, mismatched-job denial, and stored claim checks.");
+  process.exit(0);
 }
 await assert.rejects(
   readHybridEvidenceSliceForWorker({

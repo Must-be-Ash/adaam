@@ -66,6 +66,16 @@ assert.equal(updateWorkspaceBudgetInputSchema.safeParse({
   ownerTimezone: "America/Vancouver",
 }).success, true);
 assert.equal(updateWorkspaceBudgetInputSchema.safeParse({ expectedRevision: 1 }).success, false);
+for (const runs of [1, 32, 50, 144]) {
+  assert.equal(updateWorkspaceBudgetInputSchema.safeParse({
+    expectedRevision: 1, maximumScheduledRunsPerDay: runs,
+  }).success, true, `The budget editor must accept the existing policy limit: ${runs}`);
+}
+for (const runs of [0, -1, 1.5, 145]) {
+  assert.equal(updateWorkspaceBudgetInputSchema.safeParse({
+    expectedRevision: 1, maximumScheduledRunsPerDay: runs,
+  }).success, false);
+}
 const instructions = await readFile(new URL("../agent/instructions/00-shared.md", import.meta.url), "utf8");
 assert.match(instructions, /preserve existing daily times when the owner says/u);
 assert.match(instructions, /compatibility-only/u);

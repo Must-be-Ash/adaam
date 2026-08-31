@@ -5,6 +5,7 @@ import {
   readWorkspaceDocument,
   validateWorkspaceBudgetPolicyValue,
   writeWorkspaceDocument,
+  workspaceScheduledRunsPerDaySchema,
 } from "../lib/workspace-state-store";
 import { requireWorkspaceMonitorWrites } from "../lib/workspace-runtime-flags";
 import { authorizePhotonWorkspaceToolStore } from "../lib/workspace-store-authorization";
@@ -20,7 +21,7 @@ export const updateWorkspaceBudgetInputSchema = z.object({
   maximumPaidPerCall: decimal.nullable().optional(),
   maximumPaidPerDay: decimal.nullable().optional(),
   maximumPaidPerMonth: decimal.nullable().optional(),
-  maximumScheduledRunsPerDay: z.number().int().positive().max(32).optional(),
+  maximumScheduledRunsPerDay: workspaceScheduledRunsPerDaySchema.optional(),
   ownerTimezone: z.string().min(1).max(80).optional(),
   unknownPriceFallbackCeiling: decimal.optional(),
 }).strict().refine(
