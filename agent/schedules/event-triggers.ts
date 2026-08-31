@@ -475,7 +475,8 @@ async function executeWorkspaceJob(
      * identifiers, so untrusted source content can never reach the log.
      */
     const failureMessage = error instanceof Error ? error.message : "";
-    const failureCause = error instanceof WorkspaceAlertDeliveryFailure ? error.cause : null;
+    const failureCause = error instanceof WorkspaceAlertDeliveryFailure ||
+      error instanceof WorkspaceMissingOutcomeFailure ? error.cause : null;
     console.error("[workspace.runtime] workspace occurrence failed", {
       cause_message: failureCause instanceof Error &&
         /^[a-z][a-z0-9_]{2,63}$/u.test(failureCause.message) ? failureCause.message : null,
