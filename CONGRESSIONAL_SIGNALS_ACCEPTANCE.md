@@ -21,8 +21,11 @@ this release-validation task. Keep the Congressional monitor paused.
 - Independent evidence accepts only presentation-equivalent amount dash spacing
   and the printed K wording, `Spouse/DC Amount over $1,000,000`. Tests still reject
   different numbers, J substituted for K, missing/extra rows, and bad citations.
-- Corrected manual fixture page 1 transaction 20 from D to C after directly
-  rechecking the source image. The X is in C; no production fact was altered.
+- Rechecked every fixture row against all five rendered source pages. Corrected
+  five manual amount entries: page 1 transaction 20 D to C; page 4 transactions
+  16 and 21 B to A; page 5 transaction 3 B to C and transaction 6 C to D. These
+  are directly visible checked cells, not changes made to accommodate a model.
+  No production fact was altered.
 
 Review receipt: `20260830-154016-86b92cc9`, status complete, all six actionable
 findings addressed. External adversarial export was blocked before transmission;
