@@ -72,6 +72,30 @@ export function explainCongressionalSignal(value: unknown) {
   });
 }
 
+function effectiveSignalDelivery(history: CongressionalHistoryRevision, signalRevisionId: string) {
+  const entries = history.activeEntries.filter((entry) => entry.signalRevisionId === signalRevisionId);
+  if (!entries.length) return null;
+  const rank = { priority: 2, record_only: 0, review: 1 } as const;
+  const band = entries.reduce((current, entry) => rank[entry.band] > rank[current] ? entry.band : current,
+    entries[0]!.band);
+  return Object.freeze({
+    alertEligible: entries.some(({ alertEligible }) => alertEligible),
+    band,
+    transactions: Object.freeze(entries.map(({ transaction }) => Object.freeze({
+      amountRange: transaction.amountRange.label,
+      asset: transaction.asset.description ?? "unreadable or missing",
+      filingDate: transaction.filingDate,
+      officialUrl: transaction.source.publicDocumentUrl,
+      ownerRelationship: transaction.owner.relationship,
+      page: transaction.source.page ?? null,
+      reportedTicker: transaction.asset.reportedTicker ?? null,
+      rowIdentity: transaction.source.rowIdentity,
+      transactionDate: transaction.transactionDate,
+      transactionType: transaction.transactionType,
+    }))),
+  });
+}
+
 export async function readCongressionalSignalExplanation(input: {
   readonly scope: AuthorizedWorkspaceStoreScope;
   readonly signalRevisionId: string;
@@ -82,7 +106,9 @@ export async function readCongressionalSignalExplanation(input: {
   }
   const signal = await readCongressionalFilingSignal(input.scope, signalRevisionId.data, client);
   if (!signal) throw new CongressionalSignalPresentationError("congressional_signal_not_found");
-  return explainCongressionalSignal(signal);
+  const history = await readCongressionalHistory(input.scope, client);
+  return Object.freeze({ ...explainCongressionalSignal(signal),
+    effectiveDelivery: history ? effectiveSignalDelivery(history, signal.signalRevisionId) : null });
 }
 
 export async function readLatestCongressionalSignalExplanation(
@@ -144,15 +170,17 @@ export async function readCongressionalWorkspacePresentation(
   if (signalRevisionId && !latestSignal) {
     throw new CongressionalSignalPresentationError("congressional_signal_not_found");
   }
+  const effectiveDelivery = signalRevisionId ? effectiveSignalDelivery(history, signalRevisionId) : null;
   return Object.freeze({
     coverage: Object.freeze({ ...history.coverage }),
     latestSignal: latestSignal
       ? Object.freeze({
-          alertEligible: latestSignal.alertEligible,
-          band: latestSignal.band,
+          alertEligible: effectiveDelivery?.alertEligible ?? latestSignal.alertEligible,
+          band: effectiveDelivery?.band ?? latestSignal.band,
           caveat: CONGRESSIONAL_SIGNAL_NEUTRAL_CAVEAT,
           createdAt: latestSignal.createdAt,
           signalRevisionId: latestSignal.signalRevisionId,
+          transactions: effectiveDelivery?.transactions ?? Object.freeze([]),
         })
       : null,
     outcomeCounts: signalOutcomeCounts(history),

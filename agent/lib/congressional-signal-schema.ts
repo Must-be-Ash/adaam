@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { congressionalPackSupportsHistory, congressionalPackVersionSchema } from "./congressional-pack-version";
 import { digestPublicSourceValue } from "./public-source-adapter-schema";
 import type { AuthorizedPublicSourceProjection } from "./public-source-subscription-store";
 
@@ -233,7 +234,7 @@ const packBindingSchema = z.object({
   bindingRevision: z.number().int().positive(),
   packContentDigest: digestSchema,
   packId: z.literal("congressional-signals"),
-  packVersion: z.enum(["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.5.0"]),
+  packVersion: congressionalPackVersionSchema,
 }).strict();
 
 const policyReferenceSchema = z.object({
@@ -329,6 +330,7 @@ const houseStrategyTransactionCoreSchema = z.object({
     publicDocumentUrl: z.string().url().refine((value) =>
       value.startsWith("https://disclosures-clerk.house.gov/")),
     rowIdentity: z.string().regex(/^row:\d+$/u),
+    page: z.number().int().positive().optional(),
     sourceInstanceId: identifierSchema,
     subscriptionId: identifierSchema,
   }).strict(),
@@ -463,15 +465,13 @@ export const congressionalFilingSignalSchema = filingSignalCoreSchema.extend({
       transactionRevisionId)) ||
     signal.transactionEvaluations.some((evaluation) => !sortedUnique(evaluation.reasonCodes)) ||
     signal.transactionEvaluations.some((evaluation) =>
-      (signal.packBinding.packVersion === "1.2.0" || signal.packBinding.packVersion === "1.3.0" ||
-        signal.packBinding.packVersion === "1.4.0" || signal.packBinding.packVersion === "1.5.0") && (
+      congressionalPackSupportsHistory(signal.packBinding.packVersion) && (
         evaluation.committeeResolution.committeeKeys === undefined ||
         evaluation.clusterRevisionIds === undefined ||
         evaluation.patternResolution === undefined
       )) ||
     signal.transactionEvaluations.some((evaluation) =>
-      signal.packBinding.packVersion !== "1.2.0" && signal.packBinding.packVersion !== "1.3.0" &&
-        signal.packBinding.packVersion !== "1.4.0" && signal.packBinding.packVersion !== "1.5.0" && (
+      !congressionalPackSupportsHistory(signal.packBinding.packVersion) && (
         evaluation.committeeResolution.committeeKeys !== undefined ||
         evaluation.clusterRevisionIds !== undefined ||
         evaluation.patternResolution !== undefined
@@ -673,6 +673,7 @@ export function normalizeProjectedHouseTransaction(input: {
       projectionId: input.transaction.projection.projectionId,
       publicDocumentUrl: transaction.publicDocumentUrl,
       rowIdentity: transaction.rowIdentity,
+      ...(input.transaction.fact.provenance.page ? { page: input.transaction.fact.provenance.page } : {}),
       sourceInstanceId: input.transaction.fact.sourceInstanceId,
       subscriptionId: input.transaction.projection.subscriptionId,
     },

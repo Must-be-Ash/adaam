@@ -281,10 +281,13 @@ assert.equal(explanation.band, "review");
 assert.deepEqual(explanation.transactionOutcomeCounts, { priority: 0, record_only: 0, review: 1 });
 assert.match(explanation.caveat, /not evidence of wrongdoing or a trade instruction/u);
 assert.equal(JSON.stringify(explanation).includes("disclosedMember"), false);
-assert.deepEqual(
-  await readCongressionalSignalExplanation({ scope, signalRevisionId: signal.signalRevisionId }, signalStore),
-  explanation,
-);
+const storedExplanation = await readCongressionalSignalExplanation({ scope,
+  signalRevisionId: signal.signalRevisionId }, signalStore);
+assert.deepEqual({ ...storedExplanation, effectiveDelivery: undefined },
+  { ...explanation, effectiveDelivery: undefined });
+assert.equal(storedExplanation.effectiveDelivery?.alertEligible, true);
+assert.equal(storedExplanation.effectiveDelivery?.transactions[0]?.officialUrl,
+  transaction.source.publicDocumentUrl);
 const manager = await readCongressionalWorkspacePresentation(scope, signalStore);
 assert.equal(manager.state, "available");
 assert.deepEqual(manager.outcomeCounts, {
@@ -295,6 +298,8 @@ assert.deepEqual(manager.outcomeCounts, {
   total: 1,
 });
 assert.equal(manager.latestSignal?.signalRevisionId, signal.signalRevisionId);
+assert.equal(manager.latestSignal?.alertEligible, true);
+assert.equal(manager.latestSignal?.transactions[0]?.rowIdentity, transaction.source.rowIdentity);
 await assert.rejects(
   () => readCongressionalSignalExplanation({
     scope,

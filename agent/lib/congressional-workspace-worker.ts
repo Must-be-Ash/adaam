@@ -1,6 +1,8 @@
-import { CONGRESSIONAL_RESEARCH_DEFINITION_ID, CONGRESSIONAL_RESEARCH_PACK_VERSION } from "./congressional-research";
+import { CONGRESSIONAL_RESEARCH_DEFINITION_ID } from "./congressional-research";
+import { congressionalPackSupportsResearch, isCongressionalPackVersion,
+  type CongressionalPackVersion } from "./congressional-pack-version";
 import { congressionalBriefPresentation, publishCongressionalResearchReport, researchCongressionalFiling,
-  resolveCongressionalResearchRuntime, type CongressionalResearchClients } from "./congressional-research-worker";
+  resolveCongressionalResearchRuntime, congressionalDisclosureSummary, type CongressionalResearchClients } from "./congressional-research-worker";
 import type { WorkspaceExecutiveBrief } from "./workspace-executive-brief";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
@@ -98,16 +100,8 @@ import type { PreparedWorkspaceWorkerRecovery } from "./workspace-worker-runner"
 import { fetchOfficialPublicSourceBytes } from "../tools/fetch_public_source";
 
 type WorkerContext = Parameters<typeof requireWorkspaceWorkerAuth>[0];
-type CongressionalPackVersion = "1.0.0" | "1.1.0" | "1.2.0" | "1.3.0" | "1.4.0" | "1.5.0";
-
-const CONGRESSIONAL_PACK_VERSIONS = new Set<CongressionalPackVersion>([
-  "1.0.0",
-  "1.1.0",
-  "1.2.0",
-  "1.3.0",
-  "1.4.0",
-  "1.5.0",
-]);
+const isCongressionalResearchPack = (version: string) =>
+  isCongressionalPackVersion(version) && congressionalPackSupportsResearch(version);
 
 function congressionalRuntime(version: CongressionalPackVersion) {
   if (version === "1.0.0") return Object.freeze({
@@ -187,7 +181,7 @@ function assertMonitor(
     monitor.lifecycleState !== "enabled" ||
     monitor.configurationRevision !== envelope.configurationRevision ||
     monitor.managedBy?.packId !== "congressional-signals" ||
-    !CONGRESSIONAL_PACK_VERSIONS.has(monitor.managedBy.packVersion as CongressionalPackVersion) ||
+    !isCongressionalPackVersion(monitor.managedBy.packVersion) ||
     monitor.sources.length !== 1 ||
     monitor.sources[0]?.accessClassification !== "public" ||
     monitor.sources[0].canonicalUrl !== HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL ||
@@ -222,23 +216,57 @@ function groupProjections(projections: readonly AuthorizedPublicSourceProjection
   });
 }
 
-type CongressionalAlertArtifact = Pick<CongressionalFilingEvaluation, "alertPresentation" | "finding"> & { brief?: WorkspaceExecutiveBrief };
+type CongressionalDeliverableAlertArtifact = {
+  alertPresentation: NonNullable<CongressionalFilingEvaluation["alertPresentation"]>;
+  finding: NonNullable<CongressionalFilingEvaluation["finding"]>;
+  brief?: WorkspaceExecutiveBrief;
+  transactions: CongressionalFilingEvaluation["transactions"];
+};
+type CongressionalAlertArtifact = CongressionalDeliverableAlertArtifact | {
+  alertPresentation: null;
+  finding: null;
+};
+type CongressionalIdentifiedAlertArtifact = CongressionalDeliverableAlertArtifact & {
+  finding: CongressionalDeliverableAlertArtifact["finding"] & { factIdentities: string[] };
+};
+const DISCLOSURE_DISQUALIFYING_REASONS = new Set([
+  "unsupported_source", "unresolved_member", "member_not_selected", "invalid_date",
+]);
 
-function combinedFinding(evaluations: readonly CongressionalAlertArtifact[]): WorkspaceFindingCandidate | null {
-  const findings = evaluations.flatMap(({ finding }) => finding ? [finding] : []);
+export function isVerifiedSelectedDisclosureTransaction(
+  row: CongressionalFilingEvaluation["transactions"][number],
+): boolean {
+  return (row.transactionType === "P" || row.transactionType === "S") &&
+    row.memberResolution.state === "resolved" &&
+    !row.eligibility.reasonCodes.some((reason) => DISCLOSURE_DISQUALIFYING_REASONS.has(reason));
+}
+
+export function combineCongressionalFindings(findings: readonly WorkspaceFindingCandidate[]): WorkspaceFindingCandidate | null {
   if (findings.length === 0) return null;
-  return {
+  let facts = findings.flatMap(({ facts }) => facts ?? [])
+    .sort((left, right) => left.filingIdentity.localeCompare(right.filingIdentity));
+  const candidate = (): WorkspaceFindingCandidate => ({
     accessClassification: "public",
     artifactRefs: [],
     asOf: findings.reduce((latest, finding) => finding.asOf > latest ? finding.asOf : latest, findings[0]!.asOf),
-    factIdentities: findings.flatMap(({ factIdentities }) => factIdentities ?? []).sort(),
-    facts: findings.flatMap(({ facts }) => facts ?? []),
+    factIdentities: facts.map(({ filingIdentity }) => filingIdentity),
+    facts,
     provenance: [{ accessClassification: "public", canonicalUrl: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_URL,
       origin: HOUSE_FINANCIAL_DISCLOSURES_PUBLIC_SOURCE_ADAPTER.authorityOrigin, sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID }],
     summary: findings.length === 1
       ? findings[0]!.summary
-      : `${findings.length} official House PTR filing signals matched the configured band; delayed public disclosures are not evidence of wrongdoing or trade instructions.`,
-  };
+      : `${findings.length} official House PTR filings disclosed watched-member activity; delayed public disclosures are not evidence of wrongdoing or trade instructions.`,
+  });
+  if (Buffer.byteLength(JSON.stringify(candidate()), "utf8") > 400 * 1_024) {
+    facts = facts.map((fact) => fact.kind === "congressional_filing_signal"
+      ? { ...fact, transactions: fact.transactions.slice(0, 1) }
+      : fact);
+  }
+  return candidate();
+}
+
+function combinedFinding(evaluations: readonly CongressionalAlertArtifact[]): WorkspaceFindingCandidate | null {
+  return combineCongressionalFindings(evaluations.flatMap(({ finding }) => finding ? [finding] : []));
 }
 
 function alertPresentation(evaluations: readonly CongressionalAlertArtifact[]) {
@@ -248,9 +276,7 @@ function alertPresentation(evaluations: readonly CongressionalAlertArtifact[]) {
   if (presentations.length === 1) return presentations[0];
   return {
     title: `${presentations.length} Congressional Signals filings`,
-    whyMatched: evaluations.some(({ brief }) => brief)
-      ? "New House disclosure signals and corrections are explained separately in the attached report. These delayed disclosures are not trade instructions."
-      : "Official House PTR filing signals met the configured deterministic band. Delayed public disclosures are not evidence of wrongdoing or trade instructions.",
+    whyMatched: "New verified House disclosure signals and corrections are listed in the attached factual report; optional interpretation is shown separately when available. These delayed disclosures are not evidence of wrongdoing or trade instructions.",
   };
 }
 
@@ -363,28 +389,28 @@ export async function evaluateCongressionalSignalsForWorker(input: {
   if (
     !pack ||
     JSON.stringify((pack.evidenceContracts ?? []).filter(({ id }) =>
-      packVersion !== CONGRESSIONAL_RESEARCH_PACK_VERSION || id !== CONGRESSIONAL_RESEARCH_DEFINITION_ID)) !== JSON.stringify(runtime.evidenceContracts)
+      !isCongressionalResearchPack(packVersion) || id !== CONGRESSIONAL_RESEARCH_DEFINITION_ID)) !== JSON.stringify(runtime.evidenceContracts)
   ) {
     throw new CongressionalWorkspaceWorkerError("congressional_strategy_invalid");
   }
   const snapshot = strategy.value.pendingSnapshot ?? strategy.value.lastActiveSnapshot;
-  if (packVersion === CONGRESSIONAL_RESEARCH_PACK_VERSION &&
+  if (isCongressionalResearchPack(packVersion) &&
       (strategy.value.lifecycleState !== "active" || snapshot?.workspaceGeneration === undefined)) {
     throw new CongressionalWorkspaceWorkerError("congressional_strategy_invalid");
   }
-  const researchRuntime = packVersion === CONGRESSIONAL_RESEARCH_PACK_VERSION
+  const researchRuntime = isCongressionalResearchPack(packVersion)
     ? resolveCongressionalResearchRuntime({ pack, modelIds: capabilities.resolved.workerModelIds,
         environment, workspaceGeneration: snapshot!.workspaceGeneration! }) : null;
   const minimumAlertBandValue = strategy.value.configuration.minimumAlertBand;
   const selectedMemberBioguideIds = strategy.value.configuration.selectedMemberBioguideIds;
   if (
-    (minimumAlertBandValue !== "priority" && minimumAlertBandValue !== "review") ||
+    (!isCongressionalResearchPack(packVersion) && minimumAlertBandValue !== "priority" && minimumAlertBandValue !== "review") ||
     !Array.isArray(selectedMemberBioguideIds) ||
     !selectedMemberBioguideIds.every((value): value is string => typeof value === "string")
   ) {
     throw new CongressionalWorkspaceWorkerError("congressional_strategy_invalid");
   }
-  const minimumAlertBand = minimumAlertBandValue as "priority" | "review";
+  const minimumAlertBand: "priority" | "review" = minimumAlertBandValue === "review" ? "review" : "priority";
   const runCoverage = await readWorkspaceSourceCoverage(
     scope,
     envelope.runId,
@@ -442,6 +468,13 @@ export async function evaluateCongressionalSignalsForWorker(input: {
         ),
         requestObservedAt,
       )),
+      priorityFilers: selectedMemberBioguideIds.flatMap((bioguideId) => {
+        const member = runtime.member.entries.find((entry) => "bioguideId" in entry && entry.bioguideId === bioguideId);
+        if (!member || !("officialName" in member)) return [];
+        const parts = member.officialName.trim().split(/\s+/u);
+        return [{ firstName: parts[0]!, lastName: parts.at(-1)!,
+          ...(member.state && member.district ? { stateDistrict: `${member.state}${member.district}` } : {}) }];
+      }),
       fetchIndex: input.clients?.fetchIndex ?? (async (url) => responseWithObservedAt(
         await fetchOfficialPublicSourceBytes(
           url,
@@ -608,6 +641,16 @@ export async function evaluateCongressionalSignalsForWorker(input: {
   const partyFor = (transaction: (typeof historyChanges.currentTransactions)[number]) =>
     memberCatalog.entries.find(({ bioguideId }) =>
       bioguideId === transaction.memberResolution.bioguideId)?.party ?? null;
+  const verifiedDisclosureEvaluation = (evaluation: CongressionalFilingEvaluation) => {
+    const indexes = evaluation.transactions.flatMap((transaction, index) =>
+      isVerifiedSelectedDisclosureTransaction(transaction) ? [index] : []);
+    return {
+      ...evaluation,
+      signal: { ...evaluation.signal,
+        transactionEvaluations: indexes.map((index) => evaluation.signal.transactionEvaluations[index]!) },
+      transactions: indexes.map((index) => evaluation.transactions[index]!),
+    };
+  };
   const currentCandidates = runtime.historyFeatures
     ? historyChanges.currentTransactions.flatMap((transaction): CongressionalClusterCandidate[] => {
     const party = partyFor(transaction);
@@ -691,10 +734,9 @@ export async function evaluateCongressionalSignalsForWorker(input: {
       if (processingModeFor(evaluation.filing) !== "live") continue;
       // Only source validity and the owner's member selection gate research.
       // In particular, a catalog miss must not suppress a legacy PDF's signal.
-      if (!evaluation.transactions.some((row) => row.memberResolution.state === "resolved" &&
-        !row.eligibility.reasonCodes.some((reason) => ["unsupported_source", "unresolved_member", "member_not_selected", "invalid_date"].includes(reason)))) continue;
+      if (!evaluation.transactions.some(isVerifiedSelectedDisclosureTransaction)) continue;
       const previousEntries = priorEntriesByFiling.get(evaluation.filing.fact.logicalKey) ?? [];
-      const decision = await researchCongressionalFiling({ evaluation, minimumAlertBand,
+      const decision = await researchCongressionalFiling({ evaluation: verifiedDisclosureEvaluation(evaluation), minimumAlertBand,
         historyCoverage: coverage.state,
         previousAlert: previousEntries.some(({ alertEligible }) => alertEligible),
         previousTransactions: previousEntries.map(({ transaction }) => transaction),
@@ -708,8 +750,11 @@ export async function evaluateCongressionalSignalsForWorker(input: {
       researchDecisions.set(evaluation.signal.signalRevisionId, decision);
     }
   }
-  const decisionAlerts = (decision: Awaited<ReturnType<typeof researchCongressionalFiling>> | undefined) =>
-    decision?.band === "priority" || (decision?.band === "review" && minimumAlertBand === "review");
+  // Materiality describes optional interpretation. It is never a disclosure veto.
+  const disclosureQualifies = (evaluation: CongressionalFilingEvaluation) =>
+    processingModeFor(evaluation.filing) === "live" &&
+      evaluation.transactions.some(isVerifiedSelectedDisclosureTransaction);
+  const qualifyingSignalIds = new Set(evaluations.filter(disclosureQualifies).map(({ signal }) => signal.signalRevisionId));
   const evaluatedEntries = evaluations.flatMap((evaluation) => {
     const signalEvaluations = completeEvaluations(evaluation.signal);
     return evaluation.transactions.flatMap((transaction, index) => {
@@ -717,7 +762,9 @@ export async function evaluateCongressionalSignalsForWorker(input: {
       if (party === null) return [];
       const transactionEvaluation = signalEvaluations[index]!;
       return [{
-        alertEligible: researchRuntime ? decisionAlerts(researchDecisions.get(evaluation.signal.signalRevisionId)) : evaluation.signal.alertEligible,
+        alertEligible: researchRuntime
+          ? processingModeFor(evaluation.filing) === "live" && isVerifiedSelectedDisclosureTransaction(transaction)
+          : evaluation.signal.alertEligible,
         band: researchRuntime ? researchDecisions.get(evaluation.signal.signalRevisionId)?.band ?? "record_only" : transactionEvaluation.band,
         committeeKeys: transactionEvaluation.committeeResolution.committeeKeys,
         party,
@@ -736,18 +783,22 @@ export async function evaluateCongressionalSignalsForWorker(input: {
   const correctionArtifacts: CongressionalAlertArtifact[] = evaluations.flatMap((evaluation) => {
     const signalEvaluations = completeEvaluations(evaluation.signal);
     const decision = researchDecisions.get(evaluation.signal.signalRevisionId);
-    const corrected = evaluation.transactions.filter((transaction) => {
+    const corrected = evaluation.transactions.flatMap((transaction, index) => {
       const priorEntry = historyChanges.priorEntriesByTransactionId.get(transaction.transactionId);
-      const currentEvaluation = signalEvaluations.find(({ transactionRevisionId }) => transactionRevisionId === transaction.transactionRevisionId);
+      const currentEvaluation = signalEvaluations[index]!;
       return transaction.lineage.correctionId !== null && priorEntry && currentEvaluation &&
-        shouldCreateCongressionalCorrectionAlert({ currentBand: decision?.band ?? currentEvaluation.band, currentTransaction: transaction, priorEntry });
+        shouldCreateCongressionalCorrectionAlert({ currentBand: decision?.band ?? currentEvaluation.band, currentTransaction: transaction, priorEntry })
+        ? [{ transaction, transactionEvaluation: currentEvaluation }] : [];
     });
     if (!corrected.length) return [];
-    const artifact = congressionalFindingForSignal({ evaluations: signalEvaluations, signal: evaluation.signal, transactions: evaluation.transactions });
+    const correctedTransactions = corrected.map(({ transaction }) => transaction);
+    const artifact = congressionalFindingForSignal({ evaluations: corrected.map(({ transactionEvaluation }) => transactionEvaluation),
+      signal: evaluation.signal, transactions: correctedTransactions });
     // One correction per filing revision, even if several rows changed. Its
     // finding fact and deduplication identity must refer to the same revision.
     const identity = evaluation.signal.signalRevisionId;
     return [{
+      transactions: correctedTransactions,
       ...(decision ? { brief: decision.brief } : {}),
       alertPresentation: decision ? { ...congressionalBriefPresentation(decision.brief), title: "Congressional Signals · correction" } : {
         title: "Congressional Signals · correction", whyMatched: `A previously alerted House PTR signal changed. ${artifact.presentation.whyMatched}` },
@@ -771,10 +822,11 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     const fact = artifact.finding.facts![0] as CongressionalFilingSignalFact;
     const summary = `${records.length} previously alerted House PTR transaction(s) were retracted by an official amendment. The earlier interpretation of those transactions should be withdrawn.`;
     correctionArtifacts.push({
+      transactions: records.map(({ transaction }) => transaction),
       alertPresentation: { title: "Congressional Signals · correction", whyMatched: `${summary} ${artifact.presentation.whyMatched}`.slice(0, 1_000) },
       finding: { ...artifact.finding, factIdentities: [identity], summary,
         facts: [{ ...fact, filingIdentity: identity, transactions: artifacts.flatMap(({ finding }) =>
-          (finding.facts![0] as CongressionalFilingSignalFact).transactions).slice(0, 50) }] },
+          (finding.facts![0] as CongressionalFilingSignalFact).transactions).slice(0, 3) }] },
     });
   }
   const correctionAlertKeys = [...new Set([
@@ -822,29 +874,43 @@ export async function evaluateCongressionalSignalsForWorker(input: {
       (researchRuntime !== null && !evaluation.transactions.some(({ transactionId }) =>
         historyChanges.priorEntriesByTransactionId.get(transactionId)?.alertEligible)))
     .map((evaluation): CongressionalAlertArtifact => {
-      if (!researchRuntime) return evaluation;
+      if (!researchRuntime) return evaluation.finding && evaluation.alertPresentation
+        ? { alertPresentation: evaluation.alertPresentation, finding: evaluation.finding,
+          transactions: evaluation.transactions }
+        : { alertPresentation: null, finding: null };
       const decision = researchDecisions.get(evaluation.signal.signalRevisionId);
-      if (!decision || !decisionAlerts(decision)) return { alertPresentation: null, finding: null };
-      const artifact = congressionalFindingForSignal({ evaluations: completeEvaluations(evaluation.signal), signal: evaluation.signal, transactions: evaluation.transactions });
-      return { brief: decision.brief, alertPresentation: congressionalBriefPresentation(decision.brief),
-        finding: { ...artifact.finding, summary: decision.brief.interpretation,
-          facts: artifact.finding.facts!.map((fact) => ({ ...fact, band: decision.band })) } };
+      if (!qualifyingSignalIds.has(evaluation.signal.signalRevisionId)) return { alertPresentation: null, finding: null };
+      const disclosed = verifiedDisclosureEvaluation(evaluation);
+      const completed = completeEvaluations(evaluation.signal);
+      const disclosedEvaluations = disclosed.transactions.map((transaction) => completed.find(({ transactionRevisionId }) =>
+        transactionRevisionId === transaction.transactionRevisionId)!);
+      const artifact = congressionalFindingForSignal({ evaluations: disclosedEvaluations,
+        signal: evaluation.signal, transactions: disclosed.transactions });
+      const summary = congressionalDisclosureSummary(disclosed.transactions);
+      return { ...(decision ? { brief: decision.brief } : {}),
+        transactions: disclosed.transactions,
+        alertPresentation: { title: "Congressional Signals · new disclosure",
+          whyMatched: [summary, decision?.brief.interpretation ?? "Optional interpretation unavailable; verified disclosure retained."].join(" ").slice(0, 1_000) },
+        finding: { ...artifact.finding, summary,
+          facts: artifact.finding.facts!.map((fact) => ({ ...fact, band: decision?.band ?? "record_only" })) } };
     });
-  const alertArtifacts = [...normalAlertArtifacts, ...correctionArtifacts];
+  const alertArtifacts: CongressionalAlertArtifact[] = [...normalAlertArtifacts, ...correctionArtifacts];
   const unseen = new Set(await selectUnseenWorkspaceFindingIdentities({
     factIdentities: alertArtifacts.flatMap(({ finding }) => finding?.factIdentities ?? []),
     monitorId: envelope.monitorId,
     scope,
   }, input.clients?.finding));
-  const alertEvaluations = alertArtifacts.filter(({ finding }) =>
-    finding?.factIdentities?.some((identity) => unseen.has(identity)));
-  const researchArtifact = await publishCongressionalResearchReport({
-    briefs: alertEvaluations.flatMap(({ brief }) => brief ? [brief] : []),
-    identities: alertEvaluations.flatMap(({ finding }) => finding?.factIdentities ?? []),
+  const alertEvaluations = alertArtifacts.filter((artifact): artifact is CongressionalIdentifiedAlertArtifact =>
+    artifact.finding !== null && artifact.finding.factIdentities !== undefined &&
+    artifact.finding.factIdentities.some((identity) => unseen.has(identity)));
+  const researchArtifacts = await publishCongressionalResearchReport({
+    entries: researchRuntime ? alertEvaluations.map(({ brief, finding, transactions }) => ({
+      identity: finding.factIdentities[0]!, transactions, ...(brief ? { brief } : {}),
+    })) : [],
     scope, asOf: observedAt, publishReport: input.clients?.research?.publishReport,
   });
   const combined = combinedFinding(alertEvaluations);
-  if (combined && researchArtifact) combined.artifactRefs = [researchArtifact];
+  if (combined && researchArtifacts.length) combined.artifactRefs = researchArtifacts;
   const checkpoint = {
     contentDigest: cursor.contentDigest,
     // Acquisition keeps its physical observation time as provenance. The

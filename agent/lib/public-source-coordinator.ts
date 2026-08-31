@@ -48,6 +48,7 @@ import {
   runSharedHousePublicSourceAcquisition,
   type HouseHybridRecovery,
   type HousePublicSourceBinaryResponse,
+  type HousePriorityFiler,
 } from "./house-public-source-adapter";
 import {
   runSharedSecPublicSourceAcquisition,
@@ -111,6 +112,7 @@ type CoordinatorFetch =
       readonly adapterId: "house-financial-disclosures";
       readonly fetchDocument: (url: string) => Promise<HousePublicSourceBinaryResponse>;
       readonly fetchIndex: (url: string) => Promise<HousePublicSourceBinaryResponse>;
+      readonly priorityFilers?: readonly HousePriorityFiler[];
     }
   | {
       readonly adapterId: "x-public-statements";
@@ -478,6 +480,7 @@ export async function coordinatePublicSourceOccurrence(input: {
             fetchDocument: houseFetch!.fetchDocument,
             fetchIndex: houseFetch!.fetchIndex,
             hybridLineageClient: input.clients?.hybridLineage,
+            priorityFilers: houseFetch!.priorityFilers,
             recovery: hybridFlags.extractionRecovery
               ? recoveryExtension!.create({
                   budgetScope: input.scope,
