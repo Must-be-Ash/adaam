@@ -2,8 +2,11 @@ import { z } from "zod";
 
 import { PUBLIC_SOURCE_ADAPTER_IDS, PUBLIC_SOURCE_ERROR_CODES } from "./public-source-adapter-schema";
 import {
+  readNextPublicSourceAcquisition,
+  readPublicSourceAcquisitionJournal,
   readPublicSourceHealthRecord,
   readPublicSourceInstance,
+  readPublicSourceSequenceStart,
   type PublicSourceAcquisitionStoreClient,
 } from "./public-source-acquisition-store";
 import {
@@ -127,7 +130,31 @@ export async function readPublicSourceWorkspaceHealth(input: {
   ]);
   const source = storedSource ?? reviewed.sourceInstance;
   const deliveryRevision = subscription?.deliveryCursor.revision ?? 0;
-  const lag = Math.max(0, source.cursor.revision - deliveryRevision);
+  // Delivery revisions count acknowledgements, not source acquisitions. The
+  // journal pins the source position even after migration or skipped batches.
+  const lastAcquisitionId = subscription?.deliveryCursor.lastAcquisitionId ?? null;
+  let lag: number;
+  if (source.adapterId === "house-financial-disclosures") {
+    const next = await readNextPublicSourceAcquisition({
+      sourceInstanceId: source.sourceInstanceId,
+      afterAcquisitionId: lastAcquisitionId,
+      throughRevision: source.cursor.revision - 1,
+    }, input.clients?.acquisition);
+    if (!next && source.cursor.revision > 0 &&
+      await readPublicSourceSequenceStart(source.sourceInstanceId, input.clients?.acquisition) === null) {
+      throw new Error("public_source_reference_mismatch");
+    }
+    lag = next ? Math.max(0, source.cursor.revision - next.journal.expectedCursorRevision) : 0;
+  } else {
+    const acknowledged = lastAcquisitionId
+      ? await readPublicSourceAcquisitionJournal(lastAcquisitionId, input.clients?.acquisition)
+      : null;
+    if (lastAcquisitionId && (!acknowledged || acknowledged.status !== "committed" ||
+      acknowledged.sourceInstanceId !== source.sourceInstanceId)) {
+      throw new Error("public_source_reference_mismatch");
+    }
+    lag = Math.max(0, source.cursor.revision - (acknowledged ? acknowledged.expectedCursorRevision + 1 : 0));
+  }
   const extraction = health?.extraction ?? {
     complete: 0,
     partial: 0,

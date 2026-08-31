@@ -14,9 +14,10 @@ import {
   resolveSecPublicSourceRuntimePath,
 } from "../agent/lib/public-source-flags";
 import { readPublicSourceWorkspaceHealth } from "../agent/lib/public-source-health";
-import { resolvePublicSourceWorkspaceReference } from "../agent/lib/public-source-workspace-reference";
-import type { PublicSourceAcquisitionStoreClient } from "../agent/lib/public-source-acquisition-store";
-import type { PublicSourceSubscriptionStoreClient } from "../agent/lib/public-source-subscription-store";
+import { createPublicSourceSubscription, resolvePublicSourceWorkspaceReference } from "../agent/lib/public-source-workspace-reference";
+import { ensurePublicSourceInstance, type PublicSourceAcquisitionStoreClient } from "../agent/lib/public-source-acquisition-store";
+import { resolveReviewedPublicSource } from "../agent/lib/public-source-registry";
+import { ensurePublicSourceSubscription, type PublicSourceSubscriptionStoreClient } from "../agent/lib/public-source-subscription-store";
 import {
   SEC_IPO_SOURCE_ID,
   SEC_IPO_SOURCE_URL,
@@ -343,6 +344,23 @@ const houseFetch = {
   },
 };
 const houseWindow = { startAt: "2026-08-15T12:30:00.000Z", endAt: houseObservedAt };
+// Migration can start the ordered journal after older source revisions.
+// Acknowledgement counts must not be mistaken for source cursor revisions.
+const houseSeed = resolveReviewedPublicSource(HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID).sourceInstance;
+await ensurePublicSourceInstance({ ...houseSeed, cursor: { ...houseSeed.cursor, revision: 4 } }, store);
+const missingSequenceStore = new MemoryStore();
+const missingSequenceReference = resolvePublicSourceWorkspaceReference({
+  monitorId: houseMonitorA, sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID, workspaceId: workspaceA,
+});
+await ensurePublicSourceInstance({ ...houseSeed, cursor: { ...houseSeed.cursor, revision: 4 } }, missingSequenceStore);
+await ensurePublicSourceSubscription(scopeA, createPublicSourceSubscription({
+  binding: null, lifecycleState: "active", monitorId: houseMonitorA,
+  reference: missingSequenceReference, workspaceId: workspaceA,
+}), missingSequenceStore);
+await assert.rejects(readPublicSourceWorkspaceHealth({
+  clients: { acquisition: missingSequenceStore, subscription: missingSequenceStore },
+  environment: fullyEnabled, reference: missingSequenceReference, scope: scopeA,
+}), /public_source_reference_mismatch/, "missing delivery metadata cannot prove caught-up state");
 const houseA = await coordinatePublicSourceOccurrence({
   clients: { acquisition: store, subscription: store },
   environment: fullyEnabled,
@@ -404,6 +422,32 @@ const caughtUp = await readPublicSourceWorkspaceHealth({
 assert.equal(caughtUp.subscription.state, "caught_up");
 assert.equal(caughtUp.subscription.lag, 0);
 assert.equal(caughtUp.healthState, "degraded", "delivery progress must not conceal incomplete extraction");
+const quietStore = new MemoryStore();
+for (const [key, value] of store.records) quietStore.records.set(key, value);
+const quietAt = "2026-08-15T18:40:00.000Z";
+const quiet = await coordinatePublicSourceOccurrence({
+  clients: { acquisition: quietStore, subscription: quietStore },
+  environment: fullyEnabled,
+  fetch: { ...houseFetch, fetchIndex: async (url) => ({
+    body: new Uint8Array(houseArchive), contentType: "application/zip",
+    finalUrl: url, requestedUrl: url, observedAt: quietAt, status: 200,
+  }) },
+  monitor: monitor({ monitorId: houseMonitorB, sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID, workspaceId: workspaceB }),
+  observedAt: new Date(quietAt), scope: scopeB,
+  sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  window: { startAt: houseObservedAt, endAt: quietAt },
+});
+assert.equal(quiet.acquisition.candidateFactRevisionIds.length, 0);
+const quietHealth = await readPublicSourceWorkspaceHealth({
+  clients: { acquisition: quietStore, subscription: quietStore },
+  environment: fullyEnabled, scope: scopeA,
+  reference: resolvePublicSourceWorkspaceReference({
+    monitorId: houseMonitorA, sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID, workspaceId: workspaceA,
+  }),
+});
+assert.equal(quietHealth.subscription.lag, 0, "empty committed batches must not create a false backlog");
+assert.equal(quietHealth.subscription.state, "caught_up");
+assert.equal(quietHealth.healthState, "degraded", "queued extraction gaps remain visible after a quiet poll");
 assert.ok(observations.some((item) => item.counter === "public_source_acquisition_reused_total"));
 assert.ok(observations.some((item) => item.counter === "public_source_fact_revision_total"));
 assert.ok(observations.some((item) => item.counter === "public_source_projection_total"));
