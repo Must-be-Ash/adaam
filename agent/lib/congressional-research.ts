@@ -4,6 +4,7 @@ import { digestHybridEvidenceValue, evidenceLocatorSchema, hybridEvidenceJobDefi
 import { workspaceExecutiveBriefSchema } from "./workspace-executive-brief";
 import type { HouseStrategyTransaction } from "./congressional-signal-schema";
 import type { CongressionalFilingEvaluation } from "./congressional-strategy";
+import type { CongressionalCoverage } from "./congressional-history";
 
 export const CONGRESSIONAL_RESEARCH_DEFINITION_ID = "congressional-frontier-research";
 export const CONGRESSIONAL_RESEARCH_PACK_VERSION = "1.5.0";
@@ -43,6 +44,7 @@ export const congressionalResearchWorkerCandidateSchema = z.object({
   unknowns: z.array(z.string().trim().min(1).max(200)).max(32),
 }).strict();
 
+const CONGRESSIONAL_EVIDENCE_SCOPE = "This filing and its prior revisions; not a complete trading history. Absence, first-ever activity, and current holdings cannot be established from this evidence.";
 const evidenceSchema = z.object({
   canonicalUrl: z.string().url(),
   filingDate: z.string().date(),
@@ -52,6 +54,8 @@ const evidenceSchema = z.object({
   previousAlert: z.boolean(),
   correction: z.boolean(),
   deterministicBand: z.enum(["priority", "review", "record_only"]),
+  historyCoverage: z.enum(["complete", "incomplete"]).default("incomplete"),
+  evidenceScope: z.literal(CONGRESSIONAL_EVIDENCE_SCOPE).default(CONGRESSIONAL_EVIDENCE_SCOPE),
   // Positional rows avoid repeating long keys on dense, bounded filings.
   columns: z.tuple([z.literal("asset"), z.literal("reportedTicker"), z.literal("owner"),
     z.literal("type"), z.literal("transactionDate"), z.literal("notificationDate"),
@@ -63,6 +67,7 @@ const evidenceSchema = z.object({
 }).strict();
 
 export function congressionalResearchEvidenceContent(input: {
+  historyCoverage?: CongressionalCoverage["state"];
   evaluation: CongressionalFilingEvaluation; previousTransactions?: readonly HouseStrategyTransaction[]; minimumAlertBand: "priority" | "review"; previousAlert: boolean;
 }): string {
   const { evaluation } = input;
@@ -77,6 +82,7 @@ export function congressionalResearchEvidenceContent(input: {
     minimumAlertBand: input.minimumAlertBand, previousAlert: input.previousAlert,
     correction: evaluation.transactions.some(({ lineage }) => lineage.correctionId !== null),
     deterministicBand: evaluation.signal.band,
+    historyCoverage: input.historyCoverage ?? "incomplete",
     columns: ["asset", "reportedTicker", "owner", "type", "transactionDate", "notificationDate",
       "amountLabel", "amountLower", "amountUpper", "triageReasons"],
     previousRows: (input.previousTransactions ?? []).map(toRow),

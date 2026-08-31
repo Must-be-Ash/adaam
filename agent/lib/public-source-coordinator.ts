@@ -2,9 +2,8 @@ import type {
   PublicSourceAcquisitionResult,
   PublicSourceSubscription,
 } from "./public-source-adapter-schema";
-import { publicSourceAcquisitionResultSchema } from "./public-source-adapter-schema";
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
-import { readNextPublicSourceAcquisition, readPublicSourcePendingWork } from "./public-source-acquisition-store";
+import { readCommittedPublicSourceAcquisitionForWindow, readNextPublicSourceAcquisition, readPublicSourceAcquisitionJournal, readPublicSourceAcquisitionResult, readPublicSourceInstance, readPublicSourcePendingWork } from "./public-source-acquisition-store";
 import type { HybridEvidenceArtifactStore } from "./hybrid-evidence-artifact-store";
 import type { HybridEvidenceJobStoreClient } from "./hybrid-evidence-job-store";
 import type { HybridEvidenceLineageStoreClient } from "./hybrid-evidence-lineage-store";
@@ -40,6 +39,7 @@ import {
 } from "./public-source-workspace-reference";
 import {
   ensurePublicSourceSubscription,
+  establishPublicSourceSubscriptionBaseline,
   projectPublicSourceAcquisition,
   type PublicSourceProjectionCommit,
   type PublicSourceSubscriptionStoreClient,
@@ -148,6 +148,8 @@ function resolveHybridRecoveryExtension(input: {
 }
 
 export interface PublicSourceCoordinatorResult {
+  readonly deliveryThroughRevision?: number;
+  readonly unresolvedFilingCount?: number;
   readonly sourceRetryAfterSeconds?: number;
   readonly deliveryAcquisitionId?: string;
   readonly deliveryPending?: boolean;
@@ -245,6 +247,7 @@ function emitWriteCount(input: {
 
 export async function coordinatePublicSourceOccurrence(input: {
   readonly continueIncompleteHouse?: boolean;
+  readonly initialHouseBaseline?: boolean;
   readonly clients?: {
     readonly acquisition?: PublicSourceAcquisitionStoreClient;
     readonly hybridArtifacts?: HybridEvidenceArtifactStore;
@@ -256,6 +259,8 @@ export async function coordinatePublicSourceOccurrence(input: {
     readonly subscription?: PublicSourceSubscriptionStoreClient;
   };
   readonly deferProjectionAcknowledgement?: boolean;
+  readonly houseDeliveryAcquisitionId?: string;
+  readonly houseDeliveryThroughRevision?: number;
   readonly environment?: NodeJS.ProcessEnv;
   readonly fetch: CoordinatorFetch;
   readonly hybridRecoveryExtensions?: readonly PublicSourceHybridRecoveryExtension[];
@@ -361,7 +366,7 @@ export async function coordinatePublicSourceOccurrence(input: {
   const officialWebFetch = input.fetch.adapterId === "official-web-statements"
     ? input.fetch
     : null;
-  const subscription = await ensurePublicSourceSubscription(
+  let subscription = await ensurePublicSourceSubscription(
     input.scope,
     createPublicSourceSubscription({
       binding: input.monitor.managedBy
@@ -379,7 +384,59 @@ export async function coordinatePublicSourceOccurrence(input: {
     }),
     input.clients?.subscription,
   );
-  const shared = input.fetch.adapterId === "sec-latest-filings"
+  const houseSource = houseFetch
+    ? await readPublicSourceInstance(subscription.sourceInstanceId, input.clients?.acquisition) : null;
+  if (houseSource && (houseSource.adapterDefinitionDigest !== reference.adapterDefinitionDigest ||
+    houseSource.configurationDigest !== reference.sourceConfigurationDigest)) {
+    throw new PublicSourceCoordinatorError("public_source_reference_invalid");
+  }
+  if (houseSource && houseSource.lifecycleState !== "active") throw new PublicSourceCoordinatorError("public_source_disabled");
+  if (input.houseDeliveryThroughRevision !== undefined && (!houseSource ||
+    !Number.isSafeInteger(input.houseDeliveryThroughRevision) || input.houseDeliveryThroughRevision < 0 ||
+    input.houseDeliveryThroughRevision >= houseSource.cursor.revision)) {
+    throw new PublicSourceCoordinatorError("public_source_reference_invalid");
+  }
+  // The ordered reader skips empty batches. A pinned occurrence must also
+  // replay no-change acquisitions, so resolve its exact journal directly.
+  const pinnedDelivery = input.houseDeliveryAcquisitionId ? await Promise.all([
+    readPublicSourceAcquisitionJournal(input.houseDeliveryAcquisitionId, input.clients?.acquisition),
+    readPublicSourceAcquisitionResult(input.houseDeliveryAcquisitionId, input.clients?.acquisition),
+  ]) : null;
+  if (pinnedDelivery && (!pinnedDelivery[0] || !pinnedDelivery[1] || pinnedDelivery[0].status !== "committed" ||
+    pinnedDelivery[0].sourceInstanceId !== subscription.sourceInstanceId ||
+    pinnedDelivery[0].adapterDefinitionDigest !== subscription.adapterDefinitionDigest ||
+    input.houseDeliveryThroughRevision === undefined || pinnedDelivery[0].expectedCursorRevision > input.houseDeliveryThroughRevision)) {
+    throw new PublicSourceCoordinatorError("public_source_reference_invalid");
+  }
+  const backlog = pinnedDelivery ? { journal: pinnedDelivery[0]!, result: pinnedDelivery[1]! } : houseSource ? await readNextPublicSourceAcquisition({
+    sourceInstanceId: subscription.sourceInstanceId, afterAcquisitionId: subscription.deliveryCursor.lastAcquisitionId,
+    throughRevision: input.houseDeliveryThroughRevision ?? houseSource.cursor.revision - 1,
+  }, input.clients?.acquisition) : null;
+  if (input.houseDeliveryThroughRevision !== undefined && !backlog) throw new PublicSourceCoordinatorError("public_source_reference_invalid");
+  if (houseFetch && subscription.initialBaselineThroughRevision === undefined) {
+    const [snapshot, acknowledged] = await Promise.all([
+      readCommittedPublicSourceAcquisitionForWindow({ accessClassification: "public",
+        adapterDefinitionDigest: subscription.adapterDefinitionDigest, sourceInstanceId: subscription.sourceInstanceId, window,
+      }, input.clients?.acquisition),
+      subscription.deliveryCursor.lastAcquisitionId
+        ? readPublicSourceAcquisitionJournal(subscription.deliveryCursor.lastAcquisitionId, input.clients?.acquisition)
+        : null,
+    ]);
+    if (acknowledged && (acknowledged.sourceInstanceId !== subscription.sourceInstanceId || acknowledged.status !== "committed")) {
+      throw new PublicSourceCoordinatorError("public_source_reference_invalid");
+    }
+    subscription = await establishPublicSourceSubscriptionBaseline({ scope: input.scope,
+      subscriptionId: subscription.subscriptionId,
+      throughRevision: input.initialHouseBaseline === false
+        ? acknowledged?.expectedCursorRevision ?? (houseSource?.cursor.revision ?? 0) - 1
+        : backlog ? houseSource!.cursor.revision - 1
+        : snapshot?.journal.expectedCursorRevision ?? houseSource?.cursor.revision ?? 0,
+    }, input.clients?.subscription);
+  }
+  const shared = backlog
+    ? { acquisition: backlog.result, baselineEstablished: backlog.result.baselineEstablished,
+        commit: null, journal: backlog.journal, reused: true }
+    : input.fetch.adapterId === "sec-latest-filings"
     ? await runSharedSecPublicSourceAcquisition({
         client: input.clients?.acquisition,
         fetchResponse: input.fetch.fetchResponse,
@@ -460,31 +517,9 @@ export async function coordinatePublicSourceOccurrence(input: {
     emitWriteCount({ counter: "public_source_retraction_total", count: shared.commit.retractionsReused, operation: "reused", sink: input.sink });
   }
 
-  // Canonical source batches can commit resolved siblings, but an unresolved
-  // House filing is not a successful workspace occurrence or delivery cursor.
-  const incompleteHouse = houseFetch !== null && (
-    shared.acquisition.coverage !== "complete" ||
-    shared.acquisition.stageReceipts.some(({ status }) => status !== "complete")
-  );
-  if (!shared.journal || incompleteHouse || (shared.acquisition.status !== "complete" && shared.acquisition.status !== "no_change")) {
-    const pending = incompleteHouse ? await readPublicSourcePendingWork(shared.acquisition.sourceInstanceId, input.clients?.acquisition,
-      shared.acquisition.proposedNextCursor ? shared.acquisition.proposedNextCursor.expectedRevision + 1 : undefined) : null;
-    const due = pending?.pending.length ? Math.min(...pending.pending.map(({ nextAttemptAt }) =>
-      nextAttemptAt ? Date.parse(nextAttemptAt) : 0)) : 0;
-    const sourceRetryAfterSeconds = Math.min(86_400, Math.max(60,
-      Math.ceil((due - (input.observedAt ?? new Date()).getTime()) / 1000)));
+  if (!shared.journal || (shared.acquisition.status !== "complete" && shared.acquisition.status !== "no_change")) {
     return Object.freeze({
-      ...(incompleteHouse ? { sourceRetryAfterSeconds } : {}),
-      acquisition: incompleteHouse && shared.journal
-        ? publicSourceAcquisitionResultSchema.parse({
-            ...shared.acquisition,
-            coverage: shared.acquisition.coverage === "complete" ? "partial" : shared.acquisition.coverage,
-            errorCode: "parser_incomplete",
-            proposedNextCursor: null,
-            retryAfterSeconds: null,
-            status: "partial",
-          })
-        : shared.acquisition,
+      acquisition: shared.acquisition,
       baselineEstablished: shared.baselineEstablished,
       projection: null,
       reused: shared.reused,
@@ -493,16 +528,17 @@ export async function coordinatePublicSourceOccurrence(input: {
       xReceipt,
     });
   }
-  const delivery = houseFetch ? await readNextPublicSourceAcquisition({
+  const deliveryThroughRevision = input.houseDeliveryThroughRevision ?? (backlog ? houseSource!.cursor.revision - 1 : shared.acquisition.proposedNextCursor!.expectedRevision);
+  const delivery = backlog ?? (houseFetch ? await readNextPublicSourceAcquisition({
     sourceInstanceId: shared.acquisition.sourceInstanceId,
     afterAcquisitionId: subscription.deliveryCursor.lastAcquisitionId,
-    throughRevision: shared.acquisition.proposedNextCursor!.expectedRevision,
-  }, input.clients?.acquisition) : null;
+    throughRevision: deliveryThroughRevision,
+  }, input.clients?.acquisition) : null);
   const deliveryAcquisition = delivery?.result ?? shared.acquisition;
   const deliveryPending = houseFetch && delivery ? await readNextPublicSourceAcquisition({
     sourceInstanceId: shared.acquisition.sourceInstanceId,
     afterAcquisitionId: deliveryAcquisition.acquisitionId,
-    throughRevision: shared.acquisition.proposedNextCursor!.expectedRevision,
+    throughRevision: deliveryThroughRevision,
   }, input.clients?.acquisition) !== null : false;
   const projection = await projectPublicSourceAcquisition({
     acquisition: deliveryAcquisition,
@@ -523,17 +559,21 @@ export async function coordinatePublicSourceOccurrence(input: {
     operation: "reused",
     sink: input.sink,
   });
+  const pendingWork = houseFetch ? await readPublicSourcePendingWork(shared.acquisition.sourceInstanceId,
+    input.clients?.acquisition, deliveryThroughRevision + 1) : null;
   return Object.freeze({
+    ...(pendingWork?.cursorRevision === deliveryThroughRevision + 1 ? { unresolvedFilingCount: pendingWork.pending.length } : {}),
     deliveryAcquisitionId: deliveryAcquisition.acquisitionId,
+    ...(houseFetch ? { deliveryThroughRevision } : {}),
     deliveryPending,
-    acquisition: shared.acquisition,
+    acquisition: deliveryAcquisition,
     baselineEstablished: deliveryAcquisition.baselineEstablished,
     projection,
     reused: shared.reused,
     subscription: projection.subscription,
     workspaceCheckpoint: Object.freeze({
-      contentDigest: shared.acquisition.proposedNextCursor!.contentDigest,
-      watermark: shared.acquisition.observedAt,
+      contentDigest: deliveryAcquisition.proposedNextCursor!.contentDigest,
+      watermark: deliveryAcquisition.observedAt,
     }),
     xReceipt,
   });

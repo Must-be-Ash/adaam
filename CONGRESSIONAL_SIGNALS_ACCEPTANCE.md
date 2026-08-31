@@ -1,9 +1,41 @@
 # Congressional Signals release acceptance
 
-Status: extraction and Congressional 1.5.0 research pass isolated acceptance;
-production release and monitored acceptance are still pending. The existing
-production monitor remains paused. Do not treat a local capture as a deployment
-receipt.
+Status (2026-08-31): Congressional 1.5.0 is deployed and the owner's existing
+binding is active. The monitor remains paused pending acceptance of the source
+progress fixes below. Extraction and research canaries are not evidence that
+the owner's scheduled monitor has reached its durable baseline.
+
+## Source progress release
+
+Complete, independently validated filings can proceed while unresolved filings
+remain queued. Unsupported filing rows never enter strategy history or research.
+Each subscription freezes its initial baseline; pending filings retain their
+first observation so late historical recovery cannot generate historical alerts.
+An existing live subscription migrates from its own acknowledged journal, and
+previously live filing corrections retain that classification.
+
+Committed journals drain in order before another acquisition. The existing
+acknowledgement receipt pins the delivery frontier before history or research
+can commit, so another workspace's acquisition cannot change an interrupted
+occurrence's coverage calculation. Acknowledgement still waits for the durable
+outcome. Optional gap fields are first-observation audit evidence, not retry
+identity. The agent status tool exposes Congressional coverage and source health.
+Research evidence explicitly limits conclusions to the filing and its revisions,
+and cannot establish current holdings, first-ever activity, or complete history.
+
+Offline worker checks cover partial progress, durable baseline, new selected
+filings, silent historical recovery, two consecutive legacy corrections and a
+retraction, two-workspace migration, zero-download ordered backlog delivery,
+and an interrupted occurrence while the shared source advances. Coverage retry
+checks include pre-upgrade receipts and changed shared queue counts. No model,
+research service, production message, or trade is used by these fixtures.
+
+The pre-release production observation found source revision 13, nine undelivered
+committed batches, 263 queued filings, no strategy history/checkpoint, and zero
+active budget reservations. Thirteen of the twenty daily scheduled attempts
+were already used. Acceptance must respect the remaining seven attempts; it
+must not reset counters, raise budgets/recovery limits, or manufacture coverage.
+Leave the normal monitor paused if the bounded run cannot reach acceptance.
 
 ## Verified recovery
 
@@ -65,9 +97,9 @@ Redis fixture URL and local browser launch permission.
 ## Release safeguards
 
 Preserve the original dirty checkout. Publish only the isolated release tree.
-Confirm the exact production commit, then upgrade the existing Congressional
-binding with its watchlist, schedule, source/history/checkpoints, and owner
-budget intact. Keep it paused until the binding and capabilities agree. Run one
+Confirm the exact production commit and preserve the existing Congressional
+1.5.0 binding, watchlist, schedule, source/history/checkpoints, and owner budget.
+Keep it paused until the binding and capabilities agree. Run one
 bounded production acceptance and require a durable outcome/checkpoint, ordered
 source continuation, no historical alert, and reconciled accounting. Pause the
 affected monitor if acceptance fails. Never reset the source frontier or use

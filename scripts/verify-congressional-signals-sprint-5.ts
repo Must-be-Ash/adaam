@@ -1,6 +1,7 @@
 import { congressionalResearchEvidenceContent, congressionalResearchValidationContract } from "../agent/lib/congressional-research";
 import { createHybridEvidenceEphemeralArtifactStore } from "../agent/lib/hybrid-evidence-artifact-store";
 import { decodeHybridEvidenceWorkerToken } from "../agent/lib/hybrid-evidence-auth";
+import { readHybridEvidenceJob } from "../agent/lib/hybrid-evidence-job-store";
 import { completeHybridEvidenceJobForWorker, persistHybridEvidenceResearchDecisionForWorker, readHybridEvidenceSliceForWorker } from "../agent/lib/hybrid-evidence-worker";
 import { reserveWorkspaceRunBudget, reconcileWorkspaceRunBudget, readWorkspaceBudgetLedger } from "../agent/lib/workspace-budget-ledger";
 import { readWorkspaceDocument } from "../agent/lib/workspace-state-store";
@@ -12,7 +13,8 @@ import { readFile } from "node:fs/promises";
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 
 import type { PublicSourceAcquisitionStoreClient } from "../agent/lib/public-source-acquisition-store";
-import { readPublicSourceInstance, readPublicSourceSequenceStart } from "../agent/lib/public-source-acquisition-store";
+import { commitPublicSourceAcquisition, readLatestPublicSourceFactRevision, readNextPublicSourceAcquisition, readPublicSourceInstance, readPublicSourceSequenceStart } from "../agent/lib/public-source-acquisition-store";
+import { canonicalPublicFactRevisionSchema, deriveCanonicalPublicFactRevisionId, digestPublicSourceValue, publicSourceAcquisitionResultSchema, publicSourceCorrectionSchema, publicSourceRetractionSchema } from "../agent/lib/public-source-adapter-schema";
 import { runHousePublicSourceAcquisition } from "../agent/lib/house-public-source-adapter";
 import { createEarningsCallSourceLifecycleStore } from "../agent/lib/earnings-call-source-lifecycle-store";
 import type { CongressionalSignalStoreClient } from "../agent/lib/congressional-signal-store";
@@ -120,6 +122,10 @@ class MemoryFindingStore implements WorkspaceFindingStoreClient {
     return { status: "created" as const, value: input.outcomeValue };
   }
   async createOrRead(key: string, value: string) {
+    if (this.failNextOutcome && JSON.parse(value).recordType === "workspace_run_outcome") {
+      this.failNextOutcome = false;
+      throw new Error("fixture_post_history_interruption");
+    }
     const current = this.values.get(key);
     if (current) return current;
     this.values.set(key, value);
@@ -848,9 +854,9 @@ for (let page = 0; page < 5; page++) {
       fetchIndex: async (url) => response(pagedArchive, "application/zip", url, now.toISOString()),
       fetchDocument: async (url) => response(pagedPdf, "application/pdf", url, now.toISOString()),
     }, ctx: { session: { auth: { current: prepared.request.auth } } }, environment, now });
-    if (page === 1) {
-      assert.equal(result.outcome.outcome, "source_pending");
-      assert.equal((await getWorkspaceMonitor(pagedWorkspace.scope, monitor.monitorId, monitorStore))!.sourceCheckpoint.contentDigest, null);
+    if (page === 0 || page === 1) {
+      assert.equal(result.outcome.outcome, "no_match");
+      assert.ok((await getWorkspaceMonitor(pagedWorkspace.scope, monitor.monitorId, monitorStore))!.sourceCheckpoint.contentDigest);
     }
   } catch (error) {
     assert.ok(error instanceof CongressionalWorkspaceWorkerError && error.code === "congressional_source_unavailable", String(error));
@@ -910,6 +916,8 @@ for (const [key, raw] of pagedSource.values) {
   if (key.includes(":pending:") || record.eligibilityId?.startsWith("sequence:") ||
     (record.sourceInstanceId && Object.keys(record).sort().join() === "revision,sourceInstanceId")) continue;
   if (record.recordType === "public_source_instance") record.cursor = { ...record.cursor, revision: 4, watermark: "baseline:2026-03-04:21000025" };
+  delete record.firstObservedCursorRevision;
+  delete record.initialBaselineThroughRevision;
   legacySource.values.set(key, JSON.stringify(record));
 }
 const legacyWorkspace = installWorkspace({ configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: [] },
@@ -1039,7 +1047,7 @@ const liveBackfillArchive = await index([...pagedDocuments, liveDocument]);
 const liveBackfillPdf = new Uint8Array(await pdf(liveDocument.retainedFile));
 const liveBackfillOutcomes: string[] = [];
 for (let page = 0; page < 6; page++) {
-  const now = new Date(baseNow.getTime() + (page + 1) * 1000);
+  const now = new Date(baseNow.getTime() + (page + 20) * 1000);
   const monitor = (await getWorkspaceMonitor(liveBackfill.scope, liveBackfill.monitor.monitorId, monitorStore))!;
   const prepared = await prepare({ ...monitor, nextOccurrenceAt: now.toISOString() }, now, liveBackfill.scope);
   const run = () => evaluateCongressionalSignalsForWorker({ clients: { ...clients,
@@ -1069,7 +1077,7 @@ console.log("Congressional Signals Sprint 5 worker, replay, version, and isolati
 // completion provider for offline replay. No model, search, message, or trade.
 Object.assign(clients, { budget: researchMemory });
 const researchWorkspace = installWorkspace({ configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: [] },
-  version: "1.5.0", workspaceId: "123e4567-e89b-42d3-a456-426614175590" });
+  nextOccurrenceAt: new Date(baseNow.getTime() + 1_000).toISOString(), version: "1.5.0", workspaceId: "123e4567-e89b-42d3-a456-426614175590" });
 const researchBytes = new Map<string, Uint8Array>();
 const researchArtifacts = createHybridEvidenceEphemeralArtifactStore({ index: researchMemory, blob: {
   async put(key, bytes) { researchBytes.set(key, Uint8Array.from(bytes)); },
@@ -1079,7 +1087,7 @@ const researchArtifacts = createHybridEvidenceEphemeralArtifactStore({ index: re
 let researchDispatches = 0;
 let researchBand: "priority" | "record_only" = "priority";
 let reportPublications = 0;
-let lastEvidence: { canonicalUrl: string; rows: unknown[][] } | null = null;
+let lastEvidence: { canonicalUrl: string; rows: unknown[][]; historyCoverage: string; evidenceScope: string } | null = null;
 (clients as { research?: CongressionalWorkspaceWorkerClients["research"] }).research = { artifacts: researchArtifacts, publishReport: async ({ artifactId, report }) => {
   researchReportSchema.parse(report); reportPublications += 1;
   return { artifactId, kind: "report" } as never;
@@ -1087,6 +1095,7 @@ let lastEvidence: { canonicalUrl: string; rows: unknown[][] } | null = null;
   async execute(prepared) {
     researchDispatches += 1;
     const envelope = decodeHybridEvidenceWorkerToken(prepared.token);
+    const completedAt = new Date((await readHybridEvidenceJob(envelope.jobId, researchMemory))!.job.updatedAt);
     assert.equal(envelope.modelId, "openai/gpt-5.4");
     const ctx = { session: { id: "fixture-research", auth: { current: prepared.request.auth, initiator: prepared.request.auth } } };
     const locator = envelope.allowedLocators.find(({ kind }) => kind === "text_span")!;
@@ -1094,9 +1103,9 @@ let lastEvidence: { canonicalUrl: string; rows: unknown[][] } | null = null;
       clients: { artifacts: researchArtifacts, jobs: researchMemory } });
     lastEvidence = JSON.parse(slice.content);
     assert.ok(lastEvidence && lastEvidence.rows.length > 0);
-    await persistHybridEvidenceResearchDecisionForWorker({ ctx, environment, jobClient: researchMemory, now: researchNow,
+    await persistHybridEvidenceResearchDecisionForWorker({ ctx, environment, jobClient: researchMemory, now: completedAt,
       decision: { decision: "report_now", reason: "The official filing is sufficient for this bounded fixture brief." } });
-    await completeHybridEvidenceJobForWorker({ ctx, environment, jobClient: researchMemory, now: researchNow,
+    await completeHybridEvidenceJobForWorker({ ctx, environment, jobClient: researchMemory, now: completedAt,
       candidate: { citations: [locator], disposition: researchBand === "record_only" ? "abstained" : "accepted", unknowns: researchBand === "record_only" ? ["No supported incremental investment implication."] : [], fields: { band: researchBand, brief: {
         confidence: "low", title: "House disclosure merits a closer look", interpretation: "The disclosed transactions warrant review; their present investment significance is uncertain.",
         materialFacts: [{ statement: "The official PTR reports financial transactions.", sourceUrls: [lastEvidence.canonicalUrl] }],
@@ -1115,8 +1124,8 @@ await reconcileWorkspaceRunBudget({ runId: researchBaselineResult.result.outcome
 assert.equal(researchDispatches, 0, "baseline must not purchase research or emit historical alerts");
 const researchMonitor = await getWorkspaceMonitor(researchWorkspace.scope, researchWorkspace.monitor.monitorId, monitorStore);
 assert.ok(researchMonitor);
-const researchNow = new Date(baseNow.getTime() + 60_000);
-const researchLive = await prepare(researchMonitor, researchNow, researchWorkspace.scope);
+const researchNow = new Date(baseNow.getTime() + 40_000);
+const researchLive = await prepare({ ...researchMonitor, nextOccurrenceAt: researchNow.toISOString() }, researchNow, researchWorkspace.scope);
 finding.failNextOutcome = true;
 await assert.rejects(execute({ document: fixture("ptr-14.pdf"), now: researchNow, prepared: researchLive, shouldFetch: true, sourceClient: researchSource }), /fixture_post_history_interruption/);
 const attemptsBeforeRetry = researchDispatches;
@@ -1135,6 +1144,58 @@ assert.ok(researchChildren.every((entry) => entry.state === "reconciled" && entr
 const historyForCorrection = await readCongressionalHistory(researchWorkspace.scope, signal);
 const priorEntry = historyForCorrection!.activeEntries.find(({ alertEligible }) => alertEligible)!;
 assert.ok(priorEntry);
+// A deployed subscription/fact may predate the durable baseline metadata.
+// Two successive header corrections must retain its established live lineage.
+for (const [key, raw] of researchSource.values) {
+  const record = JSON.parse(raw);
+  delete record.firstObservedCursorRevision;
+  delete record.initialBaselineThroughRevision;
+  researchSource.values.set(key, JSON.stringify(record));
+}
+await reconcileWorkspaceRunBudget({ runId: researchLive.envelope.runId, scope: researchWorkspace.scope,
+  now: researchNow, outcome: "reconciled", actualInputTokens: 0, actualOutputTokens: 0, actualPaidCost: "0" }, researchMemory);
+for (const [offset, filingDate] of ["2026-08-18", "2026-08-19", null].entries()) {
+  const now = new Date(researchNow.getTime() + (offset + 1) * 1_000);
+  const monitor = (await getWorkspaceMonitor(researchWorkspace.scope, researchWorkspace.monitor.monitorId, monitorStore))!;
+  const prepared = await prepare({ ...monitor, nextOccurrenceAt: now.toISOString() }, now, researchWorkspace.scope);
+  // Inject an already-validated canonical journal to isolate legacy delivery
+  // compatibility; physical amendment extraction has its own adapter fixtures.
+  const previous = (await readLatestPublicSourceFactRevision(priorEntry.transaction.source.filingLogicalKey, researchSource))!;
+  const source = (await readPublicSourceInstance(previous.sourceInstanceId, researchSource))!;
+  const priorResult = publicSourceAcquisitionResultSchema.parse([...researchSource.values.values()].map((raw) => JSON.parse(raw))
+    .find((record) => record.recordType === "public_source_acquisition_result" && record.candidateFactRevisionIds.includes(previous.revisionId)));
+  const payload = { ...previous.payload, filingDate };
+  const payloadDigest = digestPublicSourceValue(payload);
+  const corrected = filingDate ? canonicalPublicFactRevisionSchema.parse({ ...previous, payload, payloadDigest,
+    firstObservedCursorRevision: 0, createdObservedAt: now.toISOString(),
+    revisionId: deriveCanonicalPublicFactRevisionId({ logicalKey: previous.logicalKey, payloadDigest }) }) : null;
+  const corrections = corrected ? [publicSourceCorrectionSchema.parse({ recordType: "public_source_fact_correction", schemaVersion: 1,
+    logicalKey: previous.logicalKey, fromRevisionId: previous.revisionId, toRevisionId: corrected.revisionId,
+    reason: "source_correction", createdObservedAt: now.toISOString(), correctionId: `correction.${digestPublicSourceValue([
+      previous.logicalKey, previous.revisionId, corrected.revisionId, "source_correction"])}` })] : [];
+  const removed = (await readLatestPublicSourceFactRevision(priorEntry.transaction.source.factLogicalKey, researchSource))!;
+  const retractions = corrected ? [] : [publicSourceRetractionSchema.parse({ recordType: "public_source_fact_retraction", schemaVersion: 1,
+    logicalKey: removed.logicalKey, fromRevisionId: removed.revisionId, sourceInstanceId: source.sourceInstanceId,
+    reason: "source_amendment", createdObservedAt: now.toISOString(), retractionId: `retraction.${digestPublicSourceValue([
+      removed.logicalKey, removed.revisionId, "source_amendment"])}` })];
+  await commitPublicSourceAcquisition({ client: researchSource, acquisition: { facts: corrected ? [corrected] : [], corrections, retractions,
+    window: prepared.envelope.window, result: { ...priorResult, acquisitionId: `fixture-legacy-correction-${offset}`,
+      observedAt: now.toISOString(), candidateFactRevisionIds: corrected ? [corrected.revisionId] : [],
+      correctionIds: corrections.map(({ correctionId }) => correctionId), retractionIds: retractions.map(({ retractionId }) => retractionId),
+      proposedNextCursor: { ...priorResult.proposedNextCursor!, expectedRevision: source.cursor.revision,
+        contentDigest: digestPublicSourceValue([offset, filingDate]), watermark: source.cursor.watermark! } } } });
+  const dispatches = researchDispatches;
+  const correction = await execute({ document: liveDocument, now, prepared, shouldFetch: false, sourceClient: researchSource });
+  assert.equal(researchDispatches, dispatches + (corrected ? 1 : 0), "legacy live corrections must still reach research");
+  assert.equal(correction.result.outcome.outcome, "finding_staged");
+  const history = (await readCongressionalHistory(researchWorkspace.scope, signal))!;
+  const entries = history.activeEntries.filter(({ transaction }) => transaction.source.filingLogicalKey === priorEntry.transaction.source.filingLogicalKey);
+  assert.ok(entries.length > 0 && entries.every(({ transaction, alertEligible }) => transaction.processingMode === "live" && alertEligible));
+  assert.equal((await execute({ document: liveDocument, now, prepared, shouldFetch: false, sourceClient: researchSource })).result.replayed, true);
+  assert.equal(researchDispatches, dispatches + (corrected ? 1 : 0), "correction replay must not buy research twice");
+  await reconcileWorkspaceRunBudget({ runId: prepared.envelope.runId, scope: researchWorkspace.scope,
+    now, outcome: "reconciled", actualInputTokens: 0, actualOutputTokens: 0, actualPaidCost: "0" }, researchMemory);
+}
 for (const mutation of [
   { amountRange: { ...priorEntry.transaction.amountRange, label: "Different disclosed range" } },
   { owner: { ...priorEntry.transaction.owner, relationship: priorEntry.transaction.owner.relationship === "spouse" ? "self" : "spouse" } },
@@ -1151,6 +1212,8 @@ const denseEvidence = congressionalResearchEvidenceContent({
   minimumAlertBand: "review", previousAlert: false,
 });
 assert.equal(JSON.parse(denseEvidence).rows.length, 224, "research must receive rows beyond the finding preview's first fifty");
+assert.equal(JSON.parse(denseEvidence).historyCoverage, "incomplete");
+assert.match(JSON.parse(denseEvidence).evidenceScope, /not a complete trading history/u);
 const validationLocator = { kind: "text_span", artifactDigest: "a".repeat(64), start: 0, end: denseEvidence.length, spanDigest: "b".repeat(64) } as const;
 const denseUrl = largeFilingTransactions[0]!.source.publicDocumentUrl;
 const validationFields = { band: "record_only", brief: {
@@ -1184,3 +1247,158 @@ assert.equal(abstentionResult.result.outcome.outcome, "no_match");
 assert.equal(reportPublications, publicationsBeforeAbstention, "an unalerted record-only decision must not publish an alert report");
 assert.equal(researchBytes.size, 0, "temporary evidence bytes must be removed after acceptance and replay");
 console.log("Congressional dense evidence, validator rejection, abstention, and artifact cleanup verification passed.");
+
+// An unresolved historical filing is a coverage gap, not a barrier to validated
+// selected-member filings, later arrivals, or a durable baseline checkpoint.
+researchBand = "priority";
+const partialWorkspace = installWorkspace({ configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: ["H001082"] },
+  version: "1.5.0", workspaceId: "123e4567-e89b-42d3-a456-426614175592" });
+const partialSource = new MemoryCasStore();
+const historicalGap = pagedDocuments[0]!;
+const baselineBytes = new Uint8Array(await pdf(baselineDocument.retainedFile));
+const liveBytes = new Uint8Array(await pdf(liveDocument.retainedFile));
+const researchBeforePartial = researchDispatches;
+for (let phase = 0; phase < 3; phase++) {
+  const now = new Date(baseNow.getTime() + (phase + 54) * 1_000);
+  const observedAt = new Date(now.getTime() - (phase < 2 ? 31 * 60_000 : 0)).toISOString();
+  const archive = await index([baselineDocument, historicalGap, ...(phase > 0 ? [liveDocument] : [])]);
+  const monitor = (await getWorkspaceMonitor(partialWorkspace.scope, partialWorkspace.monitor.monitorId, monitorStore))!;
+  const prepared = await prepare({ ...monitor, nextOccurrenceAt: now.toISOString() }, now, partialWorkspace.scope);
+  const run = () => evaluateCongressionalSignalsForWorker({ clients: { ...clients,
+    acquisition: partialSource, subscription: partialSource,
+    hybridRecoveryExtensions: [{ adapterId: "house-financial-disclosures", create: () => ({ recover: async () => null }) }],
+    fetchIndex: async (url) => response(archive, "application/zip", url, observedAt),
+    fetchDocument: async (url) => response(url.endsWith(`${historicalGap.docId}.pdf`) ? (phase === 2 ? pagedPdf : scanned) :
+      url.endsWith(`${baselineDocument.docId}.pdf`) ? baselineBytes : liveBytes, "application/pdf", url, observedAt),
+  }, ctx: { session: { auth: { current: prepared.request.auth } } }, environment: {
+    ...mixedEnvironment, EVE_HYBRID_FRONTIER_MODEL_ID: "openai/gpt-5.4",
+    EVE_HYBRID_SOURCE_RECOVERY_MODEL_IDS: "fixture/extractor,fixture/ocr,openai/gpt-5.4",
+  }, now });
+  const result = await run();
+  assert.equal(result.outcome.outcome, phase === 1 ? "finding_staged" : "no_match");
+  const after = (await getWorkspaceMonitor(partialWorkspace.scope, monitor.monitorId, monitorStore))!;
+  assert.ok(after.sourceCheckpoint.contentDigest, "resolved filings must establish a checkpoint despite unrelated gaps");
+  const history = (await readCongressionalHistory(partialWorkspace.scope, signal))!;
+  if (phase < 2) {
+    assert.equal(history.coverage.state, "incomplete");
+    const runCoverage = [...coverage.values.values()].map((raw) => JSON.parse(raw)).find((record) => record.runId === result.outcome.runId);
+    assert.equal(runCoverage.successes[0].unresolvedItemCount, 1);
+    assert.equal(runCoverage.successes[0].acquisitionCoverage, phase === 0 ? "unsupported" : "partial");
+    assert.ok(history.activeEntries.some(({ transaction }) => transaction.source.publicDocumentUrl.endsWith(`${baselineDocument.docId}.pdf`)));
+    assert.ok(history.activeEntries.every(({ transaction }) => !transaction.source.publicDocumentUrl.endsWith(`${historicalGap.docId}.pdf`)),
+      "unsupported filing rows must never enter history or research");
+  } else {
+    const recovered = [...signal.values.values()].map((raw) => JSON.parse(raw)).filter((record) =>
+      record.workspaceId === partialWorkspace.scope.workspaceId && record.recordType === "house_strategy_transaction" &&
+      record.source.publicDocumentUrl.endsWith(`${historicalGap.docId}.pdf`));
+    assert.ok(recovered.length > 0);
+    assert.ok(recovered.every((transaction) => transaction.processingMode === "baseline"),
+      "a filing first observed in the initial archive remains historical after late recovery");
+  }
+  assert.equal(researchDispatches, researchBeforePartial + (phase > 0 ? 1 : 0), "only the genuinely new selected filing may buy research");
+  if (phase === 1) {
+    assert.equal(lastEvidence!.historyCoverage, "incomplete", "the real research worker must receive incomplete coverage");
+    assert.match(lastEvidence!.evidenceScope, /not a complete trading history/u);
+  }
+  const alertCount = alert.values.size;
+  assert.equal((await run()).replayed, true);
+  assert.equal(alert.values.size, alertCount);
+  await reconcileWorkspaceRunBudget({ runId: result.outcome.runId, scope: partialWorkspace.scope, now,
+    outcome: "reconciled", actualInputTokens: 0, actualOutputTokens: 0, actualPaidCost: "0" }, researchMemory);
+}
+console.log("Congressional partial progress, durable baseline, new arrivals, and late recovery verification passed.");
+
+// The shared source head is not a lagging live workspace's initial boundary.
+const migrationSource = new MemoryCasStore();
+const migrationWorkspaces = ["123e4567-e89b-42d3-a456-426614175593", "123e4567-e89b-42d3-a456-426614175594"].map((workspaceId) =>
+  installWorkspace({ configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: ["H001082"] },
+    nextOccurrenceAt: new Date(baseNow.getTime() + 1_000).toISOString(), version: "1.5.0", workspaceId }));
+for (const [offset, workspace] of migrationWorkspaces.entries()) {
+  const prepared = await prepare(workspace.monitor, baseNow, workspace.scope);
+  await execute({ document: baselineDocument, now: baseNow, prepared, shouldFetch: offset === 0, sourceClient: migrationSource });
+  await reconcileWorkspaceRunBudget({ runId: prepared.envelope.runId, scope: workspace.scope,
+    now: baseNow, outcome: "reconciled", actualInputTokens: 0, actualOutputTokens: 0, actualPaidCost: "0" }, researchMemory);
+}
+for (const [key, raw] of migrationSource.values) {
+  const record = JSON.parse(raw);
+  if (record.workspaceId === migrationWorkspaces[1]!.scope.workspaceId) {
+    delete record.initialBaselineThroughRevision;
+    migrationSource.values.set(key, JSON.stringify(record));
+  }
+}
+const migrationNow = new Date(baseNow.getTime() + 45_000);
+for (const [offset, workspace] of migrationWorkspaces.entries()) {
+  const monitor = (await getWorkspaceMonitor(workspace.scope, workspace.monitor.monitorId, monitorStore))!;
+  const prepared = await prepare({ ...monitor, nextOccurrenceAt: migrationNow.toISOString() }, migrationNow, workspace.scope);
+  const dispatches = researchDispatches;
+  const result = await execute({ document: liveDocument, now: migrationNow, prepared, shouldFetch: offset === 0, sourceClient: migrationSource });
+  assert.equal(result.result.outcome.outcome, "finding_staged", "another workspace's acquisition must not turn an undelivered live filing into baseline");
+  assert.equal(researchDispatches, dispatches + 1);
+  assert.equal((await execute({ document: liveDocument, now: migrationNow, prepared, shouldFetch: false, sourceClient: migrationSource })).result.replayed, true);
+  assert.equal(researchDispatches, dispatches + 1);
+  await reconcileWorkspaceRunBudget({ runId: prepared.envelope.runId, scope: workspace.scope,
+    now: migrationNow, outcome: "reconciled", actualInputTokens: 0, actualOutputTokens: 0, actualPaidCost: "0" }, researchMemory);
+}
+console.log("Congressional live subscription migration across shared acquisitions verified.");
+
+const backlogWorkspace = installWorkspace({ configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: [] },
+  version: "1.4.0", workspaceId: "123e4567-e89b-42d3-a456-426614175595" });
+const backlogSourceId = backlogWorkspace.monitor.publicSourceSubscriptions![0]!.sourceInstanceId;
+const backlogSourceBefore = (await readPublicSourceInstance(backlogSourceId, pagedSource))!;
+const backlogIds: string[] = [];
+for (;;) {
+  const next = await readNextPublicSourceAcquisition({ sourceInstanceId: backlogSourceId,
+    afterAcquisitionId: backlogIds.at(-1) ?? null, throughRevision: backlogSourceBefore.cursor.revision - 1 }, pagedSource);
+  if (!next) break;
+  backlogIds.push(next.result.acquisitionId);
+}
+assert.ok(backlogIds.length > 1);
+let backlogFetches = 0;
+for (const [offset] of backlogIds.entries()) {
+  const now = new Date(baseNow.getTime() + (offset + 46) * 1_000);
+  const monitor = (await getWorkspaceMonitor(backlogWorkspace.scope, backlogWorkspace.monitor.monitorId, monitorStore))!;
+  const prepared = await prepare({ ...monitor, nextOccurrenceAt: now.toISOString() }, now, backlogWorkspace.scope);
+  const run = () => evaluateCongressionalSignalsForWorker({ clients: { ...clients, acquisition: pagedSource, subscription: pagedSource,
+    fetchIndex: async () => { backlogFetches++; throw new Error("committed_backlog_must_not_fetch_index"); },
+    fetchDocument: async () => { backlogFetches++; throw new Error("committed_backlog_must_not_fetch_document"); },
+  }, ctx: { session: { auth: { current: prepared.request.auth } } }, environment, now });
+  const result = await run();
+  assert.equal(result.outcome.outcome, offset < backlogIds.length - 1 ? "source_pending" : "no_match");
+  assert.equal(result.outcome.sourcePending === true, offset < backlogIds.length - 1);
+  assert.equal((await run()).replayed, true);
+  assert.deepEqual((await readPublicSourceInstance(backlogSourceId, pagedSource))!.cursor, backlogSourceBefore.cursor);
+}
+assert.equal(backlogFetches, 0, "validated backlog drains without source I/O or recovery work");
+assert.ok((await getWorkspaceMonitor(backlogWorkspace.scope, backlogWorkspace.monitor.monitorId, monitorStore))!.sourceCheckpoint.contentDigest);
+console.log("Congressional ordered backlog delivery without acquisition verified.");
+
+const movingSource = new MemoryCasStore();
+const movingWorkspace = installWorkspace({ configuration: { minimumAlertBand: "review", selectedMemberBioguideIds: [] },
+  version: "1.4.0", workspaceId: "123e4567-e89b-42d3-a456-426614175596" });
+const movingNow = new Date(baseNow.getTime() + 52_000);
+const movingPrepared = await prepare({ ...movingWorkspace.monitor, nextOccurrenceAt: movingNow.toISOString() }, movingNow, movingWorkspace.scope);
+finding.failNextOutcome = true;
+await assert.rejects(execute({ document: baselineDocument, now: movingNow, prepared: movingPrepared, shouldFetch: true, sourceClient: movingSource }), /fixture_post_history_interruption/);
+const movingHistory = await readCongressionalHistory(movingWorkspace.scope, signal);
+await runHousePublicSourceAcquisition({ client: movingSource, sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  window: { startAt: movingNow.toISOString(), endAt: new Date(movingNow.getTime() + 1_000).toISOString() },
+  fetchIndex: async (url) => response(await index(liveDocument), "application/zip", url, new Date(movingNow.getTime() + 1_000).toISOString()),
+  fetchDocument: async (url) => response(liveBytes, "application/pdf", url, new Date(movingNow.getTime() + 1_000).toISOString()),
+});
+const movingRetry = await execute({ document: baselineDocument, now: movingNow, prepared: movingPrepared, shouldFetch: false, sourceClient: movingSource });
+assert.equal(movingRetry.result.outcome.outcome, "no_match");
+assert.deepEqual(await readCongressionalHistory(movingWorkspace.scope, signal), movingHistory,
+  "a shared-source append between attempts must not change the occurrence's persisted history");
+const movingMonitor = (await getWorkspaceMonitor(movingWorkspace.scope, movingWorkspace.monitor.monitorId, monitorStore))!;
+const nextMovingNow = new Date(movingNow.getTime() + 2_000);
+const nextMoving = await prepare({ ...movingMonitor, nextOccurrenceAt: nextMovingNow.toISOString() }, nextMovingNow, movingWorkspace.scope);
+const nextMovingResult = await execute({ document: liveDocument, now: nextMovingNow, prepared: nextMoving, shouldFetch: false, sourceClient: movingSource });
+assert.equal(nextMovingResult.result.outcome.outcome, "finding_staged", "the next occurrence must still deliver the newly appended live filing");
+console.log("Congressional interrupted delivery retains an occurrence-stable source boundary.");
+const emptyNow = new Date(movingNow.getTime() + 3_000);
+const emptyMonitor = (await getWorkspaceMonitor(movingWorkspace.scope, movingWorkspace.monitor.monitorId, monitorStore))!;
+const emptyPrepared = await prepare({ ...emptyMonitor, nextOccurrenceAt: emptyNow.toISOString() }, emptyNow, movingWorkspace.scope);
+finding.failNextOutcome = true;
+await assert.rejects(execute({ document: liveDocument, now: emptyNow, prepared: emptyPrepared, shouldFetch: true, sourceClient: movingSource }), /fixture_post_history_interruption/);
+assert.equal((await execute({ document: liveDocument, now: emptyNow, prepared: emptyPrepared, shouldFetch: false, sourceClient: movingSource })).result.outcome.outcome, "no_match",
+  "a pinned empty acquisition must remain replayable");

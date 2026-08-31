@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { listWorkspaceMonitors } from "../lib/workspace-monitor-store";
 import { readEarningsCallWorkspacePresentation } from "../lib/earnings-call-presentation";
+import { readCongressionalWorkspacePresentation } from "../lib/congressional-signal-presentation";
 import {
   readPublicSourceWorkspaceHealth,
   unavailablePublicSourceWorkspaceHealth,
@@ -51,8 +52,17 @@ export default defineTool({
             : [],
         })
       : null;
+    const congressionalMonitor = monitors.find((monitor) => monitor.managedBy?.packId === "congressional-signals");
+    const congressionalSignals = strategyPack.state === "active" && strategyPack.pack?.id === "congressional-signals"
+      ? await Promise.all([
+          readCongressionalWorkspacePresentation(scope),
+          Promise.all((congressionalMonitor?.publicSourceSubscriptions ?? []).map((reference) =>
+            readPublicSourceWorkspaceHealth({ reference, scope }).catch(() => unavailablePublicSourceWorkspaceHealth(reference)))),
+        ]).then(([presentation, sourceHealth]) => ({ ...presentation, sourceHealth }))
+      : null;
     return {
       budget,
+      congressionalSignals,
       earningsCallChanges,
       hybridEvidence,
       monitorCounts: {

@@ -38,7 +38,7 @@ import {
   type CongressionalFilingEvaluation,
   type CongressionalTransactionEvaluation,
 } from "./congressional-strategy";
-import { congressionalSignalContractDigest, type CongressionalFilingSignal } from "./congressional-signal-schema";
+import type { CongressionalFilingSignal } from "./congressional-signal-schema";
 import {
   advanceCongressionalCoverage,
   applyCongressionalHistoryChanges,
@@ -416,8 +416,13 @@ export async function evaluateCongressionalSignalsForWorker(input: {
   await sourceLifecycle.recordRetry({ acquisitionId: `pending.${envelope.occurrenceKey}`,
     monitorId: monitor.monitorId, occurrenceKey: envelope.occurrenceKey, runId: envelope.runId,
     scope, sourceId: source.sourceId, now, retryAfterSeconds: 60 });
+  const priorDelivery = (await sourceLifecycle.listAcknowledgements({ occurrenceKey: envelope.occurrenceKey, scope }))
+    .find((acknowledgement) => acknowledgement.sourceId === source.sourceId);
   const coordinated = await coordinatePublicSourceOccurrence({
+    houseDeliveryAcquisitionId: priorDelivery?.deliveryThroughRevision === undefined ? undefined : priorDelivery.acquisitionId,
+    houseDeliveryThroughRevision: priorDelivery?.deliveryThroughRevision,
     continueIncompleteHouse: true,
+    initialHouseBaseline: monitor.sourceCheckpoint.contentDigest === null && monitor.sourceCheckpoint.watermark === null,
     hybridRecoveryExtensions: input.clients?.hybridRecoveryExtensions,
     clients: {
       acquisition: input.clients?.acquisition,
@@ -461,9 +466,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
   const cursor = coordinated.acquisition.proposedNextCursor;
   if (
     (coordinated.acquisition.status !== "complete" &&
-    coordinated.acquisition.status !== "no_change") ||
-    coordinated.acquisition.coverage !== "complete" ||
-    coordinated.acquisition.stageReceipts.some(({ status }) => status !== "complete")
+    coordinated.acquisition.status !== "no_change")
   ) {
     if (coordinated.acquisition.status === "partial") {
       await sourceLifecycle.recordRetry({ acquisitionId: coordinated.acquisition.acquisitionId,
@@ -502,9 +505,16 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     await sourceLifecycle.clearRetry({ occurrenceKey: envelope.occurrenceKey, scope });
     throw new CongressionalWorkspaceWorkerError("congressional_projection_invalid");
   }
+  // Pin delivery before history or research can commit. Another workspace may
+  // advance the shared source between attempts; this occurrence must not move.
+  await sourceLifecycle.recordAcknowledgement({
+    acquisitionId: coordinated.deliveryAcquisitionId ?? coordinated.acquisition.acquisitionId,
+    ...(priorDelivery && priorDelivery.deliveryThroughRevision === undefined ? {} : { deliveryThroughRevision: coordinated.deliveryThroughRevision }),
+    expectedDeliveryRevision: coordinated.projection.subscription.deliveryCursor.revision,
+    monitorId: monitor.monitorId, occurrenceKey: envelope.occurrenceKey, sourceId: source.sourceId,
+    scope, subscriptionId: coordinated.projection.subscription.subscriptionId,
+  });
   const observedAt = coordinated.acquisition.observedAt;
-  const initialBaseline = monitor.sourceCheckpoint.contentDigest === null &&
-    monitor.sourceCheckpoint.watermark === null;
   const packBinding = {
     bindingRevision: managedBy.bindingRevision,
     packContentDigest: managedBy.packContentDigest,
@@ -547,18 +557,29 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     ...coordinated.projection.projections,
     ...hydrated,
   ]);
+  const processingModeFor = (filing: AuthorizedPublicSourceProjection) => {
+    // Legacy canonical revisions lack observation metadata. The workspace's
+    // proven live history remains authoritative for subsequent corrections.
+    if (priorEntriesByFiling.get(filing.fact.logicalKey)?.some(({ transaction, alertEligible }) =>
+      transaction.processingMode === "live" || alertEligible)) return "live" as const;
+    return filing.fact.firstObservedCursorRevision === undefined ||
+      filing.fact.firstObservedCursorRevision <= coordinated.subscription.initialBaselineThroughRevision!
+      ? "baseline" as const : "live" as const;
+  };
+  const initialBaseline = monitor.sourceCheckpoint.contentDigest === null &&
+    monitor.sourceCheckpoint.watermark === null && filingGroups.every(({ filing }) => processingModeFor(filing) === "baseline");
   const baseEvaluationInput = {
     catalogs,
     minimumAlertBand,
     observedAt,
     packBinding,
     policy: runtime.policy,
-    processingMode: initialBaseline || coordinated.baselineEstablished ? "baseline" as const : "live" as const,
     selectedMemberBioguideIds,
   };
   const normalized = filingGroups.flatMap((group) =>
     normalizeCongressionalFilingTransactions({
       ...baseEvaluationInput,
+      processingMode: processingModeFor(group.filing),
       filing: group.filing,
       transactions: group.transactions,
     }));
@@ -634,6 +655,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
         : []);
     return [evaluateCongressionalFiling({
       ...baseEvaluationInput,
+      processingMode: processingModeFor(group.filing),
       filing: group.filing,
       history: {
         clusters,
@@ -664,14 +686,16 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     retractionRecords.push({ priorEntry, signal, transaction });
   }
   const researchDecisions = new Map<string, Awaited<ReturnType<typeof researchCongressionalFiling>>>();
-  if (researchRuntime && baseEvaluationInput.processingMode === "live") {
+  if (researchRuntime) {
     for (const evaluation of evaluations) {
+      if (processingModeFor(evaluation.filing) !== "live") continue;
       // Only source validity and the owner's member selection gate research.
       // In particular, a catalog miss must not suppress a legacy PDF's signal.
       if (!evaluation.transactions.some((row) => row.memberResolution.state === "resolved" &&
         !row.eligibility.reasonCodes.some((reason) => ["unsupported_source", "unresolved_member", "member_not_selected", "invalid_date"].includes(reason)))) continue;
       const previousEntries = priorEntriesByFiling.get(evaluation.filing.fact.logicalKey) ?? [];
       const decision = await researchCongressionalFiling({ evaluation, minimumAlertBand,
+        historyCoverage: coverage.state,
         previousAlert: previousEntries.some(({ alertEligible }) => alertEligible),
         previousTransactions: previousEntries.map(({ transaction }) => transaction),
         runtime: researchRuntime, environment, now, parentBudgetRunId: envelope.runId, scope,
@@ -743,7 +767,7 @@ export async function evaluateCongressionalSignalsForWorker(input: {
       evaluations: completeEvaluations(signal), signal, transactions: [transaction],
     }));
     const artifact = artifacts[0]!;
-    const identity = `congressional-retractions.${congressionalSignalContractDigest(records.map(({ signal }) => signal.signalRevisionId).sort())}`;
+    const identity = records[0]!.signal.signalRevisionId;
     const fact = artifact.finding.facts![0] as CongressionalFilingSignalFact;
     const summary = `${records.length} previously alerted House PTR transaction(s) were retracted by an official amendment. The earlier interpretation of those transactions should be withdrawn.`;
     correctionArtifacts.push({
@@ -829,18 +853,14 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     watermark: envelope.window.endAt,
   };
   await markWorkspaceSourceSuccess({
+    acquisitionCoverage: coordinated.acquisition.coverage,
+    unresolvedItemCount: coordinated.unresolvedFilingCount,
     contentDigest: cursor.contentDigest,
     now,
     runId: envelope.runId,
     scope,
     sourceId: source.sourceId,
   }, input.clients?.sourceCoverage);
-  await sourceLifecycle.recordAcknowledgement({
-    acquisitionId: coordinated.deliveryAcquisitionId ?? coordinated.acquisition.acquisitionId,
-    expectedDeliveryRevision: coordinated.projection.subscription.deliveryCursor.revision,
-    monitorId: monitor.monitorId, occurrenceKey: envelope.occurrenceKey, sourceId: source.sourceId,
-    scope, subscriptionId: coordinated.projection.subscription.subscriptionId,
-  });
   const outcome = await commitDeterministicWorkspaceEvaluationForWorker({
     sourcePending: coordinated.deliveryPending,
     alertPresentation: alertPresentation(alertEvaluations),

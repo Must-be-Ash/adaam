@@ -354,11 +354,12 @@ const houseA = await coordinatePublicSourceOccurrence({
   sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
   window: houseWindow,
 });
-assert.equal(houseA.acquisition.status, "partial");
-assert.equal(houseA.sourceRetryAfterSeconds, 30 * 60, "only cooling-down filings should retry at their earliest due time");
-assert.equal(houseA.projection, null);
-assert.equal(houseA.workspaceCheckpoint, null);
-assert.equal(houseA.acquisition.proposedNextCursor, null);
+assert.equal(houseA.acquisition.status, "complete");
+assert.equal(houseA.acquisition.coverage, "unsupported");
+assert.equal(houseA.unresolvedFilingCount, 1);
+assert.equal(houseA.projection?.projections.length, 0, "unresolved headers must not be projected");
+assert.ok(houseA.workspaceCheckpoint);
+assert.ok(houseA.acquisition.proposedNextCursor);
 assert.equal(houseFetches, 2);
 
 const referenceB = resolvePublicSourceWorkspaceReference({
@@ -393,15 +394,16 @@ const houseB = await coordinatePublicSourceOccurrence({
 });
 assert.equal(houseB.reused, true);
 assert.equal(houseFetches, 2);
-assert.equal(houseB.projection, null);
+assert.equal(houseB.projection?.projections.length, 0);
 const caughtUp = await readPublicSourceWorkspaceHealth({
   clients: { acquisition: store, subscription: store },
   environment: fullyEnabled,
   reference: referenceB,
   scope: scopeB,
 });
-assert.equal(caughtUp.subscription.state, "behind");
-assert.equal(caughtUp.subscription.lag, 1);
+assert.equal(caughtUp.subscription.state, "caught_up");
+assert.equal(caughtUp.subscription.lag, 0);
+assert.equal(caughtUp.healthState, "degraded", "delivery progress must not conceal incomplete extraction");
 assert.ok(observations.some((item) => item.counter === "public_source_acquisition_reused_total"));
 assert.ok(observations.some((item) => item.counter === "public_source_fact_revision_total"));
 assert.ok(observations.some((item) => item.counter === "public_source_projection_total"));
@@ -441,7 +443,7 @@ const degradedAfterFailure = await readPublicSourceWorkspaceHealth({
 assert.equal(degradedAfterFailure.lastCompleteAcquisition?.observedAt, houseObservedAt);
 assert.equal(degradedAfterFailure.lastOutcome?.status, "terminal_failure");
 assert.equal(degradedAfterFailure.lastOutcome?.failureStage, "archive");
-assert.equal(degradedAfterFailure.subscription.state, "behind");
+assert.equal(degradedAfterFailure.subscription.state, "caught_up");
 assert.ok(observations.some((item) => item.counter === "public_source_failure_total"));
 
 await assert.rejects(

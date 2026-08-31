@@ -8,6 +8,7 @@ import { runWorkspaceSemanticEvidenceBundleJob } from "./hybrid-evidence-semanti
 import { drainHybridEvidenceWorker, startHybridEvidenceWorkerTask } from "./hybrid-evidence-worker";
 import { congressionalResearchEvidenceContent, congressionalResearchResultSchema, createCongressionalResearchDefinition, CONGRESSIONAL_RESEARCH_DEFINITION_ID } from "./congressional-research";
 import type { CongressionalFilingEvaluation } from "./congressional-strategy";
+import type { CongressionalCoverage } from "./congressional-history";
 import type { StrategyPackCatalogEntry } from "./strategy-pack-catalog";
 import type { WorkspaceExecutiveBrief } from "./workspace-executive-brief";
 import { HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID } from "./strategy-pack-reference-catalog";
@@ -36,6 +37,7 @@ export function resolveCongressionalResearchRuntime(input: {
 }
 
 export async function researchCongressionalFiling(input: {
+  historyCoverage?: CongressionalCoverage["state"];
   evaluation: CongressionalFilingEvaluation; previousTransactions?: Parameters<typeof congressionalResearchEvidenceContent>[0]["previousTransactions"]; minimumAlertBand: "priority" | "review"; previousAlert: boolean;
   runtime: ReturnType<typeof resolveCongressionalResearchRuntime>;
   environment: NodeJS.ProcessEnv; now: Date; parentBudgetRunId: string;

@@ -155,6 +155,9 @@ await markWorkspaceSourceSuccess(
   },
   client,
 );
+const legacyResume = await markWorkspaceSourceSuccess({ contentDigest: "a".repeat(64),
+  acquisitionCoverage: "partial", unresolvedItemCount: 3, now, runId, scope, sourceId: "sec.latest" }, client);
+assert.equal(legacyResume.successes[0]!.acquisitionCoverage, undefined, "legacy success remains an idempotent first observation");
 await assert.rejects(
   completeWorkspaceSourceCoverage({ now, runId, scope }, client),
   (error) =>
@@ -168,6 +171,8 @@ await reserveWorkspaceSourceAttempt(
 await markWorkspaceSourceSuccess(
   {
     contentDigest: "b".repeat(64),
+    acquisitionCoverage: "partial",
+    unresolvedItemCount: 3,
     now,
     runId,
     scope,
@@ -178,6 +183,8 @@ await markWorkspaceSourceSuccess(
 await markWorkspaceSourceSuccess(
   {
     contentDigest: "b".repeat(64),
+    acquisitionCoverage: "complete",
+    unresolvedItemCount: 0,
     now,
     runId,
     scope,
@@ -202,6 +209,8 @@ await assert.rejects(
 );
 
 const complete = await completeWorkspaceSourceCoverage({ now, runId, scope }, client);
+assert.equal(complete.successes.find(({ sourceId }) => sourceId === "federal_register.latest")!.unresolvedItemCount, 3,
+  "retry must preserve the original coverage observation even if the shared queue changed");
 assert.equal(complete.state, "complete");
 assert.equal(complete.checkpoint?.watermark, "2026-08-14T17:00:00.000Z");
 assert.match(complete.checkpoint?.contentDigest ?? "", /^[a-f0-9]{64}$/u);

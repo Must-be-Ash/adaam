@@ -28,7 +28,8 @@ const pendingWorkSchema = z.object({
   acquisitionId: z.string().optional(),
   sourceInstanceId: z.string().max(160), cursorRevision: z.number().int().nonnegative(),
   archiveDigest: z.string().regex(/^[a-f0-9]{64}$/u),
-  pending: z.array(z.object({ docId: z.string().regex(/^\d{1,20}$/u), nextAttemptAt: z.string().datetime().nullable(), replayExisting: z.boolean().optional() }).strict()).max(10_000),
+  pending: z.array(z.object({ docId: z.string().regex(/^\d{1,20}$/u), nextAttemptAt: z.string().datetime().nullable(), replayExisting: z.boolean().optional(),
+    firstObservedCursorRevision: z.number().int().nonnegative().optional() }).strict()).max(10_000),
 }).strict();
 export type PublicSourcePendingWork = z.infer<typeof pendingWorkSchema>;
 
@@ -770,9 +771,10 @@ async function writeFact(
   const existingRaw = await readRaw(key, client);
   if (existingRaw === null) throw new PublicSourceAcquisitionStoreError("fact_conflict");
   const existing = parseRaw(existingRaw, (value) => canonicalPublicFactRevisionSchema.parse(value));
-  const { createdObservedAt: _existingObservedAt, ...existingIdentity } = existing;
-  const { createdObservedAt: _candidateObservedAt, ...candidateIdentity } = fact;
-  if (JSON.stringify(existingIdentity) !== JSON.stringify(candidateIdentity)) {
+  const { createdObservedAt: _existingObservedAt, firstObservedCursorRevision: existingFirstObserved, ...existingIdentity } = existing;
+  const { createdObservedAt: _candidateObservedAt, firstObservedCursorRevision: candidateFirstObserved, ...candidateIdentity } = fact;
+  if ((existingFirstObserved !== undefined && candidateFirstObserved !== undefined && existingFirstObserved !== candidateFirstObserved) ||
+    JSON.stringify(existingIdentity) !== JSON.stringify(candidateIdentity)) {
     throw new PublicSourceAcquisitionStoreError("fact_conflict");
   }
   return "reused";
@@ -1004,7 +1006,8 @@ export async function commitPublicSourceAcquisition(input: {
       JSON.stringify(retractions.map((retraction) => retraction.retractionId)) ||
     facts.some((fact) =>
       fact.sourceInstanceId !== result.sourceInstanceId ||
-      fact.adapterId !== result.adapterId)
+      fact.adapterId !== result.adapterId ||
+      (fact.firstObservedCursorRevision !== undefined && fact.firstObservedCursorRevision > result.proposedNextCursor!.expectedRevision))
   ) {
     throw new PublicSourceAcquisitionStoreError("journal_conflict");
   }
