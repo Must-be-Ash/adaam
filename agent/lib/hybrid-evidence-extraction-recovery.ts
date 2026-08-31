@@ -36,7 +36,7 @@ const pdfCitationSchema = z.object({
   }).strict().nullable(),
 }).strict();
 
-const houseAmountRangeSchema = z.enum([
+export const houseAmountRangeSchema = z.enum([
   "$1,001 - $15,000",
   "$15,001 - $50,000",
   "$50,001 - $100,000",

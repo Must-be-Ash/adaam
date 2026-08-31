@@ -740,7 +740,7 @@ export async function persistHybridEvidenceIndependentEvidence(input: {
   usage?: HybridEvidenceRecoveryUsage;
 }, client: HybridEvidenceJobStoreClient = store()): Promise<HybridEvidenceJobRecord> {
   const evidence = independentEvidenceSchema.parse({
-    expiresAt: input.state === "running" ? new Date(Date.now() + 90_000).toISOString() : null,
+    expiresAt: input.state === "running" ? new Date(Date.now() + 150_000).toISOString() : null,
     claimTokenDigest: tokenDigest(input.claimToken),
     state: input.state,
     textByPage: input.textByPage ?? [],
@@ -764,7 +764,7 @@ export async function persistHybridEvidenceIndependentEvidence(input: {
 }
 
 export async function persistHybridEvidenceIndependentPage(input: {
-  claimToken: string; jobId: string; page: number; text: string; usage: HybridEvidenceRecoveryUsage;
+  claimToken: string; jobId: string; page: number; text: string | null; usage: HybridEvidenceRecoveryUsage;
 }, client: HybridEvidenceJobStoreClient = store()): Promise<void> {
   await updateRecord({ client, jobId: input.jobId, mutate(current) {
     const phase = current?.independentEvidence;
@@ -772,10 +772,11 @@ export async function persistHybridEvidenceIndependentPage(input: {
       phase.claimTokenDigest !== tokenDigest(input.claimToken)) throw new HybridEvidenceJobStoreError("job_conflict");
     const texts = new Map(phase.textByPage);
     const usages = new Map(phase.pageUsage);
-    if (texts.has(input.page) && (texts.get(input.page) !== input.text || JSON.stringify(usages.get(input.page)) !== JSON.stringify(input.usage))) {
+    if (usages.has(input.page) && ((texts.get(input.page) ?? null) !== input.text || JSON.stringify(usages.get(input.page)) !== JSON.stringify(input.usage))) {
       throw new HybridEvidenceJobStoreError("job_conflict");
     }
-    texts.set(input.page, input.text); usages.set(input.page, input.usage);
+    if (input.text !== null) texts.set(input.page, input.text);
+    usages.set(input.page, input.usage);
     const next = recordSchema.parse({ ...current, independentEvidence: { ...phase,
       textByPage: [...texts.entries()], pageUsage: [...usages.entries()],
     } });

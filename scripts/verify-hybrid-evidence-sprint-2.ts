@@ -52,7 +52,7 @@ import {
   readHybridEvidenceCellRange,
   validateSpreadsheetRoleCandidate,
 } from "../agent/lib/hybrid-evidence-spreadsheet";
-import { digestHybridEvidenceValue, type EvidenceLocator } from "../agent/lib/hybrid-evidence-schema";
+import { digestHybridEvidenceValue, hybridAcceptedResultSchema, type EvidenceLocator } from "../agent/lib/hybrid-evidence-schema";
 import {
   completeHybridEvidenceJobForWorker,
   prepareHybridEvidenceWorkerRun,
@@ -170,9 +170,9 @@ assert.ok(Date.now() - decoderTimeoutStartedAt < 2_000, "decoder timeout must ki
 const definitions = createExtractionRecoveryDefinitions([modelId]);
 const pdfDefinition = definitions.find((definition) => definition.allowedMediaTypes.includes("application/pdf"))!;
 const spreadsheetDefinition = definitions.find((definition) => definition.definitionId === SPREADSHEET_ROLE_DEFINITION_ID)!;
-assert.equal(pdfDefinition.definitionVersion, "1.0.13");
+assert.equal(pdfDefinition.definitionVersion, "1.0.18");
 assert.equal(pdfDefinition.limits.maximumAttempts, 3);
-assert.equal(pdfDefinition.limits.maximumInputTokens, 40_000);
+assert.equal(pdfDefinition.limits.maximumInputTokens, 100_000);
 assert.equal(pdfDefinition.limits.maximumOutputTokens, 20_000);
 assert.equal(pdfDefinition.limits.maximumRuntimeMs, 300_000);
 assert.match(HOUSE_INDEPENDENT_OCR_INSTRUCTION, /filerName=<the NAME value exactly as printed>/u);
@@ -263,6 +263,21 @@ const attributedJob = await prepareHybridEvidenceJob({
     sourceInstanceId: "source.house-financial-disclosures.2026",
   },
 }, attributedMemory);
+const maximumFilingMemory = new MemoryCas();
+const maximumFilingLimits = { inputTokens: pdfDefinition.limits.maximumInputTokens + 8 * 60_000,
+  outputTokens: pdfDefinition.limits.maximumOutputTokens + 8 * 4_000 };
+const maximumFilingReservation = await reserveHybridEvidenceAttempt({
+  aggregateLimits: maximumFilingLimits, definition: pdfDefinition, environment: { ...environment, EVE_HYBRID_SOURCE_RECOVERY_INPUT_TOKENS_PER_DAY: "600000" }, job: attributedJob.job,
+  now: new Date("2026-08-28T17:00:00.000Z"),
+}, { global: maximumFilingMemory });
+assert.equal(maximumFilingReservation.reservation.inputTokens, 580_000);
+assert.equal(maximumFilingReservation.reservation.paidMicros, "1000000", "larger token coverage must not raise the cash cap");
+assert.equal(hybridAcceptedResultSchema.shape.usage.safeParse({ ...maximumFilingLimits, paidCostUsd: "1" }).success, true);
+assert.equal(hybridAcceptedResultSchema.shape.usage.safeParse({ ...maximumFilingLimits, inputTokens: 580_001, paidCostUsd: "1" }).success, false);
+await assert.rejects(reserveHybridEvidenceAttempt({
+  aggregateLimits: { ...maximumFilingLimits, inputTokens: maximumFilingLimits.inputTokens + 1 },
+  definition: pdfDefinition, environment, job: attributedJob.job,
+}, { global: new MemoryCas() }), /budget_policy_unresolved/u);
 const attributedReservation = await reserveHybridEvidenceAttempt({
   definition: pdfDefinition,
   environment,
@@ -1131,7 +1146,7 @@ assert.equal(workerCalls, 3);
 assert.equal(recoveryObservations.length, 3);
 assert.equal(recoveryObservations.every((observation) =>
   observation.outcome === "accepted" &&
-  observation.definitionVersion === "1.0.13" &&
+  observation.definitionVersion === "1.0.18" &&
   observation.jobId?.startsWith("hybrid-job.") === true &&
   observation.modelId === modelId &&
   observation.rowCount >= 0 &&

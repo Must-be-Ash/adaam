@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { RunHandle } from "../../node_modules/eve/dist/src/channel/types.js";
 import { createGateway, generateText, tool, type UserContent } from "ai";
+import { z } from "zod";
 
+import { readHouseLegacyGrid, readHouseLegacyIndependentViews, type HouseLegacyGrid } from "./house-legacy-grid";
+import { bindHouseLegacyCandidate, houseLegacyIndependentText, createHouseLegacyTranscriptionContent,
+  HOUSE_LEGACY_TRANSCRIPTION_INSTRUCTION, legacyGridTextRows, createHouseLegacyTranscriptionModelSchema, decodeHouseLegacyTranscriptionModel } from "./house-legacy-grid-transcription";
 import {
   createHybridEvidenceArtifactStore,
   type HybridEvidenceArtifactStore,
@@ -19,6 +23,7 @@ import {
 } from "./hybrid-evidence-definition-registry";
 import {
   assessExtractionRecoveryEligibility,
+  houseAmountRangeSchema,
   createAcceptedExtractionResult,
   houseDocumentRowModelCandidateSchema,
   houseDocumentRowWorkerCandidateSchema,
@@ -86,13 +91,22 @@ export interface HouseHybridEvidenceRecoveryClients {
   readonly workspaceBudget?: WorkspaceBudgetLedgerClient;
 }
 
+interface HouseLegacyExtractionContext {
+  readonly grids: ReadonlyMap<number, HouseLegacyGrid>;
+  readonly document: { docId: string; filerName: string; filingDate: string; stateDistrict: string };
+}
+interface HouseIndependentPdfOcr extends IndependentPdfOcr {
+  recognizeLegacyGrid?(page: Parameters<IndependentPdfOcr["recognize"]>[0], grid: HouseLegacyGrid): ReturnType<IndependentPdfOcr["recognize"]>;
+}
+
 export interface HouseHybridEvidenceRecoveryDependencies {
-  readonly preflightBudget?: (input: { pageCount: number; definition: HybridEvidenceJobDefinition }) => Promise<void>;
+  readonly preflightBudget?: (input: { pageCount: number; legacyPageCount: number; extractionRequired: boolean; definition: HybridEvidenceJobDefinition }) => Promise<void>;
   readonly dispatch?: (input: {
     readonly prepared: PreparedHybridEvidenceWorkerRun<UserContent>;
     readonly reservation: HybridEvidenceBudgetReservation;
   }) => Promise<HybridEvidenceModelUsage | void>;
   readonly generateCandidate?: (input: {
+    readonly legacy?: HouseLegacyExtractionContext;
     readonly definition: HybridEvidenceJobDefinition;
     readonly environment: NodeJS.ProcessEnv;
     readonly locators: readonly Extract<EvidenceLocator, { kind: "pdf_page" }>[];
@@ -103,7 +117,7 @@ export interface HouseHybridEvidenceRecoveryDependencies {
     candidate: HouseDocumentRowWorkerCandidate;
     usage: HybridEvidenceModelUsage;
   }>>;
-  readonly ocr?: IndependentPdfOcr;
+  readonly ocr?: HouseIndependentPdfOcr;
   readonly observe?: (observation: HouseHybridEvidenceRecoveryObservation) => void | Promise<void>;
   readonly startWorker?: (
     request: PreparedHybridEvidenceWorkerRun<UserContent>["request"],
@@ -203,15 +217,13 @@ function isCandidateGenerationFailure(
 }
 
 const MAX_INDEPENDENT_OCR_IMAGE_BYTES = 2_500_000;
+const MAX_LEGACY_OCR_INPUT_TOKENS = 60_000;
 const MAX_INDEPENDENT_OCR_OUTPUT_TOKENS = 4_000;
-// A five-page filing has individual dense pages that can legitimately cross
-// twenty seconds even on the reviewed fast OCR route. Thirty seconds remains
-// bounded while avoiding a false validator failure after a successful paid
-// extraction.
-const MAX_INDEPENDENT_OCR_RUNTIME_MS = 30_000;
-// Leave two bounded four-page OCR waves and thirty seconds of persistence
-// headroom inside the signed five-minute envelope.
-const MAX_DIRECT_WORKER_RUNTIME_MS = 210_000;
+// Dense structured transcription can cross thirty seconds. Keep two bounded
+// four-page OCR waves and thirty seconds of persistence headroom inside the
+// same signed five-minute envelope; no additional model retries are enabled.
+const MAX_INDEPENDENT_OCR_RUNTIME_MS = 60_000;
+const MAX_DIRECT_WORKER_RUNTIME_MS = 150_000;
 const WORKER_DISPATCH_ERROR_SETTLEMENT_GRACE_MS = 15_000;
 
 export const HOUSE_INDEPENDENT_OCR_INSTRUCTION = [
@@ -297,6 +309,7 @@ async function resolveGatewayPaidCost(input: {
 }
 
 async function generateHouseDocumentRowCandidate(input: {
+  readonly legacy?: HouseLegacyExtractionContext;
   readonly definition: HybridEvidenceJobDefinition;
   readonly environment: NodeJS.ProcessEnv;
   readonly locators: readonly Extract<EvidenceLocator, { kind: "pdf_page" }>[];
@@ -314,7 +327,9 @@ async function generateHouseDocumentRowCandidate(input: {
     maxOutputTokens: input.definition.limits.maximumOutputTokens,
     maxRetries: 0,
     messages: [{
-      content: input.prepared.request.input.message,
+      content: input.legacy ? createHouseLegacyTranscriptionContent({
+        message: input.prepared.request.input.message, grids: input.legacy.grids, locators: input.locators,
+      }) : input.prepared.request.input.message,
       role: "user",
     }],
     model: provider(input.modelId),
@@ -324,10 +339,12 @@ async function generateHouseDocumentRowCandidate(input: {
     timeout: Math.min(input.definition.limits.maximumRuntimeMs, MAX_DIRECT_WORKER_RUNTIME_MS),
     toolChoice: { type: "tool", toolName: "submitHouseCandidate" },
     tools: {
-      submitHouseCandidate: tool({
+      submitHouseCandidate: input.legacy ? tool({
+        description: "Transcribe exactly the specified physical legacy-grid rows. The application binds checkboxes and signed page citations.",
+        inputSchema: createHouseLegacyTranscriptionModelSchema(input.legacy.grids), strict: true,
+      }) : tool({
         description: "Submit the complete House PTR extraction candidate for deterministic validation. Cite only a signed PDF page number; the application binds it to the trusted signed locator.",
-        inputSchema: houseDocumentRowModelCandidateSchema,
-        strict: true,
+        inputSchema: houseDocumentRowModelCandidateSchema, strict: true,
       }),
     },
   });
@@ -347,7 +364,7 @@ async function generateHouseDocumentRowCandidate(input: {
   });
   if (!candidateCall) {
     const invalidCall = result.dynamicToolCalls.find((call) => call.toolName === "submitHouseCandidate");
-    const parsed = invalidCall ? houseDocumentRowModelCandidateSchema.safeParse(invalidCall.input) : null;
+    const parsed = invalidCall ? (input.legacy ? createHouseLegacyTranscriptionModelSchema(input.legacy.grids) : houseDocumentRowModelCandidateSchema).safeParse(invalidCall.input) : null;
     const issue = parsed && !parsed.success ? parsed.error.issues[0] : null;
     // Paths/codes only, never provider text, values, prompts, or credentials.
     const detail = issue ? `candidate_schema.${issue.code}.${issue.path.join(".")}` : `candidate_missing.${result.finishReason}`;
@@ -355,12 +372,14 @@ async function generateHouseDocumentRowCandidate(input: {
   }
   let candidate: HouseDocumentRowWorkerCandidate;
   try {
-    candidate = bindHouseModelCandidateCitations({
-      candidate: candidateCall.input,
-      locators: input.locators,
-    });
-  } catch {
-    throw candidateGenerationFailure(usage, "candidate_schema.custom.citations.page");
+    candidate = input.legacy ? bindHouseLegacyCandidate({
+      value: decodeHouseLegacyTranscriptionModel(candidateCall.input, input.legacy.grids), grids: input.legacy.grids, document: input.legacy.document, locators: input.locators,
+    }) : bindHouseModelCandidateCitations({ candidate: candidateCall.input, locators: input.locators });
+  } catch (error) {
+    const issue = error instanceof z.ZodError ? error.issues[0] : undefined;
+    const detail = issue ? `candidate_schema.${issue.code}.${issue.path.join(".")}`
+      : input.legacy ? "candidate_schema.custom.grid_layout" : "candidate_schema.custom.citations.page";
+    throw candidateGenerationFailure(usage, /^[A-Za-z0-9_.:-]{1,120}$/u.test(detail) ? detail : "candidate_schema_invalid");
   }
   return Object.freeze({
     candidate,
@@ -373,7 +392,7 @@ export function bindHouseModelCandidateCitations(input: {
   readonly locators: readonly Extract<EvidenceLocator, { kind: "pdf_page" }>[];
 }): HouseDocumentRowWorkerCandidate {
   const candidate = houseDocumentRowModelCandidateSchema.parse(input.candidate);
-  const locatorsByPage = new Map(input.locators.map((locator) => [locator.page, locator]));
+  const locatorsByPage = new Map(input.locators.filter((locator) => locator.region === null).map((locator) => [locator.page, locator]));
   const citations = candidate.citations.map(({ page }) => {
     const locator = locatorsByPage.get(page);
     if (!locator) throw new HybridEvidencePdfError("citation_invalid");
@@ -391,11 +410,53 @@ export function createBoundedIndependentPdfOcr(input: {
   }) => Promise<string>;
   readonly environment?: NodeJS.ProcessEnv;
   readonly modelId: string;
-}): IndependentPdfOcr {
+}): HouseIndependentPdfOcr {
   const environment = input.environment ?? process.env;
   return Object.freeze({
+    async recognizeLegacyGrid(page: Parameters<IndependentPdfOcr["recognize"]>[0], grid: HouseLegacyGrid) {
+      if (page.image.byteLength + (page.views ?? []).reduce((sum, view) => sum + view.image.byteLength, 0) > MAX_INDEPENDENT_OCR_IMAGE_BYTES ||
+          (page.views?.length ?? 0) > 42 || (page.views ?? []).some((view) => view.description.length > 2000)) throw new Error("evidence_bounds_exceeded");
+      if (input.generate) return input.generate({ ...page, modelId: input.modelId });
+      const provider = createGateway(environment.AI_GATEWAY_API_KEY ? { apiKey: environment.AI_GATEWAY_API_KEY } : undefined);
+      const result = await generateText({
+        maxOutputTokens: MAX_INDEPENDENT_OCR_OUTPUT_TOKENS, maxRetries: 0,
+        ...independentPdfOcrModelSettings(input.modelId),
+        model: provider(input.modelId), timeout: MAX_INDEPENDENT_OCR_RUNTIME_MS,
+        messages: [{ role: "user", content: [
+          { text: `${HOUSE_LEGACY_TRANSCRIPTION_INSTRUCTION}\n${JSON.stringify(legacyGridTextRows(new Map([[page.page, grid]])))}`, type: "text" },
+          ...(page.views ?? []).flatMap((view) => [
+            { text: view.description, type: "text" as const },
+            { data: view.image, mediaType: "image/png", type: "file" as const },
+          ]),
+        ] }],
+        toolChoice: { type: "tool", toolName: "transcribeGrid" },
+        tools: { transcribeGrid: tool({ description: "Transcribe the specified physical grid rows exactly.",
+          inputSchema: createHouseLegacyTranscriptionModelSchema(new Map([[page.page, grid]]), true), strict: true }) },
+      });
+      const paidCostUsd = await resolveGatewayPaidCost({ metadata: result.providerMetadata, modelId: input.modelId, provider, usage: result.usage });
+      const usage = { inputTokens: result.usage.inputTokens ?? 0, outputTokens: result.usage.outputTokens ?? 0,
+        ...(paidCostUsd === undefined ? {} : { paidCostUsd }) };
+      const call = result.staticToolCalls.find((call) => call.toolName === "transcribeGrid");
+      // Return invalid evidence with its real receipt on schema/row failure, so
+      // the existing independent-page journal still accounts for every call.
+      let text = "invalid_grid_transcription";
+      try {
+        if (call) text = houseLegacyIndependentText(decodeHouseLegacyTranscriptionModel(call.input,
+          new Map([[page.page, grid]])), page.page, grid);
+        else text = `invalid_grid_transcription.tool_${result.finishReason}`;
+      } catch (error) {
+        const issue = error instanceof z.ZodError ? error.issues[0] : undefined;
+        const schemaCode = issue ? `schema.${issue.code}.${issue.path.join(".")}` : "schema";
+        const code = error instanceof Error && error.message === "row_identity_ambiguous" ? "layout"
+          : /^[A-Za-z0-9_.:-]{1,120}$/u.test(schemaCode) ? schemaCode : "schema";
+        text = `invalid_grid_transcription.${code}`;
+      }
+      return { text, usage, ...(text.startsWith("invalid_grid_transcription") ? { invalidResponse: true } : {}) };
+    },
     async recognize(page: Parameters<IndependentPdfOcr["recognize"]>[0]) {
-      if (page.image.byteLength > MAX_INDEPENDENT_OCR_IMAGE_BYTES) {
+      if ((page.views?.length ?? 0) > 7 ||
+          page.image.byteLength + (page.views ?? []).reduce((total, view) => total + view.image.byteLength, 0) > MAX_INDEPENDENT_OCR_IMAGE_BYTES ||
+          (page.views ?? []).some((view) => view.description.length > 2000)) {
         throw new Error("evidence_bounds_exceeded");
       }
       if (input.generate) return input.generate({ ...page, modelId: input.modelId });
@@ -413,6 +474,10 @@ export function createBoundedIndependentPdfOcr(input: {
               type: "text",
             },
             { data: page.image, mediaType: page.mediaType, type: "file" },
+            ...(page.views ?? []).flatMap((view) => [
+              { text: view.description, type: "text" as const },
+              { data: view.image, mediaType: "image/png", type: "file" as const },
+            ]),
           ],
           role: "user",
         }],
@@ -507,6 +572,11 @@ function validationCode(error: unknown) {
 }
 
 function boundedRecoveryDetail(error: unknown): string {
+  if (error instanceof IndependentPdfOcrAggregateError) {
+    const cause = error.cause instanceof Error && /^[A-Za-z][A-Za-z0-9_.-]{0,40}$/u.test(error.cause.name)
+      ? error.cause.name : "unknown";
+    return `independent_ocr_failed.${cause}.completed_${[...error.textByPage.keys()].sort().join("_") || "none"}`;
+  }
   if (isCandidateGenerationFailure(error) && "detail" in error &&
     typeof error.detail === "string" && /^[A-Za-z0-9_.:-]{1,120}$/u.test(error.detail)) return error.detail;
   const explicitCode = error instanceof Error && "code" in error && typeof error.code === "string"
@@ -640,6 +710,8 @@ export function createHouseHybridEvidenceRecovery(input: {
       });
 
       let projection;
+      const grids = new Map<number, HouseLegacyGrid>();
+      const viewsByPage = new Map<number, Awaited<ReturnType<typeof readHouseLegacyIndependentViews>>>();
       try {
         projection = await projectHybridEvidencePdf(recoveryInput.artifact, {
           maximumRenderEdge: HYBRID_EVIDENCE_MAX_RENDER_EDGE,
@@ -650,6 +722,17 @@ export function createHouseHybridEvidenceRecovery(input: {
         ) {
           projection = await projectHybridEvidencePdf(recoveryInput.artifact);
         }
+        for (const page of projection.pages) {
+          const grid = await readHouseLegacyGrid(page);
+          if (grid) {
+            grids.set(page.page, grid);
+            viewsByPage.set(page.page, await readHouseLegacyIndependentViews(page, grid));
+          }
+        }
+        const totalImageBytes = projection.pages.reduce((total, page) => total + page.byteCount +
+          (grids.get(page.page)?.regions ?? []).reduce((sum, region) => sum + Buffer.from(region.imageBase64, "base64").byteLength, 0), 0);
+        const independentBytes = [...viewsByPage.values()].flat().reduce((sum, view) => sum + view.image.byteLength, 0);
+        if (totalImageBytes + independentBytes > definition.limits.maximumEvidenceBytes) throw new Error("evidence_bounds_exceeded");
       } catch (error) {
         await observeFailure("projection", error, null);
         return null;
@@ -685,13 +768,17 @@ export function createHouseHybridEvidenceRecovery(input: {
         await observeFailure("artifact_persist", error, null);
         return null;
       }
-      const locators: EvidenceLocator[] = projection.pages.map((page) => ({
-        artifactDigest: projection.documentDigest,
-        evidenceDigest: page.evidenceDigest,
-        kind: "pdf_page",
-        page: page.page,
-        region: null,
-      }));
+      const evidenceImages = projection.pages.flatMap((page) => [
+        { imageBase64: page.imageBase64, mediaType: page.mediaType,
+          locator: { artifactDigest: projection.documentDigest, evidenceDigest: page.evidenceDigest,
+            kind: "pdf_page" as const, page: page.page, region: null } },
+        ...(grids.get(page.page)?.regions ?? []).map((view) => ({
+          imageBase64: view.imageBase64, mediaType: page.mediaType,
+          locator: { artifactDigest: projection.documentDigest, evidenceDigest: view.evidenceDigest,
+            kind: "pdf_page" as const, page: page.page, region: view.region },
+        })),
+      ]);
+      const locators: EvidenceLocator[] = evidenceImages.map(({ locator }) => locator);
       const filerName = [
         recoveryInput.row.filer.prefix,
         recoveryInput.row.filer.firstName,
@@ -706,6 +793,12 @@ export function createHouseHybridEvidenceRecovery(input: {
           stateDistrict: recoveryInput.row.filer.stateDistrict,
         }),
         sourceRowDigest: recoveryInput.row.rowDigest,
+        ...(grids.size === 0 ? {} : { legacyGrid: [...grids].map(([page, grid]) => ({
+          page, sourceEvidenceDigest: grid.sourceEvidenceDigest,
+          // Bounded deterministic pixel evidence, never golden fixture values.
+          // Independent OCR receives only the raw crops, not these selections.
+          rows: grid.rows.map((row) => [row.top, row.bottom, row.transactionType, row.amountLetter]),
+        })) }),
       });
       let record: HybridEvidenceJobRecord;
       try {
@@ -743,6 +836,13 @@ export function createHouseHybridEvidenceRecovery(input: {
           workspace: null,
         },
       }, { global: input.clients?.globalBudget, workspace: input.clients?.workspaceBudget });
+      const knownIndependentAttemptUsage = (latest: HybridEvidenceJobRecord) => {
+        const extraction = latest.extractionUsage, independent = latest.independentEvidence?.usage;
+        if (!extraction?.paidCostUsd || !independent?.paidCostUsd) return undefined;
+        return { inputTokens: extraction.inputTokens + independent.inputTokens,
+          outputTokens: extraction.outputTokens + independent.outputTokens,
+          paidCostUsd: decimalUsd(decimalMicros(extraction.paidCostUsd) + decimalMicros(independent.paidCostUsd)) };
+      };
       const finalizeAccepted = async (accepted: HybridEvidenceJobRecord) => {
         const result = accepted.acceptedResult!;
         stage = "artifact_reference";
@@ -835,7 +935,8 @@ export function createHouseHybridEvidenceRecovery(input: {
           (record.independentEvidence.state === "running" && record.independentEvidence.expiresAt &&
             Date.parse(record.independentEvidence.expiresAt) < Date.now())) && record.job.attempt < definition.limits.maximumAttempts) {
         try {
-          await settleRecorded(record, "uncertain");
+          const usage = knownIndependentAttemptUsage(record);
+          await settleRecorded(record, usage ? "reconciled" : "uncertain", usage);
           record = await retryHybridEvidenceIndependentPhase({ definition, jobId: record.job.jobId }, input.clients?.jobs);
         } catch (error) {
           await observeFailure("job_state", error, record.job.jobId);
@@ -849,12 +950,23 @@ export function createHouseHybridEvidenceRecovery(input: {
 
       let reservation: HybridEvidenceBudgetReservation | undefined;
       let admissionToken: string | undefined;
+      const retainedPages = new Set(record.candidate ? record.retainedIndependentPages.map(([page]) => page) : []);
+      const pendingOcrPages = projection.pages.filter((page) => !retainedPages.has(page.page));
+      const pendingLegacyPages = pendingOcrPages.filter((page) => grids.has(page.page)).length;
+      const extractionRequired = record.candidate === null;
+      // Cached extraction/pages cannot execute again. Reserve the remaining
+      // work, keeping the shared worker's definition floor for its signed claim.
+      // A missing-page retry must not reserve an entire filing a second time.
       const aggregateLimits = {
-        inputTokens: definition.limits.maximumInputTokens + projection.pages.length * 20_000,
-        outputTokens: definition.limits.maximumOutputTokens + projection.pages.length * MAX_INDEPENDENT_OCR_OUTPUT_TOKENS,
+        inputTokens: Math.max(definition.limits.maximumInputTokens,
+          (extractionRequired ? definition.limits.maximumInputTokens : 0) +
+          (pendingOcrPages.length - pendingLegacyPages) * 20_000 + pendingLegacyPages * MAX_LEGACY_OCR_INPUT_TOKENS),
+        outputTokens: Math.max(definition.limits.maximumOutputTokens,
+          (extractionRequired ? definition.limits.maximumOutputTokens : 0) + pendingOcrPages.length * MAX_INDEPENDENT_OCR_OUTPUT_TOKENS),
       };
       if (record.job.state === "prepared") try {
-        await input.dependencies?.preflightBudget?.({ pageCount: projection.pages.length, definition });
+        await input.dependencies?.preflightBudget?.({ pageCount: pendingOcrPages.length,
+          legacyPageCount: pendingLegacyPages, extractionRequired, definition });
         const admitted = await reserveAdmittedHybridEvidenceAttempt({
           record, initiatingWorkspaceId: input.initiatingWorkspaceId,
           aggregateLimits,
@@ -890,11 +1002,7 @@ export function createHouseHybridEvidenceRecovery(input: {
           // Projection and artifact persistence can consume a meaningful part
           // of the occurrence. Start the signed worker lifetime at dispatch.
           issuedAt: new Date(),
-          initialEvidenceImages: projection.pages.map((page, index) => ({
-            imageBase64: page.imageBase64,
-            locator: locators[index] as Extract<EvidenceLocator, { kind: "pdf_page" }>,
-            mediaType: page.mediaType,
-          })),
+          initialEvidenceImages: evidenceImages,
           inputProjection,
           jobClient: input.clients?.jobs,
           locators,
@@ -940,6 +1048,7 @@ export function createHouseHybridEvidenceRecovery(input: {
         } else {
           const generated = await (input.dependencies?.generateCandidate ??
             generateHouseDocumentRowCandidate)({
+            ...(grids.size === projection.pages.length ? { legacy: { grids, document: inputProjection.document } } : {}),
             definition,
             environment,
             locators: locators as Extract<EvidenceLocator, { kind: "pdf_page" }>[],
@@ -978,7 +1087,12 @@ export function createHouseHybridEvidenceRecovery(input: {
             claimToken: independentClaimToken, jobId, state: "running",
           }, input.clients?.jobs);
           independent = await readIndependentPdfTextWithUsage({ forceOcr: input.dependencies?.ocr !== undefined,
-            retainedTextByPage: new Map(record.retainedIndependentPages), ocr: input.dependencies?.ocr, projection,
+            viewsByPage, retainedTextByPage: new Map(record.retainedIndependentPages),
+            ocr: input.dependencies?.ocr ? { recognize: (page) => {
+              const grid = grids.get(page.page);
+              const ocr = input.dependencies!.ocr!;
+              return grid && ocr.recognizeLegacyGrid ? ocr.recognizeLegacyGrid(page, grid) : ocr.recognize(page);
+            } } : undefined, projection,
             onPage: (page) => persistHybridEvidenceIndependentPage({ ...page, claimToken: independentClaimToken, jobId }, input.clients?.jobs),
           });
           record = await persistHybridEvidenceIndependentEvidence({
@@ -1011,6 +1125,16 @@ export function createHouseHybridEvidenceRecovery(input: {
           independentTextByPage: independent.textByPage,
           projection,
         });
+        for (const [page, grid] of grids) {
+          const expectedCells = grid.rows.filter((row) => row.transactionType !== null);
+          const actualRows = validated.rows.filter((row) => row.page === page);
+          const labels = houseAmountRangeSchema.options;
+          if (actualRows.length !== expectedCells.length || actualRows.some((row, i) =>
+            row.transactionType !== expectedCells[i]!.transactionType ||
+            row.amountRange.label !== labels[expectedCells[i]!.amountLetter!.charCodeAt(0) - 65])) {
+            throw new Error("column_mapping_ambiguous");
+          }
+        }
         const result = createAcceptedExtractionResult({
           citations: locators,
           definition,
@@ -1048,17 +1172,16 @@ export function createHouseHybridEvidenceRecovery(input: {
         const generationFailure = isCandidateGenerationFailure(error) ? error : null;
         if (generationFailure) workerUsage = generationFailure.usage;
         if (error instanceof IndependentPdfOcrAggregateError) {
-          // Successful page calls have known spend, while the failed page has
-          // no authoritative usage. Reconcile the whole attempt against its
-          // reserved ceiling instead of dropping the parallel OCR spend.
+          // Malformed model responses still have receipts. A transport failure
+          // without a receipt retains the full conservative allowance instead.
           workerUsage = accountedUsage({
             aggregateLimits,
             definition,
-            values: [workerUsage, error.usage, undefined],
+            values: [workerUsage, error.usage, ...(error.allUsageKnown ? [] : [undefined])],
           });
         }
         try {
-          const latest = await readHybridEvidenceJob(jobId, input.clients?.jobs);
+          let latest = await readHybridEvidenceJob(jobId, input.clients?.jobs);
           if (latest?.job.state === "completed" && stage === "validation") {
             await quarantineHybridEvidenceJob({
               codes: [validationCode(error)],
@@ -1080,22 +1203,16 @@ export function createHouseHybridEvidenceRecovery(input: {
             // Preserve completed extraction and never re-dispatch its model.
             if (latest.independentEvidence?.state === "running" &&
               latest.independentEvidence.claimTokenDigest === createHash("sha256").update(independentClaimToken).digest("hex")) {
-              await persistHybridEvidenceIndependentEvidence({
+              latest = await persistHybridEvidenceIndependentEvidence({
                 claimToken: independentClaimToken, jobId, state: "uncertain",
-                ...(error instanceof IndependentPdfOcrAggregateError ? { textByPage: [...error.textByPage.entries()] } : {}),
+                ...(error instanceof IndependentPdfOcrAggregateError ? {
+                  textByPage: [...error.textByPage.entries()],
+                  usage: { inputTokens: error.usage.inputTokens, outputTokens: error.usage.outputTokens,
+                    ...(error.allUsageKnown && error.usage.paidCostUsd !== null ? { paidCostUsd: error.usage.paidCostUsd } : {}) },
+                } : {}),
               }, input.clients?.jobs);
             }
-            const durableUsage = latest.independentEvidence?.state === "completed" &&
-              latest.extractionUsage && latest.independentEvidence.usage
-              ? accountedUsage({
-                  aggregateLimits,
-                  definition,
-                  values: [
-                    latest.extractionUsage,
-                    latest.independentEvidence.usage,
-                  ],
-                })
-              : undefined;
+            const durableUsage = knownIndependentAttemptUsage(latest);
             await settleRecorded(latest, durableUsage ? "reconciled" : "uncertain", durableUsage);
           } else if (
             generationFailure && latest &&
@@ -1150,7 +1267,7 @@ export const HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION = Object.freeze({
       budgetScope: input.budgetScope,
       clients: input.clients,
       dependencies: {
-        preflightBudget: async ({ pageCount, definition }) => {
+        preflightBudget: async ({ pageCount, legacyPageCount, extractionRequired, definition }) => {
           const environment = input.environment ?? process.env;
           const provider = createGateway({ ...(environment.AI_GATEWAY_API_KEY ? { apiKey: environment.AI_GATEWAY_API_KEY } : {}),
             fetch: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(8_000) }),
@@ -1166,8 +1283,9 @@ export const HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION = Object.freeze({
             }
             return inputTokens * inputPrice + outputTokens * outputPrice;
           };
-          const ceiling = quote(input.modelIds[0], definition.limits.maximumInputTokens, definition.limits.maximumOutputTokens) +
-            pageCount * quote(input.modelIds[1], 20_000, MAX_INDEPENDENT_OCR_OUTPUT_TOKENS);
+          const ceiling = (extractionRequired ? quote(input.modelIds[0], definition.limits.maximumInputTokens, definition.limits.maximumOutputTokens) : 0) +
+            (pageCount - legacyPageCount) * quote(input.modelIds[1], 20_000, MAX_INDEPENDENT_OCR_OUTPUT_TOKENS) +
+            legacyPageCount * quote(input.modelIds[1], MAX_LEGACY_OCR_INPUT_TOKENS, MAX_INDEPENDENT_OCR_OUTPUT_TOKENS);
           // Include a rounding/cache-pricing margin; unknown prices fail closed.
           if (Math.ceil(ceiling * 1.1 * 1_000_000) > Number(decimalMicros(definition.limits.maximumPaidCostUsd))) {
             throw new Error("recovery_price_exceeds_admission");

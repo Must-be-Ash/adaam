@@ -481,11 +481,14 @@ export function createExtractionRecoveryDefinitions(
     reviewedDefinition({
       adapterId: "house-financial-disclosures",
       definitionId: HOUSE_DOCUMENT_ROW_DEFINITION_ID,
-      definitionVersion: "1.0.13",
+      definitionVersion: "1.0.18",
       inputSchemaId: "house-ptr-pdf-pages",
-      instruction: HOUSE_DOCUMENT_ROW_INSTRUCTION,
+      instruction: HOUSE_DOCUMENT_ROW_INSTRUCTION + " When signed legacyGrid evidence is present, the application owns row membership and checkbox interpretation. The supplied legacy transcription tool schema requests only text and dates at explicit physical row indexes. Transcribe those fields exactly without adding rows or renumbering after omitted headings. Additional signed regions are views of the same pages, never extra rows.",
       maximumAttempts: 3,
-      maximumInputTokens: 40_000,
+      // Fixed row-key schemas and dense image evidence must be funded for all
+      // eight pages, not just the measured five-page filing. Cash caps remain
+      // unchanged and live model prices must still fit the $1 admission.
+      maximumInputTokens: 100_000,
       maximumOutputTokens: 20_000,
       maximumRuntimeMs: 300_000,
       maximumPages: 8,

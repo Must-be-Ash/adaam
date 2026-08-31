@@ -5,7 +5,9 @@ import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { createHybridEvidenceArtifactStore } from "../agent/lib/hybrid-evidence-artifact-store";
 import { bindHouseModelCandidateCitations, createHouseHybridEvidenceRecovery, HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION, independentPdfOcrModelSettings } from "../agent/lib/house-hybrid-evidence-recovery";
 import { houseDocumentRowModelCandidateSchema, houseDocumentRowWorkerCandidateSchema, validateHouseDocumentRowCandidate, type HouseDocumentRowWorkerCandidate } from "../agent/lib/hybrid-evidence-extraction-recovery";
-import { projectHybridEvidencePdf } from "../agent/lib/hybrid-evidence-pdf";
+import { bindHouseLegacyCandidate, bindHouseLegacyText, houseLegacyIndependentText, createHouseLegacyTranscriptionModelSchema, decodeHouseLegacyTranscriptionModel, createHouseLegacyTranscriptionContent } from "../agent/lib/house-legacy-grid-transcription";
+import { readHouseLegacyGrid, validateHouseLegacyGrid, verifyHouseLegacyGridImages, readHouseLegacyIndependentViews, houseLegacyRowKey } from "../agent/lib/house-legacy-grid";
+import { projectHybridEvidencePdf, readHybridEvidencePdfPage, projectHybridEvidencePdfRegions } from "../agent/lib/hybrid-evidence-pdf";
 import { runHousePublicSourceAcquisition } from "../agent/lib/house-public-source-adapter";
 import { readGlobalDispatchBudgetLedger } from "../agent/lib/workspace-dispatch-budget";
 import { readWorkspaceBudgetLedger, reserveWorkspaceRunBudget } from "../agent/lib/workspace-budget-ledger";
@@ -31,9 +33,11 @@ function readFlagValue(name: string): string | null {
 
 const captureOutput = readFlagValue("--capture-output");
 const replayOutput = readFlagValue("--replay-output");
-const live = process.argv.includes("--live-max-usd=1");
+const liveMaximumUsd = readFlagValue("--live-max-usd");
+const live = liveMaximumUsd === "1" || liveMaximumUsd === "2";
+const maximumLiveAttempts = live ? Number(liveMaximumUsd) : 1;
 if (process.argv.some((arg) => arg.startsWith("--live")) && !live) {
-  throw new Error("Explicit --live-max-usd=1 is required for the single paid canary");
+  throw new Error("Explicit --live-max-usd=1 (one attempt) or =2 (up to two durable attempts) is required");
 }
 if (captureOutput && replayOutput) {
   throw new Error("Choose either --capture-output or --replay-output");
@@ -63,11 +67,192 @@ const rows = golden.pages.flatMap((page, index) => page.map(([assetDescription, 
   reportedTicker: null, capitalGainsIndicator: "unknown" as const,
 })));
 const projection = await projectHybridEvidencePdf(pdf, { maximumRenderEdge: 2400 });
+const gridPages = await Promise.all(projection.pages.map(readHouseLegacyGrid));
+for (const [index, grid] of gridPages.entries()) {
+  assert.ok(grid, `legacy grid page ${index + 1} must be recognized`);
+  assert.deepEqual(grid.rows.filter((row) => row.transactionType !== null).map((row) =>
+    [row.transactionType, row.amountLetter]), golden.pages[index]!.map((row) => [row[2], row[3]]),
+    `every selected cell on page ${index + 1} must agree with the source-corrected golden`);
+  assert.equal(grid.sourceEvidenceDigest, projection.pages[index]!.evidenceDigest);
+}
+// Every attached detail image must reproduce from its signed source region.
+for (const [index, grid] of gridPages.entries()) for (const view of grid!.regions) {
+  const reread = await readHybridEvidencePdfPage({ evidenceDigest: view.evidenceDigest,
+    page: index + 1, projection, region: view.region });
+  assert.equal(reread.imageBase64, view.imageBase64);
+}
+await assert.rejects(readHouseLegacyGrid({ ...projection.pages[0]!, evidenceDigest: "0".repeat(64) }),
+  /artifact_digest_mismatch/u, "tampered page bytes cannot become grid evidence");
+const { createCanvas, loadImage } = await import("@napi-rs/canvas");
+async function changedGridPage(edit: (context: ReturnType<ReturnType<typeof createCanvas>["getContext"]>) => void) {
+  const original = projection.pages[0]!;
+  const canvas = createCanvas(original.width, original.height);
+  const context = canvas.getContext("2d");
+  context.drawImage(await loadImage(Buffer.from(original.imageBase64, "base64")), 0, 0);
+  edit(context);
+  const bytes = canvas.toBuffer("image/png");
+  return { ...original, byteCount: bytes.byteLength, imageBase64: bytes.toString("base64"),
+    evidenceDigest: createHash("sha256").update(bytes).digest("hex") };
+}
+const grid = gridPages[0]!;
+const independentViews = await readHouseLegacyIndependentViews(projection.pages[0]!, grid);
+assert.equal(independentViews.length, 27, "two header views and exactly 25 transaction views");
+const sourceImage = await loadImage(Buffer.from(projection.pages[0]!.imageBase64, "base64"));
+for (const [index, view] of independentViews.entries()) {
+  const source = projection.pages[0]!;
+  const x = Math.round(view.region.x * source.width), y = Math.round(view.region.y * source.height);
+  const width = Math.round(view.region.width * source.width), height = Math.round(view.region.height * source.height);
+  const expected = createCanvas(width, height);
+  expected.getContext("2d").drawImage(sourceImage, x, y, width, height, 0, 0, width, height);
+  assert.deepEqual(view.image, expected.toBuffer("image/png"), "independent views must contain exact source pixels");
+  if (index >= 2) {
+    const row = grid.rows[index - 1]!;
+    assert.equal(y, row.top - 3);
+    assert.equal(height, row.bottom - row.top + 6);
+    assert.ok(view.description.includes(houseLegacyRowKey(index)));
+  }
+}
+await assert.rejects(projectHybridEvidencePdfRegions({ page: projection.pages[0]!,
+  regions: [{ x: .99, y: 0, width: .1, height: .1 }] }), /evidence_bounds_exceeded/u);
+await assert.rejects(projectHybridEvidencePdfRegions({ page: projection.pages[0]!,
+  regions: Array.from({ length: 43 }, () => independentViews[0]!.region) }), /evidence_bounds_exceeded/u);
+
+const forgedCrop = { ...grid, regions: grid.regions.map((view, i) => i === 1
+  ? { ...view, imageBase64: grid.regions[0]!.imageBase64, evidenceDigest: grid.regions[0]!.evidenceDigest } : view) };
+await assert.rejects(verifyHouseLegacyGridImages(forgedCrop, projection.pages[0]!), /artifact_digest_mismatch/u,
+  "a self-hashed image from a different source region must never become signed crop evidence");
+for (const mutation of [
+  (value: typeof grid) => ({ ...value, columns: [...value.columns].reverse() }),
+  (value: typeof grid) => ({ ...value, rows: value.rows.map((row, i) => i === 1 ? { ...row, bottom: row.top } : row) }),
+  (value: typeof grid) => ({ ...value, rows: value.rows.map((row, i) => i === 1 ? { ...row, amountLetter: null } : row) }),
+  (value: typeof grid) => ({ ...value, regions: value.regions.slice(0, -1) }),
+  (value: typeof grid) => ({ ...value, regions: value.regions.map((region, i) => i === 1 ? { ...region, firstRow: 1 } : region) }),
+]) {
+  assert.throws(() => validateHouseLegacyGrid(mutation(grid), projection.pages[0]!), /column_mapping_ambiguous/u,
+    "decoder-output relationships must be checked before signing derived evidence");
+}
+const transaction = grid.rows[1]!;
+const ambiguous = await changedGridPage((context) => {
+  // Add a second selected amount cell next to the real K selection.
+  context.fillStyle = "black";
+  const left = grid.columns[7]!, right = grid.columns[8]!;
+  context.fillRect(left + (right - left) * .35, transaction.top + (transaction.bottom - transaction.top) * .3,
+    (right - left) * .2, (transaction.bottom - transaction.top) * .4);
+});
+await assert.rejects(readHouseLegacyGrid(ambiguous), /hostile_document|column_mapping_ambiguous/u,
+  "two selected cells must fail closed");
+const erasedMarks = await changedGridPage((context) => {
+  context.fillStyle = "white";
+  for (const column of [2, 17]) {
+    context.fillRect(grid.columns[column]! + 6, transaction.top + 5,
+      grid.columns[column + 1]! - grid.columns[column]! - 12, transaction.bottom - transaction.top - 10);
+  }
+});
+await assert.rejects(readHouseLegacyGrid(erasedMarks), /hostile_document|column_mapping_ambiguous/u,
+  "a dated transaction with missing marks cannot become an omitted account heading");
+const missingLine = await changedGridPage((context) => {
+  context.fillStyle = "white";
+  context.fillRect(grid.columns[10]! - 8, 0, 16, projection.pages[0]!.height);
+});
+assert.equal(await readHouseLegacyGrid(missingLine), null, "a missing grid boundary cannot be interpolated");
+const extraLine = await changedGridPage((context) => {
+  context.fillStyle = "black";
+  context.fillRect((grid.columns[1]! + grid.columns[2]!) / 2, 0, 4, projection.pages[0]!.height);
+});
+assert.equal(await readHouseLegacyGrid(extraLine), null, "an extra column cannot be silently discarded");
 const citations = projection.pages.map((page) => ({
   artifactDigest: golden.sha256, evidenceDigest: page.evidenceDigest,
   kind: "pdf_page" as const, page: page.page, region: null,
 }));
 const candidate = { citations, disposition: "accepted" as const, fields: { document: golden.document, rows }, unknowns: [] };
+const gridMap = new Map(gridPages.map((grid, i) => [i + 1, grid!]));
+const signedImages = projection.pages.flatMap((page, i) => [
+  { bytes: page.imageBase64, locator: citations[i]! },
+  ...gridPages[i]!.regions.map((view) => ({ bytes: view.imageBase64,
+    locator: { ...citations[i]!, evidenceDigest: view.evidenceDigest, region: view.region } })),
+]);
+const legacyMessage = createHouseLegacyTranscriptionContent({ grids: gridMap,
+  locators: signedImages.map(({ locator }) => locator),
+  message: [{ type: "text", text: "Old full-page order and generic completion instructions" },
+    ...signedImages.map(({ bytes }) => ({ type: "file" as const, mediaType: "image/png", data: bytes }))],
+});
+assert.ok(Array.isArray(legacyMessage));
+assert.equal(legacyMessage.some((part) => part.type === "text" && part.text.includes("Old full-page")), false);
+assert.deepEqual(legacyMessage.filter((part) => part.type === "file").map((part) => part.data),
+  gridPages.flatMap((grid) => grid!.regions.map((view) => view.imageBase64)),
+  "the crop-only request must retain the verified file bytes in physical page order");
+assert.throws(() => createHouseLegacyTranscriptionContent({ grids: gridMap, locators: citations, message: legacyMessage }),
+  /citation_invalid/u, "a file/locator count mismatch cannot be sent to a model");
+const textTranscription = { pages: gridPages.map((grid, i) => {
+  let cursor = 0;
+  return { page: i + 1, layoutConfirmed: true, filerName: "MICHAEL MCCAUL",
+    receivedDate: i === 0 ? "2026-03-10" : null,
+    rows: grid!.rows.flatMap((cell, rowIndex) => {
+      if (cell.transactionType === null) return [];
+      const source = rows.filter((row) => row.page === i + 1)[cursor++]!;
+      return [{ rowIndex: rowIndex + 1, ownerCode: source.ownerCode, assetDescription: source.assetDescription,
+        transactionDate: source.transactionDate, notificationDate: source.notificationDate }];
+    }),
+  };
+}) };
+const keyedText = { pages: Object.fromEntries(textTranscription.pages.map(({ page, rows, ...header }) => [
+  `page_${page}`, { ...header, rows: Object.fromEntries(rows.map(({ rowIndex, ...text }) => [houseLegacyRowKey(rowIndex), text])) },
+])) };
+assert.deepEqual(decodeHouseLegacyTranscriptionModel(keyedText, gridMap), textTranscription);
+const printedDates = structuredClone(keyedText);
+for (const page of Object.values(printedDates.pages)) {
+  const us = (iso: string) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8))}/${iso.slice(0, 4)}`;
+  if (page.receivedDate) page.receivedDate = us(page.receivedDate);
+  for (const row of Object.values(page.rows)) {
+    row.transactionDate = us(row.transactionDate); row.notificationDate = us(row.notificationDate);
+  }
+}
+assert.deepEqual(decodeHouseLegacyTranscriptionModel(printedDates, gridMap), textTranscription);
+// The Dallas row on the actual last page prints 02-17-2026, unlike adjacent
+// slash-delimited dates. Exact transcription must not become schema failure.
+const printedHyphenDate = structuredClone(keyedText);
+printedHyphenDate.pages.page_5!.rows.row_08!.transactionDate = "02-17-2026";
+assert.deepEqual(decodeHouseLegacyTranscriptionModel(printedHyphenDate, gridMap), textTranscription);
+assert.equal(createHouseLegacyTranscriptionModelSchema(gridMap, true).safeParse(printedHyphenDate).success, true);
+
+for (const invalid of ["2/30/2026", "13/2/2026", "2/3/26", "2026-02-30", "February 3", "02-30-2026", "02-17/2026", "2026-03-05 soul,ownerCode:"]) {
+  const malformed = structuredClone(keyedText); malformed.pages.page_2!.rows.row_01!.transactionDate = invalid;
+  assert.throws(() => decodeHouseLegacyTranscriptionModel(malformed, gridMap), undefined, "invalid or incomplete dates must not be guessed");
+}
+for (const page of Object.values(keyedText.pages)) {
+  const keys = Object.keys(page.rows);
+  assert.deepEqual([...keys].sort(), keys, "schema field order and physical order must agree even under lexical sorting");
+}
+const keyedSchema = createHouseLegacyTranscriptionModelSchema(gridMap);
+const missingKey = structuredClone(keyedText); delete missingKey.pages.page_2!.rows.row_26;
+assert.equal(keyedSchema.safeParse(missingKey).success, false);
+const extraKey = structuredClone(keyedText); extraKey.pages.page_1!.rows.row_01 = extraKey.pages.page_1!.rows.row_02!;
+assert.equal(keyedSchema.safeParse(extraKey).success, false, "the tool schema cannot request a grouping heading");
+const joinedClass = structuredClone(textTranscription);
+joinedClass.pages[2]!.rows[3]!.assetDescription = "WORKDAY INC COM CLA";
+assert.equal(bindHouseLegacyText(joinedClass, gridMap)[2]!.rows[3]!.assetDescription, "WORKDAY INC COM CL A");
+assert.deepEqual(bindHouseLegacyCandidate({ value: textTranscription, grids: gridMap,
+  document: golden.document, locators: citations }), candidate,
+  "grid-owned fields and independently transcribed text reproduce the complete canonical candidate");
+for (const mutate of [
+  (value: typeof textTranscription) => value.pages[0]!.rows.pop(),
+  (value: typeof textTranscription) => value.pages[0]!.rows.push(value.pages[0]!.rows[0]!),
+  (value: typeof textTranscription) => { value.pages[0]!.rows[0]!.rowIndex = 1; },
+  (value: typeof textTranscription) => value.pages.reverse(),
+]) {
+  const bad = structuredClone(textTranscription); mutate(bad);
+  assert.throws(() => bindHouseLegacyText(bad, gridMap), /row_identity_ambiguous/u,
+    "missing, extra, heading, and reordered physical rows cannot bind");
+}
+const gridIndependent = new Map(textTranscription.pages.map((page) =>
+  [page.page, houseLegacyIndependentText({ pages: [page] }, page.page, gridMap.get(page.page)!)]));
+assert.equal(validateHouseDocumentRowCandidate({ artifactDigest: golden.sha256, candidate,
+  expected: golden.document, independentTextByPage: gridIndependent, projection }).rows.length, 123);
+const wrongIndependent = new Map(gridIndependent);
+wrongIndependent.set(1, wrongIndependent.get(1)!.replace("2026-02-11", "2026-02-12"));
+assert.throws(() => validateHouseDocumentRowCandidate({ artifactDigest: golden.sha256, candidate,
+  expected: golden.document, independentTextByPage: wrongIndependent, projection }), /source_relationship_invalid/u,
+  "independently transcribed dates must still agree exactly");
 type PublicRecoveryOutput = Readonly<{
   candidate: HouseDocumentRowWorkerCandidate;
   extractionUsage: { inputTokens: number; outputTokens: number; paidCostUsd?: string };
@@ -335,7 +520,7 @@ await zip.add("2026FD.xml", new TextReader(`<FinancialDisclosure><Member><Prefix
 const archive = await zip.close();
 let capturedRecoveryInput: Parameters<typeof recovery.recover>[0] | undefined;
 let recoveredGolden: Awaited<ReturnType<typeof recovery.recover>> = null;
-function capturePublicRecoveryOutput(store: Memory): PublicRecoveryOutput {
+function publicRecoveryRecord(store: Memory) {
   const records = [...store.values.values()].flatMap((raw) => {
     try {
       const value = JSON.parse(raw) as Record<string, unknown>;
@@ -345,7 +530,10 @@ function capturePublicRecoveryOutput(store: Memory): PublicRecoveryOutput {
     }
   });
   assert.equal(records.length, 1, "the isolated canary must produce exactly one recovery record");
-  const record = records[0]!;
+  return records[0]!;
+}
+function capturePublicRecoveryOutput(store: Memory): PublicRecoveryOutput {
+  const record = publicRecoveryRecord(store);
   const independent = record.independentEvidence as Record<string, unknown> | null;
   assert.ok(record.candidate, "the canary did not produce a candidate to capture");
   assert.equal(independent?.state, "completed", "the canary did not complete independent OCR");
@@ -364,7 +552,18 @@ const acquire = (observedAt: string) => runHousePublicSourceAcquisition({
   client: memory, hybridLineageClient: memory,
   recovery: { async recover(input) {
     capturedRecoveryInput = input;
-    recoveredGolden = await recovery.recover(input);
+    for (let attempt = 0; attempt < maximumLiveAttempts; attempt++) {
+      recoveredGolden = await recovery.recover(input);
+      if (recoveredGolden || !live || attempt + 1 >= maximumLiveAttempts) break;
+      const record = publicRecoveryRecord(memory);
+      const phase = record.independentEvidence as { state?: string } | null;
+      if ((record.job as { state: string }).state !== "completed" || phase?.state !== "uncertain") break;
+      const accounting = (await readGlobalDispatchBudgetLedger(memory)).reservations;
+      const committedMicros = accounting.reduce((sum, entry) => sum + BigInt(entry.reconciledPaidMicros ?? entry.paidMicros), 0n);
+      assert.ok(committedMicros + 1000000n <= BigInt(maximumLiveAttempts) * 1000000n,
+        "a fresh $1 admission must fit the explicitly authorized total canary envelope");
+      console.info("Resuming the same durable job for missing OCR only; successful extraction/pages remain cached.");
+    }
     return recoveredGolden;
   } },
   sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
@@ -373,12 +572,24 @@ const acquire = (observedAt: string) => runHousePublicSourceAcquisition({
   window: { startAt: "2026-08-30T00:00:00.000Z", endAt: observedAt },
 });
 const first = await acquire("2026-08-30T12:00:00.000Z");
+if (live) console.info("Real-model canary accounting", (await readGlobalDispatchBudgetLedger(memory)).reservations);
 if (captureOutput) {
-  const output = capturePublicRecoveryOutput(memory);
-  await writeFile(captureOutput, `${JSON.stringify(output, null, 2)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+  const record = publicRecoveryRecord(memory);
+  const independent = record.independentEvidence as Record<string, unknown> | null;
+  const output = record.candidate && independent?.state === "completed"
+    ? capturePublicRecoveryOutput(memory)
+    : { diagnosticOnly: true, state: "incomplete", candidate: record.candidate,
+        extractionUsage: record.extractionUsage, independentEvidence: independent ? {
+          state: independent.state, textByPage: independent.textByPage,
+          pageUsage: independent.pageUsage, usage: independent.usage,
+        } : null };
+  await writeFile(captureOutput, `${JSON.stringify({ ...output,
+    attemptAccounting: (await readGlobalDispatchBudgetLedger(memory)).reservations.map(({ state, inputTokens, outputTokens,
+      reconciledInputTokens, reconciledOutputTokens, paidMicros, reconciledPaidMicros }) => ({ state, inputTokens, outputTokens,
+      reconciledInputTokens, reconciledOutputTokens, paidMicros, reconciledPaidMicros })),
+  }, null, 2)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
   console.info(`Captured public House recovery output to ${captureOutput}; no credentials, tokens, or job receipts were written.`);
 }
-if (live) console.info("Real-model canary accounting", (await readGlobalDispatchBudgetLedger(memory)).reservations);
 assert.equal(first.acquisition.result.coverage, "complete");
 assert.equal(first.acquisition.baselineEstablished, true);
 assert.equal(first.acquisition.facts.length, 124, "123 transaction facts plus one filing");
@@ -436,6 +647,7 @@ assert.deepEqual([1, 2, 3, 4, 5].map((page) => replayOcrUsage(replayAccountingFi
   ...Array.from({ length: 4 }, () => ({ inputTokens: 0, outputTokens: 0, paidCostUsd: "0" })),
 ]);
 // One failed OCR page must preserve the extraction and every paid sibling page.
+for (const malformedResponse of [false, true]) {
 const retryMemory = new Memory();
 let retryExtractions = 0;
 const retryOcrCalls = new Map<number, number>();
@@ -450,22 +662,31 @@ const retryRecovery = createHouseHybridEvidenceRecovery({
     async generateCandidate() { retryExtractions++; return { candidate, usage: { inputTokens: 16000, outputTokens: 14000, paidCostUsd: "0.086" } }; },
     ocr: { async recognize({ page }) {
       const count = (retryOcrCalls.get(page) ?? 0) + 1; retryOcrCalls.set(page, count);
-      if (page === 3 && count === 1) throw new Error("fixture_ocr_transport_failure");
+      if (page === 3 && count === 1 && !malformedResponse) throw new Error("fixture_ocr_transport_failure");
+      if (page === 3 && count === 1) return { text: "invalid_grid_transcription.schema", invalidResponse: true,
+        usage: { inputTokens: 1000, outputTokens: 2000, paidCostUsd: "0.0065" } };
       return { text: textByPage.get(page)!, usage: { inputTokens: 1000, outputTokens: 2000, paidCostUsd: "0.0065" } };
     } },
   },
 });
 assert.ok(capturedRecoveryInput);
 assert.equal(await retryRecovery.recover(capturedRecoveryInput), null);
+const partialPhase = publicRecoveryRecord(retryMemory).independentEvidence as { textByPage: [number, string][]; pageUsage: [number, unknown][] };
+assert.equal(partialPhase.textByPage.some(([page]) => page === 3), false, "invalid OCR text cannot enter the reusable cache");
+assert.equal(partialPhase.pageUsage.length, malformedResponse ? 5 : 4, "known rejected output must retain its paid receipt");
 const retried = await retryRecovery.recover(capturedRecoveryInput);
 assert.equal(retried?.rows.length, 123);
 assert.equal(retryExtractions, 1);
 assert.deepEqual([...retryOcrCalls.entries()].sort(), [[1, 1], [2, 1], [3, 2], [4, 1], [5, 1]]);
 const retryLedger = await readGlobalDispatchBudgetLedger(retryMemory);
-assert.deepEqual(retryLedger.reservations.map(({ state }) => state), ["uncertain", "settled"]);
-assert.equal(retryLedger.reservations[0]!.reconciledInputTokens ?? retryLedger.reservations[0]!.inputTokens, 140000);
-assert.equal(retryLedger.reservations[0]!.reconciledOutputTokens ?? retryLedger.reservations[0]!.outputTokens, 40000);
+assert.deepEqual(retryLedger.reservations.map(({ state }) => state), [malformedResponse ? "settled" : "uncertain", "settled"]);
+assert.equal(retryLedger.reservations[0]!.reconciledInputTokens ?? retryLedger.reservations[0]!.inputTokens, malformedResponse ? 21000 : 400000);
+assert.equal(retryLedger.reservations[0]!.reconciledOutputTokens ?? retryLedger.reservations[0]!.outputTokens, malformedResponse ? 24000 : 40000);
+if (malformedResponse) assert.equal(retryLedger.reservations[0]!.reconciledPaidMicros, "118500");
 assert.equal(retryLedger.reservations.at(-1)!.reconciledPaidMicros, "6500");
+assert.equal(retryLedger.reservations.at(-1)!.inputTokens, 100000, "one missing page must fit the remaining 500k/day envelope after a 400k uncertain attempt");
+assert.equal(retryLedger.reservations.at(-1)!.outputTokens, 20000);
+}
 
 // A storage acknowledgement can be lost after the OCR completion CAS has
 // committed. Replay must settle the exact durable usage in both ledgers without
@@ -499,8 +720,8 @@ const faultEnvironment = {
 const faultPolicy = {
   effectiveAt: "2026-08-30T00:00:00.000Z",
   maximumConcurrentWorkers: 1,
-  maximumInputTokensPerDay: 200_000,
-  maximumInputTokensPerRun: 200_000,
+  maximumInputTokensPerDay: 500_000,
+  maximumInputTokensPerRun: 500_000,
   maximumOutputTokensPerDay: 100_000,
   maximumOutputTokensPerRun: 100_000,
   maximumPaidPerCall: "1.000000",
@@ -518,7 +739,7 @@ await writeWorkspaceDocument("budget", {
   value: faultPolicy,
 }, faultMemory);
 await reserveWorkspaceRunBudget({
-  inputTokens: 200_000,
+  inputTokens: 500_000,
   kind: "scheduled_monitor",
   now: faultNow,
   outputTokens: 100_000,
@@ -595,4 +816,4 @@ assert.deepEqual(await readWorkspaceBudgetLedger(faultScope, faultMemory), works
 await verifyLostOcrAcknowledgement();
 await verifyLostOcrAcknowledgement(true);
 }
-console.info(`Exact House 8221359 verification passed: 123 transactions, 2 K rows, complete canonical acquisition, baseline without alerts, settled accounting, unchanged replay (${live ? "real models; isolated test storage" : "offline fixtures; no spend"}).`);
+console.info(`Exact House 8221359 verification passed: 123 transactions, 2 K rows, complete canonical acquisition, baseline without alerts, settled accounting, unchanged replay (${live ? "real models; isolated test storage" : recordedOutput ? "recorded model evidence; no spend" : "offline fixtures; no spend"}).`);

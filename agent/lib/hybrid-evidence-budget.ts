@@ -28,9 +28,10 @@ import {
   readWorkspaceDocument,
   type WorkspaceStateStoreClient,
 } from "./workspace-state-store";
-import type {
-  HybridEvidenceJob,
-  HybridEvidenceJobDefinition,
+import {
+  HYBRID_EVIDENCE_LIMITS,
+  type HybridEvidenceJob,
+  type HybridEvidenceJobDefinition,
 } from "./hybrid-evidence-schema";
 
 export type HybridEvidenceBudgetReservation =
@@ -221,7 +222,7 @@ export async function reserveHybridEvidenceAttempt(input: {
     !Number.isSafeInteger(input.aggregateLimits.outputTokens) ||
     input.aggregateLimits.inputTokens < input.definition.limits.maximumInputTokens ||
     input.aggregateLimits.outputTokens < input.definition.limits.maximumOutputTokens ||
-    input.aggregateLimits.inputTokens > 200_000 || input.aggregateLimits.outputTokens > 52_000)) {
+    input.aggregateLimits.inputTokens > HYBRID_EVIDENCE_LIMITS.maximumAggregateInputTokens || input.aggregateLimits.outputTokens > 52_000)) {
     throw new HybridEvidenceBudgetError("budget_policy_unresolved");
   }
   if (!(["prepared", "running"] as const).includes(input.job.state as "prepared" | "running")) {
