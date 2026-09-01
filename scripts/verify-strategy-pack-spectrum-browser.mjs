@@ -92,6 +92,7 @@ const monitor = {
     lifecycleState: "active",
     runtimeState: "enabled",
     sourceId: "source.alpha",
+    sourceBacklog: { phase: "initial_baseline", unresolvedFilings: 238 },
     subscription: { deliveryRevision: 4, lag: 0, state: "caught_up" },
   }],
 };
@@ -197,6 +198,8 @@ try {
   assert.deepEqual(await page.getByLabel("Selected House members").evaluate((select) =>
     Array.from(select.selectedOptions).map((option) => option.value)), []);
   await page.getByText(/extraction complete \(3 complete, 0 partial, 0 unsupported\)/u).waitFor();
+  await page.getByText(/workspace journal delivery caught_up · 0 source revision\(s\) behind · acknowledgement 4/u).waitFor();
+  await page.getByText(/global House archive initial baseline · 238 unresolved filing\(s\)/u).waitFor();
   const touchTargets = await page.locator("button").evaluateAll((buttons) =>
     buttons.map((button) => button.getBoundingClientRect().height));
   assert.ok(touchTargets.every((height) => height >= 44));

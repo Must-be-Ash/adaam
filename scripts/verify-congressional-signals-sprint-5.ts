@@ -848,24 +848,30 @@ const pagedDocuments = Array.from({ length: 26 }, (_, offset) => ({
 const pagedArchive = await index(pagedDocuments);
 const pagedPdf = new Uint8Array(await readFile(new URL("./fixtures/public-source-adapters/house/real-layout/ptr-single-row.pdf", import.meta.url)));
 const alertsBeforePaging = alert.values.size;
-for (let page = 0; page < 5; page++) {
+const pagedOutcomes: string[] = [];
+for (let page = 0; page < 2; page++) {
   const now = new Date(baseNow.getTime() + (page + 1) * 1_000);
   const monitor = (await getWorkspaceMonitor(pagedWorkspace.scope, pagedWorkspace.monitor.monitorId, monitorStore))!;
   const prepared = await prepare({ ...monitor, nextOccurrenceAt: now.toISOString() }, now, pagedWorkspace.scope);
-  try {
-    const result = await evaluateCongressionalSignalsForWorker({ clients: { ...clients, acquisition: pagedSource,
-      subscription: pagedSource,
-      fetchIndex: async (url) => response(pagedArchive, "application/zip", url, now.toISOString()),
-      fetchDocument: async (url) => response(pagedPdf, "application/pdf", url, now.toISOString()),
-    }, ctx: { session: { auth: { current: prepared.request.auth } } }, environment, now });
-    if (page === 0 || page === 1) {
-      assert.equal(result.outcome.outcome, "no_match");
-      assert.ok((await getWorkspaceMonitor(pagedWorkspace.scope, monitor.monitorId, monitorStore))!.sourceCheckpoint.contentDigest);
-    }
-  } catch (error) {
-    assert.ok(error instanceof CongressionalWorkspaceWorkerError && error.code === "congressional_source_unavailable", String(error));
+  const result = await evaluateCongressionalSignalsForWorker({ clients: { ...clients, acquisition: pagedSource,
+    subscription: pagedSource,
+    fetchIndex: async (url) => response(pagedArchive, "application/zip", url, now.toISOString()),
+    fetchDocument: async (url) => response(pagedPdf, "application/pdf", url, now.toISOString()),
+  }, ctx: { session: { auth: { current: prepared.request.auth } } }, environment, now });
+  pagedOutcomes.push(result.outcome.outcome);
+  if (page === 0) {
+    assert.equal(result.outcome.outcome, "source_pending",
+      "an immediately actionable archive page must arm a bounded continuation");
+    assert.equal((await getWorkspaceMonitor(pagedWorkspace.scope, monitor.monitorId, monitorStore))!
+      .sourceCheckpoint.contentDigest, null, "the initial baseline checkpoint stays open between pages");
+  } else {
+    assert.equal(result.outcome.outcome, "no_match");
+    assert.ok((await getWorkspaceMonitor(pagedWorkspace.scope, monitor.monitorId, monitorStore))!
+      .sourceCheckpoint.contentDigest, "the checkpoint closes only after the actionable archive queue drains");
   }
 }
+assert.deepEqual(pagedOutcomes, ["source_pending", "no_match"],
+  "the actionable archive queue must terminate after its second page");
 const pagedSignals = [...signal.values.values()].map((raw) => JSON.parse(raw)).filter((record) =>
   record.workspaceId === pagedWorkspace.scope.workspaceId && record.recordType === "congressional_filing_signal");
 assert.equal(pagedSignals.length, 26, "all 26 baseline filings must survive withheld acquisition batches");

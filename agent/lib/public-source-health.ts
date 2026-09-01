@@ -55,6 +55,10 @@ const publicSourceWorkspaceHealthSchema = z.object({
   lifecycleState: z.enum(["active", "paused", "retired"]),
   runtimeState: z.enum(["disabled", "enabled", "misconfigured"]),
   sourceId: z.string().min(2).max(160),
+  sourceBacklog: z.object({
+    phase: z.enum(["initial_baseline", "live"]),
+    unresolvedFilings: z.number().int().nonnegative(),
+  }).strict().nullable(),
   subscription: z.object({
     deliveryRevision: z.number().int().nonnegative(),
     lag: z.number().int().nonnegative(),
@@ -103,6 +107,7 @@ export function unavailablePublicSourceWorkspaceHealth(
     lifecycleState: reviewed.sourceInstance.lifecycleState,
     runtimeState: runtimeState(reviewed.adapterDefinition.adapterId, environment),
     sourceId: reference.sourceId,
+    sourceBacklog: null,
     subscription: { deliveryRevision: 0, lag: 0, state: "not_initialized" },
   });
 }
@@ -193,6 +198,15 @@ export async function readPublicSourceWorkspaceHealth(input: {
     lifecycleState: source.lifecycleState,
     runtimeState: runtimeState(reviewed.adapterDefinition.adapterId, input.environment ?? process.env),
     sourceId: input.reference.sourceId,
+    sourceBacklog: source.adapterId === "house-financial-disclosures" &&
+        health?.backlog?.cursorRevision === source.cursor.revision
+      ? {
+          phase: source.cursor.watermark?.startsWith("baseline:")
+            ? "initial_baseline"
+            : "live",
+          unresolvedFilings: health.backlog.unresolvedFilings,
+        }
+      : null,
     subscription: {
       deliveryRevision,
       lag,

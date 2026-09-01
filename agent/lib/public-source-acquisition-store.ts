@@ -29,6 +29,7 @@ const pendingWorkSchema = z.object({
   sourceInstanceId: z.string().max(160), cursorRevision: z.number().int().nonnegative(),
   archiveDigest: z.string().regex(/^[a-f0-9]{64}$/u),
   pending: z.array(z.object({ docId: z.string().regex(/^\d{1,20}$/u), nextAttemptAt: z.string().datetime().nullable(), replayExisting: z.boolean().optional(),
+    lastAttemptedCursorRevision: z.number().int().nonnegative().optional(),
     firstObservedCursorRevision: z.number().int().nonnegative().optional() }).strict()).max(10_000),
 }).strict();
 export type PublicSourcePendingWork = z.infer<typeof pendingWorkSchema>;
@@ -420,6 +421,7 @@ function extractionSummary(input: {
 
 async function publishPublicSourceHealth(input: {
   readonly facts: readonly CanonicalPublicFactRevision[];
+  readonly pendingWork?: PublicSourcePendingWork;
   readonly result: PublicSourceAcquisitionResult;
   readonly source: PublicSourceInstance;
 }, client: PublicSourceAcquisitionStoreClient): Promise<void> {
@@ -440,6 +442,14 @@ async function publishPublicSourceHealth(input: {
     const next = publicSourceHealthRecordSchema.parse({
       adapterId: input.result.adapterId,
       adapterVersion: input.result.adapterVersion,
+      backlog: input.result.adapterId === "house-financial-disclosures"
+        ? input.pendingWork
+          ? {
+              cursorRevision: input.pendingWork.cursorRevision,
+              unresolvedFilings: input.pendingWork.pending.length,
+            }
+          : previous?.backlog ?? null
+        : null,
       cursor: input.source.cursor,
       extraction: extractionSummary(input, previous),
       lastCompleteAcquisition: successful
@@ -1133,7 +1143,12 @@ export async function commitPublicSourceAcquisition(input: {
     sourceInstanceId: result.sourceInstanceId,
     window: input.acquisition.window,
   }, result.acquisitionId, client);
-  await publishPublicSourceHealth({ facts, result, source: sourceInstance }, client);
+  await publishPublicSourceHealth({
+    facts,
+    pendingWork: input.acquisition.pendingWork,
+    result,
+    source: sourceInstance,
+  }, client);
   return Object.freeze({
     correctionsCreated,
     correctionsReused,
