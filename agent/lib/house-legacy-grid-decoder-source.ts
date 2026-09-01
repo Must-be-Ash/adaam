@@ -160,16 +160,15 @@ try {
       const grid = readHouseGrid(canvas);
       const regions = [];
       if (grid) {
-      const spans = [{ firstRow: 0, lastRow: 0, top: 0, bottom: grid.rows[0].top }];
-      for (let index = 0; index < grid.rows.length;) {
-        if (grid.rows[index].transactionType === null) { index++; continue; }
-        const start = index;
-        while (index + 1 < grid.rows.length && grid.rows[index + 1].transactionType !== null) index++;
-        spans.push({ firstRow: start + 1, lastRow: index + 1, top: grid.rows[start].top, bottom: grid.rows[index].bottom });
-        index++;
-      }
-      if (spans.length > 7) throw new Error("evidence_bounds_exceeded");
-      for (const span of spans) {
+        const selectedRows = grid.rows.flatMap((row, index) => row.transactionType === null ? [] : [index]);
+        const spans = [{ firstRow: 0, lastRow: 0, top: 0, bottom: grid.rows[0].top }];
+        if (selectedRows.length > 0) {
+          const first = selectedRows[0], last = selectedRows[selectedRows.length - 1];
+          spans.push({ firstRow: first + 1, lastRow: last + 1,
+            top: grid.rows[first].top, bottom: grid.rows[last].bottom });
+        }
+        if (spans.length > 7) throw new Error("evidence_bounds_exceeded");
+        for (const span of spans) {
         const x = Math.max(0, grid.columns[0] - 4);
         const y = Math.max(0, span.top - 3);
         const width = Math.min(image.width - x, grid.columns[grid.columns.length - 1] + 5 - x);
@@ -181,7 +180,7 @@ try {
         regions.push({ firstRow: span.firstRow, lastRow: span.lastRow,
           region: { x: x / image.width, y: y / image.height, width: width / image.width, height: height / image.height },
           imageBase64: png.toString("base64"), evidenceDigest: digest(png) });
-      }
+        }
       }
       process.stdout.write(JSON.stringify(grid ? { ...grid, regions, sourceEvidenceDigest: digest(bytes) } : null));
     }

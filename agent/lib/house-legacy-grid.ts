@@ -101,7 +101,8 @@ export function validateHouseLegacyGrid(value: unknown, page: HybridEvidencePdfP
     } else {
       if (view.firstRow < 1 || view.lastRow < view.firstRow || view.lastRow > grid.rows.length) invalid();
       for (let row = view.firstRow; row <= view.lastRow; row++) {
-        if (covered.has(row) || grid.rows[row - 1]!.transactionType === null) invalid();
+        if (grid.rows[row - 1]!.transactionType === null) continue;
+        if (covered.has(row)) invalid();
         covered.add(row);
       }
     }

@@ -114,6 +114,18 @@ assert.deepEqual(createHouseLegacyExtractionContext({
   grids: new Map(), pageCount: 1, scannerSeparatorPages: new Set([1]),
 }), {},
   "documents without any verified grid page must retain direct extraction");
+const headingPdf = new Uint8Array(await readFile(new URL("ptr-9115820.pdf", root)));
+assert.equal(createHash("sha256").update(headingPdf).digest("hex"),
+  "e1254f953327174fe80a856137e386c3dea42aa58728d350105822bfabab6860");
+const headingProjection = await projectHybridEvidencePdf(headingPdf, { maximumRenderEdge: 2400 });
+const headingGrids = await Promise.all(headingProjection.pages.map(readHouseLegacyGrid));
+assert.equal(headingGrids.every((page) => page !== null), true);
+assert.deepEqual(headingGrids.map((page) => page!.regions.length), [2, 2, 2, 2],
+  "each heading-heavy page must use exactly one header crop and one selected-row-range crop");
+const headingBody = headingGrids[3]!.regions[1]!;
+assert.equal(headingGrids[3]!.rows.slice(headingBody.firstRow - 1, headingBody.lastRow)
+  .some((row) => row.transactionType === null), true,
+  "the consolidated signed range must safely cross intervening headings without counting them as transactions");
 // Every attached detail image must reproduce from its signed source region.
 for (const [index, grid] of gridPages.entries()) for (const view of grid!.regions) {
   const reread = await readHybridEvidencePdfPage({ evidenceDigest: view.evidenceDigest,
