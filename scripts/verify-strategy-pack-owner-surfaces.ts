@@ -16,7 +16,7 @@ const environment = {
 };
 
 const listed = listStrategyPacks({ environment });
-assert.equal(listed.count, 38);
+assert.equal(listed.count, 39);
 assert.deepEqual(
   listed.packs.map(({ id, version }) => `${id}@${version}`),
   [
@@ -58,12 +58,13 @@ assert.deepEqual(
     "public-commentary-tracker@1.4.0",
     "public-commentary-tracker@1.5.0",
     "public-commentary-tracker@1.5.1",
+    "public-commentary-tracker@1.5.2",
   ],
 );
 assert.deepEqual(
   listLatestStrategyPacks({ environment }).packs.filter(({ id }) =>
     id === "inverse-cramer" || id === "public-commentary-tracker").map(({ id, version }) => `${id}@${version}`),
-  ["inverse-cramer@1.5.0", "public-commentary-tracker@1.5.1"],
+  ["inverse-cramer@1.5.0", "public-commentary-tracker@1.5.2"],
 );
 assert.equal(JSON.stringify(listed).includes("Detect only newly"), false);
 
@@ -75,6 +76,19 @@ assert.equal(inspected.pack.id, "ipo-filings");
 assert.equal(inspected.pack.monitors[0]?.resourceId, "detect-new-s1");
 assert.equal(inspected.pack.sources[0]?.sourceId, "sec-latest-s1-filings");
 assert.equal(inspected.pack.instructionsIncluded, false);
+
+const trackerInspection = inspectStrategyPack(
+  { id: "public-commentary-tracker", version: "1.5.2" },
+  { environment },
+);
+assert.equal(trackerInspection.pack.configurationPresets?.defaultId, "kobeissi-market");
+assert.deepEqual(
+  trackerInspection.pack.configurationPresets?.options.map(({ id, label }) => ({ id, label })),
+  [
+    { id: "kobeissi-market", label: "Kobeissi market tracker" },
+    { id: "trump-iran-oil", label: "Trump–Iran oil tracker" },
+  ],
+);
 
 const eveRequest = strategyPackCreateSelectionRequest({
   activateMonitorResourceIds: ["detect-new-s1"],

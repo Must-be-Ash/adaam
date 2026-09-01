@@ -349,6 +349,7 @@ function packInspection(pack: StrategyPackCatalogEntry) {
         label: field.label,
         required: field.required,
       }))),
+    configurationPresets: pack.configurationPresets,
     contentDigest: pack.contentDigest,
     description: pack.description,
     displayName: pack.displayName,

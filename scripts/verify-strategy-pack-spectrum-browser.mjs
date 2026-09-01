@@ -34,6 +34,23 @@ const pack = {
     { allowedValues: ["priority", "review"], default: "priority", description: "Minimum signal band", key: "minimumAlertBand", kind: "bounded_enum", label: "Minimum alert band", required: true },
     { allowedValues: ["G000568", "H001082"], default: [], description: "Selected members", key: "selectedMemberBioguideIds", kind: "canonical_id_list", label: "Selected House members", required: true },
   ],
+  configurationPresets: {
+    defaultId: "daily-priority",
+    options: [
+      {
+        configuration: { dailyTimes: ["09:00"], minimumAlertBand: "priority", selectedMemberBioguideIds: [], timezone: "UTC" },
+        description: "Daily priority review.",
+        id: "daily-priority",
+        label: "Daily priority",
+      },
+      {
+        configuration: { dailyTimes: ["16:00"], minimumAlertBand: "review", selectedMemberBioguideIds: ["G000568"], timezone: "America/Vancouver" },
+        description: "Afternoon expanded review.",
+        id: "afternoon-review",
+        label: "Afternoon review",
+      },
+    ],
+  },
   contentDigest: "c".repeat(64),
   description: "Detect reviewed House filings.",
   displayName: "Congressional Signals",
@@ -65,10 +82,37 @@ const earningsPack = {
     },
     { allowedValues: ["threshold_50", "threshold_65", "threshold_80"], default: "threshold_65", description: "Minimum score", key: "materialityThreshold", kind: "bounded_enum", label: "Materiality threshold", required: true },
   ],
+  configurationPresets: undefined,
   description: "Compare reviewed current and prior earnings-call transcripts.",
   displayName: "Earnings Call Changes",
   id: "earnings-call-changes",
   monitors: [{ activationDefault: "paused", displayName: "Compare earnings calls", resourceId: "compare-earnings-calls", sourceIds: ["earnings-call-transcripts"] }],
+};
+const identityPack = {
+  ...pack,
+  configuration: [
+    { default: "UTC", description: "Owner timezone", key: "timezone", kind: "iana_timezone", label: "Timezone", required: true },
+    {
+      default: ["https://x.com/KobeissiLetter", "KobeissiLetter", "The Kobeissi Letter", "3316376038", "confirmed"],
+      description: "Resolve and confirm the pinned public X identity.", key: "xIdentity",
+      kind: "x_public_identity", label: "X account", required: true,
+    },
+  ],
+  configurationPresets: {
+    defaultId: "kobeissi-market",
+    options: [
+      {
+        configuration: { timezone: "UTC", xIdentity: ["https://x.com/KobeissiLetter", "KobeissiLetter", "The Kobeissi Letter", "3316376038", "confirmed"] },
+        description: "Track The Kobeissi Letter.", id: "kobeissi-market", label: "Kobeissi market tracker",
+      },
+      {
+        configuration: { timezone: "UTC", xIdentity: ["https://x.com/realDonaldTrump", "realDonaldTrump", "Donald J. Trump", "25073877", "confirmed"] },
+        description: "Track Donald J. Trump.", id: "trump-iran-oil", label: "Trump–Iran oil tracker",
+      },
+    ],
+  },
+  displayName: "Public Commentary Tracker",
+  id: "public-commentary-tracker",
 };
 const monitor = {
   configurationRevision: 1,
@@ -133,7 +177,15 @@ const stateFor = (strategyPack = activeBinding, overrides = {}) => ({
 
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
-  const page = await browser.newPage({ viewport: { height: 900, width: 390 } });
+  const page = await browser.newPage({
+    timezoneId: "America/Vancouver",
+    viewport: { height: 900, width: 390 },
+  });
+  await page.addInitScript(() => {
+    if (!crypto.randomUUID) {
+      crypto.randomUUID = () => "123e4567-e89b-42d3-a456-426614174999";
+    }
+  });
   let authoritativeState = stateFor();
   let stateFailure = false;
   let actionMode = "success";
@@ -152,6 +204,27 @@ try {
       } else {
         await route.fulfill({ contentType: "application/json", body: JSON.stringify(authoritativeState) });
       }
+      return;
+    }
+    if (url.pathname.endsWith("/resolve-x-identity")) {
+      const trump = body.profile.includes("realDonaldTrump");
+      const identities = {
+        kobeissi: {
+          displayName: "The Kobeissi Letter",
+          numericUserId: "3316376038",
+          profileUrl: "https://x.com/KobeissiLetter",
+          resolutionReceipt: { identityDigest: "kobeissi", signature: "receipt" },
+          username: "KobeissiLetter",
+        },
+        trump: {
+          displayName: "Donald J. Trump",
+          numericUserId: "25073877",
+          profileUrl: "https://x.com/realDonaldTrump",
+          resolutionReceipt: { identityDigest: "trump", signature: "receipt" },
+          username: "realDonaldTrump",
+        },
+      };
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify(trump ? identities.trump : identities.kobeissi) });
       return;
     }
     if (url.pathname.endsWith("/pack-action")) {
@@ -190,6 +263,16 @@ try {
   assert.equal(await page.locator("#status").getAttribute("aria-live"), "polite");
   assert.equal(await page.getByRole("button", { name: "Configure" }).count(), 1);
   assert.equal(await page.getByRole("button", { name: "Remove pack" }).count(), 1);
+  assert.equal(await page.getByLabel("Setup").inputValue(), "daily-priority");
+  assert.equal(await page.getByLabel("Timezone").inputValue(), "UTC");
+  await page.getByLabel("Setup").selectOption("afternoon-review");
+  assert.equal(await page.getByLabel("Minimum alert band").inputValue(), "review");
+  assert.equal(await page.getByLabel("Daily times").inputValue(), "16:00");
+  assert.equal(await page.getByLabel("Timezone").inputValue(), "America/Vancouver");
+  assert.deepEqual(await page.getByLabel("Selected House members").evaluate((select) =>
+    Array.from(select.selectedOptions).map((option) => option.value)), ["G000568"]);
+  await page.getByLabel("Setup").selectOption("daily-priority");
+  assert.equal(await page.getByLabel("Timezone").inputValue(), "UTC");
   const order = await page.locator(".runtime-row").evaluateAll((rows) => rows.map((row) => row.textContent));
   assert.ok(order[0].includes("Strategy pack"));
   assert.ok(order[1].includes("Detect alpha"));
@@ -277,6 +360,7 @@ try {
     { strategyPackCatalog: [earningsPack] },
   );
   await page.reload();
+  assert.equal(await page.getByLabel("Timezone").inputValue(), "America/Vancouver");
   const companySelector = page.getByLabel("Companies", { exact: true });
   const companySearch = page.getByLabel("Search Companies");
   await companySearch.fill("MSFT");
@@ -292,6 +376,36 @@ try {
   assert.equal(await companySelector.getAttribute("aria-invalid"), "true");
   assert.equal(await companySelector.evaluate((element) => element === document.activeElement), true);
   assert.equal(lastAction, null);
+
+  authoritativeState = stateFor(
+    { reasonCode: null, state: "unbound" },
+    { strategyPackCatalog: [identityPack] },
+  );
+  await page.reload();
+  const profileInput = page.locator('input[placeholder="https://x.com/handle or @handle"]');
+  const identityControl = page.locator('[data-configuration-key="xIdentity"]');
+  assert.equal(await page.getByLabel("Setup").inputValue(), "kobeissi-market");
+  assert.equal(await profileInput.inputValue(), "https://x.com/KobeissiLetter");
+  assert.equal(await identityControl.inputValue(), "[]");
+  lastAction = null;
+  await page.getByRole("button", { name: "Create pack session" }).click();
+  await page.getByText(/Resolve and confirm the pinned numeric X identity/u).waitFor();
+  assert.equal(lastAction, null);
+  await page.getByRole("button", { name: "Resolve public X identity" }).click();
+  await page.getByText(/The Kobeissi Letter · @KobeissiLetter/u).waitFor();
+  await page.getByLabel(/Confirm this display name/u).check();
+  assert.match(await identityControl.inputValue(), /3316376038/u);
+  await page.getByLabel("Setup").selectOption("trump-iran-oil");
+  assert.equal(await profileInput.inputValue(), "https://x.com/realDonaldTrump");
+  assert.equal(await identityControl.inputValue(), "[]");
+  await page.getByRole("button", { name: "Resolve public X identity" }).click();
+  await page.getByText(/Donald J\. Trump · @realDonaldTrump/u).waitFor();
+  await page.getByLabel(/Confirm this display name/u).check();
+  await page.getByRole("button", { name: "Create pack session" }).click();
+  await page.getByText(/Strategy-pack configured/u).waitFor();
+  assert.equal(lastAction.action, "strategy-pack-create");
+  assert.equal(lastAction.configuration.xIdentity[3], "25073877");
+  assert.deepEqual(lastAction.xIdentityResolutionReceipt, { identityDigest: "trump", signature: "receipt" });
 
   console.info("Strategy-pack Spectrum browser verification passed.");
 } finally {

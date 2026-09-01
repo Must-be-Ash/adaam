@@ -332,11 +332,56 @@ const sessionLimitFixPredecessor = strategyPackCatalog.resolve({
   id: "public-commentary-tracker",
   version: "1.5.0",
 });
+const presetPack = strategyPackCatalog.resolve({
+  id: "public-commentary-tracker",
+  version: "1.5.2",
+});
 assert.ok(
   sessionLimitFixPack,
   "Tracker 1.5.1 must pin the classifier contract with room for a recovery turn",
 );
 assert.ok(sessionLimitFixPredecessor);
+assert.ok(presetPack);
+assert.equal(presetPack.configurationPresets?.defaultId, "kobeissi-market");
+assert.match(presetPack.workspaceInstruction, /default Kobeissi\s+market preset/u);
+assert.match(presetPack.workspaceInstruction, /upgrade the session to use 1\.5\.2/u);
+assert.deepEqual(
+  presetPack.configurationPresets?.options.map(({ id, label }) => ({ id, label })),
+  [
+    { id: "kobeissi-market", label: "Kobeissi market tracker" },
+    { id: "trump-iran-oil", label: "Trump–Iran oil tracker" },
+  ],
+);
+const presetDefaults = resolveStrategyPackConfiguration(presetPack, {});
+assert.equal(presetDefaults.configuration.trackerName, "Kobeissi Market Tracker");
+assert.deepEqual(presetDefaults.configuration.xIdentity, [
+  "https://x.com/KobeissiLetter",
+  "KobeissiLetter",
+  "The Kobeissi Letter",
+  "3316376038",
+  "confirmed",
+]);
+assert.equal(presetDefaults.configuration.cadenceMinutes, "hours_6");
+assert.equal(presetDefaults.configuration.minimumMateriality, "threshold_50");
+assert.equal(presetDefaults.configuration.includeQuotePosts, "exclude");
+assert.equal(presetDefaults.configuration.relatedSourceSearch, "disabled");
+assert.equal(presetDefaults.configuration.alerts, "enabled");
+assert.equal(
+  resolvePublicCommentaryTrackerSourcePolicy(presetDefaults.configuration).sourceKind,
+  "x_user_timeline",
+);
+const trumpPreset = presetPack.configurationPresets?.options.find(({ id }) => id === "trump-iran-oil");
+assert.ok(trumpPreset);
+const trumpPresetConfiguration = resolveStrategyPackConfiguration(
+  presetPack,
+  trumpPreset.configuration,
+).configuration;
+assert.equal(trumpPresetConfiguration.trackerName, "Trump–Iran Oil Tracker");
+assert.equal(trumpPresetConfiguration.cadenceMinutes, "hours_12");
+assert.equal(
+  resolvePublicCommentaryTrackerSourcePolicy(trumpPresetConfiguration).sourceKind,
+  "official_white_house",
+);
 const historicalImpactDefinition = createPublicCommentaryImpactDefinition(
   ["openai/gpt-5.4"],
   {},

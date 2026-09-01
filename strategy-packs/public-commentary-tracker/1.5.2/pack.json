@@ -1,0 +1,395 @@
+{
+  "capabilities": {
+    "hardDenied": [
+      "broker.mutation",
+      "coinbase_create_order",
+      "filesystem",
+      "financial.mutation",
+      "interactive.approval",
+      "masterkey_mcp",
+      "private.history",
+      "provider.mutation",
+      "shell",
+      "web.search"
+    ],
+    "required": [
+      "evaluate_public_commentary_signals",
+      "skill.public-commentary-tracker-analysis"
+    ]
+  },
+  "compatibility": {
+    "coreSchemaVersion": 1,
+    "strategyPackSchemaVersion": 1,
+    "workspaceSchemaVersion": 1
+  },
+  "configuration": [
+    {
+      "default": "UTC",
+      "description": "Timezone used for activity and budget windows.",
+      "key": "timezone",
+      "kind": "iana_timezone",
+      "label": "Timezone",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "required": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "default": "Kobeissi Market Tracker",
+      "description": "Owner-visible name for this monitoring hypothesis.",
+      "key": "trackerName",
+      "kind": "bounded_text",
+      "label": "Tracker name",
+      "maximumCharacters": 120,
+      "minimumCharacters": 3,
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "required": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "default": [
+        "https://x.com/KobeissiLetter",
+        "KobeissiLetter",
+        "The Kobeissi Letter",
+        "3316376038",
+        "confirmed"
+      ],
+      "description": "Resolve a handle or profile URL, then confirm the display name and pinned numeric X user ID before saving. Sensitive-event presets use the approved first-party fallback instead of X.",
+      "key": "xIdentity",
+      "kind": "x_public_identity",
+      "label": "X account",
+      "mutableAfterInstall": false,
+      "pauseManagedMonitorsOnChange": true,
+      "required": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "default": "Detect posts reporting material moves, fund flows, or policy shifts across crypto, equities, rates, and commodities, and explain the implied direction and what to watch next.",
+      "description": "Plain-language statement of what explicit public commentary should match.",
+      "key": "monitoringObjective",
+      "kind": "bounded_text",
+      "label": "Monitoring objective",
+      "maximumCharacters": 800,
+      "minimumCharacters": 10,
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "required": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "default": [
+        "commodities",
+        "crypto",
+        "equities",
+        "fund flows",
+        "rates"
+      ],
+      "description": "Bounded topics or entities that scope what the owner cares about. They guide the model and are not required to appear verbatim in a statement.",
+      "key": "topics",
+      "kind": "bounded_text_list",
+      "label": "Topics and entities",
+      "maximumItems": 16,
+      "minimumItems": 1,
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "required": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "default": [
+        "capital rotating into or out of an asset|SPX|up",
+        "policy or rate shift that loosens financial conditions|SPX|up",
+        "policy or rate shift that tightens financial conditions|SPX|down"
+      ],
+      "description": "Each row is a relevant outcome, affected asset, and expected up/down pressure. These guide the model on what the owner cares about; the market a statement is actually about is read from the statement. A research hypothesis is not a guaranteed relationship or automatic trade.",
+      "key": "impactHypotheses",
+      "kind": "impact_hypothesis_list",
+      "label": "Impact hypotheses",
+      "maximumItems": 8,
+      "minimumItems": 1,
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "required": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "allowedValues": [
+        "hours_1",
+        "hours_12",
+        "hours_24",
+        "hours_6",
+        "minutes_10",
+        "minutes_15",
+        "minutes_30",
+        "minutes_60"
+      ],
+      "default": "hours_6",
+      "description": "Enabling runs immediately over this preceding interval; later runs collect every unseen statement from the durable checkpoint.",
+      "key": "cadenceMinutes",
+      "kind": "bounded_enum",
+      "label": "Polling cadence",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "required": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "default": [],
+      "description": "Empty means all assets resolved by the configured hypotheses; a nonempty list filters alerts only.",
+      "key": "selectedSymbols",
+      "kind": "bounded_token_list",
+      "label": "Optional asset filter",
+      "maximumItems": 32,
+      "minimumItems": 0,
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "required": true,
+      "rolloverGenerationOnChange": true,
+      "tokenFormat": "market_symbol"
+    },
+    {
+      "allowedValues": [
+        "threshold_50",
+        "threshold_65",
+        "threshold_80"
+      ],
+      "default": "threshold_50",
+      "description": "Deterministic score required before a research alert.",
+      "key": "minimumMateriality",
+      "kind": "bounded_enum",
+      "label": "Minimum materiality",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "required": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "allowedValues": [
+        "high",
+        "low",
+        "medium"
+      ],
+      "default": "medium",
+      "description": "Lowest semantic confidence eligible for an alert.",
+      "key": "minimumConfidence",
+      "kind": "bounded_enum",
+      "label": "Minimum confidence",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "required": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "allowedValues": [
+        "exclude",
+        "include"
+      ],
+      "default": "exclude",
+      "description": "Whether direct replies may be evaluated.",
+      "key": "includeReplies",
+      "kind": "bounded_enum",
+      "label": "Replies",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "required": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "allowedValues": [
+        "exclude",
+        "include"
+      ],
+      "default": "exclude",
+      "description": "Whether the configured speaker's own text on quote posts may be evaluated.",
+      "key": "includeQuotePosts",
+      "kind": "bounded_enum",
+      "label": "Quote posts",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "required": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "allowedValues": [
+        "disabled",
+        "enabled"
+      ],
+      "default": "disabled",
+      "description": "Optional metadata-only corroboration; weak or unavailable coverage stays visible with a warning.",
+      "key": "relatedSourceSearch",
+      "kind": "bounded_enum",
+      "label": "Exa corroboration",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "required": true,
+      "rolloverGenerationOnChange": true
+    },
+    {
+      "allowedValues": [
+        "disabled",
+        "enabled"
+      ],
+      "default": "enabled",
+      "description": "Enable research alerts. The first cadence backfill produces at most one cited summary alert.",
+      "key": "alerts",
+      "kind": "bounded_enum",
+      "label": "Alerts",
+      "mutableAfterInstall": true,
+      "pauseManagedMonitorsOnChange": true,
+      "required": true,
+      "rolloverGenerationOnChange": true
+    }
+  ],
+  "configurationPresets": {
+    "defaultId": "kobeissi-market",
+    "options": [
+      {
+        "configuration": {
+          "alerts": "enabled",
+          "cadenceMinutes": "hours_6",
+          "impactHypotheses": [
+            "capital rotating into or out of an asset|SPX|up",
+            "policy or rate shift that loosens financial conditions|SPX|up",
+            "policy or rate shift that tightens financial conditions|SPX|down"
+          ],
+          "includeQuotePosts": "exclude",
+          "includeReplies": "exclude",
+          "minimumConfidence": "medium",
+          "minimumMateriality": "threshold_50",
+          "monitoringObjective": "Detect posts reporting material moves, fund flows, or policy shifts across crypto, equities, rates, and commodities, and explain the implied direction and what to watch next.",
+          "relatedSourceSearch": "disabled",
+          "selectedSymbols": [],
+          "timezone": "UTC",
+          "topics": [
+            "commodities",
+            "crypto",
+            "equities",
+            "fund flows",
+            "rates"
+          ],
+          "trackerName": "Kobeissi Market Tracker",
+          "xIdentity": [
+            "https://x.com/KobeissiLetter",
+            "KobeissiLetter",
+            "The Kobeissi Letter",
+            "3316376038",
+            "confirmed"
+          ]
+        },
+        "description": "Track material moves, fund flows, and policy shifts reported by The Kobeissi Letter across major markets.",
+        "id": "kobeissi-market",
+        "label": "Kobeissi market tracker"
+      },
+      {
+        "configuration": {
+          "alerts": "disabled",
+          "cadenceMinutes": "hours_12",
+          "impactHypotheses": [
+            "de-escalation, ceasefire, or peace|OIL|down",
+            "escalation or worsening conflict|OIL|up"
+          ],
+          "includeQuotePosts": "include",
+          "includeReplies": "exclude",
+          "minimumConfidence": "medium",
+          "minimumMateriality": "threshold_65",
+          "monitoringObjective": "Detect statements suggesting escalation, de-escalation, war, negotiations, ceasefire, or peace involving Iran.",
+          "relatedSourceSearch": "disabled",
+          "selectedSymbols": [],
+          "timezone": "UTC",
+          "topics": [
+            "Iran",
+            "ceasefire",
+            "de-escalation",
+            "escalation",
+            "negotiations",
+            "peace",
+            "war"
+          ],
+          "trackerName": "Trump\u2013Iran Oil Tracker",
+          "xIdentity": [
+            "https://x.com/realDonaldTrump",
+            "realDonaldTrump",
+            "Donald J. Trump",
+            "25073877",
+            "confirmed"
+          ]
+        },
+        "description": "Track Trump statements about Iran escalation or de-escalation and the expected pressure on oil.",
+        "id": "trump-iran-oil",
+        "label": "Trump\u2013Iran oil tracker"
+      }
+    ]
+  },
+  "description": "Configure a pinned public speaker, explicit monitoring objective, and structured asset-impact research hypotheses. The model reads every statement and decides relevance, the affected market, and the implied direction; the hypotheses are strategy guidance, not a keyword filter.",
+  "displayName": "Public Commentary Tracker",
+  "evaluationsPath": "evals.json",
+  "evidenceContracts": [
+    {
+      "digest": "ff1b9274c687cbc9c85ce6ae7fe8628c8584714dbfba514307cc74bddfcb2397",
+      "id": "commentary-configured-impact",
+      "version": "1.0.0"
+    },
+    {
+      "digest": "29f5dd18fb84f72b237020def27aea7da620e227f4444d5db4e4764d24ee3b33",
+      "id": "public-commentary-frontier-research",
+      "version": "1.0.1"
+    },
+    {
+      "digest": "a43336b8dcbc4fce2ccf431cc2ed47347c6aa7d467d3bf1aeffd47c15068be29",
+      "id": "public-commentary-impact-actionability",
+      "version": "1.0.2"
+    }
+  ],
+  "id": "public-commentary-tracker",
+  "maturity": "experimental",
+  "monitors": [
+    {
+      "activationDefault": "paused",
+      "alertPresentationId": "alert.public-commentary-signal/v1",
+      "displayName": "Public commentary tracker",
+      "findingSchemaId": "public-commentary-signal/v1",
+      "instructionPath": "monitors/evaluate-public-commentary.md",
+      "intervalMinutesConfigurationKey": "cadenceMinutes",
+      "lifecycleContractId": "monitor.public-commentary-cadence/v1",
+      "overridableFields": [
+        "schedule"
+      ],
+      "requiredCapabilityIds": [
+        "evaluate_public_commentary_signals"
+      ],
+      "resourceId": "evaluate-public-commentary",
+      "sourceIds": [
+        "public-commentary-tracker-source"
+      ],
+      "suggestedBudget": {
+        "maximumInputTokensPerRun": 160000,
+        "maximumOutputTokensPerRun": 32000,
+        "maximumRunsPerDay": 144
+      }
+    }
+  ],
+  "schemaVersion": 1,
+  "skills": [
+    {
+      "description": "Apply the configured identity, objective, topics, impact hypotheses, and abstention rules through the shared Spec 4C pipeline.",
+      "id": "public-commentary-tracker-analysis",
+      "instructionPath": "playbook.md",
+      "version": "1.0.0"
+    }
+  ],
+  "sources": [
+    {
+      "accessClassification": "public",
+      "allowedOrigins": [
+        "https://www.whitehouse.gov"
+      ],
+      "canonicalUrl": "https://www.whitehouse.gov/briefings-statements/feed/",
+      "contractDigest": "e5070e0a70a7e7e89ac07bc64a470529896db56253150e54e93a69e70be88f35",
+      "contractVersion": "1.0.0",
+      "sourceId": "public-commentary-tracker-source"
+    }
+  ],
+  "version": "1.5.2",
+  "workspaceInstructionPath": "workspace.md"
+}

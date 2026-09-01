@@ -7,7 +7,10 @@ import {
   strategyPackPinnedXIdentityFields,
   StrategyPackServiceError,
 } from "../agent/lib/strategy-pack-service";
-import { strategyPackConfigurationFieldSchema } from "../agent/lib/strategy-pack-schema";
+import {
+  strategyPackConfigurationFieldSchema,
+  strategyPackManifestSchema,
+} from "../agent/lib/strategy-pack-schema";
 
 const base = strategyPackCatalog.entries.find(({ id }) => id === "ipo-filings")!;
 const fields = [
@@ -76,6 +79,84 @@ for (const invalid of [
   );
 }
 
+const trackerManifest = JSON.parse(readFileSync(
+  new URL("../strategy-packs/public-commentary-tracker/1.5.1/pack.json", import.meta.url),
+  "utf8",
+));
+const trackerDefaults = resolveStrategyPackConfiguration(
+  strategyPackCatalog.entries.find(
+    (entry) => entry.id === "public-commentary-tracker" && entry.version === "1.5.1",
+  )!,
+  {},
+).configuration;
+const manifestWithPresets = {
+  ...trackerManifest,
+  configurationPresets: {
+    defaultId: "kobeissi-market",
+    options: [
+      {
+        configuration: trackerDefaults,
+        description: "Track broad market commentary from the Kobeissi Letter.",
+        id: "kobeissi-market",
+        label: "Kobeissi market tracker",
+      },
+      {
+        configuration: trackerDefaults,
+        description: "Track Trump commentary about Iran and oil.",
+        id: "trump-iran-oil",
+        label: "Trump–Iran oil tracker",
+      },
+    ],
+  },
+};
+assert.equal(strategyPackManifestSchema.safeParse(manifestWithPresets).success, true);
+assert.equal(strategyPackManifestSchema.safeParse({
+  ...manifestWithPresets,
+  configurationPresets: {
+    ...manifestWithPresets.configurationPresets,
+    options: manifestWithPresets.configurationPresets.options.map((option) => ({
+      ...option,
+      configuration: { ...option.configuration, unknownField: "unsafe" },
+    })),
+  },
+}).success, false);
+for (const invalidPresets of [
+  {
+    ...manifestWithPresets.configurationPresets,
+    defaultId: "missing-preset",
+  },
+  {
+    ...manifestWithPresets.configurationPresets,
+    options: manifestWithPresets.configurationPresets.options.map((option) => ({
+      ...option,
+      id: "duplicate-preset",
+    })),
+  },
+  {
+    ...manifestWithPresets.configurationPresets,
+    options: manifestWithPresets.configurationPresets.options.map((option) => ({
+      ...option,
+      configuration: Object.fromEntries(Object.entries(option.configuration)
+        .filter(([key]) => key !== "alerts")),
+    })),
+  },
+  {
+    ...manifestWithPresets.configurationPresets,
+    options: manifestWithPresets.configurationPresets.options.map((option) => ({
+      ...option,
+      configuration: {
+        ...option.configuration,
+        xIdentity: ["not-a-url", "handle", "Display", "123", "confirmed"],
+      },
+    })),
+  },
+]) {
+  assert.equal(strategyPackManifestSchema.safeParse({
+    ...manifestWithPresets,
+    configurationPresets: invalidPresets,
+  }).success, false);
+}
+
 // Installing a pack that pins a public X identity requires an explicit,
 // same-thread resolution receipt. The declared configuration kind selects that
 // rule, so it is not tied to any pack identifier.
@@ -91,6 +172,7 @@ assert.deepEqual(pinnedIdentityPacks, [
   "public-commentary-tracker@1.4.0",
   "public-commentary-tracker@1.5.0",
   "public-commentary-tracker@1.5.1",
+  "public-commentary-tracker@1.5.2",
 ]);
 const trackerPack = strategyPackCatalog.resolve({
   id: "public-commentary-tracker",
