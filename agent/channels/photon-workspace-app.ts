@@ -1155,12 +1155,43 @@ export function workspaceHtml(nonce: string, origin: string): string {
         return null;
       };
 
-      const renderPackConfiguration = () => {
+      const renderPackConfiguration = (requestedPresetId) => {
         packConfigurationFields.replaceChildren();
         const pack = selectedPack();
         if (!pack) return;
         packName.value = pack.displayName;
-        for (const field of pack.configuration) {
+        const presets = pack.configurationPresets;
+        const selectedPreset = presets
+          ? presets.options.find(({ id }) => id === requestedPresetId) ||
+            presets.options.find(({ id }) => id === presets.defaultId)
+          : null;
+        if (presets && selectedPreset) {
+          const wrapper = document.createElement("div");
+          wrapper.className = "pack-field full";
+          const label = document.createElement("label");
+          const control = document.createElement("select");
+          const description = document.createElement("p");
+          label.htmlFor = "pack-configuration-preset";
+          label.textContent = "Setup";
+          control.id = "pack-configuration-preset";
+          control.title = "Choose a reviewed setup, then adjust any field below if needed.";
+          for (const option of presets.options) {
+            const element = document.createElement("option");
+            element.value = option.id;
+            element.textContent = option.label;
+            element.selected = option.id === selectedPreset.id;
+            control.append(element);
+          }
+          description.className = "runtime-detail";
+          description.textContent = selectedPreset.description;
+          control.addEventListener("change", () => renderPackConfiguration(control.value));
+          wrapper.append(label, control, description);
+          packConfigurationFields.append(wrapper);
+        }
+        for (const declaredField of pack.configuration) {
+          const field = selectedPreset
+            ? { ...declaredField, default: selectedPreset.configuration[declaredField.key] }
+            : declaredField;
           const wrapper = document.createElement("div");
           wrapper.className = "pack-field" +
             (["bounded_token_list", "bounded_text", "bounded_text_list", "impact_hypothesis_list", "x_public_identity", "canonical_id_list", "catalog_id_list"].includes(field.kind) ? " full" : "");
@@ -1196,7 +1227,9 @@ export function workspaceHtml(nonce: string, origin: string): string {
             control.type = "hidden";
             control.value = JSON.stringify(field.default);
           } else if (field.kind === "iana_timezone") {
-            control = buildTimezoneSelect(detectedTimezone || "America/Vancouver");
+            control = buildTimezoneSelect(selectedPreset
+              ? field.default
+              : detectedTimezone || "America/Vancouver");
           } else {
             control = ["bounded_text_list", "impact_hypothesis_list"].includes(field.kind)
               ? document.createElement("textarea")

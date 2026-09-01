@@ -323,6 +323,36 @@ export const strategyPackConfigurationFieldSchema = z.discriminatedUnion(
   ],
 );
 
+const configurationPresetValueSchema = z.union([
+  z.string(),
+  z.array(z.string()),
+]);
+
+const configurationPresetsSchema = z.object({
+  defaultId: stableIdSchema,
+  options: z.array(z.object({
+    configuration: z.record(
+      z.string().regex(/^[a-z][A-Za-z0-9]*$/u),
+      configurationPresetValueSchema,
+    ),
+    description: z.string().trim().min(1).max(300),
+    id: stableIdSchema,
+    label: z.string().trim().min(1).max(120),
+  }).strict()).min(2).max(16),
+}).strict();
+
+type StrategyPackConfigurationField = z.infer<typeof strategyPackConfigurationFieldSchema>;
+
+function validPresetConfigurationValue(
+  field: StrategyPackConfigurationField,
+  value: string | string[],
+): boolean {
+  return strategyPackConfigurationFieldSchema.safeParse({
+    ...field,
+    default: value,
+  }).success;
+}
+
 const skillSchema = z
   .object({
     description: z.string().trim().min(1).max(300),
@@ -432,6 +462,7 @@ export const strategyPackManifestSchema = z
       })
       .strict(),
     configuration: z.array(strategyPackConfigurationFieldSchema).max(16),
+    configurationPresets: configurationPresetsSchema.optional(),
     description: z.string().trim().min(1).max(500),
     displayName: z.string().trim().min(1).max(120),
     evidenceContracts: z.array(z.object({
@@ -453,7 +484,39 @@ export const strategyPackManifestSchema = z
     version: semverSchema,
     workspaceInstructionPath: relativePathSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((manifest, context) => {
+    const presets = manifest.configurationPresets;
+    if (!presets) return;
+    const presetIds = presets.options.map(({ id }) => id);
+    if (new Set(presetIds).size !== presetIds.length || !presetIds.includes(presets.defaultId)) {
+      context.addIssue({ code: "custom", message: "strategy_pack_configuration_presets_invalid" });
+    }
+    const fields = new Map(manifest.configuration.map((field) => [field.key, field]));
+    for (const [optionIndex, option] of presets.options.entries()) {
+      const keys = Object.keys(option.configuration);
+      if (
+        keys.length !== fields.size ||
+        keys.some((key) => !fields.has(key))
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "strategy_pack_configuration_preset_shape_invalid",
+          path: ["configurationPresets", "options", optionIndex, "configuration"],
+        });
+        continue;
+      }
+      for (const [key, field] of fields) {
+        if (!validPresetConfigurationValue(field, option.configuration[key]!)) {
+          context.addIssue({
+            code: "custom",
+            message: "strategy_pack_configuration_preset_value_invalid",
+            path: ["configurationPresets", "options", optionIndex, "configuration", key],
+          });
+        }
+      }
+    }
+  });
 
 export const strategyPackEvaluationsSchema = z
   .object({
