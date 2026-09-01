@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { createHybridEvidenceArtifactStore } from "../agent/lib/hybrid-evidence-artifact-store";
-import { bindHouseModelCandidateCitations, createHouseHybridEvidenceRecovery, HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION, independentPdfOcrModelSettings } from "../agent/lib/house-hybrid-evidence-recovery";
+import { bindHouseCandidateDocumentIdentity, bindHouseModelCandidateCitations, createHouseHybridEvidenceRecovery, HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION, independentPdfOcrModelSettings } from "../agent/lib/house-hybrid-evidence-recovery";
 import { houseDocumentRowModelCandidateSchema, houseDocumentRowWorkerCandidateSchema, validateHouseDocumentRowCandidate, type HouseDocumentRowWorkerCandidate } from "../agent/lib/hybrid-evidence-extraction-recovery";
 import { bindHouseLegacyCandidate, bindHouseLegacyText, houseLegacyIndependentText, createHouseLegacyTranscriptionModelSchema, decodeHouseLegacyTranscriptionModel, createHouseLegacyTranscriptionContent } from "../agent/lib/house-legacy-grid-transcription";
 import { readHouseLegacyGrid, validateHouseLegacyGrid, verifyHouseLegacyGridImages, readHouseLegacyIndependentViews, houseLegacyRowKey } from "../agent/lib/house-legacy-grid";
@@ -376,9 +376,37 @@ assert.equal(houseDocumentRowModelCandidateSchema.safeParse({
   ...modelCandidate,
   citations: [{ page: 1, evidenceDigest: "a".repeat(64) }],
 }).success, false, "the direct model must not echo trusted locator hashes");
-assert.deepEqual(bindHouseModelCandidateCitations({ candidate: modelCandidate, locators: citations }), candidate);
+assert.deepEqual(bindHouseModelCandidateCitations({
+  candidate: modelCandidate,
+  document: golden.document,
+  locators: citations,
+}), candidate);
+const reboundDocument = bindHouseModelCandidateCitations({
+  candidate: {
+    ...modelCandidate,
+    fields: { ...modelCandidate.fields, document: {
+      docId: "9115816", filerName: "Tony Wied", filingDate: "2026-04-01",
+      stateDistrict: "WI08", isAmendment: true,
+    } },
+  },
+  document: golden.document,
+  locators: citations,
+});
+assert.deepEqual(reboundDocument.fields.document, { ...golden.document, isAmendment: true },
+  "signed House index identity must replace model-echoed document identity without replacing amendment evidence");
+assert.deepEqual(
+  bindHouseCandidateDocumentIdentity({
+    candidate: { ...candidate, fields: { ...candidate.fields, document: {
+      ...candidate.fields.document, filerName: "MICHAEL MCCAUL",
+    } } },
+    document: golden.document,
+  }).fields.document,
+  candidate.fields.document,
+  "a durably persisted extraction candidate must receive the same signed document identity before replay validation",
+);
 assert.throws(() => bindHouseModelCandidateCitations({
   candidate: { ...modelCandidate, citations: [{ page: 8 }] },
+  document: golden.document,
   locators: citations,
 }), /citation_invalid/u, "an unknown page cannot be rebound into trusted evidence");
 const textByPage = new Map(golden.pages.map((_, index) => [index + 1,

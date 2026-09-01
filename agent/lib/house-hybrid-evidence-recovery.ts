@@ -91,9 +91,14 @@ export interface HouseHybridEvidenceRecoveryClients {
   readonly workspaceBudget?: WorkspaceBudgetLedgerClient;
 }
 
+interface HouseSourceDocumentIdentity {
+  readonly docId: string;
+  readonly filerName: string;
+  readonly filingDate: string;
+  readonly stateDistrict: string;
+}
 interface HouseLegacyExtractionContext {
   readonly grids: ReadonlyMap<number, HouseLegacyGrid>;
-  readonly document: { docId: string; filerName: string; filingDate: string; stateDistrict: string };
 }
 interface HouseIndependentPdfOcr extends IndependentPdfOcr {
   recognizeLegacyGrid?(page: Parameters<IndependentPdfOcr["recognize"]>[0], grid: HouseLegacyGrid): ReturnType<IndependentPdfOcr["recognize"]>;
@@ -106,6 +111,7 @@ export interface HouseHybridEvidenceRecoveryDependencies {
     readonly reservation: HybridEvidenceBudgetReservation;
   }) => Promise<HybridEvidenceModelUsage | void>;
   readonly generateCandidate?: (input: {
+    readonly document: HouseSourceDocumentIdentity;
     readonly legacy?: HouseLegacyExtractionContext;
     readonly definition: HybridEvidenceJobDefinition;
     readonly environment: NodeJS.ProcessEnv;
@@ -309,6 +315,7 @@ async function resolveGatewayPaidCost(input: {
 }
 
 async function generateHouseDocumentRowCandidate(input: {
+  readonly document: HouseSourceDocumentIdentity;
   readonly legacy?: HouseLegacyExtractionContext;
   readonly definition: HybridEvidenceJobDefinition;
   readonly environment: NodeJS.ProcessEnv;
@@ -373,8 +380,12 @@ async function generateHouseDocumentRowCandidate(input: {
   let candidate: HouseDocumentRowWorkerCandidate;
   try {
     candidate = input.legacy ? bindHouseLegacyCandidate({
-      value: decodeHouseLegacyTranscriptionModel(candidateCall.input, input.legacy.grids), grids: input.legacy.grids, document: input.legacy.document, locators: input.locators,
-    }) : bindHouseModelCandidateCitations({ candidate: candidateCall.input, locators: input.locators });
+      value: decodeHouseLegacyTranscriptionModel(candidateCall.input, input.legacy.grids), grids: input.legacy.grids, document: input.document, locators: input.locators,
+    }) : bindHouseModelCandidateCitations({
+      candidate: candidateCall.input,
+      document: input.document,
+      locators: input.locators,
+    });
   } catch (error) {
     const issue = error instanceof z.ZodError ? error.issues[0] : undefined;
     const detail = issue ? `candidate_schema.${issue.code}.${issue.path.join(".")}`
@@ -389,6 +400,7 @@ async function generateHouseDocumentRowCandidate(input: {
 
 export function bindHouseModelCandidateCitations(input: {
   readonly candidate: unknown;
+  readonly document: HouseSourceDocumentIdentity;
   readonly locators: readonly Extract<EvidenceLocator, { kind: "pdf_page" }>[];
 }): HouseDocumentRowWorkerCandidate {
   const candidate = houseDocumentRowModelCandidateSchema.parse(input.candidate);
@@ -398,7 +410,24 @@ export function bindHouseModelCandidateCitations(input: {
     if (!locator) throw new HybridEvidencePdfError("citation_invalid");
     return locator;
   });
-  return houseDocumentRowWorkerCandidateSchema.parse({ ...candidate, citations });
+  return bindHouseCandidateDocumentIdentity({ candidate: {
+    ...candidate,
+    citations,
+  }, document: input.document });
+}
+
+export function bindHouseCandidateDocumentIdentity(input: {
+  readonly candidate: unknown;
+  readonly document: HouseSourceDocumentIdentity;
+}): HouseDocumentRowWorkerCandidate {
+  const candidate = houseDocumentRowWorkerCandidateSchema.parse(input.candidate);
+  return houseDocumentRowWorkerCandidateSchema.parse({
+    ...candidate,
+    fields: {
+      ...candidate.fields,
+      document: { ...input.document, isAmendment: candidate.fields.document.isAmendment },
+    },
+  });
 }
 
 export function createBoundedIndependentPdfOcr(input: {
@@ -1060,8 +1089,9 @@ export function createHouseHybridEvidenceRecovery(input: {
         } else {
           const generated = await (input.dependencies?.generateCandidate ??
             generateHouseDocumentRowCandidate)({
-            ...(grids.size === projection.pages.length ? { legacy: { grids, document: inputProjection.document } } : {}),
+            ...(grids.size === projection.pages.length ? { legacy: { grids } } : {}),
             definition,
+            document: inputProjection.document,
             environment,
             locators: locators as Extract<EvidenceLocator, { kind: "pdf_page" }>[],
             modelId: input.modelId,
@@ -1127,7 +1157,10 @@ export function createHouseHybridEvidenceRecovery(input: {
         stage = "validation";
         const validated = validateHouseDocumentRowCandidate({
           artifactDigest: projection.documentDigest,
-          candidate: record.candidate,
+          candidate: bindHouseCandidateDocumentIdentity({
+            candidate: record.candidate,
+            document: inputProjection.document,
+          }),
           expected: {
             docId: recoveryInput.row.docId,
             filerName,
