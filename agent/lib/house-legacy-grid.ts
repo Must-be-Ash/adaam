@@ -58,6 +58,21 @@ export async function readHouseLegacyGrid(page: HybridEvidencePdfPage): Promise<
   return grid;
 }
 
+export async function readHouseScannerSeparatorPage(page: HybridEvidencePdfPage): Promise<boolean> {
+  const bytes = Buffer.from(page.imageBase64, "base64");
+  if (bytes.byteLength > 2_500_000 || bytes.byteLength !== page.byteCount ||
+      createHash("sha256").update(bytes).digest("hex") !== page.evidenceDigest ||
+      page.width > 2400 || page.height > 2400) throw new Error("artifact_digest_mismatch");
+  const result = await runHybridEvidenceDecoderProcess<unknown>({
+    payload: { operation: "house-scanner-separator", imageBase64: page.imageBase64,
+      evidenceDigest: page.evidenceDigest, width: page.width, height: page.height,
+      maximumRenderBytes: 2_500_000 },
+    source: HOUSE_LEGACY_GRID_DECODER_SOURCE,
+    timeoutMs: 15_000,
+  });
+  return z.boolean().parse(result);
+}
+
 export async function verifyHouseLegacyGridImages(grid: HouseLegacyGrid, page: HybridEvidencePdfPage): Promise<void> {
   const crops = await projectHybridEvidencePdfRegions({ page, regions: grid.regions.map((view) => view.region) });
   for (const [index, view] of grid.regions.entries()) {

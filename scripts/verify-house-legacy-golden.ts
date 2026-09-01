@@ -3,10 +3,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { createHybridEvidenceArtifactStore } from "../agent/lib/hybrid-evidence-artifact-store";
-import { bindHouseCandidateDocumentIdentity, bindHouseModelCandidateCitations, createHouseHybridEvidenceRecovery, HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION, independentPdfOcrModelSettings } from "../agent/lib/house-hybrid-evidence-recovery";
+import { bindHouseCandidateDocumentIdentity, bindHouseModelCandidateCitations, createHouseHybridEvidenceRecovery, createHouseLegacyExtractionContext, HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION, independentPdfOcrModelSettings } from "../agent/lib/house-hybrid-evidence-recovery";
 import { houseDocumentRowModelCandidateSchema, houseDocumentRowWorkerCandidateSchema, validateHouseDocumentRowCandidate, type HouseDocumentRowWorkerCandidate } from "../agent/lib/hybrid-evidence-extraction-recovery";
 import { bindHouseLegacyCandidate, bindHouseLegacyText, houseLegacyIndependentText, createHouseLegacyTranscriptionModelSchema, decodeHouseLegacyTranscriptionModel, createHouseLegacyTranscriptionContent } from "../agent/lib/house-legacy-grid-transcription";
-import { readHouseLegacyGrid, validateHouseLegacyGrid, verifyHouseLegacyGridImages, readHouseLegacyIndependentViews, houseLegacyRowKey } from "../agent/lib/house-legacy-grid";
+import { readHouseLegacyGrid, readHouseScannerSeparatorPage, validateHouseLegacyGrid, verifyHouseLegacyGridImages, readHouseLegacyIndependentViews, houseLegacyRowKey } from "../agent/lib/house-legacy-grid";
 import { projectHybridEvidencePdf, readHybridEvidencePdfPage, projectHybridEvidencePdfRegions } from "../agent/lib/hybrid-evidence-pdf";
 import { runHousePublicSourceAcquisition } from "../agent/lib/house-public-source-adapter";
 import { readGlobalDispatchBudgetLedger } from "../agent/lib/workspace-dispatch-budget";
@@ -86,6 +86,34 @@ assert.deepEqual(fourColumnGrids.map((page) => page?.rows.map((row) =>
   [["P", "B"], ["P", "C"], ["P", "B"], ["P", "C"]],
   [["P", "B"], ["P", "B"], ["P", "B"], ["P", "C"], ["P", "C"], ["P", "B"], ["P", "C"], ["P", "B"]],
 ], "the four-column form must exclude its printed example and trailing notes while preserving every real row");
+const separatorPdf = new Uint8Array(await readFile(new URL("ptr-9115809.pdf", root)));
+assert.equal(createHash("sha256").update(separatorPdf).digest("hex"),
+  "0955f6961d01717aefa76635a84579d868b66d73cddbefdb9ec87f59bcc3fbbf");
+const separatorProjection = await projectHybridEvidencePdf(separatorPdf, { maximumRenderEdge: 2400 });
+const separatorGrids = await Promise.all(separatorProjection.pages.map(readHouseLegacyGrid));
+assert.deepEqual(separatorGrids.map((page) => page?.rows.map((row) =>
+  [row.transactionType, row.amountLetter]).filter(([transaction]) => transaction !== null) ?? null), [
+  [["P", "B"]],
+  null,
+], "extra first-page form rules must not hide its one real row, and a scanner separator is not a grid");
+const mixedGridPages = new Map([[1, separatorGrids[0]!]]);
+assert.equal(await readHouseScannerSeparatorPage(separatorProjection.pages[1]!), true);
+assert.equal(await readHouseScannerSeparatorPage(separatorProjection.pages[0]!), false);
+assert.equal(createHouseLegacyExtractionContext({
+  grids: mixedGridPages,
+  pageCount: separatorProjection.pageCount,
+  scannerSeparatorPages: new Set([2]),
+}).legacy?.grids, mixedGridPages,
+  "one verified grid page must use the deterministic legacy path even when another page is a separator");
+assert.deepEqual(createHouseLegacyExtractionContext({
+  grids: mixedGridPages,
+  pageCount: separatorProjection.pageCount,
+  scannerSeparatorPages: new Set(),
+}), {}, "an unclassified non-grid page must keep the whole filing on direct extraction");
+assert.deepEqual(createHouseLegacyExtractionContext({
+  grids: new Map(), pageCount: 1, scannerSeparatorPages: new Set([1]),
+}), {},
+  "documents without any verified grid page must retain direct extraction");
 // Every attached detail image must reproduce from its signed source region.
 for (const [index, grid] of gridPages.entries()) for (const view of grid!.regions) {
   const reread = await readHybridEvidencePdfPage({ evidenceDigest: view.evidenceDigest,

@@ -26,7 +26,7 @@ const readHouseGrid = (canvas) => {
   if (ys.length < 7 || ys.length > 43) return null;
   const gaps = ys.slice(1).map((y, i) => y - ys[i]);
   const header = gaps.indexOf(Math.max(...gaps));
-  if (header !== 1 || gaps[header] < height * .15) return null;
+  if (header < 1 || header > 3 || gaps[header] < height * .15) return null;
   const vertical = [], radius = Math.ceil(width / 800);
   // Read the printed column boundaries from the column-label band. Continuation
   // pages can place a notes table directly below the transaction table, so
@@ -58,7 +58,7 @@ const readHouseGrid = (canvas) => {
   // The full first-page form includes one printed example row below the column
   // labels. Continuation pages do not repeat it, and the P/S/E form omits it.
   const allCandidateRowLines = ys.slice(header + 1);
-  const candidateRowLines = xs.length === 20 && ys[0] > height * .4
+  const candidateRowLines = xs.length === 20 && ys[header - 1] > height * .4
     ? allCandidateRowLines.slice(1) : allCandidateRowLines;
   const rowLines = [candidateRowLines[0]];
   for (let index = 1; index < candidateRowLines.length; index++) {
@@ -109,6 +109,39 @@ const readHouseGrid = (canvas) => {
   });
   return { columns: xs, rows };
 };
+const readScannerSeparator = (canvas) => {
+  const width = canvas.width, height = canvas.height;
+  if (width < 1200 || height < 1600 || width / height < .72 || width / height > .8) return false;
+  const pixels = canvas.getContext("2d").getImageData(0, 0, width, height).data;
+  const dark = (x, y) => pixels[(y * width + x) * 4] < 140;
+  const centers = (values) => {
+    const result = [];
+    for (const value of values) {
+      if (!result.length || value > result[result.length - 1].end + 1) result.push({ start: value, end: value });
+      else result[result.length - 1].end = value;
+    }
+    return result.map(({ start, end }) => (start + end) / 2);
+  };
+  const horizontal = [];
+  for (let y = 0; y < height; y++) {
+    let count = 0;
+    for (let x = 0; x < width; x++) if (dark(x, y)) count++;
+    if (count > width * .55) horizontal.push(y);
+  }
+  const vertical = [];
+  for (let x = 0; x < width; x++) {
+    let count = 0;
+    for (let y = 0; y < height; y++) if (dark(x, y)) count++;
+    if (count > height * .4) vertical.push(x);
+  }
+  const ys = centers(horizontal).map((value) => value / height);
+  const xs = centers(vertical).map((value) => value / width);
+  return ys.length === 5 && xs.length === 4 &&
+    ys[0] > .05 && ys[0] < .08 && ys[3] < .14 && ys[4] > .25 && ys[4] < .35 &&
+    ys.slice(1, 4).every((value, index) => value - ys[index] > .012 && value - ys[index] < .025) &&
+    xs[0] > .05 && xs[0] < .08 && xs[3] < .16 &&
+    xs.slice(1).every((value, index) => value - xs[index] > .015 && value - xs[index] < .035);
+};
 const chunks = [];
 for await (const chunk of process.stdin) chunks.push(chunk);
 const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -120,9 +153,13 @@ try {
     if (image.width !== input.width || image.height !== input.height) throw new Error("artifact_digest_mismatch");
     const canvas = createCanvas(image.width, image.height);
     canvas.getContext("2d").drawImage(image, 0, 0);
-    const grid = readHouseGrid(canvas);
-    const regions = [];
-    if (grid) {
+    if (input.operation === "house-scanner-separator") {
+      process.stdout.write(JSON.stringify(readScannerSeparator(canvas)));
+    } else {
+      if (input.operation !== "house-grid") throw new Error("hostile_document");
+      const grid = readHouseGrid(canvas);
+      const regions = [];
+      if (grid) {
       const spans = [{ firstRow: 0, lastRow: 0, top: 0, bottom: grid.rows[0].top }];
       for (let index = 0; index < grid.rows.length;) {
         if (grid.rows[index].transactionType === null) { index++; continue; }
@@ -145,8 +182,9 @@ try {
           region: { x: x / image.width, y: y / image.height, width: width / image.width, height: height / image.height },
           imageBase64: png.toString("base64"), evidenceDigest: digest(png) });
       }
+      }
+      process.stdout.write(JSON.stringify(grid ? { ...grid, regions, sourceEvidenceDigest: digest(bytes) } : null));
     }
-    process.stdout.write(JSON.stringify(grid ? { ...grid, regions, sourceEvidenceDigest: digest(bytes) } : null));
 
 } catch (error) {
   process.stderr.write(error instanceof Error ? error.message : "hostile_document");
