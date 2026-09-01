@@ -422,6 +422,10 @@ const caughtUp = await readPublicSourceWorkspaceHealth({
 assert.equal(caughtUp.subscription.state, "caught_up");
 assert.equal(caughtUp.subscription.lag, 0);
 assert.equal(caughtUp.healthState, "degraded", "delivery progress must not conceal incomplete extraction");
+assert.deepEqual(caughtUp.sourceBacklog, {
+  phase: "live",
+  unresolvedFilings: 1,
+}, "workspace journal catch-up must remain distinct from the global House archive backlog");
 const quietStore = new MemoryStore();
 for (const [key, value] of store.records) quietStore.records.set(key, value);
 const quietAt = "2026-08-15T18:40:00.000Z";
@@ -448,6 +452,10 @@ const quietHealth = await readPublicSourceWorkspaceHealth({
 assert.equal(quietHealth.subscription.lag, 0, "empty committed batches must not create a false backlog");
 assert.equal(quietHealth.subscription.state, "caught_up");
 assert.equal(quietHealth.healthState, "degraded", "queued extraction gaps remain visible after a quiet poll");
+assert.deepEqual(quietHealth.sourceBacklog, {
+  phase: "live",
+  unresolvedFilings: 1,
+}, "a quiet poll must retain the durable global backlog count");
 assert.ok(observations.some((item) => item.counter === "public_source_acquisition_reused_total"));
 assert.ok(observations.some((item) => item.counter === "public_source_fact_revision_total"));
 assert.ok(observations.some((item) => item.counter === "public_source_projection_total"));

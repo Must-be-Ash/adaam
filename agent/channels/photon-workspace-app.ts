@@ -1855,8 +1855,14 @@ export function workspaceHtml(nonce: string, origin: string): string {
                 " · last complete " + lastComplete + " · last outcome " + lastOutcome +
                 " · extraction " + health.extraction.state + " (" + health.extraction.complete +
                 " complete, " + health.extraction.partial + " partial, " + health.extraction.unsupported +
-                " unsupported) · subscription " + health.subscription.state +
-                " / lag " + health.subscription.lag;
+                " unsupported) · workspace journal delivery " + health.subscription.state +
+                " · " + health.subscription.lag + " committed batch(es) pending" +
+                " · acknowledgement " + health.subscription.deliveryRevision +
+                (health.sourceBacklog
+                  ? " · global House archive " +
+                    (health.sourceBacklog.phase === "initial_baseline" ? "initial baseline" : "live") +
+                    " · " + health.sourceBacklog.unresolvedFilings + " unresolved filing(s)"
+                  : "");
               return detail;
             });
             const monitorActions = document.createElement("div");
