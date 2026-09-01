@@ -11,7 +11,7 @@ const readHouseGrid = (canvas) => {
   const groups = (values) => {
     const result = [];
     for (const value of values) {
-      if (!result.length || value > result[result.length - 1].end + 1) result.push({ start: value, end: value });
+      if (!result.length || value > result[result.length - 1].end + 2) result.push({ start: value, end: value });
       else result[result.length - 1].end = value;
     }
     return result.map(({ start, end }) => Math.round((start + end) / 2));
@@ -20,41 +20,50 @@ const readHouseGrid = (canvas) => {
   for (let y = 0; y < height; y++) {
     let count = 0;
     for (let x = 0; x < width; x++) if (dark(x, y)) count++;
-    if (count > width * .55) horizontal.push(y);
+    if (count > width * .45) horizontal.push(y);
   }
   const ys = groups(horizontal);
   if (ys.length < 7 || ys.length > 43) return null;
   const gaps = ys.slice(1).map((y, i) => y - ys[i]);
-  const header = gaps.indexOf(Math.max(...gaps));
-  if (header < 1 || header > 3 || gaps[header] < height * .15) return null;
-  const vertical = [], radius = Math.ceil(width / 800);
+  const radius = Math.ceil(width / 800);
   // Read the printed column boundaries from the column-label band. Continuation
   // pages can place a notes table directly below the transaction table, so
   // scanning to the last horizontal line would discard otherwise exact grids.
-  const top = ys[header] + radius, bottom = ys[header + 1] - radius;
-  for (let x = radius; x < width - radius; x++) {
-    let count = 0;
-    for (let y = top; y < bottom; y++) {
-      for (let dx = -radius; dx <= radius; dx++) if (dark(x + dx, y)) { count++; break; }
+  // Extra form rules can precede the table, so choose a header band only when
+  // it reproduces the complete House column geometry.
+  const layouts = [];
+  for (let header = 1; header < gaps.length; header++) {
+    if (gaps[header] < height * .15 || gaps[header] > height * .25) continue;
+    const vertical = [], top = ys[header] + radius, bottom = ys[header + 1] - radius;
+    for (let x = radius; x < width - radius; x++) {
+      let count = 0;
+      for (let y = top; y < bottom; y++) {
+        for (let dx = -radius; dx <= radius; dx++) if (dark(x + dx, y)) { count++; break; }
+      }
+      if (count > (bottom - top) * .8) vertical.push(x);
     }
-    if (count > (bottom - top) * .8) vertical.push(x);
+    const xs = groups(vertical);
+    // Owner, asset, either P/S/E or P/S/Partial Sale/E, two dates, and eleven
+    // A-K columns. Never infer a missing line. House prints Partial Sale as S.
+    if (xs.length !== 19 && xs.length !== 20) continue;
+    const amountStart = xs.length - 12, dateStart = amountStart - 2;
+    const widths = xs.slice(1).map((x, i) => x - xs[i]);
+    const unit = widths.slice(amountStart).reduce((a, b) => a + b, 0) / 11;
+    const minimumOwnerWidth = xs.length === 20 ? .7 : 2;
+    const minimumAssetWidth = xs.length === 20 ? 6 : 15;
+    if (widths.slice(amountStart).some((w) => Math.abs(w - unit) > unit * .15) ||
+        widths.slice(2, dateStart).some((w) => w < unit * .8 || w > unit * 1.3) ||
+        widths[1] < unit * minimumAssetWidth || widths[0] < unit * minimumOwnerWidth || widths[0] > unit * 4 ||
+        widths.slice(dateStart, amountStart).some((w) => w < unit * 2.5 || w > unit * 4.5)) continue;
+    layouts.push({ amountStart, dateStart, header,
+      transactionLabels: xs.length === 20 ? "PSSE" : "PSE", xs });
   }
-  const xs = groups(vertical);
-  // Owner, asset, either P/S/E or P/S/Partial Sale/E, two dates, and eleven
-  // A-K columns. Never infer a missing line: any other layout falls back to
-  // the normal evidence path. House prints Partial Sale as a sale.
-  if (xs.length !== 19 && xs.length !== 20) return null;
-  const transactionLabels = xs.length === 20 ? "PSSE" : "PSE";
-  const amountStart = xs.length - 12;
-  const dateStart = amountStart - 2;
-  const minimumOwnerWidth = xs.length === 20 ? .7 : 2;
-  const minimumAssetWidth = xs.length === 20 ? 6 : 15;
-  const widths = xs.slice(1).map((x, i) => x - xs[i]);
-  const unit = widths.slice(amountStart).reduce((a, b) => a + b, 0) / 11;
-  if (widths.slice(amountStart).some((w) => Math.abs(w - unit) > unit * .15) ||
-      widths.slice(2, dateStart).some((w) => w < unit * .8 || w > unit * 1.3) ||
-      widths[1] < unit * minimumAssetWidth || widths[0] < unit * minimumOwnerWidth || widths[0] > unit * 4 ||
-      widths.slice(dateStart, amountStart).some((w) => w < unit * 2.5 || w > unit * 4.5)) return null;
+  // More than one complete geometry is not enough evidence to decide which
+  // table owns the transaction rows. Leave the whole page to direct extraction.
+  if (layouts.length > 1) throw new Error("column_mapping_ambiguous");
+  if (layouts.length === 0) return null;
+  const layout = layouts[0];
+  const { amountStart, dateStart, header, transactionLabels, xs } = layout;
   // The full first-page form includes one printed example row below the column
   // labels. Continuation pages do not repeat it, and the P/S/E form omits it.
   const allCandidateRowLines = ys.slice(header + 1);

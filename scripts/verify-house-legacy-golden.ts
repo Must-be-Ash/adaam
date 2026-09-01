@@ -126,6 +126,16 @@ const headingBody = headingGrids[3]!.regions[1]!;
 assert.equal(headingGrids[3]!.rows.slice(headingBody.firstRow - 1, headingBody.lastRow)
   .some((row) => row.transactionType === null), true,
   "the consolidated signed range must safely cross intervening headings without counting them as transactions");
+const weakRulePdf = new Uint8Array(await readFile(new URL("ptr-9115814.pdf", root)));
+assert.equal(createHash("sha256").update(weakRulePdf).digest("hex"),
+  "fa5caf02b1b6d2b3238b28277a32fbfb0cdf1f452ee1e5246bf2a9719bdf04c6");
+const weakRuleProjection = await projectHybridEvidencePdf(weakRulePdf, { maximumRenderEdge: 2400 });
+const weakRuleGrids = await Promise.all(weakRuleProjection.pages.map(readHouseLegacyGrid));
+assert.deepEqual(weakRuleGrids.map((page) => page?.rows.flatMap((row) => row.transactionType === null
+  ? [] : [[row.transactionType, row.amountLetter]])), [
+  [["P", "D"], ["P", "C"], ["P", "D"], ["P", "B"]],
+  [["P", "D"], ["P", "C"], ["P", "C"], ["P", "D"], ["P", "B"]],
+], "the complete House column geometry must recover rows even when individual rules are faint");
 // Every attached detail image must reproduce from its signed source region.
 for (const [index, grid] of gridPages.entries()) for (const view of grid!.regions) {
   const reread = await readHybridEvidencePdfPage({ evidenceDigest: view.evidenceDigest,
@@ -179,6 +189,26 @@ assert.deepEqual(
   golden.pages[0]!.map((row) => [row[2], row[3]]),
   "inserting an unselected Partial Sale column must preserve every transaction and amount mark",
 );
+const duplicateHeaderCanvas = createCanvas(1400, 1050);
+const duplicateHeaderContext = duplicateHeaderCanvas.getContext("2d");
+duplicateHeaderContext.fillStyle = "white";
+duplicateHeaderContext.fillRect(0, 0, 1400, 1050);
+duplicateHeaderContext.fillStyle = "black";
+for (const y of [50, 100, 300, 350, 550, 600, 650]) duplicateHeaderContext.fillRect(0, y, 1400, 2);
+const duplicateColumns = [200, 260, 610, 630, 650, 670, 740, 810,
+  830, 850, 870, 890, 910, 930, 950, 970, 990, 1010, 1030];
+for (const [top, bottom] of [[100, 300], [350, 550]]) {
+  for (const x of duplicateColumns) duplicateHeaderContext.fillRect(x, top, 2, bottom - top);
+}
+const duplicateHeaderBytes = duplicateHeaderCanvas.toBuffer("image/png");
+await assert.rejects(readHouseLegacyGrid({
+  byteCount: duplicateHeaderBytes.byteLength,
+  evidenceDigest: createHash("sha256").update(duplicateHeaderBytes).digest("hex"),
+  height: duplicateHeaderCanvas.height,
+  imageBase64: duplicateHeaderBytes.toString("base64"),
+  page: 1,
+  width: duplicateHeaderCanvas.width,
+}), /hostile_document/u, "two complete header geometries must fail closed instead of selecting the first one");
 for (const [index, view] of independentViews.entries()) {
   const source = projection.pages[0]!;
   const x = Math.round(view.region.x * source.width), y = Math.round(view.region.y * source.height);
