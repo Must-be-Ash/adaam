@@ -565,10 +565,16 @@ export async function coordinatePublicSourceOccurrence(input: {
   });
   const pendingWork = houseFetch ? await readPublicSourcePendingWork(shared.acquisition.sourceInstanceId,
     input.clients?.acquisition, deliveryThroughRevision + 1) : null;
-  const continuationObservedAtMs = Date.parse(shared.acquisition.observedAt);
+  const acquisitionProgressed = shared.commit !== null &&
+    (shared.acquisition.candidateFactRevisionIds.length > 0 || shared.acquisition.retractionIds.length > 0);
+  const continuationObservedAtMs = input.observedAt?.valueOf() ??
+    Date.parse(shared.acquisition.observedAt);
   const sourceContinuationPending = pendingWork?.cursorRevision === deliveryThroughRevision + 1 &&
-    pendingWork.pending.some(({ nextAttemptAt }) =>
-      nextAttemptAt === null || Date.parse(nextAttemptAt) <= continuationObservedAtMs);
+    acquisitionProgressed &&
+    pendingWork.pending.some(({ lastAttemptedCursorRevision, nextAttemptAt }) =>
+      nextAttemptAt === null ||
+        (lastAttemptedCursorRevision !== pendingWork.cursorRevision &&
+          Date.parse(nextAttemptAt) <= continuationObservedAtMs));
   return Object.freeze({
     ...(pendingWork?.cursorRevision === deliveryThroughRevision + 1 ? { unresolvedFilingCount: pendingWork.pending.length } : {}),
     ...(houseFetch ? { sourceContinuationPending } : {}),

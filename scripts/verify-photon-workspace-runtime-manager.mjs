@@ -64,7 +64,7 @@ for (const required of [
   "health.extraction.unsupported",
   "workspace journal delivery",
   "health.subscription.deliveryRevision",
-  "committed batch(es) pending",
+  "source revision(s) behind",
   "global House archive",
   "health.sourceBacklog.unresolvedFilings",
   "formatSchedule(monitor.schedule)",

@@ -29,6 +29,7 @@ const pendingWorkSchema = z.object({
   sourceInstanceId: z.string().max(160), cursorRevision: z.number().int().nonnegative(),
   archiveDigest: z.string().regex(/^[a-f0-9]{64}$/u),
   pending: z.array(z.object({ docId: z.string().regex(/^\d{1,20}$/u), nextAttemptAt: z.string().datetime().nullable(), replayExisting: z.boolean().optional(),
+    lastAttemptedCursorRevision: z.number().int().nonnegative().optional(),
     firstObservedCursorRevision: z.number().int().nonnegative().optional() }).strict()).max(10_000),
 }).strict();
 export type PublicSourcePendingWork = z.infer<typeof pendingWorkSchema>;

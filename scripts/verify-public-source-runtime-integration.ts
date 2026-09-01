@@ -419,6 +419,108 @@ assert.equal(queued.unresolvedFilingCount, 26);
 assert.equal(queued.sourceContinuationPending, true,
   "unattempted archive filings must schedule another bounded source page");
 
+const stalledRetryStore = new MemoryStore();
+const stalledRetryAt = "2026-08-15T19:02:00.000Z";
+const stalledRetry = await coordinatePublicSourceOccurrence({
+  clients: { acquisition: stalledRetryStore, subscription: stalledRetryStore },
+  environment: fullyEnabled,
+  fetch: {
+    adapterId: "house-financial-disclosures",
+    fetchDocument: async (url) => ({
+      body: new Uint8Array(scannedPdf), contentType: "application/pdf", finalUrl: url,
+      observedAt: houseObservedAt, requestedUrl: url, status: 200,
+    }),
+    fetchIndex: async (url) => ({
+      body: new Uint8Array(houseArchive), contentType: "application/zip", finalUrl: url,
+      observedAt: houseObservedAt, requestedUrl: url, status: 200,
+    }),
+  },
+  monitor: monitor({ monitorId: houseMonitorA, sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID, workspaceId: workspaceA }),
+  observedAt: new Date(houseObservedAt),
+  scope: scopeA,
+  sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  window: houseWindow,
+});
+assert.equal(stalledRetry.sourceContinuationPending, false);
+const dueRetryWithoutRecovery = await coordinatePublicSourceOccurrence({
+  clients: { acquisition: stalledRetryStore, subscription: stalledRetryStore },
+  continueIncompleteHouse: true,
+  environment: fullyEnabled,
+  fetch: {
+    adapterId: "house-financial-disclosures",
+    fetchDocument: async (url) => ({
+      body: new Uint8Array(scannedPdf), contentType: "application/pdf", finalUrl: url,
+      observedAt: stalledRetryAt, requestedUrl: url, status: 200,
+    }),
+    fetchIndex: async (url) => ({
+      body: new Uint8Array(houseArchive), contentType: "application/zip", finalUrl: url,
+      observedAt: stalledRetryAt, requestedUrl: url, status: 200,
+    }),
+  },
+  monitor: monitor({ monitorId: houseMonitorA, sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID, workspaceId: workspaceA }),
+  observedAt: new Date(stalledRetryAt),
+  scope: scopeA,
+  sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  window: { startAt: houseObservedAt, endAt: stalledRetryAt },
+});
+assert.equal(dueRetryWithoutRecovery.acquisition.candidateFactRevisionIds.length, 0);
+assert.equal(dueRetryWithoutRecovery.sourceContinuationPending, false,
+  "a due retry that cannot make progress without recovery must not create a one-minute loop");
+
+const historicalTimingStore = new MemoryStore();
+const historicalWriter = new ZipWriter(new Uint8ArrayWriter());
+await historicalWriter.add("2026FD.xml", new TextReader(
+  `<?xml version="1.0" encoding="UTF-8"?><FinancialDisclosure>${queuedRows.slice(0, queuedRows.indexOf("</Member>") + 9)}</FinancialDisclosure>`,
+));
+const historicalArchive = await historicalWriter.close();
+const historicalSeed = await coordinatePublicSourceOccurrence({
+  clients: { acquisition: historicalTimingStore, subscription: historicalTimingStore },
+  environment: fullyEnabled,
+  fetch: {
+    adapterId: "house-financial-disclosures",
+    fetchDocument: async (url) => ({
+      body: new Uint8Array(scannedPdf), contentType: "application/pdf", finalUrl: url,
+      observedAt: houseObservedAt, requestedUrl: url, status: 200,
+    }),
+    fetchIndex: async (url) => ({
+      body: new Uint8Array(historicalArchive), contentType: "application/zip", finalUrl: url,
+      observedAt: houseObservedAt, requestedUrl: url, status: 200,
+    }),
+  },
+  monitor: monitor({ monitorId: houseMonitorA, sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID, workspaceId: workspaceA }),
+  observedAt: new Date(houseObservedAt),
+  scope: scopeA,
+  sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  window: houseWindow,
+});
+assert.equal(historicalSeed.sourceContinuationPending, false);
+const historicalProgressAt = "2026-08-15T18:40:00.000Z";
+const currentOccurrenceAt = "2026-08-15T19:01:00.000Z";
+const historicalProgress = await coordinatePublicSourceOccurrence({
+  clients: { acquisition: historicalTimingStore, subscription: historicalTimingStore },
+  continueIncompleteHouse: true,
+  environment: fullyEnabled,
+  fetch: {
+    adapterId: "house-financial-disclosures",
+    fetchDocument: async (url) => ({
+      body: new Uint8Array(scannedPdf), contentType: "application/pdf", finalUrl: url,
+      observedAt: historicalProgressAt, requestedUrl: url, status: 200,
+    }),
+    fetchIndex: async (url) => ({
+      body: new Uint8Array(queuedArchive), contentType: "application/zip", finalUrl: url,
+      observedAt: historicalProgressAt, requestedUrl: url, status: 200,
+    }),
+  },
+  monitor: monitor({ monitorId: houseMonitorA, sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID, workspaceId: workspaceA }),
+  observedAt: new Date(currentOccurrenceAt),
+  scope: scopeA,
+  sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  window: { startAt: houseObservedAt, endAt: historicalProgressAt },
+});
+assert.ok(historicalProgress.acquisition.candidateFactRevisionIds.length > 0);
+assert.equal(historicalProgress.sourceContinuationPending, true,
+  "continuation eligibility must use the current occurrence time when acquisition evidence is historical");
+
 const referenceB = resolvePublicSourceWorkspaceReference({
   monitorId: houseMonitorB,
   sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,

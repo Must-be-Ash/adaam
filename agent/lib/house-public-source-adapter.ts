@@ -1099,6 +1099,7 @@ async function acquireHouse(input: {
       if (extractionState.state === "complete") pendingWork.delete(row.docId);
       else pendingWork.set(row.docId, { docId: row.docId,
         firstObservedCursorRevision,
+        lastAttemptedCursorRevision: source.cursor.revision + 1,
         nextAttemptAt: new Date(Date.parse(input.indexResponse.observedAt) + 30 * 60_000).toISOString() });
       const filingPayload = {
         amendedDocId,

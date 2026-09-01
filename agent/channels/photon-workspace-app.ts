@@ -1856,7 +1856,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
                 " · extraction " + health.extraction.state + " (" + health.extraction.complete +
                 " complete, " + health.extraction.partial + " partial, " + health.extraction.unsupported +
                 " unsupported) · workspace journal delivery " + health.subscription.state +
-                " · " + health.subscription.lag + " committed batch(es) pending" +
+                " · " + health.subscription.lag + " source revision(s) behind" +
                 " · acknowledgement " + health.subscription.deliveryRevision +
                 (health.sourceBacklog
                   ? " · global House archive " +
