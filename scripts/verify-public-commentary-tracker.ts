@@ -324,6 +324,63 @@ const directModelPack = strategyPackCatalog.resolve({
   version: "1.3.1",
 });
 assert.ok(directModelPack);
+const sessionLimitFixPack = strategyPackCatalog.resolve({
+  id: "public-commentary-tracker",
+  version: "1.5.1",
+});
+const sessionLimitFixPredecessor = strategyPackCatalog.resolve({
+  id: "public-commentary-tracker",
+  version: "1.5.0",
+});
+assert.ok(
+  sessionLimitFixPack,
+  "Tracker 1.5.1 must pin the classifier contract with room for a recovery turn",
+);
+assert.ok(sessionLimitFixPredecessor);
+const historicalImpactDefinition = createPublicCommentaryImpactDefinition(
+  ["openai/gpt-5.4"],
+  {},
+  "1.0.1",
+);
+const sessionLimitFixDefinition = createPublicCommentaryImpactDefinition(
+  ["openai/gpt-5.4"],
+  {},
+  "1.0.2",
+);
+assert.equal(historicalImpactDefinition.limits.maximumInputTokens, 24_000);
+assert.equal(sessionLimitFixDefinition.limits.maximumInputTokens, 40_000);
+assert.equal(sessionLimitFixDefinition.limits.maximumOutputTokens, 4_000);
+assert.equal(sessionLimitFixDefinition.limits.maximumEvidenceBytes, 25_000);
+assert.equal(sessionLimitFixDefinition.limits.maximumPaidCostUsd, "0");
+assert.deepEqual(
+  sessionLimitFixPredecessor.evidenceContracts?.find(({ id }) =>
+    id === PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID),
+  {
+    digest: historicalImpactDefinition.definitionDigest,
+    id: PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
+    version: "1.0.1",
+  },
+  "Tracker 1.5.0 must retain its published 24,000-token contract",
+);
+assert.deepEqual(
+  sessionLimitFixPack.evidenceContracts?.find(({ id }) =>
+    id === PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID),
+  {
+    digest: sessionLimitFixDefinition.definitionDigest,
+    id: PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
+    version: "1.0.2",
+  },
+);
+assert.equal(publicCommentaryImpactDefinitionVersion(sessionLimitFixPack), "1.0.2");
+assert.equal(resolvePublicCommentarySemanticReasoning(
+  sessionLimitFixPack,
+  { reasoning: "high" },
+), "low");
+assert.deepEqual(
+  sessionLimitFixPack.monitors[0]?.suggestedBudget,
+  sessionLimitFixPredecessor.monitors[0]?.suggestedBudget,
+  "the session-limit fix must not broaden the monitor's run budget",
+);
 // The current version declares the compact evaluation contract, so the shared
 // worker sends every statement to the model instead of pre-filtering by
 // keyword, and pins the classification contract version it runs.
