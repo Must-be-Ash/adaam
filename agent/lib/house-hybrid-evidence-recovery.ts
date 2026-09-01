@@ -3,7 +3,7 @@ import type { RunHandle } from "../../node_modules/eve/dist/src/channel/types.js
 import { createGateway, generateText, tool, type UserContent } from "ai";
 import { z } from "zod";
 
-import { readHouseLegacyGrid, readHouseLegacyIndependentViews, type HouseLegacyGrid } from "./house-legacy-grid";
+import { readHouseLegacyGrid, readHouseLegacyIndependentViews, readHouseScannerSeparatorPage, type HouseLegacyGrid } from "./house-legacy-grid";
 import { bindHouseLegacyCandidate, houseLegacyIndependentText, createHouseLegacyTranscriptionContent,
   HOUSE_LEGACY_TRANSCRIPTION_INSTRUCTION, legacyGridTextRows, createHouseLegacyTranscriptionModelSchema, decodeHouseLegacyTranscriptionModel } from "./house-legacy-grid-transcription";
 import {
@@ -91,9 +91,26 @@ export interface HouseHybridEvidenceRecoveryClients {
   readonly workspaceBudget?: WorkspaceBudgetLedgerClient;
 }
 
+interface HouseSourceDocumentIdentity {
+  readonly docId: string;
+  readonly filerName: string;
+  readonly filingDate: string;
+  readonly stateDistrict: string;
+}
 interface HouseLegacyExtractionContext {
   readonly grids: ReadonlyMap<number, HouseLegacyGrid>;
-  readonly document: { docId: string; filerName: string; filingDate: string; stateDistrict: string };
+}
+export function createHouseLegacyExtractionContext(
+  input: {
+    readonly grids: ReadonlyMap<number, HouseLegacyGrid>;
+    readonly pageCount: number;
+    readonly scannerSeparatorPages: ReadonlySet<number>;
+  },
+): Readonly<{ legacy?: HouseLegacyExtractionContext }> {
+  const coveredPages = new Set([...input.grids.keys(), ...input.scannerSeparatorPages]);
+  const complete = input.grids.size > 0 && coveredPages.size === input.pageCount &&
+    Array.from({ length: input.pageCount }, (_, index) => index + 1).every((page) => coveredPages.has(page));
+  return complete ? Object.freeze({ legacy: Object.freeze({ grids: input.grids }) }) : Object.freeze({});
 }
 interface HouseIndependentPdfOcr extends IndependentPdfOcr {
   recognizeLegacyGrid?(page: Parameters<IndependentPdfOcr["recognize"]>[0], grid: HouseLegacyGrid): ReturnType<IndependentPdfOcr["recognize"]>;
@@ -106,6 +123,7 @@ export interface HouseHybridEvidenceRecoveryDependencies {
     readonly reservation: HybridEvidenceBudgetReservation;
   }) => Promise<HybridEvidenceModelUsage | void>;
   readonly generateCandidate?: (input: {
+    readonly document: HouseSourceDocumentIdentity;
     readonly legacy?: HouseLegacyExtractionContext;
     readonly definition: HybridEvidenceJobDefinition;
     readonly environment: NodeJS.ProcessEnv;
@@ -309,6 +327,7 @@ async function resolveGatewayPaidCost(input: {
 }
 
 async function generateHouseDocumentRowCandidate(input: {
+  readonly document: HouseSourceDocumentIdentity;
   readonly legacy?: HouseLegacyExtractionContext;
   readonly definition: HybridEvidenceJobDefinition;
   readonly environment: NodeJS.ProcessEnv;
@@ -373,8 +392,12 @@ async function generateHouseDocumentRowCandidate(input: {
   let candidate: HouseDocumentRowWorkerCandidate;
   try {
     candidate = input.legacy ? bindHouseLegacyCandidate({
-      value: decodeHouseLegacyTranscriptionModel(candidateCall.input, input.legacy.grids), grids: input.legacy.grids, document: input.legacy.document, locators: input.locators,
-    }) : bindHouseModelCandidateCitations({ candidate: candidateCall.input, locators: input.locators });
+      value: decodeHouseLegacyTranscriptionModel(candidateCall.input, input.legacy.grids), grids: input.legacy.grids, document: input.document, locators: input.locators,
+    }) : bindHouseModelCandidateCitations({
+      candidate: candidateCall.input,
+      document: input.document,
+      locators: input.locators,
+    });
   } catch (error) {
     const issue = error instanceof z.ZodError ? error.issues[0] : undefined;
     const detail = issue ? `candidate_schema.${issue.code}.${issue.path.join(".")}`
@@ -389,6 +412,7 @@ async function generateHouseDocumentRowCandidate(input: {
 
 export function bindHouseModelCandidateCitations(input: {
   readonly candidate: unknown;
+  readonly document: HouseSourceDocumentIdentity;
   readonly locators: readonly Extract<EvidenceLocator, { kind: "pdf_page" }>[];
 }): HouseDocumentRowWorkerCandidate {
   const candidate = houseDocumentRowModelCandidateSchema.parse(input.candidate);
@@ -398,7 +422,24 @@ export function bindHouseModelCandidateCitations(input: {
     if (!locator) throw new HybridEvidencePdfError("citation_invalid");
     return locator;
   });
-  return houseDocumentRowWorkerCandidateSchema.parse({ ...candidate, citations });
+  return bindHouseCandidateDocumentIdentity({ candidate: {
+    ...candidate,
+    citations,
+  }, document: input.document });
+}
+
+export function bindHouseCandidateDocumentIdentity(input: {
+  readonly candidate: unknown;
+  readonly document: HouseSourceDocumentIdentity;
+}): HouseDocumentRowWorkerCandidate {
+  const candidate = houseDocumentRowWorkerCandidateSchema.parse(input.candidate);
+  return houseDocumentRowWorkerCandidateSchema.parse({
+    ...candidate,
+    fields: {
+      ...candidate.fields,
+      document: { ...input.document, isAmendment: candidate.fields.document.isAmendment },
+    },
+  });
 }
 
 export function createBoundedIndependentPdfOcr(input: {
@@ -711,6 +752,7 @@ export function createHouseHybridEvidenceRecovery(input: {
 
       let projection;
       const grids = new Map<number, HouseLegacyGrid>();
+      const scannerSeparatorPages = new Set<number>();
       const viewsByPage = new Map<number, Awaited<ReturnType<typeof readHouseLegacyIndependentViews>>>();
       try {
         projection = await projectHybridEvidencePdf(recoveryInput.artifact, {
@@ -727,6 +769,8 @@ export function createHouseHybridEvidenceRecovery(input: {
           if (grid) {
             grids.set(page.page, grid);
             viewsByPage.set(page.page, await readHouseLegacyIndependentViews(page, grid));
+          } else if (await readHouseScannerSeparatorPage(page)) {
+            scannerSeparatorPages.add(page.page);
           }
         }
         const totalImageBytes = projection.pages.reduce((total, page) => total + page.byteCount +
@@ -798,7 +842,7 @@ export function createHouseHybridEvidenceRecovery(input: {
           // Bounded deterministic pixel evidence, never golden fixture values.
           // Independent OCR receives only the raw crops, not these selections.
           rows: grid.rows.map((row) => [row.top, row.bottom, row.transactionType, row.amountLetter]),
-        })) }),
+        })), scannerSeparatorPages: [...scannerSeparatorPages] }),
       });
       let record: HybridEvidenceJobRecord;
       try {
@@ -1060,8 +1104,13 @@ export function createHouseHybridEvidenceRecovery(input: {
         } else {
           const generated = await (input.dependencies?.generateCandidate ??
             generateHouseDocumentRowCandidate)({
-            ...(grids.size === projection.pages.length ? { legacy: { grids, document: inputProjection.document } } : {}),
+            ...createHouseLegacyExtractionContext({
+              grids,
+              pageCount: projection.pageCount,
+              scannerSeparatorPages,
+            }),
             definition,
+            document: inputProjection.document,
             environment,
             locators: locators as Extract<EvidenceLocator, { kind: "pdf_page" }>[],
             modelId: input.modelId,
@@ -1127,7 +1176,10 @@ export function createHouseHybridEvidenceRecovery(input: {
         stage = "validation";
         const validated = validateHouseDocumentRowCandidate({
           artifactDigest: projection.documentDigest,
-          candidate: record.candidate,
+          candidate: bindHouseCandidateDocumentIdentity({
+            candidate: record.candidate,
+            document: inputProjection.document,
+          }),
           expected: {
             docId: recoveryInput.row.docId,
             filerName,

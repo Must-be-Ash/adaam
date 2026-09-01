@@ -102,6 +102,7 @@ export function bindHouseLegacyCandidate(input: {
 export function houseLegacyIndependentText(value: unknown, page: number, grid: HouseLegacyGrid): string {
   const [transcription] = bindHouseLegacyText(value, new Map([[page, grid]]));
   return ["documentType=Periodic Transaction Report; reportStatus=legacy_grid_no_status;",
+    ...(transcription!.rows.length === 0 ? ["no_transaction_rows=true"] : []),
     ...(transcription!.filerName ? [`filerName=${transcription!.filerName};`] : []),
     ...(transcription!.receivedDate ? [`filingDate=${transcription!.receivedDate};`] : []),
     ...transcription!.rows.map((row) => [row.ownerCode ?? "", row.assetDescription, row.transactionType,

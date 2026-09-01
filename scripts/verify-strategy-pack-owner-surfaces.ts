@@ -9,10 +9,17 @@ import {
   strategyPackCreateSelectionRequest,
   strategyPackRemoveSelectionRequest,
 } from "../agent/lib/strategy-pack-service";
+import { strategyPackCompatibilityInstruction } from "../agent/instructions/strategy-pack";
+import { photonAuth } from "../agent/lib/photon-auth";
+import { projectPhotonWorkspaceRuntimeScope } from "../agent/lib/workspace-runtime-scope";
+import { executeCongressionalHistoryQuery } from "../agent/tools/query_congressional_history";
 
 const environment = {
   EVE_STRATEGY_PACK_CATALOG_ENABLED: "1",
   EVE_WORKSPACE_STATE_ENABLED: "1",
+  EVE_DEPLOYMENT_OWNER_ID: "owner_fixture",
+  EVE_PHOTON_OWNER_PRINCIPALS: "imessage:fixture-owner",
+  EVE_OWNER_ALIAS_HMAC_SECRET: "A".repeat(43),
 };
 
 const listed = listStrategyPacks({ environment });
@@ -147,9 +154,10 @@ assert.throws(
   /strategy_pack_unavailable/u,
 );
 
-const [managerSource, statusToolSource] = await Promise.all([
+const [managerSource, statusToolSource, congressionalHistoryToolSource] = await Promise.all([
   readFile(new URL("../agent/channels/photon-workspace-app.ts", import.meta.url), "utf8"),
   readFile(new URL("../agent/tools/get_workspace_status.ts", import.meta.url), "utf8"),
+  readFile(new URL("../agent/tools/query_congressional_history.ts", import.meta.url), "utf8"),
 ]);
 for (const source of [managerSource, statusToolSource]) {
   assert.match(source, /readEarningsCallWorkspacePresentation/u,
@@ -163,5 +171,39 @@ assert.match(
 assert.match(managerSource, /resolutionEpoch \+= 1/u, "editing a profile invalidates any in-flight identity resolution");
 assert.match(managerSource, /requestEpoch !== resolutionEpoch \|\| profile\.value !== requestedProfile/u);
 assert.match(managerSource, /resolutionReceipt/u, "the confirmed identity carries a signed, scoped receipt into creation");
+assert.match(congressionalHistoryToolSource,
+  /executeCongressionalHistoryQuery\(input, ctx\)/u,
+  "the member-history tool must apply the member selector inside the authenticated workspace read");
+const runtimeScope = projectPhotonWorkspaceRuntimeScope({
+  generation: 1,
+  principalId: "imessage:fixture-owner",
+  threadId: "imessage:fixture-thread",
+  workspaceId: "123e4567-e89b-42d3-a456-426614175599",
+}, environment);
+const toolContext = { session: { auth: { current: photonAuth("fixture-owner", "imessage:fixture-thread", runtimeScope) } } };
+let requestedMember: string | null = null;
+const queried = await executeCongressionalHistoryQuery({ member: "Nancy Pelosi" }, toolContext, {
+  environment,
+  inspect: async () => ({ pack: { id: "congressional-signals" }, state: "active" }) as never,
+  read: async ({ member }) => { requestedMember = member; return { member } as never; },
+});
+assert.equal(requestedMember, "Nancy Pelosi");
+assert.deepEqual(queried, { member: "Nancy Pelosi" });
+for (const binding of [
+  { state: "unbound" },
+  { pack: { id: "ipo-filings" }, state: "active" },
+]) {
+  await assert.rejects(() => executeCongressionalHistoryQuery({ member: "Nancy Pelosi" }, toolContext, {
+    environment,
+    inspect: async () => binding as never,
+    read: async () => { throw new Error("history read must not run"); },
+  }), /congressional_signal_workspace_unavailable/u);
+}
+assert.match(strategyPackCompatibilityInstruction({ id: "congressional-signals", version: "1.6.0" }) ?? "",
+  /Never answer a member-specific history question from the latest signal/u);
+assert.match(strategyPackCompatibilityInstruction({ id: "congressional-signals", version: "1.5.0" }) ?? "",
+  /cannot suppress the factual disclosure notification/u,
+  "the prior compatibility amendment must retain mandatory transaction-first delivery");
+assert.equal(strategyPackCompatibilityInstruction({ id: "ipo-filings", version: "1.1.2" }), null);
 
 console.info("Strategy-pack owner surface verification passed.");

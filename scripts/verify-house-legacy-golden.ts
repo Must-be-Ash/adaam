@@ -3,10 +3,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { createHybridEvidenceArtifactStore } from "../agent/lib/hybrid-evidence-artifact-store";
-import { bindHouseModelCandidateCitations, createHouseHybridEvidenceRecovery, HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION, independentPdfOcrModelSettings } from "../agent/lib/house-hybrid-evidence-recovery";
+import { bindHouseCandidateDocumentIdentity, bindHouseModelCandidateCitations, createHouseHybridEvidenceRecovery, createHouseLegacyExtractionContext, HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION, independentPdfOcrModelSettings } from "../agent/lib/house-hybrid-evidence-recovery";
 import { houseDocumentRowModelCandidateSchema, houseDocumentRowWorkerCandidateSchema, validateHouseDocumentRowCandidate, type HouseDocumentRowWorkerCandidate } from "../agent/lib/hybrid-evidence-extraction-recovery";
 import { bindHouseLegacyCandidate, bindHouseLegacyText, houseLegacyIndependentText, createHouseLegacyTranscriptionModelSchema, decodeHouseLegacyTranscriptionModel, createHouseLegacyTranscriptionContent } from "../agent/lib/house-legacy-grid-transcription";
-import { readHouseLegacyGrid, validateHouseLegacyGrid, verifyHouseLegacyGridImages, readHouseLegacyIndependentViews, houseLegacyRowKey } from "../agent/lib/house-legacy-grid";
+import { readHouseLegacyGrid, readHouseScannerSeparatorPage, validateHouseLegacyGrid, verifyHouseLegacyGridImages, readHouseLegacyIndependentViews, houseLegacyRowKey } from "../agent/lib/house-legacy-grid";
 import { projectHybridEvidencePdf, readHybridEvidencePdfPage, projectHybridEvidencePdfRegions } from "../agent/lib/hybrid-evidence-pdf";
 import { runHousePublicSourceAcquisition } from "../agent/lib/house-public-source-adapter";
 import { readGlobalDispatchBudgetLedger } from "../agent/lib/workspace-dispatch-budget";
@@ -75,6 +75,67 @@ for (const [index, grid] of gridPages.entries()) {
     `every selected cell on page ${index + 1} must agree with the source-corrected golden`);
   assert.equal(grid.sourceEvidenceDigest, projection.pages[index]!.evidenceDigest);
 }
+const fourColumnPdf = new Uint8Array(await readFile(new URL("ptr-9115812.pdf", root)));
+assert.equal(createHash("sha256").update(fourColumnPdf).digest("hex"),
+  "f482dc24b86f6099b22cb2ad15cc400f63eefdaa54354e779832f6a337a962c8");
+const fourColumnProjection = await projectHybridEvidencePdf(fourColumnPdf, { maximumRenderEdge: 2400 });
+const fourColumnGrids = await Promise.all(fourColumnProjection.pages.map(readHouseLegacyGrid));
+assert.deepEqual(fourColumnGrids.map((page) => page?.columns.length), [20, 20]);
+assert.deepEqual(fourColumnGrids.map((page) => page?.rows.map((row) =>
+  [row.transactionType, row.amountLetter])), [
+  [["P", "B"], ["P", "C"], ["P", "B"], ["P", "C"]],
+  [["P", "B"], ["P", "B"], ["P", "B"], ["P", "C"], ["P", "C"], ["P", "B"], ["P", "C"], ["P", "B"]],
+], "the four-column form must exclude its printed example and trailing notes while preserving every real row");
+const separatorPdf = new Uint8Array(await readFile(new URL("ptr-9115809.pdf", root)));
+assert.equal(createHash("sha256").update(separatorPdf).digest("hex"),
+  "0955f6961d01717aefa76635a84579d868b66d73cddbefdb9ec87f59bcc3fbbf");
+const separatorProjection = await projectHybridEvidencePdf(separatorPdf, { maximumRenderEdge: 2400 });
+const separatorGrids = await Promise.all(separatorProjection.pages.map(readHouseLegacyGrid));
+assert.deepEqual(separatorGrids.map((page) => page?.rows.map((row) =>
+  [row.transactionType, row.amountLetter]).filter(([transaction]) => transaction !== null) ?? null), [
+  [["P", "B"]],
+  null,
+], "extra first-page form rules must not hide its one real row, and a scanner separator is not a grid");
+const mixedGridPages = new Map([[1, separatorGrids[0]!]]);
+assert.equal(await readHouseScannerSeparatorPage(separatorProjection.pages[1]!), true);
+assert.equal(await readHouseScannerSeparatorPage(separatorProjection.pages[0]!), false);
+assert.equal(createHouseLegacyExtractionContext({
+  grids: mixedGridPages,
+  pageCount: separatorProjection.pageCount,
+  scannerSeparatorPages: new Set([2]),
+}).legacy?.grids, mixedGridPages,
+  "one verified grid page must use the deterministic legacy path even when another page is a separator");
+assert.deepEqual(createHouseLegacyExtractionContext({
+  grids: mixedGridPages,
+  pageCount: separatorProjection.pageCount,
+  scannerSeparatorPages: new Set(),
+}), {}, "an unclassified non-grid page must keep the whole filing on direct extraction");
+assert.deepEqual(createHouseLegacyExtractionContext({
+  grids: new Map(), pageCount: 1, scannerSeparatorPages: new Set([1]),
+}), {},
+  "documents without any verified grid page must retain direct extraction");
+const headingPdf = new Uint8Array(await readFile(new URL("ptr-9115820.pdf", root)));
+assert.equal(createHash("sha256").update(headingPdf).digest("hex"),
+  "e1254f953327174fe80a856137e386c3dea42aa58728d350105822bfabab6860");
+const headingProjection = await projectHybridEvidencePdf(headingPdf, { maximumRenderEdge: 2400 });
+const headingGrids = await Promise.all(headingProjection.pages.map(readHouseLegacyGrid));
+assert.equal(headingGrids.every((page) => page !== null), true);
+assert.deepEqual(headingGrids.map((page) => page!.regions.length), [2, 2, 2, 2],
+  "each heading-heavy page must use exactly one header crop and one selected-row-range crop");
+const headingBody = headingGrids[3]!.regions[1]!;
+assert.equal(headingGrids[3]!.rows.slice(headingBody.firstRow - 1, headingBody.lastRow)
+  .some((row) => row.transactionType === null), true,
+  "the consolidated signed range must safely cross intervening headings without counting them as transactions");
+const weakRulePdf = new Uint8Array(await readFile(new URL("ptr-9115814.pdf", root)));
+assert.equal(createHash("sha256").update(weakRulePdf).digest("hex"),
+  "fa5caf02b1b6d2b3238b28277a32fbfb0cdf1f452ee1e5246bf2a9719bdf04c6");
+const weakRuleProjection = await projectHybridEvidencePdf(weakRulePdf, { maximumRenderEdge: 2400 });
+const weakRuleGrids = await Promise.all(weakRuleProjection.pages.map(readHouseLegacyGrid));
+assert.deepEqual(weakRuleGrids.map((page) => page?.rows.flatMap((row) => row.transactionType === null
+  ? [] : [[row.transactionType, row.amountLetter]])), [
+  [["P", "D"], ["P", "C"], ["P", "D"], ["P", "B"]],
+  [["P", "D"], ["P", "C"], ["P", "C"], ["P", "D"], ["P", "B"]],
+], "the complete House column geometry must recover rows even when individual rules are faint");
 // Every attached detail image must reproduce from its signed source region.
 for (const [index, grid] of gridPages.entries()) for (const view of grid!.regions) {
   const reread = await readHybridEvidencePdfPage({ evidenceDigest: view.evidenceDigest,
@@ -84,6 +145,22 @@ for (const [index, grid] of gridPages.entries()) for (const view of grid!.region
 await assert.rejects(readHouseLegacyGrid({ ...projection.pages[0]!, evidenceDigest: "0".repeat(64) }),
   /artifact_digest_mismatch/u, "tampered page bytes cannot become grid evidence");
 const { createCanvas, loadImage } = await import("@napi-rs/canvas");
+const separatorSource = separatorProjection.pages[1]!;
+const separatorCanvas = createCanvas(separatorSource.width, separatorSource.height);
+const separatorContext = separatorCanvas.getContext("2d");
+separatorContext.drawImage(await loadImage(Buffer.from(separatorSource.imageBase64, "base64")), 0, 0);
+separatorContext.fillStyle = "black";
+for (const y of [.72, .76, .8, .84, .88]) {
+  separatorContext.fillRect(separatorCanvas.width * .74, separatorCanvas.height * y,
+    separatorCanvas.width * .18, separatorCanvas.height * .006);
+}
+const contentSeparatorBytes = separatorCanvas.toBuffer("image/png");
+assert.equal(await readHouseScannerSeparatorPage({
+  ...separatorSource,
+  byteCount: contentSeparatorBytes.byteLength,
+  evidenceDigest: createHash("sha256").update(contentSeparatorBytes).digest("hex"),
+  imageBase64: contentSeparatorBytes.toString("base64"),
+}), false, "separator rule geometry with transaction-like dark content must remain unclassified");
 async function changedGridPage(edit: (context: ReturnType<ReturnType<typeof createCanvas>["getContext"]>) => void) {
   const original = projection.pages[0]!;
   const canvas = createCanvas(original.width, original.height);
@@ -98,6 +175,56 @@ const grid = gridPages[0]!;
 const independentViews = await readHouseLegacyIndependentViews(projection.pages[0]!, grid);
 assert.equal(independentViews.length, 27, "two header views and exactly 25 transaction views");
 const sourceImage = await loadImage(Buffer.from(projection.pages[0]!.imageBase64, "base64"));
+const partialSaleColumnWidth = grid.columns[4]! - grid.columns[3]!;
+const partialSaleColumnLeft = grid.columns[4]!;
+const assetColumnLeft = grid.columns[1]!;
+const transactionColumnsLeft = grid.columns[2]!;
+const fourTransactionColumnPage = await changedGridPage((context) => {
+  context.fillStyle = "white";
+  context.fillRect(0, 0, sourceImage.width, sourceImage.height);
+  context.drawImage(sourceImage,
+    0, 0, assetColumnLeft, sourceImage.height,
+    0, 0, assetColumnLeft, sourceImage.height);
+  context.drawImage(sourceImage,
+    assetColumnLeft, 0, transactionColumnsLeft - assetColumnLeft, sourceImage.height,
+    assetColumnLeft, 0, transactionColumnsLeft - assetColumnLeft - partialSaleColumnWidth, sourceImage.height);
+  context.drawImage(sourceImage,
+    transactionColumnsLeft, 0, partialSaleColumnLeft - transactionColumnsLeft, sourceImage.height,
+    transactionColumnsLeft - partialSaleColumnWidth, 0,
+    partialSaleColumnLeft - transactionColumnsLeft, sourceImage.height);
+  context.drawImage(sourceImage,
+    partialSaleColumnLeft, 0, sourceImage.width - partialSaleColumnLeft, sourceImage.height,
+    partialSaleColumnLeft, 0, sourceImage.width - partialSaleColumnLeft, sourceImage.height);
+});
+const fourTransactionColumnGrid = await readHouseLegacyGrid(fourTransactionColumnPage);
+assert.ok(fourTransactionColumnGrid, "legacy grids with a distinct Partial Sale column must be recognized");
+assert.equal(fourTransactionColumnGrid.columns.length, 20);
+assert.deepEqual(
+  fourTransactionColumnGrid.rows.filter((row) => row.transactionType !== null)
+    .map((row) => [row.transactionType, row.amountLetter]),
+  golden.pages[0]!.map((row) => [row[2], row[3]]),
+  "inserting an unselected Partial Sale column must preserve every transaction and amount mark",
+);
+const duplicateHeaderCanvas = createCanvas(1400, 1050);
+const duplicateHeaderContext = duplicateHeaderCanvas.getContext("2d");
+duplicateHeaderContext.fillStyle = "white";
+duplicateHeaderContext.fillRect(0, 0, 1400, 1050);
+duplicateHeaderContext.fillStyle = "black";
+for (const y of [50, 100, 300, 350, 550, 600, 650]) duplicateHeaderContext.fillRect(0, y, 1400, 2);
+const duplicateColumns = [200, 260, 610, 630, 650, 670, 740, 810,
+  830, 850, 870, 890, 910, 930, 950, 970, 990, 1010, 1030];
+for (const [top, bottom] of [[100, 300], [350, 550]]) {
+  for (const x of duplicateColumns) duplicateHeaderContext.fillRect(x, top, 2, bottom - top);
+}
+const duplicateHeaderBytes = duplicateHeaderCanvas.toBuffer("image/png");
+await assert.rejects(readHouseLegacyGrid({
+  byteCount: duplicateHeaderBytes.byteLength,
+  evidenceDigest: createHash("sha256").update(duplicateHeaderBytes).digest("hex"),
+  height: duplicateHeaderCanvas.height,
+  imageBase64: duplicateHeaderBytes.toString("base64"),
+  page: 1,
+  width: duplicateHeaderCanvas.width,
+}), /hostile_document/u, "two complete header geometries must fail closed instead of selecting the first one");
 for (const [index, view] of independentViews.entries()) {
   const source = projection.pages[0]!;
   const x = Math.round(view.region.x * source.width), y = Math.round(view.region.y * source.height);
@@ -246,6 +373,13 @@ for (const mutate of [
 }
 const gridIndependent = new Map(textTranscription.pages.map((page) =>
   [page.page, houseLegacyIndependentText({ pages: [page] }, page.page, gridMap.get(page.page)!)]));
+const headingOnlyGrid = {
+  ...gridMap.get(1)!,
+  rows: gridMap.get(1)!.rows.map((row) => ({ ...row, transactionType: null, amountLetter: null })),
+};
+assert.match(houseLegacyIndependentText({ pages: [{ ...textTranscription.pages[0]!, rows: [] }] }, 1,
+  headingOnlyGrid), /no_transaction_rows=true/u,
+  "a deterministically decoded heading-only legacy page must be valid independent evidence");
 assert.equal(validateHouseDocumentRowCandidate({ artifactDigest: golden.sha256, candidate,
   expected: golden.document, independentTextByPage: gridIndependent, projection }).rows.length, 123);
 const wrongIndependent = new Map(gridIndependent);
@@ -335,9 +469,37 @@ assert.equal(houseDocumentRowModelCandidateSchema.safeParse({
   ...modelCandidate,
   citations: [{ page: 1, evidenceDigest: "a".repeat(64) }],
 }).success, false, "the direct model must not echo trusted locator hashes");
-assert.deepEqual(bindHouseModelCandidateCitations({ candidate: modelCandidate, locators: citations }), candidate);
+assert.deepEqual(bindHouseModelCandidateCitations({
+  candidate: modelCandidate,
+  document: golden.document,
+  locators: citations,
+}), candidate);
+const reboundDocument = bindHouseModelCandidateCitations({
+  candidate: {
+    ...modelCandidate,
+    fields: { ...modelCandidate.fields, document: {
+      docId: "9115816", filerName: "Tony Wied", filingDate: "2026-04-01",
+      stateDistrict: "WI08", isAmendment: true,
+    } },
+  },
+  document: golden.document,
+  locators: citations,
+});
+assert.deepEqual(reboundDocument.fields.document, { ...golden.document, isAmendment: true },
+  "signed House index identity must replace model-echoed document identity without replacing amendment evidence");
+assert.deepEqual(
+  bindHouseCandidateDocumentIdentity({
+    candidate: { ...candidate, fields: { ...candidate.fields, document: {
+      ...candidate.fields.document, filerName: "MICHAEL MCCAUL",
+    } } },
+    document: golden.document,
+  }).fields.document,
+  candidate.fields.document,
+  "a durably persisted extraction candidate must receive the same signed document identity before replay validation",
+);
 assert.throws(() => bindHouseModelCandidateCitations({
   candidate: { ...modelCandidate, citations: [{ page: 8 }] },
+  document: golden.document,
   locators: citations,
 }), /citation_invalid/u, "an unknown page cannot be rebound into trusted evidence");
 const textByPage = new Map(golden.pages.map((_, index) => [index + 1,
@@ -503,14 +665,27 @@ const recovery = live ? HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION.create({
   initiatingWorkspaceId: "123e4567-e89b-42d3-a456-426614175599", modelId: "fixture/extractor",
   clients: { artifacts, jobs: memory, lineage: memory, globalBudget: memory },
   dependencies: {
-    async generateCandidate() {
+    async generateCandidate(input) {
       extractionCalls += 1;
-      return { candidate: recordedOutput?.candidate ?? candidate,
+      const fixtureCandidate = input.legacy ? bindHouseLegacyCandidate({
+        value: textTranscription,
+        grids: input.legacy.grids,
+        document: input.document,
+        locators: input.locators,
+      }) : candidate;
+      return { candidate: recordedOutput?.candidate ?? fixtureCandidate,
         usage: recordedOutput?.extractionUsage ?? { inputTokens: 16000, outputTokens: 14000, paidCostUsd: "0.086" } };
     },
     ocr: { async recognize({ page }) {
       ocrCalls += 1;
       return { text: replayTextByPage.get(page)!, usage: recordedOutput ? replayOcrUsage(recordedOutput, page) :
+        { inputTokens: 1000, outputTokens: 2000, paidCostUsd: "0.0065" } };
+    }, async recognizeLegacyGrid({ page }, grid) {
+      ocrCalls += 1;
+      const transcription = textTranscription.pages.find((entry) => entry.page === page)!;
+      return { text: recordedOutput ? replayTextByPage.get(page)! :
+        houseLegacyIndependentText({ pages: [transcription] }, page, grid),
+      usage: recordedOutput ? replayOcrUsage(recordedOutput, page) :
         { inputTokens: 1000, outputTokens: 2000, paidCostUsd: "0.0065" } };
     } },
   },

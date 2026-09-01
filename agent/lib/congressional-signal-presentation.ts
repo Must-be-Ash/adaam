@@ -5,6 +5,7 @@ import {
   CONGRESSIONAL_SIGNAL_NEUTRAL_CAVEAT,
   congressionalFilingSignalSchema,
 } from "./congressional-signal-schema";
+import { CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_2 } from "./congressional-reference-catalog";
 import {
   readCongressionalFilingSignal,
   readCongressionalHistory,
@@ -19,10 +20,29 @@ const MAX_TRANSACTION_EXPLANATIONS = 8;
 const MAX_SOURCE_RECORD_IDS = 8;
 
 export class CongressionalSignalPresentationError extends Error {
-  constructor(readonly code: "congressional_signal_not_found" | "congressional_signal_reference_invalid") {
+  constructor(readonly code:
+    | "congressional_member_ambiguous"
+    | "congressional_member_not_found"
+    | "congressional_signal_not_found"
+    | "congressional_signal_reference_invalid") {
     super(code);
     this.name = "CongressionalSignalPresentationError";
   }
+}
+
+function transactionPresentation(transaction: CongressionalHistoryRevision["activeEntries"][number]["transaction"]) {
+  return Object.freeze({
+    amountRange: transaction.amountRange.label,
+    asset: transaction.asset.description ?? "unreadable or missing",
+    filingDate: transaction.filingDate,
+    officialUrl: transaction.source.publicDocumentUrl,
+    ownerRelationship: transaction.owner.relationship,
+    page: transaction.source.page ?? null,
+    reportedTicker: transaction.asset.reportedTicker ?? null,
+    rowIdentity: transaction.source.rowIdentity,
+    transactionDate: transaction.transactionDate,
+    transactionType: transaction.transactionType,
+  });
 }
 
 export function explainCongressionalSignal(value: unknown) {
@@ -81,18 +101,73 @@ function effectiveSignalDelivery(history: CongressionalHistoryRevision, signalRe
   return Object.freeze({
     alertEligible: entries.some(({ alertEligible }) => alertEligible),
     band,
-    transactions: Object.freeze(entries.map(({ transaction }) => Object.freeze({
-      amountRange: transaction.amountRange.label,
-      asset: transaction.asset.description ?? "unreadable or missing",
-      filingDate: transaction.filingDate,
-      officialUrl: transaction.source.publicDocumentUrl,
-      ownerRelationship: transaction.owner.relationship,
-      page: transaction.source.page ?? null,
-      reportedTicker: transaction.asset.reportedTicker ?? null,
-      rowIdentity: transaction.source.rowIdentity,
-      transactionDate: transaction.transactionDate,
-      transactionType: transaction.transactionType,
-    }))),
+    transactions: Object.freeze(entries.map(({ transaction }) => transactionPresentation(transaction))),
+  });
+}
+
+function normalizeMemberSelector(value: string): string {
+  return value.replace(/\s+/gu, " ").trim().toLocaleLowerCase("en-US");
+}
+
+export async function readCongressionalMemberHistory(input: {
+  readonly member: string;
+  readonly scope: AuthorizedWorkspaceStoreScope;
+}, client?: CongressionalSignalStoreClient) {
+  const selector = normalizeMemberSelector(input.member);
+  const memberCatalog = CONGRESSIONAL_HOUSE_MEMBER_CATALOG_V1_2;
+  if (memberCatalog.kind !== "house_members") {
+    throw new CongressionalSignalPresentationError("congressional_member_not_found");
+  }
+  const matches = memberCatalog.entries.filter((entry) =>
+    entry.bioguideId.toLocaleLowerCase("en-US") === selector ||
+    normalizeMemberSelector(entry.officialName) === selector
+  );
+  if (matches.length === 0) {
+    throw new CongressionalSignalPresentationError("congressional_member_not_found");
+  }
+  if (matches.length !== 1) {
+    throw new CongressionalSignalPresentationError("congressional_member_ambiguous");
+  }
+  const member = matches[0]!;
+  const history = await readCongressionalHistory(input.scope, client);
+  const entries = (history?.activeEntries ?? []).filter(({ transaction }) =>
+    transaction.memberResolution.bioguideId === member.bioguideId
+  );
+  const filings = new Map<string, typeof entries>();
+  for (const entry of entries) {
+    const current = filings.get(entry.signalRevisionId) ?? [];
+    current.push(entry);
+    filings.set(entry.signalRevisionId, current);
+  }
+  return Object.freeze({
+    caveat: CONGRESSIONAL_SIGNAL_NEUTRAL_CAVEAT,
+    coverage: history ? Object.freeze({ ...history.coverage }) : null,
+    filings: Object.freeze([...filings.entries()].map(([signalRevisionId, filingEntries]) => {
+      const transactions = [...filingEntries]
+        .sort((left, right) => left.transaction.source.rowIdentity.localeCompare(
+          right.transaction.source.rowIdentity,
+          "en-US",
+          { numeric: true },
+        ))
+        .map(({ transaction }) => transactionPresentation(transaction));
+      const first = filingEntries[0]!.transaction;
+      return Object.freeze({
+        filingDate: first.filingDate,
+        observedAt: first.observedAt,
+        officialUrl: first.source.publicDocumentUrl,
+        signalRevisionId,
+        transactions: Object.freeze(transactions),
+      });
+    }).sort((left, right) =>
+      right.filingDate.localeCompare(left.filingDate) ||
+      right.observedAt.localeCompare(left.observedAt) ||
+      right.signalRevisionId.localeCompare(left.signalRevisionId)
+    )),
+    member: Object.freeze({
+      bioguideId: member.bioguideId,
+      officialName: member.officialName,
+      stateDistrict: member.sourceStateDistrict ?? `${member.state}${member.district}`,
+    }),
   });
 }
 

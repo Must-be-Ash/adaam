@@ -19,6 +19,7 @@ import {
 } from "../agent/lib/congressional-signal-schema";
 import {
   explainCongressionalSignal,
+  readCongressionalMemberHistory,
   readCongressionalSignalExplanation,
   readCongressionalWorkspacePresentation,
 } from "../agent/lib/congressional-signal-presentation";
@@ -152,12 +153,12 @@ const transactionCore = {
     security: reference("congressional-security-classifications", "1.1.0"),
   },
   createdAt: "2026-08-16T18:00:00.000Z",
-  disclosedMember: { firstName: "Fixture", lastName: "Member", prefix: null, stateDistrict: "OK01", suffix: null },
+  disclosedMember: { firstName: "Jared", lastName: "Moskowitz", prefix: null, stateDistrict: "FL23", suffix: null },
   disclosureLagDays: 10,
   eligibility: { reasonCodes: ["eligible"] as const, state: "eligible" as const },
   filingDate: "2026-08-16",
   lineage: { correctionId: null, priorRevisionId: null, retractionId: null, state: "active" as const },
-  memberResolution: { bioguideId: "H001082", state: "resolved" as const },
+  memberResolution: { bioguideId: "M001217", state: "resolved" as const },
   notificationDate: null,
   observedAt: "2026-08-16T18:00:00.000Z",
   owner: { disclosedCode: "SELF", relationship: "self" as const },
@@ -300,6 +301,35 @@ assert.deepEqual(manager.outcomeCounts, {
 assert.equal(manager.latestSignal?.signalRevisionId, signal.signalRevisionId);
 assert.equal(manager.latestSignal?.alertEligible, true);
 assert.equal(manager.latestSignal?.transactions[0]?.rowIdentity, transaction.source.rowIdentity);
+const moskowitzHistory = await readCongressionalMemberHistory({
+  member: "Jared Moskowitz",
+  scope,
+}, signalStore);
+assert.equal(moskowitzHistory.member.bioguideId, "M001217");
+assert.equal(moskowitzHistory.filings.length, 1);
+assert.equal(moskowitzHistory.filings[0]?.transactions[0]?.asset, "Fixture common stock");
+const pelosiHistory = await readCongressionalMemberHistory({
+  member: "Nancy Pelosi",
+  scope,
+}, signalStore);
+assert.equal(pelosiHistory.member.bioguideId, "P000197");
+assert.equal(pelosiHistory.filings.length, 0);
+assert.equal(JSON.stringify(pelosiHistory).includes("M001217"), false,
+  "A Pelosi history query must never expose the latest Moskowitz filing");
+const emptyHistory = await readCongressionalMemberHistory({
+  member: "Nancy Pelosi",
+  scope,
+}, new MemorySignalStore());
+assert.equal(emptyHistory.member.bioguideId, "P000197");
+assert.deepEqual(emptyHistory.filings, []);
+assert.equal(emptyHistory.coverage, null,
+  "an authorized workspace without a history record must expose unknown coverage, not transaction facts");
+assert.equal((await readCongressionalMemberHistory({ member: "M001217", scope }, signalStore))
+  .member.officialName, "Jared Moskowitz");
+await assert.rejects(
+  () => readCongressionalMemberHistory({ member: "Not A House Member", scope }, signalStore),
+  /congressional_member_not_found/u,
+);
 await assert.rejects(
   () => readCongressionalSignalExplanation({
     scope,
