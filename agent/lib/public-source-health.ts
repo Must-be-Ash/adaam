@@ -6,7 +6,6 @@ import {
   readPublicSourceAcquisitionJournal,
   readPublicSourceHealthRecord,
   readPublicSourceInstance,
-  readPublicSourcePendingWork,
   readPublicSourceSequenceStart,
   type PublicSourceAcquisitionStoreClient,
 } from "./public-source-acquisition-store";
@@ -135,13 +134,6 @@ export async function readPublicSourceWorkspaceHealth(input: {
     readPublicSourceSubscription(input.scope, input.reference.subscriptionId, input.clients?.subscription),
   ]);
   const source = storedSource ?? reviewed.sourceInstance;
-  const pendingWork = source.adapterId === "house-financial-disclosures"
-    ? await readPublicSourcePendingWork(
-        source.sourceInstanceId,
-        input.clients?.acquisition,
-        source.cursor.revision,
-      )
-    : null;
   const deliveryRevision = subscription?.deliveryCursor.revision ?? 0;
   // Delivery revisions count acknowledgements, not source acquisitions. The
   // journal pins the source position even after migration or skipped batches.
@@ -206,14 +198,13 @@ export async function readPublicSourceWorkspaceHealth(input: {
     lifecycleState: source.lifecycleState,
     runtimeState: runtimeState(reviewed.adapterDefinition.adapterId, input.environment ?? process.env),
     sourceId: input.reference.sourceId,
-    sourceBacklog: source.adapterId === "house-financial-disclosures"
+    sourceBacklog: source.adapterId === "house-financial-disclosures" &&
+        health?.backlog?.cursorRevision === source.cursor.revision
       ? {
           phase: source.cursor.watermark?.startsWith("baseline:")
             ? "initial_baseline"
             : "live",
-          unresolvedFilings: pendingWork?.cursorRevision === source.cursor.revision
-            ? pendingWork.pending.length
-            : 0,
+          unresolvedFilings: health.backlog.unresolvedFilings,
         }
       : null,
     subscription: {

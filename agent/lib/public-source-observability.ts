@@ -131,6 +131,10 @@ const healthOutcomeSchema = z.object({
 export const publicSourceHealthRecordSchema = z.object({
   adapterId: z.enum(PUBLIC_SOURCE_ADAPTER_IDS),
   adapterVersion: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u),
+  backlog: z.object({
+    cursorRevision: z.number().int().nonnegative(),
+    unresolvedFilings: z.number().int().nonnegative().max(10_000),
+  }).strict().nullable().optional(),
   cursor: healthCursorSchema,
   extraction: z.object({
     complete: z.number().int().nonnegative().max(500),

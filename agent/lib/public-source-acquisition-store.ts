@@ -420,6 +420,7 @@ function extractionSummary(input: {
 
 async function publishPublicSourceHealth(input: {
   readonly facts: readonly CanonicalPublicFactRevision[];
+  readonly pendingWork?: PublicSourcePendingWork;
   readonly result: PublicSourceAcquisitionResult;
   readonly source: PublicSourceInstance;
 }, client: PublicSourceAcquisitionStoreClient): Promise<void> {
@@ -440,6 +441,14 @@ async function publishPublicSourceHealth(input: {
     const next = publicSourceHealthRecordSchema.parse({
       adapterId: input.result.adapterId,
       adapterVersion: input.result.adapterVersion,
+      backlog: input.result.adapterId === "house-financial-disclosures"
+        ? input.pendingWork
+          ? {
+              cursorRevision: input.pendingWork.cursorRevision,
+              unresolvedFilings: input.pendingWork.pending.length,
+            }
+          : previous?.backlog ?? null
+        : null,
       cursor: input.source.cursor,
       extraction: extractionSummary(input, previous),
       lastCompleteAcquisition: successful
@@ -1133,7 +1142,12 @@ export async function commitPublicSourceAcquisition(input: {
     sourceInstanceId: result.sourceInstanceId,
     window: input.acquisition.window,
   }, result.acquisitionId, client);
-  await publishPublicSourceHealth({ facts, result, source: sourceInstance }, client);
+  await publishPublicSourceHealth({
+    facts,
+    pendingWork: input.acquisition.pendingWork,
+    result,
+    source: sourceInstance,
+  }, client);
   return Object.freeze({
     correctionsCreated,
     correctionsReused,
