@@ -454,7 +454,7 @@ export const inverseCramerSemanticValidationContract: WorkspaceSemanticValidatio
     },
   });
 
-export const PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS = ["1.0.0", "1.0.1"] as const;
+export const PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS = ["1.0.0", "1.0.1", "1.0.2"] as const;
 
 export function createPublicCommentaryImpactDefinition(
   modelIds: readonly string[],
@@ -489,7 +489,15 @@ export function createPublicCommentaryImpactDefinition(
     limits: {
       maximumAttempts: 1,
       maximumEvidenceBytes: 25_000,
-      maximumInputTokens: 24_000,
+      /*
+       * Production classifier calls normally report roughly 30k cumulative
+       * input tokens. Eve lets the call that crosses a session limit finish,
+       * but a task-mode session whose first response needs a tool-repair turn
+       * cannot start that turn when the historical 24k window is already
+       * exhausted. Version 1.0.2 leaves room to begin one bounded recovery
+       * turn; historical pack versions retain the limit they shipped with.
+       */
+      maximumInputTokens: definitionVersion === "1.0.2" ? 40_000 : 24_000,
       maximumOutputTokens: 4_000,
       maximumPages: 0,
       /*

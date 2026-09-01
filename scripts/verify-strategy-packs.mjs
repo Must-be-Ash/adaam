@@ -414,6 +414,7 @@ assert.deepEqual(
     "public-commentary-tracker@1.3.1",
     "public-commentary-tracker@1.4.0",
     "public-commentary-tracker@1.5.0",
+    "public-commentary-tracker@1.5.1",
   ],
 );
 const productionPack = productionCheck.entries.find(
