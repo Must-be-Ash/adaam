@@ -928,7 +928,8 @@ export async function evaluateCongressionalSignalsForWorker(input: {
     sourceId: source.sourceId,
   }, input.clients?.sourceCoverage);
   const outcome = await commitDeterministicWorkspaceEvaluationForWorker({
-    sourcePending: coordinated.deliveryPending,
+    sourcePending: coordinated.deliveryPending === true ||
+      coordinated.sourceContinuationPending === true,
     alertPresentation: alertPresentation(alertEvaluations),
     checkpoint,
     clients: input.clients,

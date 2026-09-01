@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
+import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
+
 import {
   PUBLIC_SOURCE_RUNTIME_COUNTERS,
   parsePublicSourceRuntimeObservation,
@@ -375,10 +377,47 @@ const houseA = await coordinatePublicSourceOccurrence({
 assert.equal(houseA.acquisition.status, "complete");
 assert.equal(houseA.acquisition.coverage, "unsupported");
 assert.equal(houseA.unresolvedFilingCount, 1);
+assert.equal(houseA.sourceContinuationPending, false,
+  "a filing whose retry is deferred must not cause one-minute polling loops");
 assert.equal(houseA.projection?.projections.length, 0, "unresolved headers must not be projected");
 assert.ok(houseA.workspaceCheckpoint);
 assert.ok(houseA.acquisition.proposedNextCursor);
 assert.equal(houseFetches, 2);
+
+const queuedStore = new MemoryStore();
+const queuedWriter = new ZipWriter(new Uint8ArrayWriter());
+const queuedRows = Array.from({ length: 26 }, (_, index) => `
+  <Member><Prefix>Hon.</Prefix><Last>Sample</Last><First>Jordan</First><Suffix>Jr.</Suffix>
+    <FilingType>P</FilingType><StateDst>OR03</StateDst><Year>2026</Year>
+    <FilingDate>3/4/2026</FilingDate><DocID>${21_100_000 + index}</DocID></Member>`).join("");
+await queuedWriter.add("2026FD.xml", new TextReader(
+  `<?xml version="1.0" encoding="UTF-8"?><FinancialDisclosure>${queuedRows}</FinancialDisclosure>`,
+));
+const queuedArchive = await queuedWriter.close();
+const queuedAt = "2026-08-15T18:31:00.000Z";
+const queued = await coordinatePublicSourceOccurrence({
+  clients: { acquisition: queuedStore, subscription: queuedStore },
+  environment: fullyEnabled,
+  fetch: {
+    adapterId: "house-financial-disclosures",
+    fetchDocument: async (url) => ({
+      body: new Uint8Array(scannedPdf), contentType: "application/pdf", finalUrl: url,
+      observedAt: queuedAt, requestedUrl: url, status: 200,
+    }),
+    fetchIndex: async (url) => ({
+      body: new Uint8Array(queuedArchive), contentType: "application/zip", finalUrl: url,
+      observedAt: queuedAt, requestedUrl: url, status: 200,
+    }),
+  },
+  monitor: monitor({ monitorId: houseMonitorA, sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID, workspaceId: workspaceA }),
+  observedAt: new Date(queuedAt),
+  scope: scopeA,
+  sourceId: HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID,
+  window: { startAt: houseObservedAt, endAt: queuedAt },
+});
+assert.equal(queued.unresolvedFilingCount, 26);
+assert.equal(queued.sourceContinuationPending, true,
+  "unattempted archive filings must schedule another bounded source page");
 
 const referenceB = resolvePublicSourceWorkspaceReference({
   monitorId: houseMonitorB,

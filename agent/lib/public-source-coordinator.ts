@@ -153,6 +153,7 @@ export interface PublicSourceCoordinatorResult {
   readonly deliveryThroughRevision?: number;
   readonly unresolvedFilingCount?: number;
   readonly sourceRetryAfterSeconds?: number;
+  readonly sourceContinuationPending?: boolean;
   readonly deliveryAcquisitionId?: string;
   readonly deliveryPending?: boolean;
   readonly acquisition: PublicSourceAcquisitionResult;
@@ -564,8 +565,13 @@ export async function coordinatePublicSourceOccurrence(input: {
   });
   const pendingWork = houseFetch ? await readPublicSourcePendingWork(shared.acquisition.sourceInstanceId,
     input.clients?.acquisition, deliveryThroughRevision + 1) : null;
+  const continuationObservedAtMs = Date.parse(shared.acquisition.observedAt);
+  const sourceContinuationPending = pendingWork?.cursorRevision === deliveryThroughRevision + 1 &&
+    pendingWork.pending.some(({ nextAttemptAt }) =>
+      nextAttemptAt === null || Date.parse(nextAttemptAt) <= continuationObservedAtMs);
   return Object.freeze({
     ...(pendingWork?.cursorRevision === deliveryThroughRevision + 1 ? { unresolvedFilingCount: pendingWork.pending.length } : {}),
+    ...(houseFetch ? { sourceContinuationPending } : {}),
     deliveryAcquisitionId: deliveryAcquisition.acquisitionId,
     ...(houseFetch ? { deliveryThroughRevision } : {}),
     deliveryPending,

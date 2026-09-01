@@ -858,9 +858,15 @@ for (let page = 0; page < 5; page++) {
       fetchIndex: async (url) => response(pagedArchive, "application/zip", url, now.toISOString()),
       fetchDocument: async (url) => response(pagedPdf, "application/pdf", url, now.toISOString()),
     }, ctx: { session: { auth: { current: prepared.request.auth } } }, environment, now });
-    if (page === 0 || page === 1) {
+    if (page === 0) {
+      assert.equal(result.outcome.outcome, "source_pending",
+        "an immediately actionable archive page must arm a bounded continuation");
+      assert.equal((await getWorkspaceMonitor(pagedWorkspace.scope, monitor.monitorId, monitorStore))!
+        .sourceCheckpoint.contentDigest, null, "the initial baseline checkpoint stays open between pages");
+    } else if (page === 1) {
       assert.equal(result.outcome.outcome, "no_match");
-      assert.ok((await getWorkspaceMonitor(pagedWorkspace.scope, monitor.monitorId, monitorStore))!.sourceCheckpoint.contentDigest);
+      assert.ok((await getWorkspaceMonitor(pagedWorkspace.scope, monitor.monitorId, monitorStore))!
+        .sourceCheckpoint.contentDigest, "the checkpoint closes only after the actionable archive queue drains");
     }
   } catch (error) {
     assert.ok(error instanceof CongressionalWorkspaceWorkerError && error.code === "congressional_source_unavailable", String(error));
