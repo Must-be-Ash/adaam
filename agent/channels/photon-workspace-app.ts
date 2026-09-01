@@ -1384,7 +1384,7 @@ export function workspaceHtml(nonce: string, origin: string): string {
             selectAllButton.textContent = "Select all";
             const clearButton = document.createElement("button");
             clearButton.type = "button";
-            clearButton.textContent = "Clear";
+            clearButton.textContent = "Clear custom list";
             tools.append(selectAllButton, clearButton);
             const selectorStatus = document.createElement("p");
             const statusId = id + "-status";
@@ -1409,15 +1409,13 @@ export function workspaceHtml(nonce: string, origin: string): string {
               }
             });
             selectAllButton.addEventListener("click", () => {
-              let selected = 0;
-              for (const option of control.options) {
-                if (option.hidden || selected >= field.maximumItems) { option.selected = false; continue; }
-                option.selected = true;
-                selected += 1;
-              }
-              announceSelection(selected >= field.maximumItems
-                ? "Selection capped at " + field.maximumItems + " — use Clear to monitor everyone"
-                : "Selected " + selected);
+              // An empty canonical-id list is the signed strategy contract for
+              // every current catalog member. Keep that compact sentinel instead
+              // of materializing hundreds of IDs or silently capping “Select all”.
+              for (const option of control.options) option.selected = false;
+              search.value = "";
+              for (const option of control.options) option.hidden = false;
+              announceSelection("All current members are monitored");
             });
             clearButton.addEventListener("click", () => {
               for (const option of control.options) option.selected = false;

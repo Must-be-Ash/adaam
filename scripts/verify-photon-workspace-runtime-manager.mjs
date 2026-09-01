@@ -133,5 +133,15 @@ assert.match(
 assert.match(source, /className = "pack-danger"/u);
 assert.match(source, /element\.disabled = busy/u);
 assert.match(source, /if \(error && error\.status === 409\) await load\(\)/u);
+assert.match(
+  source,
+  /selectAllButton\.addEventListener\("click", \(\) => \{[\s\S]+for \(const option of control\.options\) option\.selected = false;[\s\S]+announceSelection\("All current members are monitored"\);/u,
+  "Select all must encode the empty all-members sentinel instead of a capped explicit watchlist.",
+);
+assert.equal(
+  source.includes("Selection capped at "),
+  false,
+  "The manager must not present a capped subset as Select all.",
+);
 
 console.info("Photon workspace runtime manager verification passed.");
