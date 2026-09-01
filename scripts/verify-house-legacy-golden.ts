@@ -145,6 +145,22 @@ for (const [index, grid] of gridPages.entries()) for (const view of grid!.region
 await assert.rejects(readHouseLegacyGrid({ ...projection.pages[0]!, evidenceDigest: "0".repeat(64) }),
   /artifact_digest_mismatch/u, "tampered page bytes cannot become grid evidence");
 const { createCanvas, loadImage } = await import("@napi-rs/canvas");
+const separatorSource = separatorProjection.pages[1]!;
+const separatorCanvas = createCanvas(separatorSource.width, separatorSource.height);
+const separatorContext = separatorCanvas.getContext("2d");
+separatorContext.drawImage(await loadImage(Buffer.from(separatorSource.imageBase64, "base64")), 0, 0);
+separatorContext.fillStyle = "black";
+for (const y of [.72, .76, .8, .84, .88]) {
+  separatorContext.fillRect(separatorCanvas.width * .74, separatorCanvas.height * y,
+    separatorCanvas.width * .18, separatorCanvas.height * .006);
+}
+const contentSeparatorBytes = separatorCanvas.toBuffer("image/png");
+assert.equal(await readHouseScannerSeparatorPage({
+  ...separatorSource,
+  byteCount: contentSeparatorBytes.byteLength,
+  evidenceDigest: createHash("sha256").update(contentSeparatorBytes).digest("hex"),
+  imageBase64: contentSeparatorBytes.toString("base64"),
+}), false, "separator rule geometry with transaction-like dark content must remain unclassified");
 async function changedGridPage(edit: (context: ReturnType<ReturnType<typeof createCanvas>["getContext"]>) => void) {
   const original = projection.pages[0]!;
   const canvas = createCanvas(original.width, original.height);
@@ -357,6 +373,13 @@ for (const mutate of [
 }
 const gridIndependent = new Map(textTranscription.pages.map((page) =>
   [page.page, houseLegacyIndependentText({ pages: [page] }, page.page, gridMap.get(page.page)!)]));
+const headingOnlyGrid = {
+  ...gridMap.get(1)!,
+  rows: gridMap.get(1)!.rows.map((row) => ({ ...row, transactionType: null, amountLetter: null })),
+};
+assert.match(houseLegacyIndependentText({ pages: [{ ...textTranscription.pages[0]!, rows: [] }] }, 1,
+  headingOnlyGrid), /no_transaction_rows=true/u,
+  "a deterministically decoded heading-only legacy page must be valid independent evidence");
 assert.equal(validateHouseDocumentRowCandidate({ artifactDigest: golden.sha256, candidate,
   expected: golden.document, independentTextByPage: gridIndependent, projection }).rows.length, 123);
 const wrongIndependent = new Map(gridIndependent);
@@ -642,14 +665,27 @@ const recovery = live ? HOUSE_HYBRID_EVIDENCE_RECOVERY_REGISTRATION.create({
   initiatingWorkspaceId: "123e4567-e89b-42d3-a456-426614175599", modelId: "fixture/extractor",
   clients: { artifacts, jobs: memory, lineage: memory, globalBudget: memory },
   dependencies: {
-    async generateCandidate() {
+    async generateCandidate(input) {
       extractionCalls += 1;
-      return { candidate: recordedOutput?.candidate ?? candidate,
+      const fixtureCandidate = input.legacy ? bindHouseLegacyCandidate({
+        value: textTranscription,
+        grids: input.legacy.grids,
+        document: input.document,
+        locators: input.locators,
+      }) : candidate;
+      return { candidate: recordedOutput?.candidate ?? fixtureCandidate,
         usage: recordedOutput?.extractionUsage ?? { inputTokens: 16000, outputTokens: 14000, paidCostUsd: "0.086" } };
     },
     ocr: { async recognize({ page }) {
       ocrCalls += 1;
       return { text: replayTextByPage.get(page)!, usage: recordedOutput ? replayOcrUsage(recordedOutput, page) :
+        { inputTokens: 1000, outputTokens: 2000, paidCostUsd: "0.0065" } };
+    }, async recognizeLegacyGrid({ page }, grid) {
+      ocrCalls += 1;
+      const transcription = textTranscription.pages.find((entry) => entry.page === page)!;
+      return { text: recordedOutput ? replayTextByPage.get(page)! :
+        houseLegacyIndependentText({ pages: [transcription] }, page, grid),
+      usage: recordedOutput ? replayOcrUsage(recordedOutput, page) :
         { inputTokens: 1000, outputTokens: 2000, paidCostUsd: "0.0065" } };
     } },
   },

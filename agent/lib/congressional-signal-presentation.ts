@@ -146,7 +146,7 @@ export async function readCongressionalMemberHistory(input: {
       const transactions = [...filingEntries]
         .sort((left, right) => left.transaction.source.rowIdentity.localeCompare(
           right.transaction.source.rowIdentity,
-          undefined,
+          "en-US",
           { numeric: true },
         ))
         .map(({ transaction }) => transactionPresentation(transaction));

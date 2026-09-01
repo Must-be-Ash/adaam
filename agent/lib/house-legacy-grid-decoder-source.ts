@@ -149,7 +149,20 @@ const readScannerSeparator = (canvas) => {
     ys[0] > .05 && ys[0] < .08 && ys[3] < .14 && ys[4] > .25 && ys[4] < .35 &&
     ys.slice(1, 4).every((value, index) => value - ys[index] > .012 && value - ys[index] < .025) &&
     xs[0] > .05 && xs[0] < .08 && xs[3] < .16 &&
-    xs.slice(1).every((value, index) => value - xs[index] > .015 && value - xs[index] < .035);
+    xs.slice(1).every((value, index) => value - xs[index] > .015 && value - xs[index] < .035) &&
+    (() => {
+      let nonRuleInk = 0, blankZoneInk = 0;
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        if (!dark(x, y) || ys.some((line) => Math.abs(y / height - line) <= 2 / height) ||
+            xs.some((line) => Math.abs(x / width - line) <= 2 / width)) continue;
+        nonRuleInk++;
+        // The lower-right quadrant is deliberately blank on the signed Patch-T
+        // separator form. Disclosure content placed over the same rule geometry
+        // must not inherit separator status from those rules alone.
+        if (x > width * .7 && y > height * .65) blankZoneInk++;
+      }
+      return nonRuleInk <= width * height * .09 && blankZoneInk <= width * height * .0002;
+    })();
 };
 const chunks = [];
 for await (const chunk of process.stdin) chunks.push(chunk);

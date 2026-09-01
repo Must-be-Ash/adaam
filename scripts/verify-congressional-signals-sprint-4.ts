@@ -316,6 +316,14 @@ assert.equal(pelosiHistory.member.bioguideId, "P000197");
 assert.equal(pelosiHistory.filings.length, 0);
 assert.equal(JSON.stringify(pelosiHistory).includes("M001217"), false,
   "A Pelosi history query must never expose the latest Moskowitz filing");
+const emptyHistory = await readCongressionalMemberHistory({
+  member: "Nancy Pelosi",
+  scope,
+}, new MemorySignalStore());
+assert.equal(emptyHistory.member.bioguideId, "P000197");
+assert.deepEqual(emptyHistory.filings, []);
+assert.equal(emptyHistory.coverage, null,
+  "an authorized workspace without a history record must expose unknown coverage, not transaction facts");
 assert.equal((await readCongressionalMemberHistory({ member: "M001217", scope }, signalStore))
   .member.officialName, "Jared Moskowitz");
 await assert.rejects(
