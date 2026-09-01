@@ -9,6 +9,7 @@ import {
   strategyPackCreateSelectionRequest,
   strategyPackRemoveSelectionRequest,
 } from "../agent/lib/strategy-pack-service";
+import { strategyPackCompatibilityInstruction } from "../agent/instructions/strategy-pack";
 
 const environment = {
   EVE_STRATEGY_PACK_CATALOG_ENABLED: "1",
@@ -147,9 +148,10 @@ assert.throws(
   /strategy_pack_unavailable/u,
 );
 
-const [managerSource, statusToolSource] = await Promise.all([
+const [managerSource, statusToolSource, congressionalHistoryToolSource] = await Promise.all([
   readFile(new URL("../agent/channels/photon-workspace-app.ts", import.meta.url), "utf8"),
   readFile(new URL("../agent/tools/get_workspace_status.ts", import.meta.url), "utf8"),
+  readFile(new URL("../agent/tools/query_congressional_history.ts", import.meta.url), "utf8"),
 ]);
 for (const source of [managerSource, statusToolSource]) {
   assert.match(source, /readEarningsCallWorkspacePresentation/u,
@@ -163,5 +165,11 @@ assert.match(
 assert.match(managerSource, /resolutionEpoch \+= 1/u, "editing a profile invalidates any in-flight identity resolution");
 assert.match(managerSource, /requestEpoch !== resolutionEpoch \|\| profile\.value !== requestedProfile/u);
 assert.match(managerSource, /resolutionReceipt/u, "the confirmed identity carries a signed, scoped receipt into creation");
+assert.match(congressionalHistoryToolSource,
+  /readCongressionalMemberHistory\(\{ member: input\.member, scope \}\)/u,
+  "the member-history tool must apply the member selector inside the authenticated workspace read");
+assert.match(strategyPackCompatibilityInstruction({ id: "congressional-signals", version: "1.6.0" }) ?? "",
+  /Never answer a member-specific history question from the latest signal/u);
+assert.equal(strategyPackCompatibilityInstruction({ id: "ipo-filings", version: "1.1.2" }), null);
 
 console.info("Strategy-pack owner surface verification passed.");
