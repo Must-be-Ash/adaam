@@ -32,7 +32,7 @@ const gridSchema = z.object({
     region: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1),
       width: z.number().positive().max(1), height: z.number().positive().max(1) }).strict(),
   }).strict()).min(1).max(7),
-  columns: z.array(z.number().int().nonnegative().max(2400)).length(19),
+  columns: z.array(z.number().int().nonnegative().max(2400)).min(19).max(20),
   rows: z.array(z.object({
     top: z.number().int().nonnegative().max(2400),
     bottom: z.number().int().positive().max(2400),
@@ -94,7 +94,7 @@ export function validateHouseLegacyGrid(value: unknown, page: HybridEvidencePdfP
     const bottom = index === 0 ? grid.rows[0]!.top : grid.rows[view.lastRow - 1]!.bottom;
     const x = Math.max(0, grid.columns[0]! - 4);
     const y = Math.max(0, top - 3);
-    const width = Math.min(page.width - x, grid.columns[18]! + 5 - x);
+    const width = Math.min(page.width - x, grid.columns[grid.columns.length - 1]! + 5 - x);
     const height = Math.min(page.height - y, bottom + 3 - y);
     if (Math.abs(view.region.x * page.width - x) > 1e-7 ||
         Math.abs(view.region.y * page.height - y) > 1e-7 ||
@@ -109,6 +109,8 @@ export function validateHouseLegacyGrid(value: unknown, page: HybridEvidencePdfP
  * cannot shift the row association. Every pixel is an unmodified source crop. */
 export async function readHouseLegacyIndependentViews(page: HybridEvidencePdfPage, grid: HouseLegacyGrid) {
   validateHouseLegacyGrid(grid, page);
+  const amountStart = grid.columns.length - 12;
+  const dateStart = amountStart - 2;
   const rectangle = (left: number, top: number, right: number, bottom: number) => ({
     x: left / page.width, y: top / page.height,
     width: (right - left) / page.width, height: (bottom - top) / page.height,
@@ -116,12 +118,12 @@ export async function readHouseLegacyIndependentViews(page: HybridEvidencePdfPag
   const descriptors = [
     { description: `Same page ${page.page}, header only; no transactions.`, region: grid.regions[0]!.region },
     { description: `Same page ${page.page}, Clerk stamp detail; no transactions.`,
-      region: rectangle(Math.max(0, grid.columns[5]! - 4), 0,
-        Math.min(page.width, grid.columns[18]! + 5), grid.rows[0]!.top) },
+      region: rectangle(Math.max(0, grid.columns[dateStart]! - 4), 0,
+        Math.min(page.width, grid.columns[grid.columns.length - 1]! + 5), grid.rows[0]!.top) },
     ...grid.rows.flatMap((row, index) => row.transactionType === null ? [] : [{
       description: `Same page ${page.page}, exactly one row: ${houseLegacyRowKey(index + 1)}, exact crop.`,
       region: rectangle(Math.max(0, grid.columns[0]! - 4), Math.max(0, row.top - 3),
-        Math.min(page.width, grid.columns[7]! + 4), Math.min(page.height, row.bottom + 3)),
+        Math.min(page.width, grid.columns[amountStart]! + 4), Math.min(page.height, row.bottom + 3)),
     }]),
   ];
   const images = await projectHybridEvidencePdfRegions({ page, regions: descriptors.map((view) => view.region) });

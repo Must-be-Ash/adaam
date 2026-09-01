@@ -20,20 +20,18 @@ const readHouseGrid = (canvas) => {
   for (let y = 0; y < height; y++) {
     let count = 0;
     for (let x = 0; x < width; x++) if (dark(x, y)) count++;
-    if (count > width * .65) horizontal.push(y);
+    if (count > width * .55) horizontal.push(y);
   }
   const ys = groups(horizontal);
   if (ys.length < 7 || ys.length > 43) return null;
   const gaps = ys.slice(1).map((y, i) => y - ys[i]);
   const header = gaps.indexOf(Math.max(...gaps));
   if (header !== 1 || gaps[header] < height * .15) return null;
-  const rowLines = ys.slice(header + 1);
-  const rowHeights = rowLines.slice(1).map((y, i) => y - rowLines[i]);
-  const medianHeight = [...rowHeights].sort((a, b) => a - b)[Math.floor(rowHeights.length / 2)];
-  if (medianHeight < height * .012 || medianHeight > height * .045 ||
-      rowHeights.some((h) => h < medianHeight * .75 || h > medianHeight * 1.3)) return null;
   const vertical = [], radius = Math.ceil(width / 800);
-  const top = ys[1] + radius, bottom = ys[ys.length - 1] - radius;
+  // Read the printed column boundaries from the column-label band. Continuation
+  // pages can place a notes table directly below the transaction table, so
+  // scanning to the last horizontal line would discard otherwise exact grids.
+  const top = ys[header] + radius, bottom = ys[header + 1] - radius;
   for (let x = radius; x < width - radius; x++) {
     let count = 0;
     for (let y = top; y < bottom; y++) {
@@ -42,15 +40,46 @@ const readHouseGrid = (canvas) => {
     if (count > (bottom - top) * .8) vertical.push(x);
   }
   const xs = groups(vertical);
-  // Owner, asset, P/S/E, two dates, and eleven A-K columns. Never infer a
-  // missing line: any other layout falls back to the normal evidence path.
-  if (xs.length !== 19) return null;
+  // Owner, asset, either P/S/E or P/S/Partial Sale/E, two dates, and eleven
+  // A-K columns. Never infer a missing line: any other layout falls back to
+  // the normal evidence path. House prints Partial Sale as a sale.
+  if (xs.length !== 19 && xs.length !== 20) return null;
+  const transactionLabels = xs.length === 20 ? "PSSE" : "PSE";
+  const amountStart = xs.length - 12;
+  const dateStart = amountStart - 2;
+  const minimumOwnerWidth = xs.length === 20 ? .7 : 2;
+  const minimumAssetWidth = xs.length === 20 ? 6 : 15;
   const widths = xs.slice(1).map((x, i) => x - xs[i]);
-  const unit = widths.slice(7).reduce((a, b) => a + b, 0) / 11;
-  if (widths.slice(7).some((w) => Math.abs(w - unit) > unit * .15) ||
-      widths.slice(2, 5).some((w) => w < unit * .8 || w > unit * 1.3) ||
-      widths[1] < unit * 15 || widths[0] < unit * 2 || widths[0] > unit * 4 ||
-      widths.slice(5, 7).some((w) => w < unit * 2.5 || w > unit * 4.5)) return null;
+  const unit = widths.slice(amountStart).reduce((a, b) => a + b, 0) / 11;
+  if (widths.slice(amountStart).some((w) => Math.abs(w - unit) > unit * .15) ||
+      widths.slice(2, dateStart).some((w) => w < unit * .8 || w > unit * 1.3) ||
+      widths[1] < unit * minimumAssetWidth || widths[0] < unit * minimumOwnerWidth || widths[0] > unit * 4 ||
+      widths.slice(dateStart, amountStart).some((w) => w < unit * 2.5 || w > unit * 4.5)) return null;
+  // The full first-page form includes one printed example row below the column
+  // labels. Continuation pages do not repeat it, and the P/S/E form omits it.
+  const allCandidateRowLines = ys.slice(header + 1);
+  const candidateRowLines = xs.length === 20 && ys[0] > height * .4
+    ? allCandidateRowLines.slice(1) : allCandidateRowLines;
+  const rowLines = [candidateRowLines[0]];
+  for (let index = 1; index < candidateRowLines.length; index++) {
+    const rowTop = candidateRowLines[index - 1], rowBottom = candidateRowLines[index];
+    let failedBoundaries = 0;
+    for (const x of xs) {
+      let selected = 0, samples = 0;
+      for (let y = rowTop + radius; y < rowBottom - radius; y++) {
+        samples++;
+        for (let dx = -radius; dx <= radius; dx++) if (dark(x + dx, y)) { selected++; break; }
+      }
+      if (samples === 0 || selected / samples <= .7) failedBoundaries++;
+      if (failedBoundaries > 1) break;
+    }
+    if (failedBoundaries > 1) break;
+    rowLines.push(rowBottom);
+  }
+  const rowHeights = rowLines.slice(1).map((y, i) => y - rowLines[i]);
+  const medianHeight = [...rowHeights].sort((a, b) => a - b)[Math.floor(rowHeights.length / 2)];
+  if (rowHeights.length === 0 || medianHeight < height * .012 || medianHeight > height * .045 ||
+      rowHeights.some((h) => h < medianHeight * .65 || h > medianHeight * 1.3)) return null;
   const rows = rowLines.slice(0, -1).map((top, index) => {
     const bottom = rowLines[index + 1];
     const density = (column) => {
@@ -70,12 +99,12 @@ const readHouseGrid = (canvas) => {
       if (selected.length !== 1 || marks.some((score, i) => i !== selected[0] && score >= .12)) throw new Error("column_mapping_ambiguous");
       return labels[selected[0]];
     };
-    const transactionType = select(2, 3, "PSE");
-    const amountLetter = select(7, 11, "ABCDEFGHIJK");
+    const transactionType = select(2, transactionLabels.length, transactionLabels);
+    const amountLetter = select(amountStart, 11, "ABCDEFGHIJK");
     if ((transactionType === null) !== (amountLetter === null)) throw new Error("column_mapping_ambiguous");
     // A section heading has no dates. Never silently discard a dated row whose
     // transaction/amount marks are missing or too faint to recognize.
-    if (transactionType === null && (density(5) >= .035 || density(6) >= .035)) throw new Error("column_mapping_ambiguous");
+    if (transactionType === null && (density(dateStart) >= .035 || density(dateStart + 1) >= .035)) throw new Error("column_mapping_ambiguous");
     return { top, bottom, transactionType, amountLetter };
   });
   return { columns: xs, rows };
@@ -106,7 +135,7 @@ try {
       for (const span of spans) {
         const x = Math.max(0, grid.columns[0] - 4);
         const y = Math.max(0, span.top - 3);
-        const width = Math.min(image.width - x, grid.columns[18] + 5 - x);
+        const width = Math.min(image.width - x, grid.columns[grid.columns.length - 1] + 5 - x);
         const height = Math.min(image.height - y, span.bottom + 3 - y);
         const crop = createCanvas(width, height);
         crop.getContext("2d").drawImage(image, x, y, width, height, 0, 0, width, height);

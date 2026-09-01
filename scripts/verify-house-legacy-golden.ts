@@ -75,6 +75,17 @@ for (const [index, grid] of gridPages.entries()) {
     `every selected cell on page ${index + 1} must agree with the source-corrected golden`);
   assert.equal(grid.sourceEvidenceDigest, projection.pages[index]!.evidenceDigest);
 }
+const fourColumnPdf = new Uint8Array(await readFile(new URL("ptr-9115812.pdf", root)));
+assert.equal(createHash("sha256").update(fourColumnPdf).digest("hex"),
+  "f482dc24b86f6099b22cb2ad15cc400f63eefdaa54354e779832f6a337a962c8");
+const fourColumnProjection = await projectHybridEvidencePdf(fourColumnPdf, { maximumRenderEdge: 2400 });
+const fourColumnGrids = await Promise.all(fourColumnProjection.pages.map(readHouseLegacyGrid));
+assert.deepEqual(fourColumnGrids.map((page) => page?.columns.length), [20, 20]);
+assert.deepEqual(fourColumnGrids.map((page) => page?.rows.map((row) =>
+  [row.transactionType, row.amountLetter])), [
+  [["P", "B"], ["P", "C"], ["P", "B"], ["P", "C"]],
+  [["P", "B"], ["P", "B"], ["P", "B"], ["P", "C"], ["P", "C"], ["P", "B"], ["P", "C"], ["P", "B"]],
+], "the four-column form must exclude its printed example and trailing notes while preserving every real row");
 // Every attached detail image must reproduce from its signed source region.
 for (const [index, grid] of gridPages.entries()) for (const view of grid!.regions) {
   const reread = await readHybridEvidencePdfPage({ evidenceDigest: view.evidenceDigest,
@@ -98,6 +109,36 @@ const grid = gridPages[0]!;
 const independentViews = await readHouseLegacyIndependentViews(projection.pages[0]!, grid);
 assert.equal(independentViews.length, 27, "two header views and exactly 25 transaction views");
 const sourceImage = await loadImage(Buffer.from(projection.pages[0]!.imageBase64, "base64"));
+const partialSaleColumnWidth = grid.columns[4]! - grid.columns[3]!;
+const partialSaleColumnLeft = grid.columns[4]!;
+const assetColumnLeft = grid.columns[1]!;
+const transactionColumnsLeft = grid.columns[2]!;
+const fourTransactionColumnPage = await changedGridPage((context) => {
+  context.fillStyle = "white";
+  context.fillRect(0, 0, sourceImage.width, sourceImage.height);
+  context.drawImage(sourceImage,
+    0, 0, assetColumnLeft, sourceImage.height,
+    0, 0, assetColumnLeft, sourceImage.height);
+  context.drawImage(sourceImage,
+    assetColumnLeft, 0, transactionColumnsLeft - assetColumnLeft, sourceImage.height,
+    assetColumnLeft, 0, transactionColumnsLeft - assetColumnLeft - partialSaleColumnWidth, sourceImage.height);
+  context.drawImage(sourceImage,
+    transactionColumnsLeft, 0, partialSaleColumnLeft - transactionColumnsLeft, sourceImage.height,
+    transactionColumnsLeft - partialSaleColumnWidth, 0,
+    partialSaleColumnLeft - transactionColumnsLeft, sourceImage.height);
+  context.drawImage(sourceImage,
+    partialSaleColumnLeft, 0, sourceImage.width - partialSaleColumnLeft, sourceImage.height,
+    partialSaleColumnLeft, 0, sourceImage.width - partialSaleColumnLeft, sourceImage.height);
+});
+const fourTransactionColumnGrid = await readHouseLegacyGrid(fourTransactionColumnPage);
+assert.ok(fourTransactionColumnGrid, "legacy grids with a distinct Partial Sale column must be recognized");
+assert.equal(fourTransactionColumnGrid.columns.length, 20);
+assert.deepEqual(
+  fourTransactionColumnGrid.rows.filter((row) => row.transactionType !== null)
+    .map((row) => [row.transactionType, row.amountLetter]),
+  golden.pages[0]!.map((row) => [row[2], row[3]]),
+  "inserting an unselected Partial Sale column must preserve every transaction and amount mark",
+);
 for (const [index, view] of independentViews.entries()) {
   const source = projection.pages[0]!;
   const x = Math.round(view.region.x * source.width), y = Math.round(view.region.y * source.height);
