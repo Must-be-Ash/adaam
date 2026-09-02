@@ -54,6 +54,13 @@ a bar-based volume chart, order-book depth, a comparison table, and sources requ
 
 External-evidence research always requires `sources`. Do not bury URLs only in prose.
 
+Before the one allowed `publish_report` call, verify every declared requirement has a
+matching structured field or block in the exact payload you are about to submit. In
+particular, `table` requires a table block and each chart requirement requires a chart
+block of that type. If the data is unavailable, remove only requirements the user did
+not request; otherwise explain the gap before publishing instead of consuming the
+one-shot validation attempt with an incomplete report.
+
 ## Charts
 
 `publish_chart` requires actual numeric chart data in `charts`:
@@ -71,6 +78,18 @@ publishing a fake or incomplete visualization.
 
 ## Remote media and files
 
+For a request to generate an image or video, load the `agentcash` skill and use
+`https://stablestudio.dev` as its known origin. Follow AgentCash discovery, schema,
+quote, balance, approval, and polling steps, then pass the provider's credential-free
+public media URL to `publish_image` or `publish_video`. Do not use broad AgentCash search
+when this known origin fits. Never claim generation succeeded before the provider
+returned the requested media.
+
+Never substitute ASCII art, inline SVG, or another model-authored drawing for a requested
+generated image unless the user explicitly asks for that format. If generation or
+publication fails, report the exact safe failure and stop; do not silently change the
+deliverable.
+
 Image, PDF, audio, video, and remote file publishers ingest a credential-free,
 query-free public HTTPS source URL and copy the bytes into Eve's durable public store.
 Use the publisher matching the returned media type. If a paid provider completed but its
@@ -80,6 +99,7 @@ the limitation.
 
 `publish_file` accepts exactly one source URL or one small text value. Use a `.csv`,
 `.json`, or `.txt` filename and matching content type for model-authored text files.
+Never send SVG, image, audio, video, or PDF content to `publish_file`.
 
 ## One-shot final validation
 

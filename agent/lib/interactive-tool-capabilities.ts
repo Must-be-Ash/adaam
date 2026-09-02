@@ -15,6 +15,15 @@ export class InteractiveToolCapabilityDeniedError extends Error {
   }
 }
 
+function isOwnerGlobalPersonalTool(toolId: string): boolean {
+  return (
+    toolId === "coinbase_mcp" ||
+    toolId.startsWith("coinbase_") ||
+    toolId === "agentcash_x402" ||
+    toolId.startsWith("agentcash_")
+  );
+}
+
 export async function requireInteractiveToolCapabilities(input: {
   readonly capabilityIds?: readonly string[];
   readonly catalog?: StrategyPackRuntimeCatalog;
@@ -25,6 +34,14 @@ export async function requireInteractiveToolCapabilities(input: {
   readonly stateClient?: WorkspaceStateStoreClient;
   readonly toolId: string;
 }): Promise<void> {
+  // A strategy pack scopes its automated workspace runtime; it does not turn an
+  // authenticated owner's private conversation into a different agent. These
+  // personal tools retain their own principal allowlists, wallet/credential
+  // checks, spot-only policy, replay guards, and explicit mutation/payment
+  // approvals. Scheduled and delegated workers are still filtered separately by
+  // SHARED_RUNTIME_HARD_DENIED_CAPABILITIES before they receive any tools.
+  if (isOwnerGlobalPersonalTool(input.toolId)) return;
+
   const runtime = await resolveSessionStrategyPackRuntime({
     catalog: input.catalog,
     ctx: input.ctx,

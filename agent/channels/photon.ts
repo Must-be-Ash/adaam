@@ -386,7 +386,6 @@ const bridge = chatSdkChannel({
     },
     async "turn.completed"(_data, channel, ctx) {
       await completePhotonDispatchReceipt(ctx, "completed");
-      const release = await releaseApprovedOrderGuard(ctx.session.id);
       const principalId = ctx.session.auth.current?.principalId;
       const workspaceName =
         principalId && channel.thread
@@ -396,6 +395,18 @@ const bridge = chatSdkChannel({
               threadId: channel.thread.id,
             })
           : null;
+      // Capture approval activity before releasing a settled Coinbase guard.
+      // Releasing removes the active approval pointer; checking only afterward
+      // can misclassify the approval-card turn as silent and post a false
+      // "nothing changed" fallback while its continuation is still running.
+      const approvalWasActive =
+        principalId && channel.thread
+          ? await hasCurrentPhotonApproval({
+              principalId,
+              threadId: channel.thread.id,
+            })
+          : false;
+      const release = await releaseApprovedOrderGuard(ctx.session.id);
       if (release === "retained" && channel.thread) {
         await channel.thread.post(
           photonWorkspaceLabeledText(
@@ -417,10 +428,11 @@ const bridge = chatSdkChannel({
       // An approval card is a reply; it just isn't delivered through
       // message.completed. Parking for one is not silence.
       if (
-        await hasCurrentPhotonApproval({
+        approvalWasActive ||
+        (await hasCurrentPhotonApproval({
           principalId,
           threadId: channel.thread.id,
-        })
+        }))
       ) {
         return;
       }

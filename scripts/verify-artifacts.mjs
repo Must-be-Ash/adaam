@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import {
   chartNiceTicks,
@@ -24,6 +25,26 @@ import {
   artifactPageUrl,
   publicArtifactPageUrl,
 } from "../agent/lib/public-app-url.ts";
+
+const artifactPublishingInstructions = await readFile(
+  new URL("../agent/skills/artifact-publishing.md", import.meta.url),
+  "utf8",
+);
+assert.match(
+  artifactPublishingInstructions,
+  /load the `agentcash` skill and use\s+`https:\/\/stablestudio\.dev`/u,
+  "generated-media requests must route through AgentCash's known Stable Studio origin",
+);
+assert.match(
+  artifactPublishingInstructions,
+  /Never substitute ASCII art, inline SVG, or another model-authored drawing/u,
+  "image-generation failures must not silently degrade into a fake image",
+);
+assert.match(
+  artifactPublishingInstructions,
+  /Before the one allowed `publish_report` call, verify every declared requirement/u,
+  "report publication must preflight declared structured blocks",
+);
 
 assert.deepEqual(chartNiceTicks([62_209.81, 66_923.95]), [
   62_000,
