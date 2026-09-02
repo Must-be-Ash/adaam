@@ -23,6 +23,4 @@ consumed the whole paid envelope and the remaining classifications were refused
 before anything could commit. Version 1.5.0 pinned 1.0.1, which declares no paid
 allowance for that job. This version pins 1.0.2, retaining that zero paid
 allowance while raising only the cumulative input-token limit from 24,000 to
-40,000 so a bounded tool-repair turn can start. Version 1.5.4 pins contract
-1.0.3 to qualified Gemini 3.7 Flash and preserves an applicable configured
-impact-hypothesis asset symbol instead of substituting a related proxy.
+40,000 so a bounded tool-repair turn can start.
