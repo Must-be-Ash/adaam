@@ -7,7 +7,9 @@ import {
   PUBLIC_COMMENTARY_RESEARCH_DEFINITION_ID,
 } from "../agent/lib/public-commentary-research";
 import {
+  createInverseCramerActionabilityDefinition,
   createPublicCommentaryImpactDefinition,
+  INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
   PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
   QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS,
 } from "../agent/lib/public-commentary-semantics";
@@ -39,33 +41,62 @@ const ownerId = process.env.EVE_DEPLOYMENT_OWNER_ID;
 assert.ok(ownerId, "EVE_DEPLOYMENT_OWNER_ID is required");
 
 const rollback = process.argv.includes("--rollback");
+const strategyId = argument("strategy") ?? "public-commentary-tracker";
+assert.ok(
+  strategyId === "public-commentary-tracker" || strategyId === "inverse-cramer",
+  "--strategy must be public-commentary-tracker or inverse-cramer",
+);
+const inverseCramer = strategyId === "inverse-cramer";
+const sourceVersion = inverseCramer
+  ? (rollback ? "1.5.1" : "1.5.0")
+  : (rollback ? "1.5.4" : "1.5.3");
+const targetVersion = inverseCramer
+  ? (rollback ? "1.5.0" : "1.5.1")
+  : (rollback ? "1.5.3" : "1.5.4");
 const sourcePack = strategyPackCatalog.resolve({
-  id: "public-commentary-tracker",
-  version: rollback ? "1.5.4" : "1.5.3",
+  id: strategyId,
+  version: sourceVersion,
 });
 const targetPack = strategyPackCatalog.resolve({
-  id: "public-commentary-tracker",
-  version: rollback ? "1.5.3" : "1.5.4",
+  id: strategyId,
+  version: targetVersion,
 });
 assert.ok(sourcePack && targetPack);
 const qualifiedPack = rollback ? sourcePack : targetPack;
+if (!inverseCramer) {
+  assert.equal(
+    qualifiedPack.evidenceContracts?.find(({ id }) => id === PUBLIC_COMMENTARY_RESEARCH_DEFINITION_ID)?.digest,
+    createPublicCommentaryResearchDefinition(["openai/gpt-5.4-mini"], "1.0.1").definitionDigest,
+  );
+}
+const compactDefinitionId = inverseCramer
+  ? INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID
+  : PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID;
+const qualifiedCompactDefinition = inverseCramer
+  ? createInverseCramerActionabilityDefinition(
+      ["google/gemini-3.7-flash"],
+      {},
+      "1.0.1",
+    )
+  : createPublicCommentaryImpactDefinition(
+      ["google/gemini-3.7-flash"],
+      { allowedAdapterIds: QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS },
+      "1.0.3",
+    );
 assert.equal(
-  qualifiedPack.evidenceContracts?.find(({ id }) => id === PUBLIC_COMMENTARY_RESEARCH_DEFINITION_ID)?.digest,
-  createPublicCommentaryResearchDefinition(["openai/gpt-5.4-mini"], "1.0.1").definitionDigest,
-);
-assert.equal(
-  qualifiedPack.evidenceContracts?.find(({ id }) => id === PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID)?.digest,
-  createPublicCommentaryImpactDefinition(
-    ["google/gemini-3.7-flash"],
-    { allowedAdapterIds: QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS },
-    "1.0.3",
-  ).definitionDigest,
+  qualifiedPack.evidenceContracts?.find(({ id }) => id === compactDefinitionId)?.digest,
+  qualifiedCompactDefinition.definitionDigest,
 );
 const withoutCompact = (pack: typeof sourcePack) => pack.evidenceContracts
-  ?.filter(({ id }) => id !== PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID);
+  ?.filter(({ id }) => id !== compactDefinitionId);
 assert.deepEqual(withoutCompact(targetPack), withoutCompact(sourcePack));
 assert.deepEqual(targetPack.sources, sourcePack.sources);
-assert.deepEqual(targetPack.monitors, sourcePack.monitors);
+const withoutInstruction = ({ instruction: _instruction, ...definition }: (typeof sourcePack.monitors)[number]) =>
+  definition;
+assert.deepEqual(
+  targetPack.monitors.map(withoutInstruction),
+  sourcePack.monitors.map(withoutInstruction),
+);
 
 const scope = authorizeDeploymentWorkspaceStore({ ownerId, workspaceId }, process.env);
 const [strategy, capabilities, monitors] = await Promise.all([
@@ -85,6 +116,11 @@ const monitor = monitors[0]!;
 assert.equal(monitor.managedBy?.packId, sourcePack.id);
 assert.equal(monitor.managedBy?.packVersion, sourcePack.version);
 assert.equal(monitor.managedBy?.packContentDigest, sourcePack.contentDigest);
+const targetMonitor = targetPack.monitors.find(
+  ({ resourceId }) => resourceId === monitor.managedBy?.resourceId,
+);
+assert.ok(targetMonitor, "target strategy pack must contain the managed monitor");
+assert.ok(targetMonitor.instruction.trim().length > 0);
 assert.ok(
   monitor.lifecycleState === "enabled" ||
   monitor.lifecycleState === "paused" ||
@@ -112,7 +148,9 @@ const nextCapabilities = {
   workerModelPolicy: rollback
     ? {
         ...capabilities.value.workerModelPolicy,
-        allowedModelIds: ["openai/gpt-5.4", "openai/gpt-5.4-mini"],
+        allowedModelIds: inverseCramer
+          ? ["openai/gpt-5.4"]
+          : ["openai/gpt-5.4", "openai/gpt-5.4-mini"],
       }
     : resolveStrategyPackWorkerModelPolicy({
         environment: process.env,
@@ -122,13 +160,18 @@ const nextCapabilities = {
 };
 if (rollback) {
   assert.ok(nextCapabilities.workerModelPolicy.allowedModelIds.includes("openai/gpt-5.4"));
-  assert.ok(nextCapabilities.workerModelPolicy.allowedModelIds.includes("openai/gpt-5.4-mini"));
+  assert.equal(
+    nextCapabilities.workerModelPolicy.allowedModelIds.includes("openai/gpt-5.4-mini"),
+    !inverseCramer,
+  );
   assert.ok(!nextCapabilities.workerModelPolicy.allowedModelIds.includes("google/gemini-3.7-flash"));
 } else {
-  assert.deepEqual(nextCapabilities.workerModelPolicy.allowedModelIds, [
-    "google/gemini-3.7-flash",
-    "openai/gpt-5.4-mini",
-  ]);
+  assert.deepEqual(
+    nextCapabilities.workerModelPolicy.allowedModelIds,
+    inverseCramer
+      ? ["google/gemini-3.7-flash"]
+      : ["google/gemini-3.7-flash", "openai/gpt-5.4-mini"],
+  );
 }
 const now = new Date();
 const nextStrategy = {
@@ -164,6 +207,7 @@ const monitorKeys = prepareWorkspaceManagedMonitorUpdate({
 const nextMonitor = validateWorkspaceMonitorValue({
   ...monitor,
   configurationRevision: monitor.configurationRevision + 1,
+  instruction: targetMonitor.instruction,
   managedBy: {
     ...monitor.managedBy!,
     bindingRevision: nextBindingRevision,
@@ -239,5 +283,5 @@ return "committed"
     dueAtMs === null ? "" : String(dueAtMs),
   ]);
   assert.ok(result === "committed" || result === "replayed", `migration ${result}`);
-  console.info("public commentary compact-model migration committed");
+  console.info(`${strategyId} compact-model migration committed`);
 }
