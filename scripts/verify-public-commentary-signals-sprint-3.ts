@@ -8,6 +8,8 @@ import {
   createCommentarySemanticDefinition,
   createInverseCramerActionabilityDefinition,
   createInverseCramerSemanticDefinition,
+  createPublicCommentaryImpactDefinition,
+  QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS,
 } from "../agent/lib/public-commentary-semantics";
 import { digestHybridEvidenceValue, hybridAcceptedResultSchema } from "../agent/lib/hybrid-evidence-schema";
 import type { PublicCommentaryAttemptStoreClient } from "../agent/lib/public-commentary-attempt-store";
@@ -288,6 +290,64 @@ assert.throws(() => readAttestedCommentarySemanticResult({
   result: { ...semanticResultA, validationTrace: [{ ...semanticResultA.validationTrace[0]!, outcome: "failed", errorCode: "validator_failed" }] },
   scope: scopeA,
 }), /accepted_result_invalid|public_commentary_semantic_attestation_invalid/u);
+
+const qualifiedImpactPack = {
+  contentDigest: "9".repeat(64),
+  id: "public-commentary-tracker" as const,
+  version: "1.5.4" as const,
+};
+const qualifiedImpactDefinition = createPublicCommentaryImpactDefinition(
+  ["google/gemini-3.7-flash"],
+  { allowedAdapterIds: QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS },
+  "1.0.3",
+);
+const qualifiedImpactPayload = {
+  citations: [citation],
+  confidence: "high" as const,
+  counterevidence: [],
+  horizon: "days" as const,
+  marketView: {
+    stance: "bullish" as const,
+    targets: [{ displayName: "Apple", symbol: "AAPL", type: "equity" as const }],
+  },
+  outcome: "accepted" as const,
+  rationale: "The signed statement directly expresses a bullish view of Apple.",
+  uncertainty: [],
+};
+const qualifiedImpactResult = hybridAcceptedResultSchema.parse({
+  ...semanticResultA,
+  definition: {
+    definitionDigest: qualifiedImpactDefinition.definitionDigest,
+    definitionId: qualifiedImpactDefinition.definitionId,
+    definitionVersion: qualifiedImpactDefinition.definitionVersion,
+  },
+  model: {
+    ...semanticResultA.model,
+    modelId: "google/gemini-3.7-flash",
+    modelOutputDigest: digestHybridEvidenceValue(qualifiedImpactPayload),
+    promptTemplateDigest: qualifiedImpactDefinition.instructionTemplate.digest,
+  },
+  outputDigest: digestHybridEvidenceValue(qualifiedImpactPayload),
+  payload: qualifiedImpactPayload,
+  scope: {
+    ...semanticResultA.scope,
+    packContentDigest: qualifiedImpactPack.contentDigest,
+    packId: qualifiedImpactPack.id,
+    packVersion: qualifiedImpactPack.version,
+  },
+  validationTrace: [{
+    errorCode: null,
+    outcome: "passed",
+    validatorId: qualifiedImpactDefinition.requiredValidator.validatorId,
+    validatorVersion: qualifiedImpactDefinition.requiredValidator.version,
+  }],
+});
+assert.equal(readAttestedCommentarySemanticResult({
+  allowedAdapterIds: ["x-public-statements"],
+  pack: qualifiedImpactPack,
+  result: qualifiedImpactResult,
+  scope: scopeA,
+}).outcome, "accepted", "a qualified broad contract must attest a result from its actual source adapter");
 
 const base = {
   contextSearchRevisionId: null,

@@ -109,11 +109,16 @@ const updateSnapshot = (snapshot: typeof strategy.value.lastActiveSnapshot) => s
   : null;
 const nextCapabilities = {
   ...capabilities.value,
-  workerModelPolicy: resolveStrategyPackWorkerModelPolicy({
-    environment: process.env,
-    fallback: capabilities.value.workerModelPolicy,
-    pack: targetPack,
-  }),
+  workerModelPolicy: rollback
+    ? {
+        ...capabilities.value.workerModelPolicy,
+        allowedModelIds: ["openai/gpt-5.4", "openai/gpt-5.4-mini"],
+      }
+    : resolveStrategyPackWorkerModelPolicy({
+        environment: process.env,
+        fallback: capabilities.value.workerModelPolicy,
+        pack: targetPack,
+      }),
 };
 if (rollback) {
   assert.ok(nextCapabilities.workerModelPolicy.allowedModelIds.includes("openai/gpt-5.4"));

@@ -36,6 +36,7 @@ import {
   createPublicCommentaryImpactDefinition,
   PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
   PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS,
+  QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS,
   extractCommentaryMetadata,
   commentarySemanticPayloadSchema,
   INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
@@ -195,10 +196,20 @@ export function readAttestedCommentarySemanticResult(input: {
     result.definition.definitionId === INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID;
   const legacyDirectModel = result.definition.definitionId === INVERSE_CRAMER_SEMANTIC_DEFINITION_ID;
   const directModel = compactDirectModel || legacyDirectModel;
+  const qualifiedImpactAdapters = configuredImpact &&
+    result.definition.definitionVersion === "1.0.3"
+    ? QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS
+    : input.allowedAdapterIds;
+  if (
+    configuredImpact &&
+    result.definition.definitionVersion === "1.0.3" &&
+    input.allowedAdapterIds?.some((adapterId) =>
+      !QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS.includes(adapterId as typeof QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS[number]))
+  ) throw new Error("public_commentary_semantic_attestation_invalid");
   const definition = configuredImpact
     ? createPublicCommentaryImpactDefinition(
         [result.model.modelId],
-        { allowedAdapterIds: input.allowedAdapterIds },
+        { allowedAdapterIds: qualifiedImpactAdapters },
         z.enum(PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS)
           .parse(result.definition.definitionVersion),
       )
