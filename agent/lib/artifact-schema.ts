@@ -369,7 +369,12 @@ export const publishFileInputSchema = z
       message: "Provide exactly one sourceUrl or text value.",
       path: ["sourceUrl"],
     },
-  );
+  )
+  .refine((input) => !/\.svg$/iu.test(input.fileName), {
+    message:
+      "SVG drawings are not downloadable-file substitutes for generated images. Use publish_image with provider-generated raster media.",
+    path: ["fileName"],
+  });
 
 const mediaManifestSchema = z.object({
   byteLength: z.number().int().nonnegative().max(MAX_ARTIFACT_BYTES),
