@@ -59,10 +59,6 @@ for (const environment of [
     ...configuredEnvironment,
     EVE_HYBRID_FRONTIER_MODEL_REASONING: "medium",
   },
-  {
-    ...configuredEnvironment,
-    EVE_HYBRID_FRONTIER_MODEL_ID: "zai/glm-5.3-flash",
-  },
 ]) {
   assert.throws(
     () => resolveHybridTaskModelRoute("extraction_recovery", environment),
@@ -71,6 +67,16 @@ for (const environment of [
       error.code === "hybrid_model_routing_invalid",
   );
 }
+
+const sharedModelEnvironment = {
+  ...configuredEnvironment,
+  EVE_HYBRID_FRONTIER_MODEL_ID: "zai/glm-5.3-flash",
+};
+assert.equal(
+  resolveHybridTaskModelRoute("extraction_recovery", sharedModelEnvironment).modelId,
+  resolveHybridTaskModelRoute("semantic_interpretation", sharedModelEnvironment).modelId,
+  "one qualified model may serve both role-specific routes",
+);
 
 assert.doesNotThrow(() =>
   assertHybridModelRouteAllowed(fast, ["zai/glm-5.3-flash"]));

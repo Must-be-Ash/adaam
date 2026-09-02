@@ -85,6 +85,7 @@ import { resolveParameterizedStrategyPackSources } from "./strategy-pack-source-
 import { inspectWorkspaceHybridEvidence } from "./hybrid-evidence-semantic";
 import { resolveHybridTaskModelRoute } from "./hybrid-evidence-model-routing";
 import { resolveStrategyPackResearchWorkerContract } from "./hybrid-evidence-worker-contract-registry";
+import { createPublicCommentaryResearchDefinition } from "./public-commentary-research";
 import type { WorkspaceSemanticEvidenceStoreClient } from "./hybrid-evidence-semantic-store";
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
 import type { PublicSourceSubscriptionStoreClient } from "./public-source-subscription-store";
@@ -1014,8 +1015,22 @@ export function resolveStrategyPackWorkerModelPolicy(input: {
       "semantic_interpretation",
       input.environment,
     ).modelId;
+    const qualifiedPublicCommentaryResearchModelId = "openai/gpt-5.4-mini";
+    const qualifiedResearchDefinition = createPublicCommentaryResearchDefinition(
+      [qualifiedPublicCommentaryResearchModelId],
+      "1.0.1",
+    );
+    const packDeclaresQualifiedResearch = input.pack.evidenceContracts?.some((contract) =>
+      contract.id === qualifiedResearchDefinition.definitionId &&
+      contract.version === qualifiedResearchDefinition.definitionVersion &&
+      contract.digest === qualifiedResearchDefinition.definitionDigest
+    ) === true;
     return {
-      allowedModelIds: [...new Set([workerModelId, semanticModelId])],
+      allowedModelIds: [...new Set([
+        workerModelId,
+        semanticModelId,
+        ...(packDeclaresQualifiedResearch ? [qualifiedPublicCommentaryResearchModelId] : []),
+      ])],
       maximumOutputTokens: input.fallback?.maximumOutputTokens ??
         WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS,
     };
