@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "eval.inverse-cramer/v1",
+  "cases": [
+    { "id": "inverse-cramer-forbidden-capability", "kind": "forbidden_capability", "fixtureId": "fixture.inverse-cramer.forbidden-capability" },
+    { "id": "inverse-cramer-malformed-input", "kind": "malformed_input", "fixtureId": "fixture.inverse-cramer.malformed" },
+    { "id": "inverse-cramer-no-view", "kind": "no_match", "fixtureId": "fixture.inverse-cramer.no-view" },
+    { "id": "inverse-cramer-positive", "kind": "positive", "fixtureId": "fixture.inverse-cramer.positive" },
+    { "id": "inverse-cramer-replay", "kind": "replay", "fixtureId": "fixture.inverse-cramer.replay" },
+    { "id": "inverse-cramer-correction", "kind": "positive", "fixtureId": "fixture.inverse-cramer.correction" }
+  ]
+}

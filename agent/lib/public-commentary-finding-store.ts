@@ -319,12 +319,16 @@ export async function persistPublicCommentaryFinding(
     { expected: null, key: recordKey, next: serialized },
     { expected: null, key: statementRecordKey, next: serialized },
   ]))) {
+    const existingStatementRaw = await client.get(statementRecordKey);
+    if (existingStatementRaw !== null && existingStatementRaw !== undefined) {
+      const existingStatement = parse(existingStatementRaw, scope);
+      if (existingStatement.finding.statementRevisionId !== record.finding.statementRevisionId) {
+        throw new Error("public_commentary_finding_conflict");
+      }
+      if (JSON.stringify(existingStatement) !== serialized) return existingStatement;
+    }
     const existing = parse(await client.get(recordKey), scope);
     if (JSON.stringify(existing) !== serialized) throw new Error("public_commentary_finding_conflict");
-    const existingStatement = parse(await client.get(statementRecordKey), scope);
-    if (JSON.stringify(existingStatement) !== serialized) {
-      throw new Error("public_commentary_finding_conflict");
-    }
   }
   const latestKey = key(scope, "latest", "current");
   for (let attempt = 0; attempt < 4; attempt += 1) {

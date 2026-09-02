@@ -86,6 +86,11 @@ import { inspectWorkspaceHybridEvidence } from "./hybrid-evidence-semantic";
 import { resolveHybridTaskModelRoute } from "./hybrid-evidence-model-routing";
 import { resolveStrategyPackResearchWorkerContract } from "./hybrid-evidence-worker-contract-registry";
 import { createPublicCommentaryResearchDefinition } from "./public-commentary-research";
+import {
+  createInverseCramerActionabilityDefinition,
+  createPublicCommentaryImpactDefinition,
+  QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS,
+} from "./public-commentary-semantics";
 import type { WorkspaceSemanticEvidenceStoreClient } from "./hybrid-evidence-semantic-store";
 import type { PublicSourceAcquisitionStoreClient } from "./public-source-acquisition-store";
 import type { PublicSourceSubscriptionStoreClient } from "./public-source-subscription-store";
@@ -138,6 +143,28 @@ export const DEFAULT_PAID_BUDGET = Object.freeze({
 // Public sources that bill per read. A monitor bound to one needs its run's
 // paid envelope to cover that read.
 const PAID_PUBLIC_SOURCE_ORIGINS = Object.freeze(["https://api.x.com"]);
+const QUALIFIED_PUBLIC_COMMENTARY_RESEARCH_MODEL_ID = "openai/gpt-5.4-mini";
+const QUALIFIED_PUBLIC_COMMENTARY_COMPACT_MODEL_ID = "google/gemini-3.7-flash";
+const qualifiedPublicCommentaryResearchDefinition = createPublicCommentaryResearchDefinition(
+  [QUALIFIED_PUBLIC_COMMENTARY_RESEARCH_MODEL_ID],
+  "1.0.1",
+);
+const qualifiedPublicCommentaryCompactContractKeys = new Set([
+  createInverseCramerActionabilityDefinition(
+    [QUALIFIED_PUBLIC_COMMENTARY_COMPACT_MODEL_ID],
+    {},
+    "1.0.1",
+  ),
+  createPublicCommentaryImpactDefinition(
+    [QUALIFIED_PUBLIC_COMMENTARY_COMPACT_MODEL_ID],
+    { allowedAdapterIds: QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS },
+    "1.0.3",
+  ),
+].map((definition) => [
+  definition.definitionId,
+  definition.definitionVersion,
+  definition.definitionDigest,
+].join("\0")));
 const needsHybridRecoveryBudget = (sourceId: string) =>
   sourceId === HOUSE_FINANCIAL_DISCLOSURES_SOURCE_ID ||
   sourceId === EARNINGS_CALL_TRANSCRIPTS_SOURCE_ID ||
@@ -1009,27 +1036,29 @@ export function resolveStrategyPackWorkerModelPolicy(input: {
     input.pack.capabilities.required.includes("evaluate_public_commentary_signals") ||
     resolveStrategyPackResearchWorkerContract(input.pack) !== null
   ) {
-    const workerModelId =
-      input.environment.EVE_STRATEGY_PACK_WORKER_MODEL_ID ?? "zai/glm-5.3-flash";
-    const semanticModelId = resolveHybridTaskModelRoute(
-      "semantic_interpretation",
-      input.environment,
-    ).modelId;
-    const qualifiedPublicCommentaryResearchModelId = "openai/gpt-5.4-mini";
-    const qualifiedResearchDefinition = createPublicCommentaryResearchDefinition(
-      [qualifiedPublicCommentaryResearchModelId],
-      "1.0.1",
-    );
-    const packDeclaresQualifiedResearch = input.pack.evidenceContracts?.some((contract) =>
-      contract.id === qualifiedResearchDefinition.definitionId &&
-      contract.version === qualifiedResearchDefinition.definitionVersion &&
-      contract.digest === qualifiedResearchDefinition.definitionDigest
-    ) === true;
+    let packDeclaresQualifiedResearch = false;
+    let packDeclaresQualifiedCompact = false;
+    for (const contract of input.pack.evidenceContracts ?? []) {
+      packDeclaresQualifiedResearch ||=
+        contract.id === qualifiedPublicCommentaryResearchDefinition.definitionId &&
+        contract.version === qualifiedPublicCommentaryResearchDefinition.definitionVersion &&
+        contract.digest === qualifiedPublicCommentaryResearchDefinition.definitionDigest;
+      packDeclaresQualifiedCompact ||= qualifiedPublicCommentaryCompactContractKeys.has([
+        contract.id,
+        contract.version,
+        contract.digest,
+      ].join("\0"));
+    }
+    const legacyModelIds = packDeclaresQualifiedCompact
+      ? []
+      : [
+          input.environment.EVE_STRATEGY_PACK_WORKER_MODEL_ID ?? "zai/glm-5.3-flash",
+          resolveHybridTaskModelRoute("semantic_interpretation", input.environment).modelId,
+        ];
     return {
       allowedModelIds: [...new Set([
-        workerModelId,
-        semanticModelId,
-        ...(packDeclaresQualifiedResearch ? [qualifiedPublicCommentaryResearchModelId] : []),
+        ...(packDeclaresQualifiedCompact ? [QUALIFIED_PUBLIC_COMMENTARY_COMPACT_MODEL_ID] : legacyModelIds),
+        ...(packDeclaresQualifiedResearch ? [QUALIFIED_PUBLIC_COMMENTARY_RESEARCH_MODEL_ID] : []),
       ])],
       maximumOutputTokens: input.fallback?.maximumOutputTokens ??
         WORKSPACE_WORKER_SESSION_OUTPUT_TOKENS,

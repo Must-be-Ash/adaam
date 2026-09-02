@@ -7,10 +7,12 @@ import {
 } from "../agent/lib/public-commentary-tracker";
 import {
   createPublicCommentaryImpactDefinition,
+  commentaryActionabilityToolInputSchema,
   INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
   PUBLIC_COMMENTARY_COMPACT_EVALUATION_DEFINITION_IDS,
   PUBLIC_COMMENTARY_DIRECT_MODEL_DEFINITION_IDS,
   PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
+  QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS,
 } from "../agent/lib/public-commentary-semantics";
 import {
   createPublicCommentaryResearchDefinition,
@@ -18,6 +20,7 @@ import {
 } from "../agent/lib/public-commentary-research";
 import {
   publicCommentaryImpactDefinitionVersion,
+  resolveDeclaredPublicCommentaryCompactDefinition,
   resolveDeclaredPublicCommentaryResearchDefinition,
   resolvePublicCommentarySemanticReasoning,
 } from "../agent/lib/public-commentary-workspace-worker";
@@ -345,6 +348,10 @@ const researchModelPack = strategyPackCatalog.resolve({
   id: "public-commentary-tracker",
   version: "1.5.3",
 });
+const compactModelPack = strategyPackCatalog.resolve({
+  id: "public-commentary-tracker",
+  version: "1.5.4",
+});
 assert.ok(
   sessionLimitFixPack,
   "Tracker 1.5.1 must pin the classifier contract with room for a recovery turn",
@@ -352,6 +359,7 @@ assert.ok(
 assert.ok(sessionLimitFixPredecessor);
 assert.ok(presetPack);
 assert.ok(researchModelPack);
+assert.ok(compactModelPack);
 assert.equal(
   researchModelPack.evidenceContracts?.find(({ id }) =>
     id === PUBLIC_COMMENTARY_RESEARCH_DEFINITION_ID)?.digest,
@@ -379,6 +387,23 @@ assert.equal(
   "openai/gpt-5.4",
   "historical packs must retain their original model binding",
 );
+assert.equal(
+  resolveDeclaredPublicCommentaryCompactDefinition(
+    compactModelPack,
+    ["openai/gpt-5.4", "google/gemini-3.7-flash"],
+    ["x-public-statements"],
+  )?.allowedModelIds[0],
+  "google/gemini-3.7-flash",
+);
+assert.equal(
+  resolveDeclaredPublicCommentaryCompactDefinition(
+    compactModelPack,
+    ["google/gemini-3.7-flash"],
+    ["official-web-statements"],
+  )?.allowedModelIds[0],
+  "google/gemini-3.7-flash",
+  "the qualified pack must support its default official-web source",
+);
 const documentedProductionModels = {
   EVE_HYBRID_FAST_MODEL_ID: "anthropic/claude-haiku-4.5",
   EVE_HYBRID_FAST_MODEL_REASONING: "provider-default",
@@ -401,6 +426,14 @@ assert.deepEqual(
   }).allowedModelIds,
   ["openai/gpt-5.4", "openai/gpt-5.4-mini"],
   "only the Mini-pinned immutable research contract may add Mini",
+);
+assert.deepEqual(
+  resolveStrategyPackWorkerModelPolicy({
+    environment: documentedProductionModels,
+    pack: compactModelPack,
+  }).allowedModelIds,
+  ["google/gemini-3.7-flash", "openai/gpt-5.4-mini"],
+  "the qualified compact pack must remove GPT-5.4 without changing its Mini research route",
 );
 assert.equal(presetPack.configurationPresets?.defaultId, "kobeissi-market");
 assert.match(presetPack.workspaceInstruction, /default Kobeissi\s+market preset/u);
@@ -536,12 +569,39 @@ assert.equal(
 );
 // The compact contract is registered for the worker's completion tool and for
 // validation, or an accepted classification could never commit.
+const impactDefinition = createPublicCommentaryImpactDefinition(["openai/gpt-5.4"]);
+const qualifiedImpactDefinition = createPublicCommentaryImpactDefinition(
+  ["google/gemini-3.7-flash"],
+  { allowedAdapterIds: QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS },
+  "1.0.3",
+);
+assert.equal(qualifiedImpactDefinition.limits.maximumInputTokens, 40_000);
+assert.equal(qualifiedImpactDefinition.limits.maximumOutputTokens, 4_000);
+assert.equal(qualifiedImpactDefinition.limits.maximumEvidenceBytes, 25_000);
+assert.equal(qualifiedImpactDefinition.limits.maximumRuntimeMs, 180_000);
+assert.equal(qualifiedImpactDefinition.limits.maximumPaidCostUsd, "0");
 assert.equal(
-  resolveHybridEvidenceWorkerContract(PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID)?.research,
+  resolveHybridEvidenceWorkerContract(
+    qualifiedImpactDefinition.definitionId,
+    qualifiedImpactDefinition.definitionDigest,
+  )?.research,
   null,
 );
-assert.ok(resolveHybridEvidenceWorkerContract(PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID));
-const impactDefinition = createPublicCommentaryImpactDefinition(["openai/gpt-5.4"]);
+assert.equal(
+  resolveHybridEvidenceWorkerContract(
+    qualifiedImpactDefinition.definitionId,
+    qualifiedImpactDefinition.definitionDigest,
+  )?.completion.inputSchema,
+  commentaryActionabilityToolInputSchema,
+);
+assert.equal(
+  resolveHybridEvidenceWorkerContract(
+    impactDefinition.definitionId,
+    impactDefinition.definitionDigest,
+  )?.materializeCandidate,
+  undefined,
+  "historical Public Commentary digests must retain their legacy transport",
+);
 assert.equal(
   workspaceSemanticValidationRegistry.resolve(impactDefinition)?.outputSchema.schemaId,
   "public-commentary-impact-result",
@@ -797,7 +857,13 @@ await assert.rejects(
 );
 // The classification contract has no paid tool surface to begin with: it
 // declares no research lane, no pages and no rows.
-assert.equal(resolveHybridEvidenceWorkerContract(PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID)?.research, null);
+assert.equal(
+  resolveHybridEvidenceWorkerContract(
+    impactDefinition.definitionId,
+    impactDefinition.definitionDigest,
+  )?.research,
+  null,
+);
 const pinned = createPublicCommentaryImpactDefinition(["openai/gpt-5.4"], {}, "1.0.1");
 assert.equal(pinned.limits.maximumPaidCostUsd, "0");
 assert.equal(pinned.limits.maximumPages, 0);

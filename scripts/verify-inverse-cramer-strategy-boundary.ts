@@ -411,7 +411,14 @@ assert.equal(
   "0",
 );
 assert.equal(
-  resolveHybridEvidenceWorkerContract(INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID)?.research,
+  resolveHybridEvidenceWorkerContract(
+    INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
+    createInverseCramerActionabilityDefinition(
+      ["openai/gpt-5.4"],
+      {},
+      "1.0.1",
+    ).definitionDigest,
+  )?.research,
   null,
   "a classification with a research lane would still need a real paid ceiling",
 );
