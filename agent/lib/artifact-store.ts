@@ -71,6 +71,7 @@ const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
   "image/heif": "heif",
   "image/jpeg": "jpg",
   "image/png": "png",
+  "image/svg+xml": "svg",
   "image/webp": "webp",
   "text/csv": "csv",
   "text/plain": "txt",
@@ -169,7 +170,14 @@ function validateKindContentType(
   kind: Exclude<ArtifactKind, "report" | "chart">,
   contentType: string,
 ): void {
-  if (kind === "file") return;
+  if (kind === "file") {
+    if (contentType === "image/svg+xml") {
+      throw new Error(
+        "SVG drawings are not downloadable-file substitutes for generated images.",
+      );
+    }
+    return;
+  }
   if (!MEDIA_CONTENT_TYPES[kind].has(contentType)) {
     throw new Error(`The source is not a supported ${kind} artifact.`);
   }

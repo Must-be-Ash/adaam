@@ -45,6 +45,16 @@ assert.match(
   /Before the one allowed `publish_report` call, verify every declared requirement/u,
   "report publication must preflight declared structured blocks",
 );
+assert.equal(
+  publishFileInputSchema.safeParse({
+    fileName: "model-authored-fallback.svg",
+    publicDataOnly: true,
+    text: "<svg></svg>",
+    title: "Not a generated image",
+  }).success,
+  false,
+  "publish_file must reject model-authored SVG image substitutes",
+);
 
 assert.deepEqual(chartNiceTicks([62_209.81, 66_923.95]), [
   62_000,
