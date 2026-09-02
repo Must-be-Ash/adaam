@@ -882,6 +882,32 @@ const replayA = await materializePublicCommentarySignal({ ...base, configuration
 assert.equal(replayA.record.finding.findingId, acceptedA.record.finding.findingId);
 assert.equal(store.values.size, storedCount);
 
+const upgradedPack = { contentDigest: "7".repeat(64), id: "inverse-cramer" as const, version: "1.0.1" as const };
+const upgradedSemanticResult = hybridAcceptedResultSchema.parse({
+  ...semanticResultA,
+  scope: {
+    ...semanticResultA.scope,
+    packContentDigest: upgradedPack.contentDigest,
+    packId: upgradedPack.id,
+    packVersion: upgradedPack.version,
+  },
+});
+const replayAcrossPackUpgrade = await materializePublicCommentarySignal({
+  ...base,
+  configuration,
+  pack: upgradedPack,
+  scope: scopeA,
+  semanticResult: upgradedSemanticResult,
+}, store);
+assert.equal(
+  replayAcrossPackUpgrade.record.finding.findingId,
+  acceptedA.record.finding.findingId,
+  "the first durable statement analysis remains authoritative across a pack upgrade",
+);
+assert.equal(replayAcrossPackUpgrade.alertPresentation, null, "a pack replay must not emit a duplicate alert");
+assert.equal(replayAcrossPackUpgrade.genericFinding, null, "a pack replay must not stage a duplicate finding");
+assert.equal(store.values.size, storedCount, "a pack replay must not create a second statement record");
+
 const acceptedB = await materializePublicCommentarySignal({
   ...base,
   configuration: { ...configuration, alerts: "enabled", selectedSymbols: ["TSLA"] },

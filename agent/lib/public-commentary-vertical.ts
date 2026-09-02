@@ -459,7 +459,7 @@ export async function materializePublicCommentarySignal(input: {
     statementRevisionId: input.statementRevisionId,
     summary,
   });
-  const record = await persistPublicCommentaryFinding(input.scope, {
+  const candidate = {
     correction: null,
     corroboration,
     createdAt: (input.now ?? new Date()).toISOString(),
@@ -476,7 +476,14 @@ export async function materializePublicCommentarySignal(input: {
     source: input.source,
     statement,
     workspaceId: input.scope.workspaceId,
-  }, client);
+  } as const;
+  const record = await persistPublicCommentaryFinding(input.scope, candidate, client);
+  const priorStatementAnalysis =
+    record.finding.findingId !== finding.findingId ||
+    record.finding.analysisIdentity.pack.contentDigest !== pack.contentDigest;
+  if (priorStatementAnalysis) {
+    return Object.freeze({ alertPresentation: null, genericFinding: null, record });
+  }
   if (!eligible) return Object.freeze({ alertPresentation: null, genericFinding: null, record });
   const direction = policy.decision.researchDirection!;
   /*

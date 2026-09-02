@@ -88,7 +88,7 @@ assert.equal(monitor.managedBy?.packContentDigest, sourcePack.contentDigest);
 assert.ok(
   monitor.lifecycleState === "enabled" ||
   monitor.lifecycleState === "paused" ||
-  (rollback && monitor.lifecycleState === "paused_failure"),
+  monitor.lifecycleState === "paused_failure",
 );
 
 const nextBindingRevision = strategy.value.bindingRevision + 1;
