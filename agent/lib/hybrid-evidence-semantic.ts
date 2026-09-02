@@ -567,9 +567,9 @@ export async function prepareWorkspaceSemanticEvidenceBundleJob(input: {
   });
 }
 
-function injectionDetected(texts: readonly string[]): boolean {
+export function detectUntrustedEvidencePromptInjection(texts: readonly string[]): boolean {
   return texts.some((text) =>
-    /(?:^|\b)(?:system\s*:|ignore (?:all |the )?(?:previous |above )?(?:instructions?|schema)|reveal another workspace|call (?:a )?broker|submit (?:a )?trade)/iu.test(text));
+    /(?:^|\b)(?:system\s*:|ignore (?:all |the )?(?:previous |above )?(?:instructions?|schema|policy)|reveal (?:another workspace|secrets?|credentials?|tokens?)|call (?:a )?(?:broker|tools?)|(?:submit|place|execute) (?:a )?(?:trade|order))/iu.test(text));
 }
 
 function sameLocator(left: EvidenceLocator, right: EvidenceLocator): boolean {
@@ -597,7 +597,7 @@ async function validateSemanticCandidate(input: {
     content: (await input.artifacts.readSlice({ locator, maximumBytes: 64 * 1_024 })).content,
     locator,
   })));
-  if (injectionDetected(evidenceTexts.map(({ content }) => content))) {
+  if (detectUntrustedEvidencePromptInjection(evidenceTexts.map(({ content }) => content))) {
     throw new WorkspaceSemanticEvidenceError("prompt_injection_detected");
   }
   if (candidate.disposition === "quarantined") {

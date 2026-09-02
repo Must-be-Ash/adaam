@@ -177,14 +177,24 @@ export async function resolveHybridEvidenceWorkerCapabilities(
 ) {
   try {
     const { envelope } = await requireHybridEvidenceWorkerAuth(ctx);
-    const contract = resolveHybridEvidenceWorkerContract(envelope.definitionId);
+    const contract = resolveHybridEvidenceWorkerContract(
+      envelope.definitionId,
+      envelope.definitionDigest,
+    );
     const completionTool = contract
       ? defineTool({
           description: contract.completion.description,
           inputSchema: contract.completion.inputSchema,
           async execute(candidate, toolCtx) {
+            const { envelope } = await requireHybridEvidenceWorkerAuth(toolCtx);
+            const materialized = contract.materializeCandidate
+              ? contract.materializeCandidate({
+                  allowedLocators: envelope.allowedLocators,
+                  candidate,
+                })
+              : candidate;
             return completeHybridEvidenceJobForWorker({
-              candidate: workerCandidateSchema.parse(candidate),
+              candidate: workerCandidateSchema.parse(materialized),
               ctx: toolCtx,
               jobClient: resolveHybridEvidenceWorkerFixtureClients()?.jobs,
             });

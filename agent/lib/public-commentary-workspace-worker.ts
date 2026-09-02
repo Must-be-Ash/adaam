@@ -76,6 +76,7 @@ import {
   PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
   INVERSE_CRAMER_ACTIONABILITY_DEFINITION_VERSIONS,
   PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS,
+  QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS,
   recoverNamedAssetCommentaryMetadata,
 } from "./public-commentary-semantics";
 import {
@@ -435,8 +436,10 @@ export function createProductionPublicCommentaryPipeline(input: {
     sourceInstanceId: string;
     subscriptionId: string;
   }>>();
-  const semanticRoute = resolveHybridTaskModelRoute("semantic_interpretation", input.environment);
-  assertHybridModelRouteAllowed(semanticRoute, input.allowedModelIds);
+  const configuredSemanticRoute = resolveHybridTaskModelRoute(
+    "semantic_interpretation",
+    input.environment,
+  );
   const managed = input.monitor.managedBy;
   const managedPack = managed ? strategyPackCatalog.resolve({
     contentDigest: managed.packContentDigest,
@@ -453,27 +456,26 @@ export function createProductionPublicCommentaryPipeline(input: {
     managedPack.evidenceContracts?.some(({ id }) => ids.includes(id)) ?? false;
   const directModelActionability = declares(PUBLIC_COMMENTARY_DIRECT_MODEL_DEFINITION_IDS);
   const compactActionability = declares(PUBLIC_COMMENTARY_COMPACT_EVALUATION_DEFINITION_IDS);
-  const configuredImpactEvaluation = declares([PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID]);
+  const compactDefinition = compactActionability
+    ? resolveDeclaredPublicCommentaryCompactDefinition(
+        managedPack,
+        input.allowedModelIds,
+        [reviewedSource.adapterDefinition.adapterId],
+      )
+    : null;
+  if (compactActionability && !compactDefinition) {
+    throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
+  }
+  const semanticRoute = compactDefinition
+    ? Object.freeze({ ...configuredSemanticRoute, modelId: compactDefinition.allowedModelIds[0]! })
+    : configuredSemanticRoute;
+  assertHybridModelRouteAllowed(semanticRoute, input.allowedModelIds);
   const interpretation = resolvePublicCommentaryInterpretationContract(managedPack);
   if (!interpretation) {
     throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
   }
-  const definition = configuredImpactEvaluation
-    ? createPublicCommentaryImpactDefinition(
-        [semanticRoute.modelId],
-        { allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId] },
-        publicCommentaryImpactDefinitionVersion(managedPack),
-      )
-    : compactActionability
-    ? createInverseCramerActionabilityDefinition(
-        [semanticRoute.modelId],
-        { allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId] },
-        declaredCommentaryContractVersion(
-          managedPack,
-          INVERSE_CRAMER_ACTIONABILITY_DEFINITION_ID,
-          INVERSE_CRAMER_ACTIONABILITY_DEFINITION_VERSIONS,
-        ),
-      )
+  const definition = compactDefinition
+    ? compactDefinition
     : directModelActionability
     ? createInverseCramerSemanticDefinition([semanticRoute.modelId], {
         allowedAdapterIds: [reviewedSource.adapterDefinition.adapterId],
@@ -1114,6 +1116,44 @@ export function publicCommentaryImpactDefinitionVersion(
     PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
     PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS,
   );
+}
+
+export function resolveDeclaredPublicCommentaryCompactDefinition(
+  pack: StrategyPackCatalogEntry,
+  workerModelIds: readonly string[],
+  allowedAdapterIds: readonly string[],
+) {
+  const declared = pack.evidenceContracts?.filter(({ id }) =>
+    PUBLIC_COMMENTARY_COMPACT_EVALUATION_DEFINITION_IDS.includes(id),
+  ) ?? [];
+  if (declared.length !== 1) return null;
+  const contract = declared[0]!;
+  if (
+    contract.id === PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID &&
+    contract.version === "1.0.3" &&
+    allowedAdapterIds.some((id) => !QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS.includes(id))
+  ) return null;
+  const candidates = workerModelIds.map((modelId) =>
+    contract.id === PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID
+      ? createPublicCommentaryImpactDefinition(
+          [modelId],
+          {
+            allowedAdapterIds: contract.version === "1.0.3"
+              ? QUALIFIED_PUBLIC_COMMENTARY_ADAPTER_IDS
+              : allowedAdapterIds,
+          },
+          z.enum(PUBLIC_COMMENTARY_IMPACT_DEFINITION_VERSIONS).parse(contract.version),
+        )
+      : createInverseCramerActionabilityDefinition(
+          [modelId],
+          { allowedAdapterIds },
+          z.enum(INVERSE_CRAMER_ACTIONABILITY_DEFINITION_VERSIONS).parse(contract.version),
+        )
+  ).filter((definition) =>
+    definition.definitionDigest === contract.digest &&
+    definition.definitionVersion === contract.version
+  );
+  return candidates.length === 1 ? candidates[0]! : null;
 }
 
 export function resolvePublicCommentarySemanticReasoning(

@@ -23,7 +23,7 @@ const environment = {
 };
 
 const listed = listStrategyPacks({ environment });
-assert.equal(listed.count, 40);
+assert.equal(listed.count, 42);
 assert.deepEqual(
   listed.packs.map(({ id, version }) => `${id}@${version}`),
   [
@@ -53,6 +53,7 @@ assert.deepEqual(
     "inverse-cramer@1.4.8",
     "inverse-cramer@1.4.9",
     "inverse-cramer@1.5.0",
+    "inverse-cramer@1.5.1",
     "ipo-filings@1.0.0",
     "ipo-filings@1.1.0",
     "ipo-filings@1.1.1",
@@ -67,12 +68,13 @@ assert.deepEqual(
     "public-commentary-tracker@1.5.1",
     "public-commentary-tracker@1.5.2",
     "public-commentary-tracker@1.5.3",
+    "public-commentary-tracker@1.5.4",
   ],
 );
 assert.deepEqual(
   listLatestStrategyPacks({ environment }).packs.filter(({ id }) =>
     id === "inverse-cramer" || id === "public-commentary-tracker").map(({ id, version }) => `${id}@${version}`),
-  ["inverse-cramer@1.5.0", "public-commentary-tracker@1.5.3"],
+  ["inverse-cramer@1.5.1", "public-commentary-tracker@1.5.4"],
 );
 assert.equal(JSON.stringify(listed).includes("Detect only newly"), false);
 
@@ -86,7 +88,7 @@ assert.equal(inspected.pack.sources[0]?.sourceId, "sec-latest-s1-filings");
 assert.equal(inspected.pack.instructionsIncluded, false);
 
 const trackerInspection = inspectStrategyPack(
-  { id: "public-commentary-tracker", version: "1.5.3" },
+  { id: "public-commentary-tracker", version: "1.5.4" },
   { environment },
 );
 assert.equal(trackerInspection.pack.configurationPresets?.defaultId, "kobeissi-market");

@@ -609,9 +609,16 @@ export function workspaceMonitorIndexStorageKey(
   return `${WORKSPACE_INDEX_PREFIX}${scopeDigest(scope)}`;
 }
 
-function leaseKey(scope: AuthorizedWorkspaceStoreScope, monitorId: string): string {
+export function workspaceMonitorLeaseStorageKey(
+  scope: AuthorizedWorkspaceStoreScope,
+  monitorId: string,
+): string {
   return `${LEASE_PREFIX}${scopeDigest(scope)}:${monitorId}`;
 }
+
+export const workspaceMonitorInflightStorageKey = INFLIGHT_KEY;
+
+const leaseKey = workspaceMonitorLeaseStorageKey;
 
 function rawValue(value: unknown): string | null {
   if (value === null || value === undefined) return null;

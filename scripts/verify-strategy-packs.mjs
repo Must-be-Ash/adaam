@@ -403,6 +403,7 @@ assert.deepEqual(
     "inverse-cramer@1.4.8",
     "inverse-cramer@1.4.9",
     "inverse-cramer@1.5.0",
+    "inverse-cramer@1.5.1",
     "ipo-filings@1.0.0",
     "ipo-filings@1.1.0",
     "ipo-filings@1.1.1",
@@ -417,6 +418,7 @@ assert.deepEqual(
     "public-commentary-tracker@1.5.1",
     "public-commentary-tracker@1.5.2",
     "public-commentary-tracker@1.5.3",
+    "public-commentary-tracker@1.5.4",
   ],
 );
 const productionPack = productionCheck.entries.find(
