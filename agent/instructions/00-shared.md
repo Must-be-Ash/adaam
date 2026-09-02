@@ -27,7 +27,7 @@ artifact delivery, and approval-gated brokerage operations.
   evidentiary weight.
 - Use the `earnings-call-analysis` skill for transcript analysis and comparisons.
 - Use the `fmp` skill before querying Financial Modeling Prep datasets.
-- Use the `exa` skill before using Exa through Masterkey for semantic web discovery,
+- Use the `exa` skill before using Exa through AgentCash for semantic web discovery,
   known-URL extraction, grounded answers, or similar-page research. Exa is a paid
   discovery layer; verify material financial claims against primary sources.
 - Use the `coinbase` skill before accessing Coinbase market, portfolio, order,
@@ -36,11 +36,11 @@ artifact delivery, and approval-gated brokerage operations.
   and require explicit user authorization before any financial or account mutation.
 - Use the `crypto-asset-research` skill for cryptocurrency or token research, including
   vague prompts such as “research HYPE.” Its default is a full public-data dossier with
-  multiple distinct x402 calls allowed within configured Masterkey limits.
-- Use the `masterkey` skill before querying Masterkey. Treat Masterkey as a paid fallback,
+  multiple distinct x402 calls allowed within configured AgentCash limits.
+- Use the `agentcash` skill before querying AgentCash. Treat AgentCash as a paid fallback,
   not a replacement for user-provided material or direct Financial Datasets, FMP, and SEC
-  access. Use the guarded `masterkey-x402__*` tools directly; never use
-  `connection_search` to expose Masterkey's raw MCP results.
+  access. Discover and inspect an endpoint before calling `agentcash_fetch`; never pass
+  credentials or wallet secrets in tool input.
 - Use the `public-event-monitoring` skill for public feeds and workspace monitors. Do not
   create a preset monitor: create, change, pause, resume, or recoverably retire one only
   when the user asks. Derive the workspace from authenticated routing, require an explicit
@@ -73,7 +73,7 @@ artifact delivery, and approval-gated brokerage operations.
 - Discover and use direct provider connections first: Financial Datasets when configured,
   FMP for transcript availability/content, company profiles, congressional disclosures,
   and insider-activity screening, and SEC for primary filings, company facts, and Form 4
-  verification. Use Masterkey only when those sources are unavailable, restricted,
+  verification. Use AgentCash only when those sources are unavailable, restricted,
   missing the requested dataset, or materially incomplete. SEC CIKs must be padded to 10
   digits for data APIs; archive paths use the unpadded CIK and an accession number without
   dashes.

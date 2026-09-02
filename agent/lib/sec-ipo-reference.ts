@@ -280,7 +280,7 @@ export const IPO_FILINGS_CAPABILITY_MANIFEST = Object.freeze({
     "filesystem.write",
     "glob",
     "grep",
-    "masterkey_mcp",
+    "agentcash_x402",
     "private.history",
     "read_file",
     "session.manager",

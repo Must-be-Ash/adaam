@@ -11,8 +11,8 @@ stocks, earnings calls, funds, or private portfolio analysis.
 ## Default depth
 
 For a prompt such as “research HYPE,” run the full dossier automatically. Multiple x402
-calls are allowed within the user's configured Masterkey limits. Do not ask for approval
-merely because a call is paid. Ask a focused question only when the asset identity or
+calls are allowed within the configured AgentCash limits. Each paid call uses Eve's native
+approval; do not ask for a second conversational approval. Ask a focused question only when the asset identity or
 requested market is genuinely ambiguous.
 
 The default dossier covers:
@@ -38,12 +38,12 @@ The default dossier covers:
 
 - Load the `coinbase` skill before Coinbase calls. Use public product, candle, ticker,
   and order-book data only unless the user separately asks for private account data.
-- Load the `masterkey` skill before x402 discovery or execution, and the `exa` skill for
+- Load the `agentcash` skill before x402 discovery or execution, and the `exa` skill for
   Exa-backed web research.
 - Prefer authoritative direct sources when they answer the question. Use x402 to fill
   distinct missing datasets, not to buy duplicate evidence.
-- Check Masterkey limits once, discover narrowly, inspect each candidate's schema and
-  cost, then run only the services that add a distinct research dimension.
+- Check the AgentCash balance when cost is material, discover narrowly, inspect each
+  endpoint's schema and cost, then run only calls that add a distinct research dimension.
 - Do not retry a paid service merely because Eve could not retain or render its output.
   Recover the original result or report the gap.
 - Record provider, covered period, observation time, and source URL as evidence is

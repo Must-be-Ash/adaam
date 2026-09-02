@@ -7,6 +7,7 @@ const ORDER_APPROVAL_WINDOW_MS = 5 * 60_000;
 const PHOTON_SUPPORTED_COINBASE_APPROVALS = new Set([
   "coinbase_create_order",
 ]);
+const PHOTON_SUPPORTED_AGENTCASH_APPROVALS = new Set(["agentcash_fetch"]);
 
 export type PhotonApprovalDecision = "approve" | "deny";
 
@@ -96,7 +97,7 @@ function orderApprovalSummary(input: Record<string, unknown>): string | null {
 
 function readableToolName(toolName: string): string {
   return toolName
-    .replace(/^coinbase_/u, "")
+    .replace(/^(?:agentcash|coinbase)_/u, "")
     .replaceAll("_", " ")
     .replace(/\s+/gu, " ")
     .trim();
@@ -113,6 +114,44 @@ function approvalSummary(request: InputRequest): string {
         );
       }
       return summary;
+    }
+    case "agentcash_fetch": {
+      const url = typeof input.url === "string" ? input.url : "";
+      const method =
+        typeof input.method === "string" &&
+        /^(?:DELETE|GET|PATCH|POST|PUT)$/u.test(input.method)
+          ? input.method
+          : "GET";
+      const maxAmount =
+        typeof input.maxAmount === "number" &&
+        Number.isFinite(input.maxAmount) &&
+        input.maxAmount > 0 &&
+        input.maxAmount <= 100
+          ? input.maxAmount
+          : null;
+      let endpoint: string;
+      try {
+        const parsed = new URL(url);
+        if (
+          parsed.protocol !== "https:" ||
+          parsed.username ||
+          parsed.password ||
+          parsed.hash
+        ) {
+          throw new Error("unsafe AgentCash endpoint");
+        }
+        endpoint = `${parsed.host}${parsed.pathname}${parsed.search ? " with query parameters" : ""}`;
+      } catch {
+        throw new Error(
+          "The AgentCash request cannot be rendered as an exact approval.",
+        );
+      }
+      if (!maxAmount || endpoint.length > 240) {
+        throw new Error(
+          "The AgentCash request cannot be rendered as an exact approval.",
+        );
+      }
+      return `Approve AgentCash ${method} to ${endpoint} for up to $${maxAmount.toFixed(2)}?`;
     }
     default: {
       const readableName = readableToolName(toolName);
@@ -151,8 +190,12 @@ function orderPreviewExpiry(
 export function isPhotonApprovalSupported(request: InputRequest): boolean {
   if (request.kind !== "tool-approval") return false;
   const toolName = request.action.toolName;
-  return toolName.startsWith("coinbase_") &&
-    PHOTON_SUPPORTED_COINBASE_APPROVALS.has(toolName);
+  return (
+    (toolName.startsWith("coinbase_") &&
+      PHOTON_SUPPORTED_COINBASE_APPROVALS.has(toolName)) ||
+    (toolName.startsWith("agentcash_") &&
+      PHOTON_SUPPORTED_AGENTCASH_APPROVALS.has(toolName))
+  );
 }
 
 export function createPhotonApprovalPrompt(

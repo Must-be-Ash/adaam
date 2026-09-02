@@ -108,7 +108,7 @@ for (const denied of [
   "bash",
   "coinbase_mcp",
   "filesystem.write",
-  "masterkey_mcp",
+  "agentcash_x402",
   "private.history",
   "web_search",
 ]) {
@@ -145,7 +145,7 @@ assert.deepEqual(resolveWorkspaceRuntimeCapabilities({
     { category: "control_plane", id: "stage_workspace_alert" },
     { category: "control_plane", id: "write_workspace_finding" },
     { category: "research", id: "fetch_public_source" },
-    { category: "research", id: "masterkey_mcp" },
+    { category: "research", id: "agentcash_x402" },
     { category: "research", id: "web_search" },
     { category: "financial", id: "coinbase_create_order" },
   ],

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   emptyWorkspaceRuntimeCapabilities,
   resolveWorkspaceRuntimeCapabilities,
+  SHARED_RUNTIME_HARD_DENIED_CAPABILITIES,
   WORKSPACE_RUNTIME_CAPABILITY_EVENT,
   WorkspaceRuntimeCapabilityError,
 } from "../agent/lib/workspace-runtime-capabilities";
@@ -93,6 +94,24 @@ const catalog = [
 ];
 
 assert.equal(WORKSPACE_RUNTIME_CAPABILITY_EVENT, "step.started");
+for (const toolId of [
+  "agentcash_access_status",
+  "agentcash_check_endpoint_schema",
+  "agentcash_discover_api_endpoints",
+  "agentcash_fetch",
+  "agentcash_fetch_free",
+  "agentcash_get_balance",
+  "agentcash_get_settings",
+  "agentcash_list_accounts",
+  "agentcash_search",
+  "agentcash_x402",
+]) {
+  assert.equal(
+    SHARED_RUNTIME_HARD_DENIED_CAPABILITIES.includes(toolId as never),
+    true,
+    `${toolId} must remain denied in workspace workers`,
+  );
+}
 assert.deepEqual(emptyWorkspaceRuntimeCapabilities(), {
   capabilityRevision: 0,
   connectionIds: [],

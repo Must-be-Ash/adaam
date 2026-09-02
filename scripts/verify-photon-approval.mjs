@@ -79,6 +79,44 @@ const limitPrompt = createPhotonApprovalPrompt(
 );
 assert.equal(limitPrompt.approvalText, "Buy 0.25 BTC at 50000 USD?");
 
+const agentcashPrompt = createPhotonApprovalPrompt(
+  approvalRequest("agentcash_fetch", {
+    maxAmount: 0.25,
+    method: "POST",
+    url: "https://stableenrich.dev/api/exa/search",
+  }),
+  1_000,
+);
+assert.equal(
+  agentcashPrompt.approvalText,
+  "Approve AgentCash POST to stableenrich.dev/api/exa/search for up to $0.25?",
+);
+assert.equal(agentcashPrompt.expiresAtMs, 601_000);
+assert.equal(
+  createPhotonApprovalPrompt(
+    approvalRequest("agentcash_fetch", {
+      maxAmount: 0.1,
+      url: "https://example.com/search?q=sensitive",
+    }),
+  ).approvalText,
+  "Approve AgentCash GET to example.com/search with query parameters for up to $0.10?",
+);
+for (const input of [
+  { maxAmount: 0.1, url: "http://example.com/search" },
+  { maxAmount: 0.1, url: "https://user:secret@example.com/search" },
+  { maxAmount: 0.1, url: "https://example.com/search#secret" },
+  { maxAmount: 0, url: "https://example.com/search" },
+  { maxAmount: 101, url: "https://example.com/search" },
+]) {
+  assert.throws(
+    () =>
+      createPhotonApprovalPrompt(
+        approvalRequest("agentcash_fetch", input),
+      ),
+    /cannot be rendered as an exact approval/u,
+  );
+}
+
 assert.equal(
   isPhotonApprovalSupported(approvalRequest("coinbase_balance")),
   false,
@@ -92,10 +130,8 @@ assert.equal(
   false,
 );
 assert.equal(
-  isPhotonApprovalSupported(
-    approvalRequest("masterkey-x402__run_service"),
-  ),
-  false,
+  isPhotonApprovalSupported(approvalRequest("agentcash_fetch")),
+  true,
 );
 
 for (const toolName of [

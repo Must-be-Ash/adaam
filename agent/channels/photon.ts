@@ -535,7 +535,7 @@ const bridge = chatSdkChannel({
         await channel.thread.post(
           photonWorkspaceLabeledText(
             workspaceName,
-            "Masterkey connected. Continuing your request.",
+            "Connection authorized. Continuing your request.",
           ),
         );
       }

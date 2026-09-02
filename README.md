@@ -7,6 +7,7 @@ Your own AI investment & research agent built on top of Eve by Vercel
 - **Personal markets agent** that investigates public companies, strategy ideas, and news on demand
 - **iMessage-native** — talk to Adaam from your phone (optional HTTP + Telegram adapters too)
 - **Guarded brokerage** via Coinbase — read balances freely; every trade needs your explicit approval, principal allowlist, and exact-order preview
+- **Paid API access** via AgentCash — x402/MPP requests use a deployment wallet, principal allowlist, per-call ceiling, replay guard, and explicit approval
 - **Research artifacts** — shareable reports, charts, and media at stable URLs
 - **Specialized workflows** — currently the IPO Filings, Public Commentary Tracker, and Inverse Cramer strategy packs (more in progress)
 
@@ -22,7 +23,7 @@ It forks, configures, connects iMessage + Coinbase, deploys, and verifies with y
 
 ### Or deploy manually
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FMust-be-Ash%2Fadaam&project-name=adaam&repository-name=adaam&env=AI_GATEWAY_API_KEY,FMP_API_KEY,COINBASE_KEY_ID,COINBASE_KEY_SECRET,COINBASE_ALLOWED_PRINCIPALS,SEC_USER_AGENT,PHOTON_CONNECTOR_ID,EVE_DEPLOYMENT_OWNER_ID,EVE_PHOTON_OWNER_PRINCIPALS&envDescription=API%20keys%20and%20connector%20IDs%20Adaam%20needs%20to%20run&envLink=https%3A%2F%2Fgithub.com%2FMust-be-Ash%2Fadaam%2Fblob%2Fmain%2F.env.example)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FMust-be-Ash%2Fadaam&project-name=adaam&repository-name=adaam&env=AI_GATEWAY_API_KEY,FMP_API_KEY,COINBASE_KEY_ID,COINBASE_KEY_SECRET,COINBASE_ALLOWED_PRINCIPALS,X402_PRIVATE_KEY,X402_SOLANA_PRIVATE_KEY,AGENTCASH_ALLOWED_PRINCIPALS,AGENTCASH_MAX_PAYMENT_USD,SEC_USER_AGENT,PHOTON_CONNECTOR_ID,EVE_DEPLOYMENT_OWNER_ID,EVE_PHOTON_OWNER_PRINCIPALS&envDescription=API%20keys%20and%20connector%20IDs%20Adaam%20needs%20to%20run&envLink=https%3A%2F%2Fgithub.com%2FMust-be-Ash%2Fadaam%2Fblob%2Fmain%2F.env.example)
 
 The button clones the repo and prompts for the core API keys. **It does not fully provision Adaam** — after it deploys you still need to complete these steps ([`.env.example`](.env.example) documents every variable):
 
@@ -49,6 +50,17 @@ Use a **dedicated, minimally funded** Advanced Trade spot portfolio — never yo
 - Keep **Ed25519 (Recommended)** — do not switch to ECDSA
 
 Store the key in your password manager and paste `COINBASE_KEY_ID` + `COINBASE_KEY_SECRET` straight into Vercel's Production env vars. Never put credentials in chat, source, or commits.
+
+## AgentCash wallet
+
+Set both `X402_PRIVATE_KEY` and `X402_SOLANA_PRIVATE_KEY` directly in Vercel's
+encrypted Production environment. Requiring both prevents the AgentCash CLI
+from creating an ephemeral wallet for a missing network. Then set
+`AGENTCASH_ALLOWED_PRINCIPALS` to
+the exact private-channel principal returned by `agentcash_access_status`.
+`AGENTCASH_MAX_PAYMENT_USD` limits each approved request and defaults to $5.
+Use a dedicated, minimally funded wallet and never put its private key in chat,
+source, logs, Preview environments, or command arguments.
 
 > [!WARNING]
 > Early and experimental — not intended for production use. Three strategies work today (IPO Filings, Public Commentary Tracker, and Inverse Cramer); others are in progress. Not financial advice.

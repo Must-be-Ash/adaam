@@ -43,7 +43,7 @@ deployment, and a passing health check.
 
 ## Known boundaries
 
-- The template has no deployment-wide owner allowlist yet. Coinbase has a separate COINBASE_ALLOWED_PRINCIPALS allowlist, but other private capabilities are not owner-global. Tell the user to keep the Photon number private.
+- The template has no deployment-wide owner allowlist yet. Coinbase and AgentCash have separate principal allowlists, but other private capabilities are not owner-global. Tell the user to keep the Photon number private.
 - Photon approvals currently support Eve's guarded spot-order creation path. Other Coinbase mutations may be present in the dynamic tool catalog but are rejected by the custom Photon approval path. Do not claim they work end to end.
 - The browser Eve API remains fail-closed in production. This quickstart page is public, but the agent API is not a public web chat.
 - Photon sessions and approval state require an Upstash Redis resource with both REST credentials and a TLS REDIS_URL.
@@ -217,6 +217,23 @@ Leave COINBASE_ALLOWED_PRINCIPALS empty for the first deployment. That is a fail
 
 Do not put live Coinbase credentials in Preview deployments unless the user explicitly accepts that exposure. Production-only is the default.
 
+## 6a. Configure AgentCash safely
+
+AgentCash is optional. If the user wants x402/MPP paid API access, have them
+create dedicated, minimally funded wallets and enter both of these directly in
+Vercel's encrypted Production environment:
+
+- X402_PRIVATE_KEY (a 0x-prefixed 32-byte EVM private key)
+- X402_SOLANA_PRIVATE_KEY (a base58 Solana private key)
+
+Both are required so AgentCash cannot create an ephemeral wallet for a missing
+network and return an unsafe deposit address.
+
+Also set AGENTCASH_MAX_PAYMENT_USD to the maximum allowed charge for one approved
+request. It defaults to 5 and cannot exceed 100. Leave
+AGENTCASH_ALLOWED_PRINCIPALS empty for the first deployment so paid access fails
+closed. Never put wallet keys in Preview, chat, source, logs, or command arguments.
+
 ## 7. Verify and deploy
 
 Run these local checks yourself:
@@ -224,6 +241,8 @@ Run these local checks yourself:
     npm run typecheck
     npm run verify:context
     npm run verify:approvals
+    npm run verify:agentcash
+    npm run verify:agentcash:mcp
     npm run verify:sessions
     npm run verify:workspaces
     npm run build
@@ -250,6 +269,10 @@ Then have the user send Eve an iMessage asking:
 
 Eve should return the exact private-channel principal ID without credentials or balances. Have the user add that complete value, including the imessage: prefix, to COINBASE_ALLOWED_PRINCIPALS in the Vercel production environment. The user should enter it directly; do not put it in source or logs.
 
+If AgentCash was configured, ask Eve to check AgentCash access status and add the
+same complete principal ID to AGENTCASH_ALLOWED_PRINCIPALS. Do not make a paid
+request as a setup test.
+
 After the user confirms the allowlist value is saved, redeploy the latest pushed
 commit and repeat the health check.
 
@@ -260,8 +283,9 @@ From the allowlisted private iMessage conversation:
 1. Ask Eve to check Coinbase access status. Confirm allowed is true and credentials are configured.
 2. Ask for a read-only Coinbase balance. Confirm no approval is requested for the read.
 3. Ask Eve to open the session manager. Create and switch to a test session, then switch back.
-4. Do not create a live order as a setup test.
-5. Do not test transfers, conversions, portfolio changes, edits, or cancellations.
+4. If configured, ask Eve to check AgentCash access status. Do not make a paid request as a setup test.
+5. Do not create a live order as a setup test.
+6. Do not test transfers, conversions, portfolio changes, edits, or cancellations.
 
 If a later user explicitly chooses to test a real order, require the normal exact preview and fresh Approve or Deny action. Never treat setup confirmation as financial authorization.
 
@@ -282,7 +306,7 @@ Give the user:
 - The production Vercel URL.
 - Confirmation that their Photon number is active.
 - The health-check result.
-- Which optional integrations remain unconfigured, such as FMP, SEC identity, Telegram, or Masterkey.
+- Which optional integrations remain unconfigured, such as FMP, SEC identity, Telegram, or AgentCash.
 - A reminder that secrets live only in Vercel and that the Photon number should remain private.
 
 Do not include credential values, Coinbase portfolio identifiers, phone numbers, principal IDs, balances, or financial amounts in the handoff.

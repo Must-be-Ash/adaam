@@ -5,11 +5,20 @@ import type { WorkspaceDocument } from "./workspace-state-store";
 export const WORKSPACE_RUNTIME_CAPABILITY_EVENT = "step.started" as const;
 
 export const SHARED_RUNTIME_HARD_DENIED_CAPABILITIES = Object.freeze([
+  "agentcash_access_status",
+  "agentcash_check_endpoint_schema",
+  "agentcash_discover_api_endpoints",
+  "agentcash_fetch",
+  "agentcash_fetch_free",
+  "agentcash_get_balance",
+  "agentcash_get_settings",
+  "agentcash_list_accounts",
+  "agentcash_search",
+  "agentcash_x402",
   "broker.mutation",
   "coinbase_create_order",
   "coinbase_mcp",
   "filesystem.write",
-  "masterkey_mcp",
   "session.manager",
 ] as const);
 

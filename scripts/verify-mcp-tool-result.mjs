@@ -11,17 +11,9 @@ import {
   validateCoinbaseMcpInput,
 } from "../agent/lib/coinbase-mcp-policy.ts";
 import {
-  masterkeyMcpNormalizationPolicy,
-  masterkeyToolApproval,
-} from "../agent/lib/masterkey-mcp-policy.ts";
+  agentcashMcpNormalizationPolicy,
+} from "../agent/lib/agentcash-mcp-policy.ts";
 import { createBoundedFetch } from "../agent/lib/mcp-response-limit.ts";
-
-assert.equal(masterkeyToolApproval("user"), "not-applicable");
-assert.equal(masterkeyToolApproval(undefined), "not-applicable");
-assert.deepEqual(masterkeyToolApproval("runtime"), {
-  reason: "Scheduled public-feed checks cannot use paid services.",
-  type: "denied",
-});
 
 const imageBytes = "A".repeat(750_000);
 const imageResult = {
@@ -40,7 +32,7 @@ const imageResult = {
   isError: false,
 };
 const normalizedImage = normalizeMcpToolResult(imageResult, {
-  ...masterkeyMcpNormalizationPolicy("run_service"),
+  ...agentcashMcpNormalizationPolicy("fetch"),
 });
 const normalizedImageText = JSON.stringify(normalizedImage);
 assert.equal(normalizedImageText.includes(imageBytes), false);
@@ -70,10 +62,10 @@ const searchResult = normalizeMcpToolResult(
     },
     isError: false,
   },
-  masterkeyMcpNormalizationPolicy("search_services"),
+  agentcashMcpNormalizationPolicy("search"),
 );
 assert.equal(JSON.stringify(searchResult).includes("duplicate text envelope"), false);
-assert.equal(searchResult.results.length, 11);
+assert.equal(searchResult.results.length, 21);
 assert.match(String(searchResult.results.at(-1)), /additional items omitted/u);
 
 const paidResultCollection = normalizeMcpToolResult(
@@ -86,7 +78,7 @@ const paidResultCollection = normalizeMcpToolResult(
     },
     isError: false,
   },
-  masterkeyMcpNormalizationPolicy("run_service"),
+  agentcashMcpNormalizationPolicy("fetch"),
 );
 assert.equal(paidResultCollection.results.length, 40);
 
@@ -260,10 +252,10 @@ const metadataFallback = normalizeMcpToolResult(
   {
     content: [],
     structuredContent: null,
-    _meta: { masterkey: { status: "complete", result: "metadata-result" } },
+    _meta: { agentcash: { status: "complete", result: "metadata-result" } },
     isError: false,
   },
-  masterkeyMcpNormalizationPolicy("get_result"),
+  agentcashMcpNormalizationPolicy("fetch"),
 );
 assert.equal(metadataFallback.result, "metadata-result");
 
