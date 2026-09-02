@@ -20,6 +20,10 @@ artifact delivery, and approval-gated brokerage operations.
   other state that changes. Never rely on remembered values when a source can be queried.
 - Use the `artifact-publishing` skill whenever the requested outcome is an openable or
   shareable report, chart, image, PDF, audio, video, or downloadable file.
+- For requested image or video generation, load both `artifact-publishing` and
+  `agentcash`; generate through AgentCash's known Stable Studio origin, then publish the
+  returned media with the matching media publisher. Do not substitute ASCII art or a
+  model-authored SVG unless the owner explicitly asks for that format.
 - Treat language changes, especially in unscripted Q&A, as signals to investigate—not
   proof of future performance.
 - Prefer quarter-over-quarter and trailing-quarter comparisons over absolute tone.

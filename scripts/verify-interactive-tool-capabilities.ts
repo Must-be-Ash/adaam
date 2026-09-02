@@ -6,6 +6,11 @@ import {
   requireCoinbaseAccess,
 } from "../agent/lib/coinbase-access";
 import {
+  agentcashInteractiveCapabilityIds,
+  agentcashInteractivePaymentApproval,
+  requireAgentcashToolAccess,
+} from "../agent/lib/agentcash-access";
+import {
   coinbaseInteractiveApproval,
   InteractiveToolCapabilityDeniedError,
   requireInteractiveToolCapabilities,
@@ -42,6 +47,8 @@ const ownerId = "owner_fixture";
 const principalId = "imessage:fixture-owner";
 const threadId = "imessage:fixture-thread";
 const environment = {
+  AGENTCASH_ALLOWED_PRINCIPALS: principalId,
+  AGENTCASH_MAX_PAYMENT_USD: "2.50",
   COINBASE_ALLOWED_PRINCIPALS: principalId,
   EVE_DEPLOYMENT_OWNER_ID: ownerId,
   EVE_OWNER_ALIAS_HMAC_SECRET: "A".repeat(43),
@@ -49,11 +56,18 @@ const environment = {
   EVE_STRATEGY_PACK_CATALOG_ENABLED: "1",
   EVE_STRATEGY_PACK_RUNTIME_ENABLED: "1",
   EVE_WORKSPACE_STATE_ENABLED: "1",
+  X402_PRIVATE_KEY: `0x${"1".repeat(64)}`,
+  X402_SOLANA_PRIVATE_KEY:
+    "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2",
 };
 const memory = new MemoryStore();
 process.env.COINBASE_ALLOWED_PRINCIPALS = principalId;
 process.env.COINBASE_KEY_ID = "fixture-key-id";
 process.env.COINBASE_KEY_SECRET = "fixture-key-secret";
+process.env.AGENTCASH_ALLOWED_PRINCIPALS = principalId;
+process.env.AGENTCASH_MAX_PAYMENT_USD = environment.AGENTCASH_MAX_PAYMENT_USD;
+process.env.X402_PRIVATE_KEY = environment.X402_PRIVATE_KEY;
+process.env.X402_SOLANA_PRIVATE_KEY = environment.X402_SOLANA_PRIVATE_KEY;
 
 function context(workspaceId: string) {
   const scope = projectPhotonWorkspaceRuntimeScope({
@@ -166,22 +180,37 @@ for (const toolId of [
   "coinbase_preview_order",
   "coinbase_create_order",
   "coinbase_balance",
+  "agentcash_fetch",
 ] as const) {
-  await assert.rejects(
+  await assert.doesNotReject(
     requireInteractiveToolCapabilities({
-      capabilityIds: coinbaseInteractiveCapabilityIds(toolId),
+      capabilityIds: toolId.startsWith("agentcash_")
+        ? agentcashInteractiveCapabilityIds(true)
+        : coinbaseInteractiveCapabilityIds(toolId),
       catalog: strategyPackCatalog,
       ctx: context(earningsWorkspaceId),
       environment,
       stateClient: memory,
       toolId,
     }),
-    (error: unknown) =>
-      error instanceof InteractiveToolCapabilityDeniedError &&
-      error.code === "interactive_tool_capability_denied",
-    `${toolId} must be denied in the bound earnings workspace`,
+    `${toolId} must remain available to the owner in a bound strategy workspace`,
   );
 }
+
+await assert.rejects(
+  requireInteractiveToolCapabilities({
+    capabilityIds: ["filesystem.write"],
+    catalog: strategyPackCatalog,
+    ctx: context(earningsWorkspaceId),
+    environment,
+    stateClient: memory,
+    toolId: "filesystem.write",
+  }),
+  (error: unknown) =>
+    error instanceof InteractiveToolCapabilityDeniedError &&
+    error.code === "interactive_tool_capability_denied",
+  "non-personal strategy-denied capabilities must remain blocked",
+);
 
 const approvalContext = {
   ...context(earningsWorkspaceId),
@@ -199,13 +228,23 @@ const createApproval = await coinbaseInteractiveApproval({
   stateClient: memory,
   toolId: "coinbase_create_order",
 });
-assert.deepEqual(createApproval, {
-  reason: "Coinbase is not available in the current strategy session.",
-  type: "denied",
-});
+assert.equal(createApproval, "user-approval");
 assert.equal(await coinbaseApproval(approvalContext, true), "user-approval");
-await assert.rejects(
-  coinbaseInteractiveApproval({
+assert.equal(
+  await requireAgentcashToolAccess(
+    context(earningsWorkspaceId) as never,
+    true,
+  ),
+  principalId,
+  "AgentCash must use the ordinary owner allowlist in a bound strategy workspace",
+);
+assert.equal(
+  await agentcashInteractivePaymentApproval(approvalContext),
+  "user-approval",
+  "AgentCash paid calls must still require approval in a bound strategy workspace",
+);
+assert.equal(
+  await coinbaseInteractiveApproval({
     capabilityIds: coinbaseInteractiveCapabilityIds("coinbase_create_order"),
     catalog: strategyPackCatalog,
     ctx: approvalContext,
@@ -219,8 +258,26 @@ await assert.rejects(
     },
     toolId: "coinbase_create_order",
   }),
+  "user-approval",
+  "owner-global personal tools must not depend on strategy state availability",
+);
+await assert.rejects(
+  coinbaseInteractiveApproval({
+    capabilityIds: ["filesystem.write"],
+    catalog: strategyPackCatalog,
+    ctx: approvalContext,
+    environment,
+    requiresUserApproval: true,
+    stateClient: {
+      compareAndSet: async () => true,
+      get: async () => {
+        throw new Error("fixture_state_unavailable");
+      },
+    },
+    toolId: "filesystem.write",
+  }),
   /fixture_state_unavailable/u,
-  "unexpected capability-store failures must not be presented as a strategy denial",
+  "strategy-scoped capability checks must still surface unexpected store failures",
 );
 
 const controlWorkspaceId = "223e4567-e89b-42d3-a456-426614174000";

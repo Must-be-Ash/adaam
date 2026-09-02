@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 
 import {
   coinbaseToolIsPrivateRead,
@@ -661,5 +662,23 @@ const longPrompt = createPhotonApprovalPrompt(
 assert.equal(longPrompt.approvalText.includes("9".repeat(40)), true);
 assert.equal(longPrompt.approvalText.includes("8".repeat(40)), true);
 assert.match(longPrompt.approvalText, /\?$/u);
+
+const photonChannelSource = await readFile(
+  new URL("../agent/channels/photon.ts", import.meta.url),
+  "utf8",
+);
+const completedTurnStart = photonChannelSource.indexOf('async "turn.completed"');
+const completedTurnEnd = photonChannelSource.indexOf('async "turn.cancelled"');
+assert.ok(completedTurnStart >= 0, "Photon completed-turn handler exists");
+assert.ok(completedTurnEnd > completedTurnStart, "Photon completed-turn handler is bounded");
+const completedTurnHandler = photonChannelSource.slice(
+  completedTurnStart,
+  completedTurnEnd,
+);
+assert.ok(
+  completedTurnHandler.indexOf("const approvalWasActive") <
+    completedTurnHandler.indexOf("releaseApprovedOrderGuard"),
+  "approval activity must be captured before releasing the approved-order guard",
+);
 
 console.log("Photon mini-app approval verification passed.");
