@@ -13,7 +13,12 @@ import {
   PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID,
 } from "../agent/lib/public-commentary-semantics";
 import {
+  createPublicCommentaryResearchDefinition,
+  PUBLIC_COMMENTARY_RESEARCH_DEFINITION_ID,
+} from "../agent/lib/public-commentary-research";
+import {
   publicCommentaryImpactDefinitionVersion,
+  resolveDeclaredPublicCommentaryResearchDefinition,
   resolvePublicCommentarySemanticReasoning,
 } from "../agent/lib/public-commentary-workspace-worker";
 import {
@@ -336,12 +341,67 @@ const presetPack = strategyPackCatalog.resolve({
   id: "public-commentary-tracker",
   version: "1.5.2",
 });
+const researchModelPack = strategyPackCatalog.resolve({
+  id: "public-commentary-tracker",
+  version: "1.5.3",
+});
 assert.ok(
   sessionLimitFixPack,
   "Tracker 1.5.1 must pin the classifier contract with room for a recovery turn",
 );
 assert.ok(sessionLimitFixPredecessor);
 assert.ok(presetPack);
+assert.ok(researchModelPack);
+assert.equal(
+  researchModelPack.evidenceContracts?.find(({ id }) =>
+    id === PUBLIC_COMMENTARY_RESEARCH_DEFINITION_ID)?.digest,
+  createPublicCommentaryResearchDefinition(["openai/gpt-5.4-mini"], "1.0.1").definitionDigest,
+);
+assert.equal(
+  researchModelPack.evidenceContracts?.find(({ id }) =>
+    id === PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID)?.digest,
+  presetPack.evidenceContracts?.find(({ id }) =>
+    id === PUBLIC_COMMENTARY_IMPACT_DEFINITION_ID)?.digest,
+  "1.5.3 must not change the compact semantic classifier",
+);
+assert.equal(
+  resolveDeclaredPublicCommentaryResearchDefinition(
+    researchModelPack,
+    ["openai/gpt-5.4-mini", "openai/gpt-5.4"],
+  )?.allowedModelIds[0],
+  "openai/gpt-5.4-mini",
+);
+assert.equal(
+  resolveDeclaredPublicCommentaryResearchDefinition(
+    presetPack,
+    ["openai/gpt-5.4-mini", "openai/gpt-5.4"],
+  )?.allowedModelIds[0],
+  "openai/gpt-5.4",
+  "historical packs must retain their original model binding",
+);
+const documentedProductionModels = {
+  EVE_HYBRID_FAST_MODEL_ID: "anthropic/claude-haiku-4.5",
+  EVE_HYBRID_FAST_MODEL_REASONING: "provider-default",
+  EVE_HYBRID_FRONTIER_MODEL_ID: "openai/gpt-5.4",
+  EVE_HYBRID_FRONTIER_MODEL_REASONING: "high",
+  EVE_STRATEGY_PACK_WORKER_MODEL_ID: "openai/gpt-5.4",
+};
+assert.deepEqual(
+  resolveStrategyPackWorkerModelPolicy({
+    environment: documentedProductionModels,
+    pack: presetPack,
+  }).allowedModelIds,
+  ["openai/gpt-5.4"],
+  "historical commentary packs must not gain the qualified Mini route",
+);
+assert.deepEqual(
+  resolveStrategyPackWorkerModelPolicy({
+    environment: documentedProductionModels,
+    pack: researchModelPack,
+  }).allowedModelIds,
+  ["openai/gpt-5.4", "openai/gpt-5.4-mini"],
+  "only the Mini-pinned immutable research contract may add Mini",
+);
 assert.equal(presetPack.configurationPresets?.defaultId, "kobeissi-market");
 assert.match(presetPack.workspaceInstruction, /default Kobeissi\s+market preset/u);
 assert.match(presetPack.workspaceInstruction, /upgrade the session to use 1\.5\.2/u);

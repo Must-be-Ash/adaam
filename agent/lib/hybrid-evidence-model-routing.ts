@@ -61,7 +61,6 @@ function configuredRoutes(environment: NodeJS.ProcessEnv) {
   const fastReasoning = environment.EVE_HYBRID_FAST_MODEL_REASONING;
   const frontierReasoning = environment.EVE_HYBRID_FRONTIER_MODEL_REASONING;
   if (
-    fastModelId === frontierModelId ||
     (fastReasoning !== "low" && fastReasoning !== "provider-default") ||
     frontierReasoning !== "high"
   ) return invalid();

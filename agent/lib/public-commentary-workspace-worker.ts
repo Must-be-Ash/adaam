@@ -1128,6 +1128,24 @@ export function resolvePublicCommentarySemanticReasoning(
   ) === true ? "low" as const : configured.reasoning;
 }
 
+export function resolveDeclaredPublicCommentaryResearchDefinition(
+  pack: StrategyPackCatalogEntry,
+  workerModelIds: readonly string[],
+) {
+  const declaredResearch = resolvePublicCommentaryResearchContract(pack);
+  if (!declaredResearch) return null;
+  const candidates = workerModelIds
+    .map((modelId) =>
+      declaredResearch.contract.createDefinition([modelId], declaredResearch.version)
+    )
+    .filter((definition) => pack.evidenceContracts?.some((contract) =>
+      contract.id === definition.definitionId &&
+      contract.version === definition.definitionVersion &&
+      contract.digest === definition.definitionDigest
+    ));
+  return candidates.length === 1 ? candidates[0]! : null;
+}
+
 async function resolveInverseCramerResearchRuntime(input: {
   capabilities: Awaited<ReturnType<typeof resolveWorkspaceWorkerCapabilitySnapshot>>;
   clients?: PublicCommentaryWorkspaceWorkerClients;
@@ -1163,21 +1181,16 @@ async function resolveInverseCramerResearchRuntime(input: {
     throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
   }
   const configured = resolveHybridTaskModelRoute("semantic_interpretation", input.environment);
-  const candidates = input.capabilities.resolved.workerModelIds
-    .map((modelId) =>
-      declaredResearch.contract.createDefinition([modelId], declaredResearch.version)
-    )
-    .filter((definition) => pack.evidenceContracts?.some((contract) =>
-      contract.id === definition.definitionId &&
-      contract.version === definition.definitionVersion &&
-      contract.digest === definition.definitionDigest
-    ));
-  if (candidates.length !== 1 || candidates[0]?.allowedModelIds[0] !== configured.modelId) {
+  const selected = resolveDeclaredPublicCommentaryResearchDefinition(
+    pack,
+    input.capabilities.resolved.workerModelIds,
+  );
+  if (!selected) {
     throw new PublicCommentaryWorkspaceWorkerError("public_commentary_strategy_invalid");
   }
   return Object.freeze({
-    definition: candidates[0]!,
-    modelId: configured.modelId,
+    definition: selected,
+    modelId: selected.allowedModelIds[0]!,
     pack,
     reasoning: configured.reasoning,
     workspaceGeneration: snapshot.workspaceGeneration,

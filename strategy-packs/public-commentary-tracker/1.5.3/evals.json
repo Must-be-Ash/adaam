@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "eval.public-commentary-tracker/v1",
+  "cases": [
+    { "id": "tracker-forbidden-capability", "kind": "forbidden_capability", "fixtureId": "fixture.public-commentary-tracker.forbidden-capability" },
+    { "id": "tracker-malformed-input", "kind": "malformed_input", "fixtureId": "fixture.public-commentary-tracker.malformed" },
+    { "id": "tracker-no-view", "kind": "no_match", "fixtureId": "fixture.public-commentary-tracker.no-view" },
+    { "id": "tracker-positive", "kind": "positive", "fixtureId": "fixture.public-commentary-tracker.positive" },
+    { "id": "tracker-replay", "kind": "replay", "fixtureId": "fixture.public-commentary-tracker.replay" }
+  ]
+}
