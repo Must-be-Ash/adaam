@@ -42,6 +42,14 @@ export function agentcashRequestHash(
   return sha256(canonicalRequest(input));
 }
 
+// Receipts written before request URL normalization used this representation.
+// Accept it only when reading an existing receipt; new receipts use the hash above.
+export function legacyAgentcashRequestHash(
+  input: Record<string, unknown>,
+): string {
+  return sha256(JSON.stringify(canonicalValue(input)));
+}
+
 export function agentcashBodyApprovalDescriptor(body: unknown): string {
   if (body === undefined) return "No body.";
   const serialized =

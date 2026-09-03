@@ -29,6 +29,7 @@ import {
   safeAgentcashReadInput,
 } from "../agent/lib/agentcash-policy";
 import { inspectAgentcashEndpointSchema } from "../agent/lib/agentcash-endpoint-schema";
+import { legacyAgentcashRequestHash } from "../agent/lib/agentcash-request";
 
 const principalId = "imessage:fixture-owner";
 const userSession = {
@@ -366,6 +367,41 @@ const paymentInput = {
 assert.deepEqual(await executeAgentcashPayment(paymentInput), { paid: true });
 assert.deepEqual(await executeAgentcashPayment(paymentInput), { paid: true });
 assert.equal(calls, 1);
+
+const legacyStore = new MemoryOperationStore();
+let legacyCalls = 0;
+const legacyToolInput = {
+  maxAmount: 0.25,
+  method: "GET",
+  timeout: 30_000,
+  url: "https://stablestudio.dev",
+};
+const legacyPayment = {
+  ...paymentInput,
+  callId: "call_legacy_hash",
+  operation: async () => {
+    legacyCalls += 1;
+    return { paid: "legacy" };
+  },
+  store: legacyStore,
+  toolInput: legacyToolInput,
+};
+assert.deepEqual(await executeAgentcashPayment(legacyPayment), {
+  paid: "legacy",
+});
+const [legacyKey, legacyValue] = [...legacyStore.values.entries()][0] ?? [];
+assert.ok(legacyKey && legacyValue);
+legacyStore.values.set(
+  legacyKey,
+  JSON.stringify({
+    ...JSON.parse(legacyValue),
+    inputHash: legacyAgentcashRequestHash(legacyToolInput),
+  }),
+);
+assert.deepEqual(await executeAgentcashPayment(legacyPayment), {
+  paid: "legacy",
+});
+assert.equal(legacyCalls, 1);
 
 const multibyteStore = new MemoryOperationStore();
 const multibyteResult = { text: "界".repeat(100_000) };
