@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { z } from "zod";
 
+import { agentcashRequestHash } from "#agentcash-request";
+
 const KEY_PREFIX = "eve:agentcash:v1:operation:";
 const OPERATION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const MAX_OPERATION_BYTES = 1_000_000;
@@ -85,28 +87,6 @@ function operationStore(): AgentcashOperationStoreClient {
   return defaultStore;
 }
 
-function canonicalValue(value: unknown): unknown {
-  if (
-    value === null ||
-    typeof value === "boolean" ||
-    typeof value === "string" ||
-    (typeof value === "number" && Number.isFinite(value))
-  ) {
-    return value;
-  }
-  if (Array.isArray(value)) return value.map(canonicalValue);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) =>
-          left < right ? -1 : left > right ? 1 : 0,
-        )
-        .map(([key, entry]) => [key, canonicalValue(entry)]),
-    );
-  }
-  throw new Error("The AgentCash request contains a non-JSON value.");
-}
-
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -152,7 +132,7 @@ export async function executeAgentcashPayment(input: {
 }): Promise<unknown> {
   const store = input.store ?? operationStore();
   const key = operationKey(input.principalId, input.callId);
-  const inputHash = sha256(JSON.stringify(canonicalValue(input.toolInput)));
+  const inputHash = agentcashRequestHash(input.toolInput);
   const existing = parseOperation(await store.get(key));
   if (existing) return existingResult(existing, inputHash);
 

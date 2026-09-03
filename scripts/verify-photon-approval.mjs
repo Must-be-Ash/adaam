@@ -82,25 +82,27 @@ assert.equal(limitPrompt.approvalText, "Buy 0.25 BTC at 50000 USD?");
 
 const agentcashPrompt = createPhotonApprovalPrompt(
   approvalRequest("agentcash_fetch", {
+    body: { prompt: "fixture image", size: "1024x1024" },
+    headers: { "X-Request-Label": "fixture" },
     maxAmount: 0.25,
     method: "POST",
-    url: "https://stableenrich.dev/api/exa/search",
+    url: "https://stablestudio.dev/api/images?quality=high",
   }),
   1_000,
 );
-assert.equal(
+assert.match(
   agentcashPrompt.approvalText,
-  "Approve AgentCash POST to stableenrich.dev/api/exa/search for up to $0.25?",
+  /^Approve AgentCash POST https:\/\/stablestudio\.dev\/api\/images\?quality=high for up to \$0\.25\? Request SHA-256 [a-f0-9]{64}\. Body SHA-256 [a-f0-9]{64} \(45 bytes\)\.$/u,
 );
 assert.equal(agentcashPrompt.expiresAtMs, 601_000);
-assert.equal(
+assert.match(
   createPhotonApprovalPrompt(
     approvalRequest("agentcash_fetch", {
       maxAmount: 0.1,
       url: "https://example.com/search?q=sensitive",
     }),
   ).approvalText,
-  "Approve AgentCash GET to example.com/search with query parameters for up to $0.10?",
+  /^Approve AgentCash GET https:\/\/example\.com\/search\?q=sensitive for up to \$0\.10\? Request SHA-256 [a-f0-9]{64}\. No body\.$/u,
 );
 for (const input of [
   { maxAmount: 0.1, url: "http://example.com/search" },

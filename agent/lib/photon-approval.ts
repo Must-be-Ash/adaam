@@ -1,5 +1,10 @@
 import type { InputRequest } from "eve/client";
 
+import {
+  agentcashBodyApprovalDescriptor,
+  agentcashRequestHash,
+} from "#agentcash-request";
+
 const MAX_APPROVAL_TEXT_LENGTH = 500;
 const APPROVAL_WINDOW_MS = 10 * 60_000;
 const ORDER_APPROVAL_WINDOW_MS = 5 * 60_000;
@@ -140,7 +145,7 @@ function approvalSummary(request: InputRequest): string {
         ) {
           throw new Error("unsafe AgentCash endpoint");
         }
-        endpoint = `${parsed.host}${parsed.pathname}${parsed.search ? " with query parameters" : ""}`;
+        endpoint = parsed.toString();
       } catch {
         throw new Error(
           "The AgentCash request cannot be rendered as an exact approval.",
@@ -151,7 +156,9 @@ function approvalSummary(request: InputRequest): string {
           "The AgentCash request cannot be rendered as an exact approval.",
         );
       }
-      return `Approve AgentCash ${method} to ${endpoint} for up to $${maxAmount.toFixed(2)}?`;
+      const requestHash = agentcashRequestHash(input);
+      const body = agentcashBodyApprovalDescriptor(input.body);
+      return `Approve AgentCash ${method} ${endpoint} for up to $${maxAmount.toFixed(2)}? Request SHA-256 ${requestHash}. ${body}`;
     }
     default: {
       const readableName = readableToolName(toolName);
