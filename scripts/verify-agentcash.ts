@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { base58 } from "@scure/base";
 
+import { GET as getLaunchSkill } from "../app/skill/route";
 import {
   agentcashMaximumPaymentUsd,
   agentcashPaymentApproval,
@@ -62,6 +63,43 @@ const configuredEnvironment = {
   X402_PRIVATE_KEY: `0x${"1".repeat(64)}`,
   X402_SOLANA_PRIVATE_KEY: normalizedSolanaKey!,
 };
+
+const launchSkillResponse = getLaunchSkill();
+assert.equal(
+  launchSkillResponse.headers.get("content-type"),
+  "text/markdown; charset=utf-8",
+);
+const launchSkillSource = await launchSkillResponse.text();
+assert.match(
+  launchSkillSource,
+  /Show my AgentCash accounts and funding addresses\./u,
+  "launch onboarding asks Eve to return the deployment funding addresses",
+);
+assert.match(
+  launchSkillSource,
+  /agentcash_list_accounts/u,
+  "launch onboarding names the read-only account tool",
+);
+assert.match(
+  launchSkillSource,
+  /Send USDC only on the exact network\s+shown for that address/u,
+  "launch onboarding prevents cross-network USDC deposits",
+);
+assert.match(
+  launchSkillSource,
+  /Check my AgentCash balance\./u,
+  "launch onboarding verifies the balance after funding",
+);
+assert.match(
+  launchSkillSource,
+  /Do not declare\s+AgentCash setup complete until/u,
+  "launch onboarding has an AgentCash-specific completion gate",
+);
+assert.doesNotMatch(
+  launchSkillSource,
+  /Masterkey/iu,
+  "launch onboarding contains no legacy Masterkey setup guidance",
+);
 
 assert.equal(agentcashPrincipalId(userSession), principalId);
 assert.equal(agentcashPrincipalId(runtimeSession), undefined);
