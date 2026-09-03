@@ -1,6 +1,6 @@
 const skill = String.raw`---
 name: launch-eve
-description: Fork, configure, verify, and deploy the Eve personal investment-agent template to a user's GitHub and Vercel accounts. Use when someone asks to launch their own Eve, connect Eve to Photon iMessage, configure Coinbase CDP credentials, or deploy the Eve template.
+description: Fork, configure, verify, and deploy the Eve personal investment-agent template to a user's GitHub and Vercel accounts. Use when someone asks to launch their own Eve, connect Eve to Photon iMessage, configure Coinbase or AgentCash, or deploy the Eve template.
 metadata:
   source: "https://github.com/Must-be-Ash/adaam"
 ---
@@ -58,11 +58,13 @@ Ask for these details one at a time:
 4. Whether the user already has Coinbase Advanced Trade and Photon accounts.
 5. Whether they already created a dedicated Coinbase CDP key for this agent.
 6. Whether they have an iMessage-capable phone number ready to register or select in Photon.
+7. Whether they want AgentCash x402/MPP paid API access. Include it in the
+   standard setup unless they explicitly opt out.
 
 Ask only for readiness and account choices, not credential values or the phone
 number itself. Confirm that the user understands this will create or modify
 resources in those accounts and that the deployment currently has no general
-owner allowlist outside the separate Coinbase principal allowlist.
+owner allowlist outside the separate Coinbase and AgentCash principal allowlists.
 
 ## 2. Fork and inspect Eve
 
@@ -219,9 +221,10 @@ Do not put live Coinbase credentials in Preview deployments unless the user expl
 
 ## 6a. Configure AgentCash safely
 
-AgentCash is optional. If the user wants x402/MPP paid API access, have them
-create dedicated, minimally funded wallets and enter both of these directly in
-Vercel's encrypted Production environment:
+AgentCash powers Eve's x402/MPP paid API access, including paid media and data
+providers. Include this stage in the standard setup unless the user explicitly
+opts out. Have them create dedicated wallets that will remain minimally funded,
+then enter both of these directly in Vercel's encrypted Production environment:
 
 - X402_PRIVATE_KEY (a 0x-prefixed 32-byte EVM private key)
 - X402_SOLANA_PRIVATE_KEY (a base58 Solana private key)
@@ -276,6 +279,30 @@ request as a setup test.
 After the user confirms the allowlist value is saved, redeploy the latest pushed
 commit and repeat the health check.
 
+Then have the user ask Eve:
+
+    Show my AgentCash accounts and funding addresses.
+
+Eve should use the read-only agentcash_list_accounts tool and return each
+available network, public deposit address, balance, and deposit link when one is
+available.
+Public funding addresses may be shown in the user's private iMessage conversation;
+private keys must never be shown or retrieved.
+
+Walk the user through funding one account. Send USDC only on the exact network
+shown for that address. For example, Base USDC must go to the Base address and
+Solana USDC to the Solana address. Never tell the user to send USDC over a
+different network, and never initiate the transfer for them. The user must make
+and confirm the transfer themselves.
+
+After they confirm the transfer, have them ask Eve:
+
+    Check my AgentCash balance.
+
+Confirm that the read-only balance reflects the deposit. If it has not arrived,
+wait for network confirmation and check again. Do not make a paid request merely
+to prove setup works.
+
 ## 8. Final smoke test
 
 From the allowlisted private iMessage conversation:
@@ -283,9 +310,14 @@ From the allowlisted private iMessage conversation:
 1. Ask Eve to check Coinbase access status. Confirm allowed is true and credentials are configured.
 2. Ask for a read-only Coinbase balance. Confirm no approval is requested for the read.
 3. Ask Eve to open the session manager. Create and switch to a test session, then switch back.
-4. If configured, ask Eve to check AgentCash access status. Do not make a paid request as a setup test.
-5. Do not create a live order as a setup test.
-6. Do not test transfers, conversions, portfolio changes, edits, or cancellations.
+4. If configured, ask Eve to show the AgentCash accounts and funding addresses.
+   Confirm the response includes public addresses for the available networks and
+   does not include private keys.
+5. Ask Eve to check the AgentCash balance after the user funds an account, or
+   record that the user explicitly chose to fund it later. Do not make a paid
+   request as a setup test.
+6. Do not create a live order as a setup test.
+7. Do not test transfers, conversions, portfolio changes, edits, or cancellations.
 
 If a later user explicitly chooses to test a real order, require the normal exact preview and fresh Approve or Deny action. Never treat setup confirmation as financial authorization.
 
@@ -299,6 +331,11 @@ Do not declare setup complete until:
 - The production health endpoint reports ready.
 - Photon can receive and answer an iMessage from the user.
 - Coinbase access is fail-closed until the private-channel principal is allowlisted, then a read-only access check succeeds.
+- If the user selected AgentCash, complete its funding handoff. Do not declare
+  AgentCash setup complete until both deployment wallets are configured, the
+  private-channel principal is allowlisted, Eve returns the public funding
+  addresses, and a read-only balance check succeeds. A zero balance is acceptable
+  only when the user explicitly chose to fund it later.
 
 Give the user:
 
