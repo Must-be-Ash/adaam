@@ -82,7 +82,7 @@ export function agentcashPhotonProgress(
     return {
       id: "provider-working",
       message:
-        "The paid request was accepted and the provider is working on it. This can take a few minutes; I’ll send the result when it’s ready.",
+        "The paid request was accepted and the provider is working on it. This can take a few minutes. I’m continuing this turn with the job details; if the result doesn’t arrive, ask me to check its status.",
     };
   }
   return null;

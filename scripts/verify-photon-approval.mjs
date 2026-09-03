@@ -70,7 +70,7 @@ assert.deepEqual(
   {
     id: "provider-working",
     message:
-      "The paid request was accepted and the provider is working on it. This can take a few minutes; I’ll send the result when it’s ready.",
+      "The paid request was accepted and the provider is working on it. This can take a few minutes. I’m continuing this turn with the job details; if the result doesn’t arrive, ask me to check its status.",
   },
 );
 assert.equal(
@@ -753,6 +753,39 @@ assert.match(longPrompt.approvalText, /\?$/u);
 const photonChannelSource = await readFile(
   new URL("../agent/channels/photon.ts", import.meta.url),
   "utf8",
+);
+const agentcashProgressStart = photonChannelSource.indexOf(
+  'async "action.result"',
+);
+const agentcashProgressEnd = photonChannelSource.indexOf(
+  'async "message.completed"',
+);
+assert.ok(agentcashProgressStart >= 0, "AgentCash progress handler exists");
+assert.ok(
+  agentcashProgressEnd > agentcashProgressStart,
+  "AgentCash progress handler is bounded",
+);
+const agentcashProgressHandler = photonChannelSource.slice(
+  agentcashProgressStart,
+  agentcashProgressEnd,
+);
+assert.ok(
+  agentcashProgressHandler.includes("createPhotonResponseDeliveryReceipt"),
+  "AgentCash progress delivery is durably staged",
+);
+assert.ok(
+  agentcashProgressHandler.indexOf('state: "delivering"') <
+    agentcashProgressHandler.indexOf("channel.thread.post"),
+  "AgentCash progress is marked delivering before posting",
+);
+assert.ok(
+  agentcashProgressHandler.indexOf("channel.thread.post") <
+    agentcashProgressHandler.indexOf('state: "delivered"'),
+  "AgentCash progress is marked delivered only after posting",
+);
+assert.ok(
+  agentcashProgressHandler.includes('state: "delivery_uncertain"'),
+  "AgentCash progress records ambiguous post failures",
 );
 const completedTurnStart = photonChannelSource.indexOf('async "turn.completed"');
 const completedTurnEnd = photonChannelSource.indexOf('async "turn.cancelled"');

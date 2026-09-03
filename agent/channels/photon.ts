@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { createRedisState } from "@chat-adapter/state-redis";
 import type { Thread } from "chat";
 import {
@@ -303,24 +305,52 @@ const bridge = chatSdkChannel({
       const principalId = ctx.session.auth.current?.principalId;
       if (!progress || !principalId?.startsWith("imessage:")) return;
       const eventId = `agentcash-progress:${ctx.session.id}:${data.result.callId}:${progress.id}`;
+      const deliveryId = `agentcash_progress_${createHash("sha256")
+        .update(eventId)
+        .digest("hex")}`;
       try {
-        if (
-          !(await claimPhotonApprovalEvent({
-            eventId,
-            principalId,
-            threadId: physicalPhotonThreadId(channel.thread.id),
-          }))
-        ) {
-          return;
-        }
         const workspaceName = await photonWorkspaceResponseName({
           principalId,
           sessionId: ctx.session.id,
           threadId: channel.thread.id,
         });
-        await channel.thread.post(
-          photonWorkspaceLabeledText(workspaceName, progress.message),
+        const responseText = photonWorkspaceLabeledText(
+          workspaceName,
+          progress.message,
         );
+        const delivery = await createPhotonResponseDeliveryReceipt({
+          content: responseText,
+          destination: physicalPhotonThreadId(channel.thread.id),
+          ingressId: deliveryId,
+        });
+        if (!delivery.created) {
+          if (delivery.record.state === "delivering") {
+            await markPhotonResponseDelivery({
+              failureCode: "agentcash_progress_delivery_uncertain",
+              ingressId: deliveryId,
+              state: "delivery_uncertain",
+            });
+          }
+          return;
+        }
+        await markPhotonResponseDelivery({
+          ingressId: deliveryId,
+          state: "delivering",
+        });
+        try {
+          await channel.thread.post(responseText);
+          await markPhotonResponseDelivery({
+            ingressId: deliveryId,
+            state: "delivered",
+          });
+        } catch (error) {
+          await markPhotonResponseDelivery({
+            failureCode: "agentcash_progress_delivery_uncertain",
+            ingressId: deliveryId,
+            state: "delivery_uncertain",
+          }).catch(() => undefined);
+          throw error;
+        }
         console.info("[photon.agentcash] Progress delivered", {
           call_id: data.result.callId,
           progress_id: progress.id,
