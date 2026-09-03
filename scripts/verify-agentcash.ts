@@ -252,9 +252,9 @@ globalThis.fetch = async (input, init) => {
 try {
   const inspection = await inspectAgentcashEndpointSchema({
     method: "POST",
-    url: "https://provider.example/api/images",
+    url: "https://stablestudio.dev/api/images",
   });
-  assert.equal(inspection.url, "https://provider.example/api/images");
+  assert.equal(inspection.url, "https://stablestudio.dev/api/images");
   assert.deepEqual(
     inspection.results.map((result) => result.method),
     ["POST"],
@@ -281,12 +281,12 @@ assert.throws(
   () =>
     assertAgentcashFreeSiwxEndpoint(
       {
-        results: [
-          { authMode: "siwx", method: "GET", requiresPayment: false },
-        ],
+      results: [
+        { authMode: "siwx", method: "GET", requiresPayment: false },
+      ],
       url: "https://stablejobs.dev/jobs/other",
     },
-      "https://stablejobs.dev/jobs/123",
+    "https://stablejobs.dev/jobs/123",
     ),
   /not confirmed as a free SIWX endpoint/u,
 );
@@ -294,12 +294,12 @@ assert.throws(
   () =>
     assertAgentcashFreeSiwxEndpoint(
       {
-        results: [
-          { authMode: "x402", method: "GET", requiresPayment: true },
-        ],
+      results: [
+        { authMode: "x402", method: "GET", requiresPayment: true },
+      ],
       url: "https://stablejobs.dev/jobs/123",
     },
-      "https://stablejobs.dev/jobs/123",
+    "https://stablejobs.dev/jobs/123",
     ),
   /not confirmed as a free SIWX endpoint/u,
 );

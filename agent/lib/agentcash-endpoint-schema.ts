@@ -5,6 +5,8 @@ import {
   type HttpMethod,
 } from "@agentcash/discovery";
 
+import { safeAgentcashReadInput } from "./agentcash-policy";
+
 const INSPECTABLE_METHODS = [
   "DELETE",
   "GET",
@@ -24,6 +26,10 @@ interface EndpointSchemaInput {
 export async function inspectAgentcashEndpointSchema(
   input: EndpointSchemaInput,
 ) {
+  safeAgentcashReadInput("check_endpoint_schema", {
+    ...(input.headers ? { headers: input.headers } : {}),
+    url: input.url,
+  });
   const endpoint = new URL(input.url);
   const openApiResult = await getOpenAPI(
     endpoint.origin,
