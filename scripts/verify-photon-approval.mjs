@@ -799,6 +799,10 @@ assert.ok(
   "AgentCash progress delivery is durably staged",
 );
 assert.ok(
+  agentcashProgressHandler.includes('delivery.record.state !== "staged"'),
+  "A replay can recover a staged AgentCash progress delivery",
+);
+assert.ok(
   agentcashProgressHandler.indexOf('state: "delivering"') <
     agentcashProgressHandler.indexOf("channel.thread.post"),
   "AgentCash progress is marked delivering before posting",

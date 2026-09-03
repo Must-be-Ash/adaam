@@ -323,7 +323,7 @@ const bridge = chatSdkChannel({
           destination: physicalPhotonThreadId(channel.thread.id),
           ingressId: deliveryId,
         });
-        if (!delivery.created) {
+        if (!delivery.created && delivery.record.state !== "staged") {
           if (delivery.record.state === "delivering") {
             await markPhotonResponseDelivery({
               failureCode: "agentcash_progress_delivery_uncertain",
