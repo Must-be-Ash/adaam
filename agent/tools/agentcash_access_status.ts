@@ -5,6 +5,7 @@ import {
   agentcashMaximumPaymentUsd,
   agentcashPrincipalAllowed,
   agentcashPrincipalId,
+  agentcashWalletConfigured,
   agentcashWalletStatus,
 } from "../lib/agentcash-access";
 
@@ -34,7 +35,7 @@ export default defineTool({
         solanaPrivateKey: "X402_SOLANA_PRIVATE_KEY",
       },
       supportedWallets,
-      walletConfigured: supportedWallets.evm && supportedWallets.solana,
+      walletConfigured: agentcashWalletConfigured(),
     };
   },
 });

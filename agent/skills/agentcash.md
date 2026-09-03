@@ -36,8 +36,12 @@ proofs using a deployment wallet that is available only to allowlisted users.
 7. When a successful paid request returns an async `pollUrl`, call
    `agentcash_fetch_free` for status checks. It verifies that the exact GET
    route is SIWX-only and free before fetching, so polling cannot create
-   another payment approval. Never resubmit a pending generation. Keep the
-   same payment network across the workflow.
+   another payment approval. If the result is still pending, use the durable `sleep` tool
+   before the next status check so the same turn resumes and can
+   deliver the completed result automatically. Never use the `bash` tool to wait
+   or sleep: a sandbox command that reaches its execution limit cancels the
+   turn. Never resubmit a pending generation. Keep the same payment network
+   across the workflow.
 
 A non-2xx response does not prove that a request was free. If a paid call fails
 ambiguously or reports an existing uncertain receipt, do not repay or retry;

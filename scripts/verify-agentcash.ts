@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import {
   agentcashMaximumPaymentUsd,
@@ -20,6 +21,29 @@ import {
   enforceAgentcashFetch,
   safeAgentcashReadInput,
 } from "../agent/lib/agentcash-policy";
+import agentcashAccessStatusTool from "../agent/tools/agentcash_access_status";
+import sleepTool from "../agent/tools/sleep";
+
+assert.equal(
+  typeof sleepTool.execute,
+  "function",
+  "Async AgentCash polling needs Eve's durable sleep tool.",
+);
+
+const agentcashSkill = await readFile(
+  new URL("../agent/skills/agentcash.md", import.meta.url),
+  "utf8",
+);
+assert.match(
+  agentcashSkill,
+  /durable `sleep` tool/u,
+  "AgentCash polling guidance must use durable sleep instead of sandbox sleep.",
+);
+assert.match(
+  agentcashSkill,
+  /Never use (?:the )?`bash` tool to wait/u,
+  "AgentCash polling guidance must forbid sandbox waits that can cancel the turn.",
+);
 
 const principalId = "imessage:fixture-owner";
 const userSession = {
@@ -97,13 +121,33 @@ assert.throws(
     ),
   /authenticated user/u,
 );
+assert.equal(
+  requireAgentcashAccess(
+    { session: userSession } as never,
+    { ...configuredEnvironment, X402_SOLANA_PRIVATE_KEY: undefined },
+  ),
+  principalId,
+  "A valid EVM wallet should enable AgentCash without a Solana wallet.",
+);
+assert.equal(
+  requireAgentcashAccess(
+    { session: userSession } as never,
+    { ...configuredEnvironment, X402_PRIVATE_KEY: undefined },
+  ),
+  principalId,
+  "A valid Solana wallet should enable AgentCash without an EVM wallet.",
+);
 assert.throws(
   () =>
     requireAgentcashAccess(
       { session: userSession } as never,
-      { ...configuredEnvironment, X402_SOLANA_PRIVATE_KEY: undefined },
+      {
+        ...configuredEnvironment,
+        X402_PRIVATE_KEY: undefined,
+        X402_SOLANA_PRIVATE_KEY: undefined,
+      },
     ),
-  /requires operator-controlled EVM and Solana wallets/u,
+  /requires at least one operator-controlled wallet/u,
 );
 assert.equal(
   agentcashPaymentApproval(
@@ -119,6 +163,33 @@ assert.deepEqual(
   ),
   { reason: "This user is not authorized for AgentCash.", type: "denied" },
 );
+
+const previousEvmPrivateKey = process.env.X402_PRIVATE_KEY;
+const previousSolanaPrivateKey = process.env.X402_SOLANA_PRIVATE_KEY;
+process.env.X402_PRIVATE_KEY = configuredEnvironment.X402_PRIVATE_KEY;
+delete process.env.X402_SOLANA_PRIVATE_KEY;
+try {
+  const status = await agentcashAccessStatusTool.execute(
+    {},
+    { session: userSession } as never,
+  );
+  assert.equal(
+    status.walletConfigured,
+    true,
+    "AgentCash status should report an EVM-only wallet as configured.",
+  );
+} finally {
+  if (previousEvmPrivateKey === undefined) {
+    delete process.env.X402_PRIVATE_KEY;
+  } else {
+    process.env.X402_PRIVATE_KEY = previousEvmPrivateKey;
+  }
+  if (previousSolanaPrivateKey === undefined) {
+    delete process.env.X402_SOLANA_PRIVATE_KEY;
+  } else {
+    process.env.X402_SOLANA_PRIVATE_KEY = previousSolanaPrivateKey;
+  }
+}
 
 const parsedFetch = agentcashFetchSchema.parse({
   maxAmount: 0.25,

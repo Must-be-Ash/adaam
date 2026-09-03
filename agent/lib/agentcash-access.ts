@@ -45,7 +45,7 @@ export function agentcashWalletConfigured(
   environment: NodeJS.ProcessEnv = process.env,
 ): boolean {
   const status = agentcashWalletStatus(environment);
-  return status.evm && status.solana;
+  return status.evm || status.solana;
 }
 
 export function agentcashMaximumPaymentUsd(
@@ -90,7 +90,7 @@ export function requireAgentcashAccess(
   }
   if (!agentcashWalletConfigured(environment)) {
     throw new Error(
-      "AgentCash requires operator-controlled EVM and Solana wallets. Configure valid X402_PRIVATE_KEY and X402_SOLANA_PRIVATE_KEY values.",
+      "AgentCash requires at least one operator-controlled wallet. Configure a valid X402_PRIVATE_KEY and/or X402_SOLANA_PRIVATE_KEY value.",
     );
   }
   agentcashMaximumPaymentUsd(environment);
@@ -110,7 +110,7 @@ export function agentcashPaymentApproval(
   if (!agentcashWalletConfigured(environment)) {
     return {
       type: "denied",
-      reason: "Both operator-controlled AgentCash wallets must be configured.",
+      reason: "At least one operator-controlled AgentCash wallet must be configured.",
     };
   }
   try {
