@@ -162,8 +162,9 @@ const agentcashPrompt = createPhotonApprovalPrompt(
 );
 assert.match(
   agentcashPrompt.approvalText,
-  /^Approve AgentCash POST https:\/\/stablestudio\.dev\/api\/images\?quality=high for up to \$0\.25\? Request SHA-256 [a-f0-9]{64}\. Body SHA-256 [a-f0-9]{64} \(45 bytes\)\.$/u,
+  /^Approve AgentCash POST https:\/\/stablestudio\.dev\/api\/images\?<query-redacted> for up to \$0\.25\? Request SHA-256 [a-f0-9]{64}\. Body SHA-256 [a-f0-9]{64} \(45 bytes\)\.$/u,
 );
+assert.equal(agentcashPrompt.approvalText.includes("quality=high"), false);
 assert.equal(agentcashPrompt.expiresAtMs, 601_000);
 const defaultedAgentcashInput = {
   maxAmount: 0.25,
@@ -186,7 +187,7 @@ assert.match(
       url: "https://stableenrich.dev/search?q=sensitive",
     }),
   ).approvalText,
-  /^Approve AgentCash GET https:\/\/stableenrich\.dev\/search\?q=sensitive for up to \$0\.10\? Request SHA-256 [a-f0-9]{64}\. No body\.$/u,
+  /^Approve AgentCash GET https:\/\/stableenrich\.dev\/search\?<query-redacted> for up to \$0\.10\? Request SHA-256 [a-f0-9]{64}\. No body\.$/u,
 );
 for (const input of [
   { maxAmount: 0.1, url: "http://example.com/search" },

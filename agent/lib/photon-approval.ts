@@ -135,6 +135,7 @@ function approvalSummary(request: InputRequest): string {
       }
       const { maxAmount, method, url } = approvedInput;
       let endpoint: string;
+      let displayEndpoint: string;
       try {
         const parsed = new URL(url);
         if (
@@ -147,6 +148,9 @@ function approvalSummary(request: InputRequest): string {
           throw new Error("unsafe AgentCash endpoint");
         }
         endpoint = parsed.toString();
+        displayEndpoint = parsed.search
+          ? `${parsed.origin}${parsed.pathname}?<query-redacted>`
+          : endpoint;
       } catch {
         throw new Error(
           "The AgentCash request cannot be rendered as an exact approval.",
@@ -159,7 +163,7 @@ function approvalSummary(request: InputRequest): string {
       }
       const requestHash = agentcashRequestHash(approvedInput);
       const body = agentcashBodyApprovalDescriptor(approvedInput.body);
-      return `Approve AgentCash ${method} ${endpoint} for up to $${maxAmount.toFixed(2)}? Request SHA-256 ${requestHash}. ${body}`;
+      return `Approve AgentCash ${method} ${displayEndpoint} for up to $${maxAmount.toFixed(2)}? Request SHA-256 ${requestHash}. ${body}`;
     }
     default: {
       const readableName = readableToolName(toolName);
