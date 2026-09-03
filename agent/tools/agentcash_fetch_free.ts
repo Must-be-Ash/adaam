@@ -1,6 +1,7 @@
 import { defineTool } from "eve/tools";
 
 import { requireAgentcashToolAccess } from "../lib/agentcash-access";
+import { inspectAgentcashEndpointSchema } from "../lib/agentcash-endpoint-schema";
 import { callAgentcashMcpTool } from "../lib/agentcash-mcp";
 import {
   agentcashFreeFetchSchema,
@@ -15,15 +16,25 @@ export default defineTool({
   inputSchema: agentcashFreeFetchSchema,
   async execute(input, ctx) {
     await requireAgentcashToolAccess(ctx);
-    const inspection = await callAgentcashMcpTool(
+    const safeInspectionInput = safeAgentcashReadInput(
       "check_endpoint_schema",
-      safeAgentcashReadInput("check_endpoint_schema", {
+      {
         headers: input.headers,
         method: "GET",
         url: input.url,
-      }),
-      { signal: ctx.abortSignal },
+      },
     );
+    const inspection = await inspectAgentcashEndpointSchema({
+      ...(safeInspectionInput.headers &&
+      typeof safeInspectionInput.headers === "object"
+        ? {
+            headers: safeInspectionInput.headers as Record<string, string>,
+          }
+        : {}),
+      method: "GET",
+      signal: ctx.abortSignal,
+      url: String(safeInspectionInput.url),
+    });
     assertAgentcashFreeSiwxEndpoint(inspection, input.url);
     return callAgentcashMcpTool(
       "fetch",

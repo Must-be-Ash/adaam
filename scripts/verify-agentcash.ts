@@ -20,6 +20,7 @@ import {
   enforceAgentcashFetch,
   safeAgentcashReadInput,
 } from "../agent/lib/agentcash-policy";
+import { inspectAgentcashEndpointSchema } from "../agent/lib/agentcash-endpoint-schema";
 
 const principalId = "imessage:fixture-owner";
 const userSession = {
@@ -166,6 +167,48 @@ assert.throws(
   () => safeAgentcashReadInput("search", { limit: 21, query: "filings" }),
   /between 1 and 20/u,
 );
+
+const originalFetch = globalThis.fetch;
+const inspectionMethods: string[] = [];
+globalThis.fetch = async (input, init) => {
+  inspectionMethods.push(init?.method ?? "GET");
+  const url = new URL(
+    typeof input === "string" || input instanceof URL ? input : input.url,
+  );
+  if (url.pathname === "/openapi.json") {
+    return new Response(
+      JSON.stringify({
+        info: { title: "Fixture API", version: "1.0.0" },
+        openapi: "3.1.0",
+        paths: {
+          "/api/images": {
+            post: {
+              responses: { "200": { description: "Generated image" } },
+              summary: "Generate an image",
+            },
+          },
+        },
+      }),
+      { headers: { "content-type": "application/json" }, status: 200 },
+    );
+  }
+  return new Response("not found", { status: 404 });
+};
+try {
+  const inspection = await inspectAgentcashEndpointSchema({
+    method: "POST",
+    url: "https://provider.example/api/images",
+  });
+  assert.equal(inspection.url, "https://provider.example/api/images");
+  assert.deepEqual(
+    inspection.results.map((result) => result.method),
+    ["POST"],
+  );
+  assert.equal(inspectionMethods.length > 0, true);
+  assert.deepEqual(new Set(inspectionMethods), new Set(["GET"]));
+} finally {
+  globalThis.fetch = originalFetch;
+}
 assert.equal(agentcashNoPaymentCeilingUsd > 0, true);
 assert.equal(agentcashNoPaymentCeilingUsd < 0.000001, true);
 assert.doesNotThrow(() =>

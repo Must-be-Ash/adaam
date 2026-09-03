@@ -23,8 +23,10 @@ proofs using a deployment wallet that is available only to allowlisted users.
    - browser automation: `https://stablebrowser.dev`
 2. Only when no known origin fits, call `agentcash_search`.
 3. Discover the origin and read its endpoint guidance.
-4. Call `agentcash_check_endpoint_schema` for the exact endpoint and request
-   body. For dynamic prices, include the sample body to obtain an exact quote.
+4. Call `agentcash_check_endpoint_schema` for the exact endpoint and method.
+   It reads only the provider's published OpenAPI document and never probes the
+   operation. If the provider does not publish that schema, do not guess the
+   request shape or treat a dynamic price as exact.
 5. Call `agentcash_get_balance` before an expensive request. If funds are
    insufficient, call `agentcash_list_accounts` and give the user the returned
    deposit link; never expose private keys.
