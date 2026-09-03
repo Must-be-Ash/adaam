@@ -11,6 +11,7 @@ import {
   requireAgentcashAccess,
 } from "../agent/lib/agentcash-access";
 import { agentcashChildEnvironment } from "../agent/lib/agentcash-cli";
+import { guardAgentcashProviderFetch } from "../agent/lib/agentcash-fetch-guard";
 import {
   isAgentcashSolanaPrivateKey,
   normalizeAgentcashSolanaPrivateKey,
@@ -102,6 +103,14 @@ assert.equal(
     X402_SOLANA_PRIVATE_KEY: solanaSeed,
   }).X402_SOLANA_PRIVATE_KEY,
   normalizedSolanaKey,
+);
+assert.equal(
+  agentcashChildEnvironment({
+    AGENTCASH_ALLOWED_ORIGINS: "https://partner.example",
+  }).EVE_AGENTCASH_ALLOWED_ORIGINS?.split(",").includes(
+    "https://partner.example",
+  ),
+  true,
 );
 assert.deepEqual(
   agentcashWalletStatus({ X402_PRIVATE_KEY: "not-a-private-key" }),
@@ -209,6 +218,30 @@ assert.equal(
   }),
   false,
 );
+
+const guardedFetchCalls: Array<{
+  input: RequestInfo | URL;
+  init?: RequestInit;
+}> = [];
+const guardedFetch = guardAgentcashProviderFetch(
+  async (input, init) => {
+    guardedFetchCalls.push({ input, init });
+    return new Response(null, { status: 302 });
+  },
+  "https://stablestudio.dev,https://partner.example",
+);
+await guardedFetch("https://stablestudio.dev/api/images");
+assert.equal(guardedFetchCalls.at(-1)?.init?.redirect, "manual");
+await guardedFetch(
+  new Request("https://partner.example/api", { redirect: "follow" }),
+  { signal: AbortSignal.timeout(1_000) },
+);
+const guardedRequest = guardedFetchCalls.at(-1)?.input;
+assert.equal(guardedRequest instanceof Request, true);
+assert.equal((guardedRequest as Request).redirect, "manual");
+assert.equal(guardedFetchCalls.at(-1)?.init, undefined);
+await guardedFetch("https://api.agentcash.dev/internal", { redirect: "follow" });
+assert.equal(guardedFetchCalls.at(-1)?.init?.redirect, "follow");
 assert.throws(
   () =>
     agentcashFetchSchema.parse({

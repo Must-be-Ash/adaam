@@ -35,6 +35,12 @@ function configuredAgentcashOrigins(environment: NodeJS.ProcessEnv): Set<string>
   return new Set([...DEFAULT_AGENTCASH_ORIGINS, ...configured]);
 }
 
+export function agentcashAllowedOrigins(
+  environment: NodeJS.ProcessEnv = process.env,
+): string[] {
+  return [...configuredAgentcashOrigins(environment)].sort();
+}
+
 export function isAgentcashUrlAllowed(
   value: string,
   environment: NodeJS.ProcessEnv = process.env,

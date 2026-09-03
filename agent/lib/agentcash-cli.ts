@@ -9,8 +9,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { McpToolResultError } from "#mcp-tool-result";
+import { agentcashAllowedOrigins } from "#agentcash-policy";
 import { McpResponseTooLargeError } from "#mcp-response-limit";
+import { McpToolResultError } from "#mcp-tool-result";
 
 import {
   agentcashCliSha256,
@@ -78,6 +79,8 @@ export function agentcashChildEnvironment(
   );
   const environment: NodeJS.ProcessEnv = {
     CI: "1",
+    EVE_AGENTCASH_ALLOWED_ORIGINS:
+      agentcashAllowedOrigins(sourceEnvironment).join(","),
     HOME: homeDirectory,
     LANG: sourceEnvironment.LANG ?? "C.UTF-8",
     NODE_ENV: sourceEnvironment.NODE_ENV ?? "production",
