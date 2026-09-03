@@ -53,9 +53,10 @@ Store the key in your password manager and paste `COINBASE_KEY_ID` + `COINBASE_K
 
 ## AgentCash wallet
 
-Set both `X402_PRIVATE_KEY` and `X402_SOLANA_PRIVATE_KEY` directly in Vercel's
-encrypted Production environment. Requiring both prevents the AgentCash CLI
-from creating an ephemeral wallet for a missing network. Then set
+Set `X402_PRIVATE_KEY` and/or `X402_SOLANA_PRIVATE_KEY` directly in Vercel's
+encrypted Production environment. At least one valid network wallet is required;
+configuring both prevents the AgentCash CLI from creating an ephemeral wallet
+for a missing network. Then set
 `AGENTCASH_ALLOWED_PRINCIPALS` to
 the exact private-channel principal returned by `agentcash_access_status`.
 `AGENTCASH_MAX_PAYMENT_USD` limits each approved request and defaults to $5.

@@ -680,5 +680,10 @@ assert.ok(
     completedTurnHandler.indexOf("releaseApprovedOrderGuard"),
   "approval activity must be captured before releasing the approved-order guard",
 );
+assert.match(
+  completedTurnHandler,
+  /threadId: physicalPhotonThreadId\(channel\.thread\.id\)/u,
+  "approval activity must use the physical Photon thread key used by the approval store",
+);
 
 console.log("Photon mini-app approval verification passed.");
