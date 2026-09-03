@@ -20,6 +20,7 @@
     "accept:earnings-call-changes:live-smoke": "node --env-file-if-exists=.env.local node_modules/jiti/lib/jiti-cli.mjs scripts/accept-earnings-call-live-smoke.ts",
     "accept:earnings-call-changes:photon-alert": "node --env-file-if-exists=.env.local node_modules/jiti/lib/jiti-cli.mjs scripts/accept-earnings-call-photon-alert.ts",
     "accept:earnings-call-changes:real-model": "node --env-file-if-exists=.env.local node_modules/jiti/lib/jiti-cli.mjs scripts/accept-earnings-call-changes-real-model.ts",
+    "accept:agentcash:no-spend": "node --env-file-if-exists=.env.local node_modules/jiti/lib/jiti-cli.mjs scripts/accept-agentcash-no-spend.ts",
     "accept:public-commentary-signals:frozen-real-source": "node --env-file-if-exists=.env.local node_modules/jiti/lib/jiti-cli.mjs scripts/accept-public-commentary-frozen-real-source.ts",
     "accept:public-commentary-research:real-model": "node --env-file-if-exists=.env.local node_modules/jiti/lib/jiti-cli.mjs scripts/accept-public-commentary-research-real-model.ts",
     "accept:public-commentary-compact:real-model": "node --env-file-if-exists=.env.local node_modules/jiti/lib/jiti-cli.mjs scripts/accept-public-commentary-compact-real-model.ts",

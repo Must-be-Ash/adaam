@@ -63,6 +63,9 @@ Requests are limited to the built-in AgentCash provider origins; add an exact
 HTTPS origin to `AGENTCASH_ALLOWED_ORIGINS` only after approving that provider.
 Use a dedicated, minimally funded wallet and never put its private key in chat,
 source, logs, Preview environments, or command arguments.
+Before promotion, run `npm run accept:agentcash:no-spend` with the production-
+shaped wallet environment. It validates both wallets and live provider
+discovery without making a paid request.
 
 > [!WARNING]
 > Early and experimental — not intended for production use. Three strategies work today (IPO Filings, Public Commentary Tracker, and Inverse Cramer); others are in progress. Not financial advice.
