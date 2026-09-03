@@ -69,8 +69,7 @@ assert.deepEqual(
   }),
   {
     id: "provider-working",
-    message:
-      "The paid request was accepted and the provider is working on it. This can take a few minutes. I’m continuing this turn with the job details; if the result doesn’t arrive, ask me to check its status.",
+    message: "on it!",
   },
 );
 assert.equal(
@@ -779,6 +778,32 @@ const photonChannelSource = await readFile(
   new URL("../agent/channels/photon.ts", import.meta.url),
   "utf8",
 );
+const approvalRequestTextStart = photonChannelSource.indexOf(
+  "const APPROVAL_REQUEST_TEXT",
+);
+const approvalRequestTextEnd = photonChannelSource.indexOf(
+  "function unavailableApprovalText",
+);
+assert.ok(approvalRequestTextStart >= 0, "approval request text exists");
+assert.ok(
+  approvalRequestTextEnd > approvalRequestTextStart,
+  "approval request text is bounded",
+);
+const approvalRequestTextSource = photonChannelSource.slice(
+  approvalRequestTextStart,
+  approvalRequestTextEnd,
+);
+assert.ok(
+  approvalRequestTextSource.includes(
+    '"Open the approval card to choose Approve or Deny."',
+  ),
+  "approval companion text stays concise",
+);
+assert.equal(
+  approvalRequestTextSource.includes("prompt.approvalText"),
+  false,
+  "approval details stay in the card instead of the chat companion",
+);
 const agentcashProgressStart = photonChannelSource.indexOf(
   'async "action.result"',
 );
@@ -793,6 +818,10 @@ assert.ok(
 const agentcashProgressHandler = photonChannelSource.slice(
   agentcashProgressStart,
   agentcashProgressEnd,
+);
+assert.ok(
+  agentcashProgressHandler.includes("agentcash-progress:v2:"),
+  "AgentCash progress uses the concise-copy receipt namespace",
 );
 assert.ok(
   agentcashProgressHandler.includes("createPhotonResponseDeliveryReceipt"),
@@ -828,6 +857,27 @@ assert.ok(
   completedTurnHandler.indexOf("const approvalWasActive") <
     completedTurnHandler.indexOf("releaseApprovedOrderGuard"),
   "approval activity must be captured before releasing the approved-order guard",
+);
+assert.equal(
+  completedTurnHandler.includes("I couldn't put a reply together for that one"),
+  false,
+  "completed turns do not post a redundant empty-response notice",
+);
+assert.ok(
+  completedTurnHandler.includes('if (release !== "released") return;'),
+  "only a completed approved-order turn gets an empty-response warning",
+);
+assert.ok(
+  completedTurnHandler.includes(
+    'const notice = "Order status unclear — check Coinbase before retrying.";',
+  ),
+  "a silent completed order retains a terse duplicate-order warning",
+);
+assert.equal(
+  [...photonChannelSource.matchAll(/\.post\(labeled\(APPROVAL_REQUEST_TEXT\)\)/gu)]
+    .length,
+  2,
+  "both approval companion paths use only the concise constant",
 );
 
 console.log("Photon mini-app approval verification passed.");

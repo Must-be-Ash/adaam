@@ -111,9 +111,8 @@ async function completePhotonDispatchReceipt(
   await createPhotonCompletionReceipt({ dispatch, outcome });
 }
 
-function approvalRequestText(prompt: PhotonApprovalPrompt): string {
-  return `${prompt.approvalText}\n\nOpen the approval card to choose Approve or Deny. If the card does not open, reply YES or NO.`;
-}
+const APPROVAL_REQUEST_TEXT =
+  "Open the approval card to choose Approve or Deny.";
 
 function unavailableApprovalText(prompt: string): string {
   return `${prompt}\n\nI couldn't open a safe approval request. No action was authorized; ask Eve to try again.`;
@@ -304,20 +303,12 @@ const bridge = chatSdkChannel({
       const progress = agentcashPhotonProgress(data.result.output);
       const principalId = ctx.session.auth.current?.principalId;
       if (!progress || !principalId?.startsWith("imessage:")) return;
-      const eventId = `agentcash-progress:${ctx.session.id}:${data.result.callId}:${progress.id}`;
+      const eventId = `agentcash-progress:v2:${ctx.session.id}:${data.result.callId}:${progress.id}`;
       const deliveryId = `agentcash_progress_${createHash("sha256")
         .update(eventId)
         .digest("hex")}`;
       try {
-        const workspaceName = await photonWorkspaceResponseName({
-          principalId,
-          sessionId: ctx.session.id,
-          threadId: channel.thread.id,
-        });
-        const responseText = photonWorkspaceLabeledText(
-          workspaceName,
-          progress.message,
-        );
+        const responseText = progress.message;
         const delivery = await createPhotonResponseDeliveryReceipt({
           content: responseText,
           destination: physicalPhotonThreadId(channel.thread.id),
@@ -463,18 +454,6 @@ const bridge = chatSdkChannel({
     async "turn.completed"(_data, channel, ctx) {
       await completePhotonDispatchReceipt(ctx, "completed");
       const principalId = ctx.session.auth.current?.principalId;
-      const workspaceName =
-        principalId && channel.thread
-          ? await photonWorkspaceResponseName({
-              principalId,
-              sessionId: ctx.session.id,
-              threadId: channel.thread.id,
-            })
-          : null;
-      // Capture approval activity before releasing a settled Coinbase guard.
-      // Releasing removes the active approval pointer; checking only afterward
-      // can misclassify the approval-card turn as silent and post a false
-      // "nothing changed" fallback while its continuation is still running.
       const approvalWasActive =
         principalId && channel.thread
           ? await hasCurrentPhotonApproval({
@@ -485,24 +464,14 @@ const bridge = chatSdkChannel({
       const release = await releaseApprovedOrderGuard(ctx.session.id);
       if (release === "retained" && channel.thread) {
         await channel.thread.post(
-          photonWorkspaceLabeledText(
-            workspaceName,
-            "The Coinbase order status is not safely settled. Check Coinbase before trying another order; new orders remain blocked for safety.",
-          ),
+          "The Coinbase order status is not safely settled. Check Coinbase before trying another order; new orders remain blocked for safety.",
         );
         return;
       }
 
-      // A turn can finish having produced no assistant message at all - an empty
-      // model response, or a loop that ended on a tool-call boundary. The
-      // message.completed handler has nothing to post in that case and returns
-      // silently, so the conversation simply stops answering with no error
-      // anywhere. A tool failure must never cost Eve the ability to reply.
       const ingressId = photonIngressIdFromAuth(ctx.session.auth.current);
       if (!channel.thread || !ingressId || !principalId) return;
       if (await readPhotonResponseDeliveryReceipt(ingressId)) return;
-      // An approval card is a reply; it just isn't delivered through
-      // message.completed. Parking for one is not silence.
       if (
         approvalWasActive ||
         (await hasCurrentPhotonApproval({
@@ -516,17 +485,9 @@ const bridge = chatSdkChannel({
       console.error("[photon.turn] Turn completed without delivering a reply", {
         session_id: ctx.session.id,
       });
-      // "no order was placed" is only safe to assert when this turn processed no
-      // approved order at all (`release === "missing"`). A cleanly released guard
-      // (`release === "released"`) means an approved order reached a terminal
-      // state this turn - it may have SUCCEEDED - so we must not tell the owner
-      // nothing happened and risk a duplicate resubmission.
-      const notice = photonWorkspaceLabeledText(
-        workspaceName,
-        release === "released"
-          ? "I couldn't put a reply together for that one. If you just approved an order, check Coinbase for its status before retrying. Reply `new session` if I keep coming up empty and I'll start with a clean slate."
-          : "I couldn't put a reply together for that one. Nothing was changed and no order was placed. Try sending it again - and if I keep coming up empty, reply `new session` and I'll start with a clean slate.",
-      );
+      if (release !== "released") return;
+
+      const notice = "Order status unclear — check Coinbase before retrying.";
       const delivery = await createPhotonResponseDeliveryReceipt({
         content: notice,
         destination: physicalPhotonThreadId(channel.thread.id),
@@ -535,7 +496,7 @@ const bridge = chatSdkChannel({
       if (!delivery.created) return;
       await markPhotonResponseDelivery({ ingressId, state: "delivering" });
       try {
-        await channel.thread.post({ markdown: notice });
+        await channel.thread.post(notice);
         await markPhotonResponseDelivery({ ingressId, state: "delivered" });
       } catch (error) {
         await markPhotonResponseDelivery({
@@ -837,7 +798,7 @@ const bridge = chatSdkChannel({
           threadId: physicalThreadId,
         });
         await channel.thread
-          .post(labeled(approvalRequestText(prompt)))
+          .post(labeled(APPROVAL_REQUEST_TEXT))
           .catch(() => undefined);
         console.info("[photon.approval] Approval ready", {
           delivery: "mini-app",
@@ -862,7 +823,7 @@ const bridge = chatSdkChannel({
             view.status === "delivered")
         ) {
           await channel.thread
-            .post(labeled(approvalRequestText(prompt)))
+            .post(labeled(APPROVAL_REQUEST_TEXT))
             .catch(() => undefined);
           return;
         }
