@@ -107,6 +107,12 @@ export const agentcashFetchSchema = z.object({
   url: httpsUrlSchema,
 });
 
+export function normalizeAgentcashFetchInput(
+  input: Record<string, unknown>,
+): z.infer<typeof agentcashFetchSchema> {
+  return agentcashFetchSchema.parse(input);
+}
+
 export const agentcashFreeFetchSchema = agentcashFetchSchema.pick({
   headers: true,
   paymentNetwork: true,

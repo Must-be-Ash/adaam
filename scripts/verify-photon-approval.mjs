@@ -28,6 +28,8 @@ import {
   photonArtifactPresentation,
 } from "../agent/lib/photon-mini-app.ts";
 import { agentcashPhotonProgress } from "../agent/lib/agentcash-photon-progress.ts";
+import { agentcashFetchSchema } from "../agent/lib/agentcash-policy.ts";
+import { agentcashRequestHash } from "../agent/lib/agentcash-request.ts";
 
 assert.deepEqual(
   agentcashPhotonProgress({
@@ -163,6 +165,20 @@ assert.match(
   /^Approve AgentCash POST https:\/\/stablestudio\.dev\/api\/images\?quality=high for up to \$0\.25\? Request SHA-256 [a-f0-9]{64}\. Body SHA-256 [a-f0-9]{64} \(45 bytes\)\.$/u,
 );
 assert.equal(agentcashPrompt.expiresAtMs, 601_000);
+const defaultedAgentcashInput = {
+  maxAmount: 0.25,
+  url: "https://stableenrich.dev/api/exa/search",
+};
+const defaultedAgentcashPrompt = createPhotonApprovalPrompt(
+  approvalRequest("agentcash_fetch", defaultedAgentcashInput),
+);
+const defaultedAgentcashDigest = defaultedAgentcashPrompt.approvalText.match(
+  /Request SHA-256 ([a-f0-9]{64})/u,
+)?.[1];
+assert.equal(
+  defaultedAgentcashDigest,
+  agentcashRequestHash(agentcashFetchSchema.parse(defaultedAgentcashInput)),
+);
 assert.match(
   createPhotonApprovalPrompt(
     approvalRequest("agentcash_fetch", {

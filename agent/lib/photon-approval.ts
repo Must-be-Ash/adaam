@@ -4,7 +4,10 @@ import {
   agentcashBodyApprovalDescriptor,
   agentcashRequestHash,
 } from "#agentcash-request";
-import { isAgentcashUrlAllowed } from "#agentcash-policy";
+import {
+  isAgentcashUrlAllowed,
+  normalizeAgentcashFetchInput,
+} from "#agentcash-policy";
 
 const MAX_APPROVAL_TEXT_LENGTH = 500;
 const APPROVAL_WINDOW_MS = 10 * 60_000;
@@ -122,19 +125,15 @@ function approvalSummary(request: InputRequest): string {
       return summary;
     }
     case "agentcash_fetch": {
-      const url = typeof input.url === "string" ? input.url : "";
-      const method =
-        typeof input.method === "string" &&
-        /^(?:DELETE|GET|PATCH|POST|PUT)$/u.test(input.method)
-          ? input.method
-          : "GET";
-      const maxAmount =
-        typeof input.maxAmount === "number" &&
-        Number.isFinite(input.maxAmount) &&
-        input.maxAmount > 0 &&
-        input.maxAmount <= 100
-          ? input.maxAmount
-          : null;
+      let approvedInput: ReturnType<typeof normalizeAgentcashFetchInput>;
+      try {
+        approvedInput = normalizeAgentcashFetchInput(input);
+      } catch {
+        throw new Error(
+          "The AgentCash request cannot be rendered as an exact approval.",
+        );
+      }
+      const { maxAmount, method, url } = approvedInput;
       let endpoint: string;
       try {
         const parsed = new URL(url);
@@ -153,13 +152,13 @@ function approvalSummary(request: InputRequest): string {
           "The AgentCash request cannot be rendered as an exact approval.",
         );
       }
-      if (!maxAmount || endpoint.length > 240) {
+      if (endpoint.length > 240) {
         throw new Error(
           "The AgentCash request cannot be rendered as an exact approval.",
         );
       }
-      const requestHash = agentcashRequestHash(input);
-      const body = agentcashBodyApprovalDescriptor(input.body);
+      const requestHash = agentcashRequestHash(approvedInput);
+      const body = agentcashBodyApprovalDescriptor(approvedInput.body);
       return `Approve AgentCash ${method} ${endpoint} for up to $${maxAmount.toFixed(2)}? Request SHA-256 ${requestHash}. ${body}`;
     }
     default: {
