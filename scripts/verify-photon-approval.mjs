@@ -27,6 +27,74 @@ import {
   photonApprovalAppUrl,
   photonArtifactPresentation,
 } from "../agent/lib/photon-mini-app.ts";
+import { agentcashPhotonProgress } from "../agent/lib/agentcash-photon-progress.ts";
+
+assert.deepEqual(
+  agentcashPhotonProgress({
+    cause: "amount_exceeds_max_amount",
+    message:
+      "Endpoint requested $0.21 which exceeds the maximum allowed amount of $0.2.",
+    surface: "fetch",
+    type: "before_payment",
+  }),
+  {
+    id: "price-cap-rejected",
+    message:
+      "The provider now requires $0.21, above the $0.20 cap you approved. No payment was made. I’ll ask you to approve a new cap before retrying.",
+  },
+);
+assert.deepEqual(
+  agentcashPhotonProgress({
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          success: true,
+          jobId: "job_test",
+          status: "pending",
+          pollUrl: "https://stablestudio.dev/api/jobs/job_test",
+        }),
+      },
+      {
+        type: "text",
+        text: JSON.stringify({
+          payment: { success: true },
+          price: "$0.21",
+          protocol: "x402",
+        }),
+      },
+    ],
+  }),
+  {
+    id: "provider-working",
+    message:
+      "The paid request was accepted and the provider is working on it. This can take a few minutes; I’ll send the result when it’s ready.",
+  },
+);
+assert.equal(
+  agentcashPhotonProgress({
+    cause: "amount_exceeds_max_amount",
+    message: "Untrusted provider prose",
+    type: "after_payment",
+  }),
+  null,
+);
+assert.equal(
+  agentcashPhotonProgress({
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          success: true,
+          jobId: "job_without_payment",
+          status: "pending",
+          pollUrl: "https://stablestudio.dev/api/jobs/job_without_payment",
+        }),
+      },
+    ],
+  }),
+  null,
+);
 
 function approvalRequest(toolName, input = {}) {
   return {

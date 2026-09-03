@@ -15,6 +15,7 @@ import {
   type PhotonApprovalDecision,
   type PhotonApprovalPrompt,
 } from "../lib/photon-approval";
+import { agentcashPhotonProgress } from "../lib/agentcash-photon-progress";
 import {
   activatePhotonApproval,
   claimCurrentPhotonApprovalDecision,
@@ -289,6 +290,51 @@ const bridge = chatSdkChannel({
   },
   concurrency: "queue",
   events: {
+    async "action.result"(data, channel, ctx) {
+      if (
+        !channel.thread ||
+        data.result.kind !== "tool-result" ||
+        data.result.toolName !== "agentcash_fetch" ||
+        data.result.isError === true
+      ) {
+        return;
+      }
+      const progress = agentcashPhotonProgress(data.result.output);
+      const principalId = ctx.session.auth.current?.principalId;
+      if (!progress || !principalId?.startsWith("imessage:")) return;
+      const eventId = `agentcash-progress:${ctx.session.id}:${data.result.callId}:${progress.id}`;
+      try {
+        if (
+          !(await claimPhotonApprovalEvent({
+            eventId,
+            principalId,
+            threadId: physicalPhotonThreadId(channel.thread.id),
+          }))
+        ) {
+          return;
+        }
+        const workspaceName = await photonWorkspaceResponseName({
+          principalId,
+          sessionId: ctx.session.id,
+          threadId: channel.thread.id,
+        });
+        await channel.thread.post(
+          photonWorkspaceLabeledText(workspaceName, progress.message),
+        );
+        console.info("[photon.agentcash] Progress delivered", {
+          call_id: data.result.callId,
+          progress_id: progress.id,
+          session_id: ctx.session.id,
+        });
+      } catch (error) {
+        console.warn("[photon.agentcash] Progress delivery failed", {
+          call_id: data.result.callId,
+          error_type: error instanceof Error ? error.name : typeof error,
+          progress_id: progress.id,
+          session_id: ctx.session.id,
+        });
+      }
+    },
     async "message.completed"(data, channel, ctx) {
       if (
         data.finishReason === "tool-calls" ||
