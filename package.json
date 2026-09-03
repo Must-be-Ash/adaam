@@ -6,6 +6,7 @@
     "#*": "./agent/*",
     "#artifact-schema": "./agent/lib/artifact-schema.ts",
     "#agentcash-request": "./agent/lib/agentcash-request.ts",
+    "#agentcash-policy": "./agent/lib/agentcash-policy.ts",
     "#coinbase-eval-fixture": "./agent/lib/coinbase-eval-fixture.ts",
     "#evals/*": "./evals/*",
     "#mcp-response-limit": "./agent/lib/mcp-response-limit.ts",

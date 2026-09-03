@@ -99,10 +99,10 @@ assert.match(
   createPhotonApprovalPrompt(
     approvalRequest("agentcash_fetch", {
       maxAmount: 0.1,
-      url: "https://example.com/search?q=sensitive",
+      url: "https://stableenrich.dev/search?q=sensitive",
     }),
   ).approvalText,
-  /^Approve AgentCash GET https:\/\/example\.com\/search\?q=sensitive for up to \$0\.10\? Request SHA-256 [a-f0-9]{64}\. No body\.$/u,
+  /^Approve AgentCash GET https:\/\/stableenrich\.dev\/search\?q=sensitive for up to \$0\.10\? Request SHA-256 [a-f0-9]{64}\. No body\.$/u,
 );
 for (const input of [
   { maxAmount: 0.1, url: "http://example.com/search" },

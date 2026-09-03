@@ -24,6 +24,7 @@ import {
   agentcashNoPaymentCeilingUsd,
   assertAgentcashFreeSiwxEndpoint,
   enforceAgentcashFetch,
+  isAgentcashUrlAllowed,
   safeAgentcashReadInput,
 } from "../agent/lib/agentcash-policy";
 import { inspectAgentcashEndpointSchema } from "../agent/lib/agentcash-endpoint-schema";
@@ -191,6 +192,26 @@ assert.throws(
 assert.throws(
   () =>
     agentcashFetchSchema.parse({
+      maxAmount: 1,
+      url: "https://example.com/private",
+    }),
+  /approved AgentCash provider/u,
+);
+assert.equal(
+  isAgentcashUrlAllowed("https://partner.example/api", {
+    AGENTCASH_ALLOWED_ORIGINS: "https://partner.example",
+  }),
+  true,
+);
+assert.equal(
+  isAgentcashUrlAllowed("https://partner.example.evil.test/api", {
+    AGENTCASH_ALLOWED_ORIGINS: "https://partner.example",
+  }),
+  false,
+);
+assert.throws(
+  () =>
+    agentcashFetchSchema.parse({
       headers: { "X-Access-Token": "secret" },
       maxAmount: 1,
       url: "https://stableenrich.dev/api/exa/search",
@@ -251,9 +272,9 @@ assert.doesNotThrow(() =>
       results: [
         { authMode: "siwx", method: "GET", requiresPayment: false },
       ],
-      url: "https://example.com/jobs/123",
+      url: "https://stablejobs.dev/jobs/123",
     },
-    "https://example.com/jobs/123",
+    "https://stablejobs.dev/jobs/123",
   ),
 );
 assert.throws(
@@ -263,9 +284,9 @@ assert.throws(
         results: [
           { authMode: "siwx", method: "GET", requiresPayment: false },
         ],
-        url: "https://example.com/jobs/other",
-      },
-      "https://example.com/jobs/123",
+      url: "https://stablejobs.dev/jobs/other",
+    },
+      "https://stablejobs.dev/jobs/123",
     ),
   /not confirmed as a free SIWX endpoint/u,
 );
@@ -276,9 +297,9 @@ assert.throws(
         results: [
           { authMode: "x402", method: "GET", requiresPayment: true },
         ],
-        url: "https://example.com/jobs/123",
-      },
-      "https://example.com/jobs/123",
+      url: "https://stablejobs.dev/jobs/123",
+    },
+      "https://stablejobs.dev/jobs/123",
     ),
   /not confirmed as a free SIWX endpoint/u,
 );

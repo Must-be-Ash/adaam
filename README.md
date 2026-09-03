@@ -59,6 +59,8 @@ from creating an ephemeral wallet for a missing network. Then set
 `AGENTCASH_ALLOWED_PRINCIPALS` to
 the exact private-channel principal returned by `agentcash_access_status`.
 `AGENTCASH_MAX_PAYMENT_USD` limits each approved request and defaults to $5.
+Requests are limited to the built-in AgentCash provider origins; add an exact
+HTTPS origin to `AGENTCASH_ALLOWED_ORIGINS` only after approving that provider.
 Use a dedicated, minimally funded wallet and never put its private key in chat,
 source, logs, Preview environments, or command arguments.
 

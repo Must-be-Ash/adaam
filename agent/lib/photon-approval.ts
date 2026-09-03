@@ -4,6 +4,7 @@ import {
   agentcashBodyApprovalDescriptor,
   agentcashRequestHash,
 } from "#agentcash-request";
+import { isAgentcashUrlAllowed } from "#agentcash-policy";
 
 const MAX_APPROVAL_TEXT_LENGTH = 500;
 const APPROVAL_WINDOW_MS = 10 * 60_000;
@@ -141,7 +142,8 @@ function approvalSummary(request: InputRequest): string {
           parsed.protocol !== "https:" ||
           parsed.username ||
           parsed.password ||
-          parsed.hash
+          parsed.hash ||
+          !isAgentcashUrlAllowed(url)
         ) {
           throw new Error("unsafe AgentCash endpoint");
         }
