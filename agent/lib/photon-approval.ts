@@ -1,5 +1,14 @@
 import type { InputRequest } from "eve/client";
 
+import {
+  agentcashBodyApprovalDescriptor,
+  agentcashRequestHash,
+} from "#agentcash-request";
+import {
+  isAgentcashUrlAllowed,
+  normalizeAgentcashFetchInput,
+} from "#agentcash-policy";
+
 const MAX_APPROVAL_TEXT_LENGTH = 500;
 const APPROVAL_WINDOW_MS = 10 * 60_000;
 const ORDER_APPROVAL_WINDOW_MS = 5 * 60_000;
@@ -116,42 +125,45 @@ function approvalSummary(request: InputRequest): string {
       return summary;
     }
     case "agentcash_fetch": {
-      const url = typeof input.url === "string" ? input.url : "";
-      const method =
-        typeof input.method === "string" &&
-        /^(?:DELETE|GET|PATCH|POST|PUT)$/u.test(input.method)
-          ? input.method
-          : "GET";
-      const maxAmount =
-        typeof input.maxAmount === "number" &&
-        Number.isFinite(input.maxAmount) &&
-        input.maxAmount > 0 &&
-        input.maxAmount <= 100
-          ? input.maxAmount
-          : null;
+      let approvedInput: ReturnType<typeof normalizeAgentcashFetchInput>;
+      try {
+        approvedInput = normalizeAgentcashFetchInput(input);
+      } catch {
+        throw new Error(
+          "The AgentCash request cannot be rendered as an exact approval.",
+        );
+      }
+      const { maxAmount, method, url } = approvedInput;
       let endpoint: string;
+      let displayEndpoint: string;
       try {
         const parsed = new URL(url);
         if (
           parsed.protocol !== "https:" ||
           parsed.username ||
           parsed.password ||
-          parsed.hash
+          parsed.hash ||
+          !isAgentcashUrlAllowed(url)
         ) {
           throw new Error("unsafe AgentCash endpoint");
         }
-        endpoint = `${parsed.host}${parsed.pathname}${parsed.search ? " with query parameters" : ""}`;
+        endpoint = parsed.toString();
+        displayEndpoint = parsed.search
+          ? `${parsed.origin}${parsed.pathname}?<query-redacted>`
+          : endpoint;
       } catch {
         throw new Error(
           "The AgentCash request cannot be rendered as an exact approval.",
         );
       }
-      if (!maxAmount || endpoint.length > 240) {
+      if (endpoint.length > 240) {
         throw new Error(
           "The AgentCash request cannot be rendered as an exact approval.",
         );
       }
-      return `Approve AgentCash ${method} to ${endpoint} for up to $${maxAmount.toFixed(2)}?`;
+      const requestHash = agentcashRequestHash(approvedInput);
+      const body = agentcashBodyApprovalDescriptor(approvedInput.body);
+      return `Approve AgentCash ${method} ${displayEndpoint} for up to $${maxAmount.toFixed(2)}? Request SHA-256 ${requestHash}. ${body}`;
     }
     default: {
       const readableName = readableToolName(toolName);

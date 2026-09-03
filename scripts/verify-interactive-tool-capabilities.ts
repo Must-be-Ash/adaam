@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { base58 } from "@scure/base";
 
 import {
   coinbaseApproval,
@@ -10,6 +11,7 @@ import {
   agentcashInteractivePaymentApproval,
   requireAgentcashToolAccess,
 } from "../agent/lib/agentcash-access";
+import { normalizeAgentcashSolanaPrivateKey } from "../agent/lib/agentcash-wallet";
 import {
   coinbaseInteractiveApproval,
   InteractiveToolCapabilityDeniedError,
@@ -46,6 +48,9 @@ const now = new Date("2026-08-17T18:00:00.000Z");
 const ownerId = "owner_fixture";
 const principalId = "imessage:fixture-owner";
 const threadId = "imessage:fixture-thread";
+const solanaPrivateKey = normalizeAgentcashSolanaPrivateKey(
+  base58.encode(new Uint8Array(32).fill(11)),
+)!;
 const environment = {
   AGENTCASH_ALLOWED_PRINCIPALS: principalId,
   AGENTCASH_MAX_PAYMENT_USD: "2.50",
@@ -57,8 +62,7 @@ const environment = {
   EVE_STRATEGY_PACK_RUNTIME_ENABLED: "1",
   EVE_WORKSPACE_STATE_ENABLED: "1",
   X402_PRIVATE_KEY: `0x${"1".repeat(64)}`,
-  X402_SOLANA_PRIVATE_KEY:
-    "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2",
+  X402_SOLANA_PRIVATE_KEY: solanaPrivateKey,
 };
 const memory = new MemoryStore();
 process.env.COINBASE_ALLOWED_PRINCIPALS = principalId;

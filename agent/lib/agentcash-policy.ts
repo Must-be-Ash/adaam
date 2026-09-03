@@ -1,15 +1,80 @@
 import { z } from "zod";
 
-const httpsUrlSchema = z
-  .url()
-  .refine((value) => {
+const DEFAULT_AGENTCASH_ORIGINS = new Set([
+  "https://stablebrowser.dev",
+  "https://stableemail.dev",
+  "https://stableenrich.dev",
+  "https://stablejobs.dev",
+  "https://stablephone.dev",
+  "https://stablesocial.dev",
+  "https://stablestudio.dev",
+  "https://stabletravel.dev",
+  "https://stableupload.dev",
+]);
+
+function configuredAgentcashOrigins(environment: NodeJS.ProcessEnv): Set<string> {
+  const configured = (environment.AGENTCASH_ALLOWED_ORIGINS ?? "")
+    .split(/[\n,]/u)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .flatMap((value) => {
+      try {
+        const parsed = new URL(value);
+        return parsed.protocol === "https:" &&
+          !parsed.username &&
+          !parsed.password &&
+          parsed.pathname === "/" &&
+          !parsed.search &&
+          !parsed.hash
+          ? [parsed.origin]
+          : [];
+      } catch {
+        return [];
+      }
+    });
+  return new Set([...DEFAULT_AGENTCASH_ORIGINS, ...configured]);
+}
+
+export function agentcashAllowedOrigins(
+  environment: NodeJS.ProcessEnv = process.env,
+): string[] {
+  return [...configuredAgentcashOrigins(environment)].sort();
+}
+
+export function isAgentcashUrlAllowed(
+  value: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+  try {
     const parsed = new URL(value);
-    return (
-      parsed.protocol === "https:" && !parsed.username && !parsed.password
+    return Boolean(
+      parsed.protocol === "https:" &&
+        !parsed.username &&
+        !parsed.password &&
+        configuredAgentcashOrigins(environment).has(parsed.origin)
     );
-  }, {
-    message: "AgentCash endpoints must use HTTPS and cannot contain credentials.",
-  });
+  } catch {
+    return false;
+  }
+}
+
+const httpsUrlSchema = z.url().superRefine((value, ctx) => {
+  const parsed = new URL(value);
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
+    ctx.addIssue({
+      code: "custom",
+      message: "AgentCash endpoints must use HTTPS and cannot contain credentials.",
+    });
+    return;
+  }
+  if (!isAgentcashUrlAllowed(value)) {
+    ctx.addIssue({
+      code: "custom",
+      message:
+        "AgentCash endpoints must use an approved AgentCash provider origin.",
+    });
+  }
+});
 
 const safeHeadersSchema = z
   .record(z.string(), z.string())
@@ -41,6 +106,12 @@ export const agentcashFetchSchema = z.object({
   timeout: z.number().int().positive().max(120_000).default(30_000),
   url: httpsUrlSchema,
 });
+
+export function normalizeAgentcashFetchInput(
+  input: Record<string, unknown>,
+): z.infer<typeof agentcashFetchSchema> {
+  return agentcashFetchSchema.parse(input);
+}
 
 export const agentcashFreeFetchSchema = agentcashFetchSchema.pick({
   headers: true,

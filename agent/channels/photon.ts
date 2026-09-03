@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { createRedisState } from "@chat-adapter/state-redis";
 import type { Thread } from "chat";
 import {
@@ -15,6 +17,7 @@ import {
   type PhotonApprovalDecision,
   type PhotonApprovalPrompt,
 } from "../lib/photon-approval";
+import { agentcashPhotonProgress } from "../lib/agentcash-photon-progress";
 import {
   activatePhotonApproval,
   claimCurrentPhotonApprovalDecision,
@@ -289,6 +292,79 @@ const bridge = chatSdkChannel({
   },
   concurrency: "queue",
   events: {
+    async "action.result"(data, channel, ctx) {
+      if (
+        !channel.thread ||
+        data.result.kind !== "tool-result" ||
+        data.result.toolName !== "agentcash_fetch" ||
+        data.result.isError === true
+      ) {
+        return;
+      }
+      const progress = agentcashPhotonProgress(data.result.output);
+      const principalId = ctx.session.auth.current?.principalId;
+      if (!progress || !principalId?.startsWith("imessage:")) return;
+      const eventId = `agentcash-progress:${ctx.session.id}:${data.result.callId}:${progress.id}`;
+      const deliveryId = `agentcash_progress_${createHash("sha256")
+        .update(eventId)
+        .digest("hex")}`;
+      try {
+        const workspaceName = await photonWorkspaceResponseName({
+          principalId,
+          sessionId: ctx.session.id,
+          threadId: channel.thread.id,
+        });
+        const responseText = photonWorkspaceLabeledText(
+          workspaceName,
+          progress.message,
+        );
+        const delivery = await createPhotonResponseDeliveryReceipt({
+          content: responseText,
+          destination: physicalPhotonThreadId(channel.thread.id),
+          ingressId: deliveryId,
+        });
+        if (!delivery.created && delivery.record.state !== "staged") {
+          if (delivery.record.state === "delivering") {
+            await markPhotonResponseDelivery({
+              failureCode: "agentcash_progress_delivery_uncertain",
+              ingressId: deliveryId,
+              state: "delivery_uncertain",
+            });
+          }
+          return;
+        }
+        await markPhotonResponseDelivery({
+          ingressId: deliveryId,
+          state: "delivering",
+        });
+        try {
+          await channel.thread.post(responseText);
+          await markPhotonResponseDelivery({
+            ingressId: deliveryId,
+            state: "delivered",
+          });
+        } catch (error) {
+          await markPhotonResponseDelivery({
+            failureCode: "agentcash_progress_delivery_uncertain",
+            ingressId: deliveryId,
+            state: "delivery_uncertain",
+          }).catch(() => undefined);
+          throw error;
+        }
+        console.info("[photon.agentcash] Progress delivered", {
+          call_id: data.result.callId,
+          progress_id: progress.id,
+          session_id: ctx.session.id,
+        });
+      } catch (error) {
+        console.warn("[photon.agentcash] Progress delivery failed", {
+          call_id: data.result.callId,
+          error_type: error instanceof Error ? error.name : typeof error,
+          progress_id: progress.id,
+          session_id: ctx.session.id,
+        });
+      }
+    },
     async "message.completed"(data, channel, ctx) {
       if (
         data.finishReason === "tool-calls" ||

@@ -26,6 +26,7 @@ const result = await build({
   bundle: true,
   entryPoints: [resolve(packageRoot, "dist", "esm", "index.js")],
   format: "esm",
+  inject: [resolve(projectRoot, "scripts", "agentcash-cli-fetch-guard.ts")],
   legalComments: "none",
   platform: "node",
   target: "node22",

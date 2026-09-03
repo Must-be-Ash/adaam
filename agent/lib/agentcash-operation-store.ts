@@ -3,6 +3,11 @@ import { createHash } from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { z } from "zod";
 
+import {
+  agentcashRequestHash,
+  legacyAgentcashRequestHash,
+} from "#agentcash-request";
+
 const KEY_PREFIX = "eve:agentcash:v1:operation:";
 const OPERATION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const MAX_OPERATION_BYTES = 1_000_000;
@@ -85,28 +90,6 @@ function operationStore(): AgentcashOperationStoreClient {
   return defaultStore;
 }
 
-function canonicalValue(value: unknown): unknown {
-  if (
-    value === null ||
-    typeof value === "boolean" ||
-    typeof value === "string" ||
-    (typeof value === "number" && Number.isFinite(value))
-  ) {
-    return value;
-  }
-  if (Array.isArray(value)) return value.map(canonicalValue);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) =>
-          left < right ? -1 : left > right ? 1 : 0,
-        )
-        .map(([key, entry]) => [key, canonicalValue(entry)]),
-    );
-  }
-  throw new Error("The AgentCash request contains a non-JSON value.");
-}
-
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -128,9 +111,9 @@ function parseOperation(value: unknown) {
 
 function existingResult(
   operation: z.infer<typeof operationSchema>,
-  inputHash: string,
+  acceptedInputHashes: ReadonlySet<string>,
 ): unknown {
-  if (operation.inputHash !== inputHash) {
+  if (!acceptedInputHashes.has(operation.inputHash)) {
     throw new Error(
       "This AgentCash tool-call identity conflicts with a different request. Start a new request.",
     );
@@ -152,9 +135,13 @@ export async function executeAgentcashPayment(input: {
 }): Promise<unknown> {
   const store = input.store ?? operationStore();
   const key = operationKey(input.principalId, input.callId);
-  const inputHash = sha256(JSON.stringify(canonicalValue(input.toolInput)));
+  const inputHash = agentcashRequestHash(input.toolInput);
+  const acceptedInputHashes = new Set([
+    inputHash,
+    legacyAgentcashRequestHash(input.toolInput),
+  ]);
   const existing = parseOperation(await store.get(key));
-  if (existing) return existingResult(existing, inputHash);
+  if (existing) return existingResult(existing, acceptedInputHashes);
 
   const now = Date.now();
   const started = JSON.stringify(
@@ -168,7 +155,7 @@ export async function executeAgentcashPayment(input: {
   );
   if (!(await store.compareAndSet(key, null, started))) {
     const raced = parseOperation(await store.get(key));
-    if (raced) return existingResult(raced, inputHash);
+    if (raced) return existingResult(raced, acceptedInputHashes);
     throw new Error("The AgentCash payment safety receipt could not be created.");
   }
 

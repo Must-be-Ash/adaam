@@ -27,6 +27,76 @@ import {
   photonApprovalAppUrl,
   photonArtifactPresentation,
 } from "../agent/lib/photon-mini-app.ts";
+import { agentcashPhotonProgress } from "../agent/lib/agentcash-photon-progress.ts";
+import { agentcashFetchSchema } from "../agent/lib/agentcash-policy.ts";
+import { agentcashRequestHash } from "../agent/lib/agentcash-request.ts";
+
+assert.deepEqual(
+  agentcashPhotonProgress({
+    cause: "amount_exceeds_max_amount",
+    message:
+      "Endpoint requested $0.21 which exceeds the maximum allowed amount of $0.2.",
+    surface: "fetch",
+    type: "before_payment",
+  }),
+  {
+    id: "price-cap-rejected",
+    message:
+      "The provider now requires $0.21, above the $0.20 cap you approved. No payment was made. I’ll ask you to approve a new cap before retrying.",
+  },
+);
+assert.deepEqual(
+  agentcashPhotonProgress({
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          success: true,
+          jobId: "job_test",
+          status: "pending",
+          pollUrl: "https://stablestudio.dev/api/jobs/job_test",
+        }),
+      },
+      {
+        type: "text",
+        text: JSON.stringify({
+          payment: { success: true },
+          price: "$0.21",
+          protocol: "x402",
+        }),
+      },
+    ],
+  }),
+  {
+    id: "provider-working",
+    message:
+      "The paid request was accepted and the provider is working on it. This can take a few minutes. I’m continuing this turn with the job details; if the result doesn’t arrive, ask me to check its status.",
+  },
+);
+assert.equal(
+  agentcashPhotonProgress({
+    cause: "amount_exceeds_max_amount",
+    message: "Untrusted provider prose",
+    type: "after_payment",
+  }),
+  null,
+);
+assert.equal(
+  agentcashPhotonProgress({
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          success: true,
+          jobId: "job_without_payment",
+          status: "pending",
+          pollUrl: "https://stablestudio.dev/api/jobs/job_without_payment",
+        }),
+      },
+    ],
+  }),
+  null,
+);
 
 function approvalRequest(toolName, input = {}) {
   return {
@@ -82,25 +152,67 @@ assert.equal(limitPrompt.approvalText, "Buy 0.25 BTC at 50000 USD?");
 
 const agentcashPrompt = createPhotonApprovalPrompt(
   approvalRequest("agentcash_fetch", {
+    body: { prompt: "fixture image", size: "1024x1024" },
+    headers: { "X-Request-Label": "fixture" },
     maxAmount: 0.25,
     method: "POST",
-    url: "https://stableenrich.dev/api/exa/search",
+    url: "https://stablestudio.dev/api/images?quality=high",
   }),
   1_000,
 );
-assert.equal(
+assert.match(
   agentcashPrompt.approvalText,
-  "Approve AgentCash POST to stableenrich.dev/api/exa/search for up to $0.25?",
+  /^Approve AgentCash POST https:\/\/stablestudio\.dev\/api\/images\?<query-redacted> for up to \$0\.25\? Request SHA-256 [a-f0-9]{64}\. Body SHA-256 [a-f0-9]{64} \(45 bytes\)\.$/u,
 );
+assert.equal(agentcashPrompt.approvalText.includes("quality=high"), false);
 assert.equal(agentcashPrompt.expiresAtMs, 601_000);
+const agentcashDigest = (input) =>
+  createPhotonApprovalPrompt(
+    approvalRequest("agentcash_fetch", input),
+  ).approvalText.match(/Request SHA-256 ([a-f0-9]{64})/u)?.[1];
+const digestFixture = {
+  body: { alpha: 1, beta: 2 },
+  headers: { "X-Request-Label": "fixture" },
+  maxAmount: 0.25,
+  method: "POST",
+  url: "https://stablestudio.dev/api/images",
+};
+const fixtureDigest = agentcashDigest(digestFixture);
+assert.match(fixtureDigest ?? "", /^[a-f0-9]{64}$/u);
+for (const changedInput of [
+  { ...digestFixture, url: "https://stablestudio.dev/api/images/other" },
+  { ...digestFixture, headers: { "X-Request-Label": "changed" } },
+  { ...digestFixture, body: { alpha: 1, beta: 3 } },
+  { ...digestFixture, maxAmount: 0.3 },
+]) {
+  assert.notEqual(agentcashDigest(changedInput), fixtureDigest);
+}
 assert.equal(
+  agentcashDigest({ ...digestFixture, body: { beta: 2, alpha: 1 } }),
+  fixtureDigest,
+);
+const defaultedAgentcashInput = {
+  maxAmount: 0.25,
+  url: "https://stableenrich.dev/api/exa/search",
+};
+const defaultedAgentcashPrompt = createPhotonApprovalPrompt(
+  approvalRequest("agentcash_fetch", defaultedAgentcashInput),
+);
+const defaultedAgentcashDigest = defaultedAgentcashPrompt.approvalText.match(
+  /Request SHA-256 ([a-f0-9]{64})/u,
+)?.[1];
+assert.equal(
+  defaultedAgentcashDigest,
+  agentcashRequestHash(agentcashFetchSchema.parse(defaultedAgentcashInput)),
+);
+assert.match(
   createPhotonApprovalPrompt(
     approvalRequest("agentcash_fetch", {
       maxAmount: 0.1,
-      url: "https://example.com/search?q=sensitive",
+      url: "https://stableenrich.dev/search?q=sensitive",
     }),
   ).approvalText,
-  "Approve AgentCash GET to example.com/search with query parameters for up to $0.10?",
+  /^Approve AgentCash GET https:\/\/stableenrich\.dev\/search\?<query-redacted> for up to \$0\.10\? Request SHA-256 [a-f0-9]{64}\. No body\.$/u,
 );
 for (const input of [
   { maxAmount: 0.1, url: "http://example.com/search" },
@@ -666,6 +778,43 @@ assert.match(longPrompt.approvalText, /\?$/u);
 const photonChannelSource = await readFile(
   new URL("../agent/channels/photon.ts", import.meta.url),
   "utf8",
+);
+const agentcashProgressStart = photonChannelSource.indexOf(
+  'async "action.result"',
+);
+const agentcashProgressEnd = photonChannelSource.indexOf(
+  'async "message.completed"',
+);
+assert.ok(agentcashProgressStart >= 0, "AgentCash progress handler exists");
+assert.ok(
+  agentcashProgressEnd > agentcashProgressStart,
+  "AgentCash progress handler is bounded",
+);
+const agentcashProgressHandler = photonChannelSource.slice(
+  agentcashProgressStart,
+  agentcashProgressEnd,
+);
+assert.ok(
+  agentcashProgressHandler.includes("createPhotonResponseDeliveryReceipt"),
+  "AgentCash progress delivery is durably staged",
+);
+assert.ok(
+  agentcashProgressHandler.includes('delivery.record.state !== "staged"'),
+  "A replay can recover a staged AgentCash progress delivery",
+);
+assert.ok(
+  agentcashProgressHandler.indexOf('state: "delivering"') <
+    agentcashProgressHandler.indexOf("channel.thread.post"),
+  "AgentCash progress is marked delivering before posting",
+);
+assert.ok(
+  agentcashProgressHandler.indexOf("channel.thread.post") <
+    agentcashProgressHandler.indexOf('state: "delivered"'),
+  "AgentCash progress is marked delivered only after posting",
+);
+assert.ok(
+  agentcashProgressHandler.includes('state: "delivery_uncertain"'),
+  "AgentCash progress records ambiguous post failures",
 );
 const completedTurnStart = photonChannelSource.indexOf('async "turn.completed"');
 const completedTurnEnd = photonChannelSource.indexOf('async "turn.cancelled"');

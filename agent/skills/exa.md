@@ -131,8 +131,9 @@ research. Use `exa-find-similar` only when a high-quality seed URL is already kn
 
 ## Cost and evidence controls
 
-Call `agentcash_check_endpoint_schema` with the exact endpoint and intended body before
-`agentcash_fetch`. Treat a dynamic quote as a baseline: deep search, synthesis, and
+Call `agentcash_check_endpoint_schema` with the exact endpoint and method before
+`agentcash_fetch`. It uses the provider's published OpenAPI schema without probing the
+operation. Treat a published dynamic price as a baseline: deep search, synthesis, and
 content retrieval can raise the settled cost. Use the smallest safe `maxAmount`, minimize
 result count and content modes, and report material cost or coverage limits.
 

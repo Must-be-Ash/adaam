@@ -10,6 +10,7 @@ import { executeAgentcashPayment } from "../lib/agentcash-operation-store";
 import {
   agentcashFetchSchema,
   enforceAgentcashFetch,
+  normalizeAgentcashFetchInput,
 } from "../lib/agentcash-policy";
 
 export default defineTool({
@@ -20,7 +21,7 @@ export default defineTool({
   async execute(input, ctx) {
     const principalId = await requireAgentcashToolAccess(ctx, true);
     const toolInput = enforceAgentcashFetch(
-      input,
+      normalizeAgentcashFetchInput(input),
       agentcashMaximumPaymentUsd(),
     );
     return executeAgentcashPayment({
