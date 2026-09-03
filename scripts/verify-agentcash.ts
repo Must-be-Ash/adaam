@@ -260,7 +260,8 @@ assert.throws(
 const originalFetch = globalThis.fetch;
 const inspectionMethods: string[] = [];
 const inspectionRedirectModes: Array<RequestRedirect | undefined> = [];
-let inspectionMode: "oversized" | "redirect" | "success" = "success";
+let inspectionMode: "oversized" | "recursive" | "redirect" | "success" =
+  "success";
 globalThis.fetch = async (input, init) => {
   const url = new URL(
     typeof input === "string" || input instanceof URL ? input : input.url,
@@ -278,6 +279,34 @@ globalThis.fetch = async (input, init) => {
     if (inspectionMode === "oversized") {
       return new Response(
         JSON.stringify({ padding: "x".repeat(1_100_000) }),
+        { headers: { "content-type": "application/json" }, status: 200 },
+      );
+    }
+    if (inspectionMode === "recursive") {
+      return new Response(
+        JSON.stringify({
+          components: {
+            schemas: {
+              Recursive: { $ref: "#/components/schemas/Recursive" },
+            },
+          },
+          info: { title: "Recursive API", version: "1.0.0" },
+          openapi: "3.1.0",
+          paths: {
+            "/api/images": {
+              post: {
+                requestBody: {
+                  content: {
+                    "application/json": {
+                      schema: { $ref: "#/components/schemas/Recursive" },
+                    },
+                  },
+                },
+                responses: { "200": { description: "Generated image" } },
+              },
+            },
+          },
+        }),
         { headers: { "content-type": "application/json" }, status: 200 },
       );
     }
@@ -321,6 +350,14 @@ try {
     /could not be loaded safely/u,
   );
   inspectionMode = "oversized";
+  await assert.rejects(
+    inspectAgentcashEndpointSchema({
+      method: "POST",
+      url: "https://stablestudio.dev/api/images",
+    }),
+    /could not be loaded safely/u,
+  );
+  inspectionMode = "recursive";
   await assert.rejects(
     inspectAgentcashEndpointSchema({
       method: "POST",
