@@ -259,12 +259,28 @@ assert.throws(
 
 const originalFetch = globalThis.fetch;
 const inspectionMethods: string[] = [];
+const inspectionRedirectModes: Array<RequestRedirect | undefined> = [];
+let inspectionMode: "oversized" | "redirect" | "success" = "success";
 globalThis.fetch = async (input, init) => {
-  inspectionMethods.push(init?.method ?? "GET");
   const url = new URL(
     typeof input === "string" || input instanceof URL ? input : input.url,
   );
+  if (url.protocol === "data:") return originalFetch(input, init);
+  inspectionMethods.push(init?.method ?? "GET");
+  inspectionRedirectModes.push(init?.redirect);
   if (url.pathname === "/openapi.json") {
+    if (inspectionMode === "redirect") {
+      return new Response(null, {
+        headers: { location: "https://example.com/openapi.json" },
+        status: 302,
+      });
+    }
+    if (inspectionMode === "oversized") {
+      return new Response(
+        JSON.stringify({ padding: "x".repeat(1_100_000) }),
+        { headers: { "content-type": "application/json" }, status: 200 },
+      );
+    }
     return new Response(
       JSON.stringify({
         info: { title: "Fixture API", version: "1.0.0" },
@@ -295,6 +311,23 @@ try {
   );
   assert.equal(inspectionMethods.length > 0, true);
   assert.deepEqual(new Set(inspectionMethods), new Set(["GET"]));
+  assert.deepEqual(new Set(inspectionRedirectModes), new Set(["manual"]));
+  inspectionMode = "redirect";
+  await assert.rejects(
+    inspectAgentcashEndpointSchema({
+      method: "POST",
+      url: "https://stablestudio.dev/api/images",
+    }),
+    /could not be loaded safely/u,
+  );
+  inspectionMode = "oversized";
+  await assert.rejects(
+    inspectAgentcashEndpointSchema({
+      method: "POST",
+      url: "https://stablestudio.dev/api/images",
+    }),
+    /could not be loaded safely/u,
+  );
 } finally {
   globalThis.fetch = originalFetch;
 }
