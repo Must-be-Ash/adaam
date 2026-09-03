@@ -166,6 +166,31 @@ assert.match(
 );
 assert.equal(agentcashPrompt.approvalText.includes("quality=high"), false);
 assert.equal(agentcashPrompt.expiresAtMs, 601_000);
+const agentcashDigest = (input) =>
+  createPhotonApprovalPrompt(
+    approvalRequest("agentcash_fetch", input),
+  ).approvalText.match(/Request SHA-256 ([a-f0-9]{64})/u)?.[1];
+const digestFixture = {
+  body: { alpha: 1, beta: 2 },
+  headers: { "X-Request-Label": "fixture" },
+  maxAmount: 0.25,
+  method: "POST",
+  url: "https://stablestudio.dev/api/images",
+};
+const fixtureDigest = agentcashDigest(digestFixture);
+assert.match(fixtureDigest ?? "", /^[a-f0-9]{64}$/u);
+for (const changedInput of [
+  { ...digestFixture, url: "https://stablestudio.dev/api/images/other" },
+  { ...digestFixture, headers: { "X-Request-Label": "changed" } },
+  { ...digestFixture, body: { alpha: 1, beta: 3 } },
+  { ...digestFixture, maxAmount: 0.3 },
+]) {
+  assert.notEqual(agentcashDigest(changedInput), fixtureDigest);
+}
+assert.equal(
+  agentcashDigest({ ...digestFixture, body: { beta: 2, alpha: 1 } }),
+  fixtureDigest,
+);
 const defaultedAgentcashInput = {
   maxAmount: 0.25,
   url: "https://stableenrich.dev/api/exa/search",
