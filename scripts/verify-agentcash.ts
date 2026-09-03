@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { base58 } from "@scure/base";
 
 import {
   agentcashMaximumPaymentUsd,
@@ -9,6 +10,11 @@ import {
   agentcashWalletStatus,
   requireAgentcashAccess,
 } from "../agent/lib/agentcash-access";
+import { agentcashChildEnvironment } from "../agent/lib/agentcash-cli";
+import {
+  isAgentcashSolanaPrivateKey,
+  normalizeAgentcashSolanaPrivateKey,
+} from "../agent/lib/agentcash-wallet";
 import {
   executeAgentcashPayment,
   type AgentcashOperationStoreClient,
@@ -43,12 +49,15 @@ const runtimeSession = {
     },
   },
 };
+const solanaSeedBytes = new Uint8Array(32).fill(7);
+const solanaSeed = base58.encode(solanaSeedBytes);
+const normalizedSolanaKey = normalizeAgentcashSolanaPrivateKey(solanaSeed);
+assert.equal(typeof normalizedSolanaKey, "string");
 const configuredEnvironment = {
   AGENTCASH_ALLOWED_PRINCIPALS: principalId,
   AGENTCASH_MAX_PAYMENT_USD: "2.50",
   X402_PRIVATE_KEY: `0x${"1".repeat(64)}`,
-  X402_SOLANA_PRIVATE_KEY:
-    "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2",
+  X402_SOLANA_PRIVATE_KEY: normalizedSolanaKey!,
 };
 
 assert.equal(agentcashPrincipalId(userSession), principalId);
@@ -68,6 +77,31 @@ assert.deepEqual(agentcashWalletStatus(configuredEnvironment), {
   evm: true,
   solana: true,
 });
+assert.equal(base58.decode(normalizedSolanaKey!).length, 64);
+assert.deepEqual(
+  base58.decode(normalizedSolanaKey!).slice(0, 32),
+  solanaSeedBytes,
+);
+assert.equal(isAgentcashSolanaPrivateKey(solanaSeed), true);
+assert.equal(isAgentcashSolanaPrivateKey(normalizedSolanaKey), true);
+assert.equal(
+  isAgentcashSolanaPrivateKey(base58.encode(new Uint8Array(64).fill(8))),
+  false,
+);
+assert.deepEqual(
+  agentcashWalletStatus({
+    X402_PRIVATE_KEY: configuredEnvironment.X402_PRIVATE_KEY,
+    X402_SOLANA_PRIVATE_KEY: solanaSeed,
+  }),
+  { evm: true, solana: true },
+);
+assert.equal(
+  agentcashChildEnvironment({
+    X402_PRIVATE_KEY: configuredEnvironment.X402_PRIVATE_KEY,
+    X402_SOLANA_PRIVATE_KEY: solanaSeed,
+  }).X402_SOLANA_PRIVATE_KEY,
+  normalizedSolanaKey,
+);
 assert.deepEqual(
   agentcashWalletStatus({ X402_PRIVATE_KEY: "not-a-private-key" }),
   { evm: false, solana: false },

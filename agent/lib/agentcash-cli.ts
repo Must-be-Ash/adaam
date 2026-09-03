@@ -19,7 +19,7 @@ import {
 } from "./agentcash-cli-source.generated";
 import {
   isAgentcashEvmPrivateKey,
-  isAgentcashSolanaPrivateKey,
+  normalizeAgentcashSolanaPrivateKey,
 } from "./agentcash-wallet";
 
 function materializeAgentcashCli(): string {
@@ -68,24 +68,25 @@ function materializeAgentcashCli(): string {
 export const AGENTCASH_CLI_PATH = materializeAgentcashCli();
 export const AGENTCASH_CLI_VERSION = agentcashCliVersion;
 
-export function agentcashChildEnvironment(): Record<string, string> {
+export function agentcashChildEnvironment(
+  sourceEnvironment: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
   const homeDirectory = join(tmpdir(), "eve-agentcash-home");
   mkdirSync(homeDirectory, { mode: 0o700, recursive: true });
+  const solanaPrivateKey = normalizeAgentcashSolanaPrivateKey(
+    sourceEnvironment.X402_SOLANA_PRIVATE_KEY,
+  );
   const environment: NodeJS.ProcessEnv = {
     CI: "1",
     HOME: homeDirectory,
-    LANG: process.env.LANG ?? "C.UTF-8",
-    NODE_ENV: process.env.NODE_ENV ?? "production",
-    PATH: process.env.PATH ?? "",
+    LANG: sourceEnvironment.LANG ?? "C.UTF-8",
+    NODE_ENV: sourceEnvironment.NODE_ENV ?? "production",
+    PATH: sourceEnvironment.PATH ?? "",
     TMPDIR: tmpdir(),
-    X402_PRIVATE_KEY: isAgentcashEvmPrivateKey(process.env.X402_PRIVATE_KEY)
-      ? process.env.X402_PRIVATE_KEY
+    X402_PRIVATE_KEY: isAgentcashEvmPrivateKey(sourceEnvironment.X402_PRIVATE_KEY)
+      ? sourceEnvironment.X402_PRIVATE_KEY
       : undefined,
-    X402_SOLANA_PRIVATE_KEY: isAgentcashSolanaPrivateKey(
-      process.env.X402_SOLANA_PRIVATE_KEY,
-    )
-      ? process.env.X402_SOLANA_PRIVATE_KEY
-      : undefined,
+    X402_SOLANA_PRIVATE_KEY: solanaPrivateKey,
   };
   return Object.fromEntries(
     Object.entries(environment).filter(
