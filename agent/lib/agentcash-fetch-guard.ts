@@ -7,10 +7,32 @@ const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 const SDK_METADATA_HEADERS = new Set(["x-wallet-address", "x-solana-wallet-address", "x-session-id", "x-client-id"]);
 const PUBLIC_READ_HEADERS = new Set(["accept", "accept-encoding", "accept-language", "user-agent"]);
 
+// CDP rejects otherwise valid v2 payloads when resource.description exceeds
+// 500 characters (x402-foundation/x402#2832). EIP-3009 signs authorization,
+// not this descriptive metadata. Preserve all payment terms and proof bytes.
+function normalizePaymentDescription(headers: Headers): void {
+  const encoded = headers.get("payment-signature");
+  if (!encoded || encoded.length > 120_000) return;
+  try {
+    const payment = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
+    if (payment?.x402Version !== 2 || payment.accepted?.scheme !== "exact" ||
+        payment.accepted?.network !== "eip155:8453" ||
+        !payment.payload?.authorization || typeof payment.payload.signature !== "string" ||
+        typeof payment.resource?.description !== "string") return;
+    const characters = Array.from(payment.resource.description);
+    if (characters.length <= 500) return;
+    payment.resource.description = characters.slice(0, 500).join("");
+    headers.set("payment-signature", Buffer.from(JSON.stringify(payment)).toString("base64"));
+  } catch {
+    // Leave unsupported or malformed payloads for the SDK/provider to reject.
+  }
+}
+
 /** Follow public, anonymous reads only. Never redirect payment proofs or bodies. */
 export function guardAgentcashProviderFetch(nativeFetch: Fetch): Fetch {
   return async (input, init) => {
     const initial = new Request(input, init);
+    normalizePaymentDescription(initial.headers);
     if (!isAgentcashPublicUrl(initial.url)) {
       throw new Error("AgentCash requires a public HTTPS destination.");
     }

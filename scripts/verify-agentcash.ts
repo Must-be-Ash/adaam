@@ -311,6 +311,36 @@ const guardedFetch = guardAgentcashProviderFetch(async (input) => {
   Object.defineProperty(response, "url", { value: request.url });
   return response;
 });
+const paymentPayloadFixture = {
+  x402Version: 2,
+  accepted: { scheme: "exact", network: "eip155:8453", amount: "1000000", payTo: "recipient" },
+  resource: { url: "https://canonical.example/api", description: "a".repeat(627), mimeType: "application/json" },
+  payload: { authorization: { value: "1000000", nonce: "fixture" }, signature: "unchanged-signature" },
+  extensions: { fixture: true },
+};
+const encodePayment = (payload: unknown) => Buffer.from(JSON.stringify(payload)).toString("base64");
+await guardedFetch("https://canonical.example/api", { headers: { "PAYMENT-SIGNATURE": encodePayment(paymentPayloadFixture) } });
+const sentPayment = JSON.parse(Buffer.from(guardedRequests.pop()!.headers.get("payment-signature")!, "base64").toString());
+assert.equal(sentPayment.resource.description.length, 500, "CDP rejects resource descriptions over 500 characters");
+assert.deepEqual(sentPayment, { ...paymentPayloadFixture, resource: { ...paymentPayloadFixture.resource, description: "a".repeat(500) } }, "Only unsigned descriptive metadata changes; price, recipient, authorization, signature, and extensions are preserved");
+
+for (const unchanged of [
+  { ...paymentPayloadFixture, resource: { ...paymentPayloadFixture.resource, description: "a".repeat(500) } },
+  { ...paymentPayloadFixture, x402Version: 1 },
+  { ...paymentPayloadFixture, accepted: { ...paymentPayloadFixture.accepted, network: "solana:fixture" } },
+  { ...paymentPayloadFixture, payload: { signature: "permit2-fixture" } },
+]) {
+  const header = encodePayment(unchanged);
+  await guardedFetch("https://canonical.example/api", { headers: { "payment-signature": header } });
+  assert.equal(guardedRequests.pop()!.headers.get("payment-signature"), header);
+}
+await guardedFetch("https://canonical.example/api", { headers: { "payment-signature": "malformed" } });
+assert.equal(guardedRequests.pop()!.headers.get("payment-signature"), "malformed");
+const unicodePayment = { ...paymentPayloadFixture, resource: { ...paymentPayloadFixture.resource, description: "😀".repeat(501) } };
+await guardedFetch("https://canonical.example/api", { headers: { "payment-signature": encodePayment(unicodePayment) } });
+const unicodeSent = JSON.parse(Buffer.from(guardedRequests.pop()!.headers.get("payment-signature")!, "base64").toString());
+assert.equal(unicodeSent.resource.description, "😀".repeat(500));
+
 assert.equal((await guardedFetch("https://old.example/api")).url, redirectTarget);
 assert.equal(guardedRequests.length, 2);
 await guardedFetch("https://old.example/api", { headers: {
