@@ -888,6 +888,7 @@ async function submitApprovalDecision(
   senderId: string,
   decision: PhotonApprovalDecision,
   decisionSentAtMs: number,
+  expiredOnly = false,
 ): Promise<boolean> {
   const principalId = photonPrincipalId(senderId);
   let claim;
@@ -895,6 +896,7 @@ async function submitApprovalDecision(
     claim = await claimCurrentPhotonApprovalDecision({
       decision,
       decisionSentAtMs,
+      expiredOnly,
       principalId,
       threadId: thread.id,
     });
@@ -902,6 +904,11 @@ async function submitApprovalDecision(
     await thread.post(
       "I couldn't verify that choice. No action was authorized; try the request again.",
     );
+    return true;
+  }
+
+  if (expiredOnly && claim.status !== "deliver") {
+    await thread.post("The approval state changed while I was closing the expired request. No new action was authorized; please send your request again.");
     return true;
   }
 
@@ -988,7 +995,9 @@ async function submitApprovalDecision(
 
   const acknowledgement =
     claim.delivery.expired
-      ? "That approval expired. No action was taken."
+      ? expiredOnly
+        ? "An earlier approval had expired. I closed it without authorizing that action. Your new request hasn't started; please send it again after the earlier response finishes."
+        : "That approval expired. No action was authorized by that reply."
       : claim.delivery.decision === "approve"
         ? "Approved. Continuing…"
         : "Denied. No action will be taken.";
@@ -1287,6 +1296,10 @@ async function dispatch(
       principalId: photonPrincipalId(senderId),
       threadId: thread.id,
     });
+    if (approvalActivity === "expired") {
+      await submitApprovalDecision(thread, senderId, "deny", Date.now(), true);
+      return;
+    }
     if (approvalActivity) {
       await thread.post(
         approvalActivity === "processing"

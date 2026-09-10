@@ -521,6 +521,11 @@ assert.deepEqual(
 );
 assert.equal(staleDecisionArgs[4], 500);
 assert.equal(staleDecisionArgs[5], 0);
+await claimCurrentPhotonApprovalDecision({decision: "deny", expiredOnly: true, principalId, threadId}, staleDecisionStore);
+assert.equal(staleDecisionArgs[7], "expired-only", "Cleanup must recheck expiry atomically");
+assert.match(staleDecisionScript, /ARGV\[8\] == "expired-only"/u);
+assert.match(staleDecisionScript, /record.state ~= "active" or tonumber\(record.expiresAtMs\) >= tonumber\(ARGV\[2\]\)/u);
+
 assert.match(staleDecisionScript, /record\.activatedAtMs or record\.createdAtMs/u);
 
 assert.equal(
@@ -549,6 +554,15 @@ assert.equal(
   ),
   null,
 );
+
+assert.equal(await getCurrentPhotonApprovalActivity(
+  { principalId, threadId },
+  approvalStore({ record: JSON.stringify({ ...activeRecord, expiresAtMs: 1 }) }),
+), "expired", "An expired approval must not ask the owner to approve it");
+assert.equal(await getCurrentPhotonApprovalActivity(
+  { principalId, threadId },
+  approvalStore({ record: JSON.stringify({ ...deliveringRecord, expiresAtMs: 1 }) }),
+), "processing", "An in-flight approval must never be expired automatically");
 
 let completionCall;
 await completePhotonApprovalDecision(
