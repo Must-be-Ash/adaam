@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const DEFAULT_AGENTCASH_ORIGINS = new Set([
+  "https://dripstack.com",
   "https://stablebrowser.dev",
   "https://stableemail.dev",
   "https://stableenrich.dev",
