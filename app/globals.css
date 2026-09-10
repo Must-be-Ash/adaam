@@ -55,6 +55,12 @@ button {
   text-transform: uppercase;
 }
 
+.footer {
+  text-transform: none;
+  letter-spacing: 0.01em;
+  line-height: 1.5;
+}
+
 .wordmark {
   font-weight: 800;
   letter-spacing: -0.03em;

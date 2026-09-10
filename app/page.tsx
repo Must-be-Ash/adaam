@@ -30,8 +30,15 @@ export default function Page() {
       </main>
 
       <footer className="footer">
-      <span>Make the market text you.</span>
-        <span>Built on Eve by Vercel</span>
+        <span>
+          For informational purposes only; not investment advice or a
+          recommendation. Trading involves substantial risk, including the
+          potential loss of your entire investment. AI agents may make
+          mistakes or fail. You direct all agent activity and assume all risk
+          for transactions your agents execute, as well as for any use of
+          your data by third-party AI providers. All third party trademarks
+          belong to their respective owners.
+        </span>
       </footer>
     </div>
   );
