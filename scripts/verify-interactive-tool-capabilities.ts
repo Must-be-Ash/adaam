@@ -243,9 +243,13 @@ assert.equal(
   "AgentCash must use the ordinary owner allowlist in a bound strategy workspace",
 );
 assert.equal(
-  await agentcashInteractivePaymentApproval(approvalContext),
+  await agentcashInteractivePaymentApproval({
+    ...approvalContext,
+    session: { ...context(earningsWorkspaceId).session, id: "fixture-session", turn: { id: "fixture-turn", sequence: 1 } },
+    toolInput: { url: "https://stableenrich.dev/api/search", maxAmount: 1 },
+  } as never, environment, memory),
   "user-approval",
-  "AgentCash paid calls must still require approval in a bound strategy workspace",
+  "AgentCash calls at the threshold still require approval in a bound strategy workspace",
 );
 assert.equal(
   await coinbaseInteractiveApproval({

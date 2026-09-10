@@ -15,7 +15,7 @@ import {
 
 export default defineTool({
   description:
-    "Call one HTTPS API through AgentCash with automatic SIWX and x402/MPP payment. Requires a caller-visible per-request USD ceiling and explicit user approval. Call agentcash_check_endpoint_schema first for a new endpoint.",
+    "Call one HTTPS API through AgentCash with automatic SIWX and x402/MPP payment. Requires a per-request USD ceiling. Requests capped below $1 execute without a prompt by default; at or above the configured approval threshold require user approval. Use the smallest sufficient ceiling; never split a purchase to bypass approval. Call agentcash_check_endpoint_schema first for a new endpoint.",
   inputSchema: agentcashFetchSchema,
   approval: agentcashInteractivePaymentApproval,
   async execute(input, ctx) {
@@ -26,6 +26,7 @@ export default defineTool({
     );
     return executeAgentcashPayment({
       callId: ctx.callId,
+      attemptScope: `${ctx.session.id}:${ctx.session.turn.id}`,
       operation: () =>
         callAgentcashMcpTool("fetch", toolInput, {
           signal: ctx.abortSignal,

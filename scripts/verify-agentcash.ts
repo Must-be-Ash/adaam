@@ -5,6 +5,8 @@ import { GET as getLaunchSkill } from "../app/skill/route";
 import {
   agentcashMaximumPaymentUsd,
   agentcashPaymentApproval,
+  agentcashInteractivePaymentApproval,
+  agentcashApprovalThresholdUsd,
   agentcashInteractiveCapabilityIds,
   agentcashPrincipalAllowed,
   agentcashPrincipalId,
@@ -12,6 +14,8 @@ import {
   requireAgentcashAccess,
 } from "../agent/lib/agentcash-access";
 import { agentcashChildEnvironment } from "../agent/lib/agentcash-cli";
+import { createAgentcashPublicLookup } from "../agent/lib/agentcash-public-network";
+import { isAgentcashPublicUrl } from "../agent/lib/agentcash-url";
 import { guardAgentcashProviderFetch } from "../agent/lib/agentcash-fetch-guard";
 import {
   isAgentcashSolanaPrivateKey,
@@ -143,14 +147,6 @@ assert.equal(
   }).X402_SOLANA_PRIVATE_KEY,
   normalizedSolanaKey,
 );
-assert.equal(
-  agentcashChildEnvironment({
-    AGENTCASH_ALLOWED_ORIGINS: "https://partner.example",
-  }).EVE_AGENTCASH_ALLOWED_ORIGINS?.split(",").includes(
-    "https://partner.example",
-  ),
-  true,
-);
 assert.deepEqual(
   agentcashWalletStatus({ X402_PRIVATE_KEY: "not-a-private-key" }),
   { evm: false, solana: false },
@@ -196,6 +192,11 @@ assert.equal(
   ),
   "user-approval",
 );
+for (const [maxAmount, expected] of [[0.01, "not-applicable"], [0.99, "not-applicable"], [1, "user-approval"], [2, "user-approval"]] as const) {
+  assert.equal(agentcashPaymentApproval({ session: userSession, toolInput: {
+    url: "https://stableenrich.dev/api/search", maxAmount,
+  }} as never, configuredEnvironment), expected, `Approval policy for $${maxAmount}`);
+}
 assert.deepEqual(
   agentcashPaymentApproval(
     { session: userSession } as never,
@@ -203,6 +204,9 @@ assert.deepEqual(
   ),
   { reason: "This user is not authorized for AgentCash.", type: "denied" },
 );
+
+assert.equal(isAgentcashUrlAllowed("https://new-provider.example/api", {}), true,
+  "New public HTTPS providers must work without a hardcoded allowlist");
 
 const parsedFetch = agentcashFetchSchema.parse({
   maxAmount: 0.25,
@@ -228,12 +232,6 @@ for (const toolName of ["discover_api_endpoints", "check_endpoint_schema"]) {
 }
 assert.equal(isAgentcashUrlAllowed("https://dripstack.com.evil.test/api", {}), false);
 assert.equal(isAgentcashUrlAllowed("http://dripstack.com/api", {}), false);
-assert.ok(
-  agentcashChildEnvironment(configuredEnvironment)
-    .EVE_AGENTCASH_ALLOWED_ORIGINS?.split(",")
-    .includes("https://dripstack.com"),
-  "The CLI redirect guard must receive the approved DripStack origin",
-);
 assert.deepEqual(enforceAgentcashFetch(parsedFetch, 0.5), parsedFetch);
 assert.throws(() => enforceAgentcashFetch(parsedFetch, 0.1), /deployment limit/u);
 assert.throws(
@@ -265,9 +263,9 @@ assert.throws(
   () =>
     agentcashFetchSchema.parse({
       maxAmount: 1,
-      url: "https://example.com/private",
+      url: "https://127.0.0.1/private",
     }),
-  /approved AgentCash provider/u,
+  /public HTTPS destination/u,
 );
 assert.equal(
   isAgentcashUrlAllowed("https://partner.example/api", {
@@ -282,29 +280,79 @@ assert.equal(
   false,
 );
 
-const guardedFetchCalls: Array<{
-  input: RequestInfo | URL;
-  init?: RequestInit;
-}> = [];
-const guardedFetch = guardAgentcashProviderFetch(
-  async (input, init) => {
-    guardedFetchCalls.push({ input, init });
-    return new Response(null, { status: 302 });
-  },
-  "https://stablestudio.dev,https://partner.example",
-);
-await guardedFetch("https://stablestudio.dev/api/images");
-assert.equal(guardedFetchCalls.at(-1)?.init?.redirect, "manual");
-await guardedFetch(
-  new Request("https://partner.example/api", { redirect: "follow" }),
-  { signal: AbortSignal.timeout(1_000) },
-);
-const guardedRequest = guardedFetchCalls.at(-1)?.input;
-assert.equal(guardedRequest instanceof Request, true);
-assert.equal((guardedRequest as Request).redirect, "manual");
-assert.equal(guardedFetchCalls.at(-1)?.init, undefined);
-await guardedFetch("https://api.agentcash.dev/internal", { redirect: "follow" });
-assert.equal(guardedFetchCalls.at(-1)?.init?.redirect, "follow");
+for (const url of ["https://10.0.0.1", "https://[::ffff:127.0.0.1]", "https://127.1", "https://localhost.", "https://service.internal", "https://example.com:8443", "https://example.com/#secret"]) {
+  assert.equal(isAgentcashPublicUrl(url), false, url);
+}
+const runLookup = (addresses: Array<{ address: string; family: number }>, all = false) =>
+  new Promise<unknown>((resolve, reject) => {
+    createAgentcashPublicLookup(async () => addresses)("provider.example", { all }, (error, address) =>
+      error ? reject(error) : resolve(address));
+  });
+assert.equal(await runLookup([{ address: "8.8.8.8", family: 4 }]), "8.8.8.8");
+assert.deepEqual(await runLookup([{ address: "2606:4700:4700::1111", family: 6 }], true),
+  [{ address: "2606:4700:4700::1111", family: 6 }]);
+for (const address of ["127.0.0.1", "10.0.0.1", "169.254.169.254", "::1", "::ffff:127.0.0.1", "fc00::1", "::2"]) {
+  await assert.rejects(runLookup([{ address: "8.8.8.8", family: 4 }, { address, family: address.includes(":") ? 6 : 4 }]), /public network/u);
+}
+await assert.rejects(runLookup([]), /public network/u);
+
+const guardedRequests: Request[] = [];
+let redirectTarget = "https://canonical.example/api";
+let finalStatus = 200;
+let loop = false;
+const guardedFetch = guardAgentcashProviderFetch(async (input) => {
+  const request = input as Request;
+  guardedRequests.push(request);
+  if (request.url.startsWith("https://old.example/") || loop) {
+    return new Response(null, { status: 308, headers: { location: redirectTarget } });
+  }
+  const response = new Response(null, { status: finalStatus });
+  Object.defineProperty(response, "url", { value: request.url });
+  return response;
+});
+assert.equal((await guardedFetch("https://old.example/api")).url, redirectTarget);
+assert.equal(guardedRequests.length, 2);
+await guardedFetch("https://old.example/api", { headers: {
+  "X-Wallet-Address": "public-evm", "X-Solana-Wallet-Address": "public-solana",
+  "X-Session-ID": "session", "X-Client-ID": "agentcash", Accept: "application/json",
+} });
+assert.deepEqual([...guardedRequests.at(-1)!.headers.keys()], ["accept"],
+  "SDK metadata is stripped on anonymous redirects");
+const previousOrigins = process.env.AGENTCASH_ALLOWED_ORIGINS;
+try {
+  process.env.AGENTCASH_ALLOWED_ORIGINS = "https://old.example";
+  await assert.rejects(guardedFetch("https://old.example/api"), /deployment policy/u);
+} finally {
+  if (previousOrigins === undefined) delete process.env.AGENTCASH_ALLOWED_ORIGINS;
+  else process.env.AGENTCASH_ALLOWED_ORIGINS = previousOrigins;
+}
+assert.equal(agentcashChildEnvironment({ AGENTCASH_ALLOWED_ORIGINS: "https://old.example" }).AGENTCASH_ALLOWED_ORIGINS,
+  "https://old.example", "The child CLI enforces the same optional redirect restriction");
+
+assert.ok(guardedRequests.every((request) => request.redirect === "manual"));
+for (const target of ["http://canonical.example/api", "https://127.0.0.1/api",
+  "https://169.254.169.254/api", "https://[::1]/api", "https://user:secret@canonical.example/api"]) {
+  redirectTarget = target;
+  const before = guardedRequests.length;
+  await assert.rejects(guardedFetch("https://old.example/api"), /public HTTPS/u);
+  assert.equal(guardedRequests.length, before + 1, "Unsafe redirect destination is never contacted");
+}
+redirectTarget = "https://canonical.example/api";
+for (const headers of [{ "payment-signature": "proof" }, { "x-payment": "proof" },
+  { Authorization: "Payment proof" }, { Cookie: "secret" }, { "x-custom-secret": "secret" }]) {
+  const before = guardedRequests.length;
+  await assert.rejects(guardedFetch("https://old.example/api", { headers }), /cannot redirect/u);
+  assert.equal(guardedRequests.length, before + 1, "Signed and secret-bearing reads never follow redirects");
+}
+await assert.rejects(guardedFetch("https://old.example/api", { method: "POST", body: "private data" }), /cannot redirect/u);
+finalStatus = 402;
+await assert.rejects(guardedFetch("https://old.example/api"), /Inspect and approve.*no payment was made/u);
+finalStatus = 200;
+loop = true;
+await assert.rejects(guardedFetch("https://old.example/api"), /three hops/u);
+loop = false;
+await assert.rejects(guardedFetch("https://localhost/api"), /public HTTPS/u);
+
 assert.throws(
   () =>
     agentcashFetchSchema.parse({
@@ -322,19 +370,19 @@ assert.throws(
 const originalFetch = globalThis.fetch;
 const inspectionMethods: string[] = [];
 const inspectionRedirectModes: Array<RequestRedirect | undefined> = [];
-let inspectionMode: "oversized" | "recursive" | "redirect" | "success" =
+let inspectionMode: "oversized" | "recursive" | "redirect" | "cdn" | "success" =
   "success";
 globalThis.fetch = async (input, init) => {
   const url = new URL(
     typeof input === "string" || input instanceof URL ? input : input.url,
   );
   if (url.protocol === "data:") return originalFetch(input, init);
-  inspectionMethods.push(init?.method ?? "GET");
-  inspectionRedirectModes.push(init?.redirect);
+  inspectionMethods.push(input instanceof Request ? input.method : init?.method ?? "GET");
+  inspectionRedirectModes.push(input instanceof Request ? input.redirect : init?.redirect);
   if (url.pathname === "/openapi.json") {
-    if (inspectionMode === "redirect") {
+    if ((inspectionMode === "redirect" || inspectionMode === "cdn") && url.hostname !== "canonical.example") {
       return new Response(null, {
-        headers: { location: "https://example.com/openapi.json" },
+        headers: { location: "https://canonical.example/openapi.json" },
         status: 302,
       });
     }
@@ -372,9 +420,10 @@ globalThis.fetch = async (input, init) => {
         { headers: { "content-type": "application/json" }, status: 200 },
       );
     }
-    return new Response(
+    const response = new Response(
       JSON.stringify({
         info: { title: "Fixture API", version: "1.0.0" },
+        ...(inspectionMode === "redirect" ? { servers: [{ url: "https://canonical.example" }] } : {}),
         openapi: "3.1.0",
         paths: {
           "/api/images": {
@@ -387,6 +436,8 @@ globalThis.fetch = async (input, init) => {
       }),
       { headers: { "content-type": "application/json" }, status: 200 },
     );
+    Object.defineProperty(response, "url", { value: url.href });
+    return response;
   }
   return new Response("not found", { status: 404 });
 };
@@ -404,13 +455,17 @@ try {
   assert.deepEqual(new Set(inspectionMethods), new Set(["GET"]));
   assert.deepEqual(new Set(inspectionRedirectModes), new Set(["manual"]));
   inspectionMode = "redirect";
-  await assert.rejects(
-    inspectAgentcashEndpointSchema({
-      method: "POST",
-      url: "https://stablestudio.dev/api/images",
-    }),
-    /could not be loaded safely/u,
-  );
+  const redirectedInspection = await inspectAgentcashEndpointSchema({
+    method: "POST", url: "https://stablestudio.dev/api/images",
+  });
+  assert.equal(redirectedInspection.url, "https://canonical.example/api/images");
+  assert.equal(redirectedInspection.results[0]?.method, "POST");
+  inspectionMode = "cdn";
+  const cdnInspection = await inspectAgentcashEndpointSchema({
+    method: "POST", url: "https://stablestudio.dev/api/images",
+  });
+  assert.equal(cdnInspection.url, "https://stablestudio.dev/api/images",
+    "Schema hosting redirects alone do not relocate the API");
   inspectionMode = "oversized";
   await assert.rejects(
     inspectAgentcashEndpointSchema({
@@ -499,6 +554,82 @@ const paymentInput = {
 assert.deepEqual(await executeAgentcashPayment(paymentInput), { paid: true });
 assert.deepEqual(await executeAgentcashPayment(paymentInput), { paid: true });
 assert.equal(calls, 1);
+
+const rejectedPaymentStore = new MemoryOperationStore();
+const rejectedPaymentInput = {
+  ...paymentInput,
+  store: rejectedPaymentStore,
+  attemptScope: "session:turn",
+  callId: "first-payment",
+  operation: async () => ({ content: [{ type: "text", text: JSON.stringify({
+    cause: "http", statusCode: 402, message: "Payment Required", type: "fetch", surface: "fetch",
+  }) }] }),
+};
+await assert.rejects(executeAgentcashPayment(rejectedPaymentInput), /Do not retry/u);
+await assert.rejects(executeAgentcashPayment({
+  ...rejectedPaymentInput, callId: "protocol-fallback",
+  toolInput: { ...parsedFetch, paymentProtocol: "mpp", paymentNetwork: "base" },
+}), /already attempted/u);
+
+const caseStore = new MemoryOperationStore();
+await assert.rejects(executeAgentcashPayment({
+  ...rejectedPaymentInput, store: caseStore, callId: "header-case-first",
+  toolInput: { maxAmount: 0.25, url: "https://stableenrich.dev/api/search", headers: { Accept: "application/json" } },
+}), /Do not retry/u);
+const equivalentApproval = await agentcashInteractivePaymentApproval({
+  session: { ...userSession, id: "session", turn: { id: "turn", sequence: 1 } },
+  toolInput: { maxAmount: 0.25, method: "GET", url: "https://stableenrich.dev/api/search", headers: { accept: "application/json" } },
+} as never, configuredEnvironment, caseStore);
+assert.equal(typeof equivalentApproval === "object" && equivalentApproval?.type, "denied",
+  "Schema defaults and header casing cannot bypass the retry guard");
+
+const retryApproval = await agentcashInteractivePaymentApproval({
+  session: { ...userSession, id: "session", turn: { id: "turn", sequence: 1 } },
+  toolInput: { ...parsedFetch, paymentProtocol: "mpp", paymentNetwork: "base" },
+} as never, configuredEnvironment, rejectedPaymentStore);
+assert.equal(typeof retryApproval === "object" && retryApproval?.type, "denied",
+  "Failed purchase retries are denied before another approval card");
+await executeAgentcashPayment({
+  ...paymentInput, store: rejectedPaymentStore, attemptScope: "session:new-turn",
+  callId: "owner-retry-new-turn",
+});
+assert.equal(agentcashApprovalThresholdUsd({}), 1);
+assert.equal(agentcashApprovalThresholdUsd({ AGENTCASH_APPROVAL_THRESHOLD_USD: "5" }), 5);
+assert.throws(() => agentcashApprovalThresholdUsd({ AGENTCASH_APPROVAL_THRESHOLD_USD: "NaN" }), /THRESHOLD/u);
+for (const environment of [
+  { ...configuredEnvironment, AGENTCASH_ALLOWED_PRINCIPALS: "" },
+  { ...configuredEnvironment, X402_PRIVATE_KEY: "" },
+  { ...configuredEnvironment, AGENTCASH_APPROVAL_THRESHOLD_USD: "NaN" },
+]) {
+  const result = agentcashPaymentApproval({session: userSession, toolInput: {maxAmount: 0.01}} as never, environment);
+  assert.equal(typeof result === "object" && result?.type, "denied");
+}
+assert.equal(agentcashPaymentApproval({session: userSession, toolInput: {maxAmount: 4}} as never,
+  {...configuredEnvironment, AGENTCASH_APPROVAL_THRESHOLD_USD: "5"})?.type, "denied",
+  "Auto-approval never bypasses the deployment maximum");
+
+const concurrentStore = new MemoryOperationStore();
+let releasePayment!: (value: unknown) => void;
+let enteredPayment!: () => void;
+const entered = new Promise<void>((resolve) => { enteredPayment = resolve; });
+const pending = new Promise<unknown>((resolve) => { releasePayment = resolve; });
+let concurrentCalls = 0;
+const concurrentInput = {
+  ...paymentInput, store: concurrentStore, attemptScope: "concurrent:turn",
+  operation: async () => { concurrentCalls += 1; enteredPayment(); return pending; },
+};
+const firstAttempt = executeAgentcashPayment({ ...concurrentInput, callId: "parallel-first" });
+await entered;
+await assert.rejects(executeAgentcashPayment({ ...concurrentInput, callId: "parallel-second" }), /already attempted/u);
+releasePayment({ paid: true });
+await firstAttempt;
+assert.equal(concurrentCalls, 1);
+const capStore = new MemoryOperationStore();
+const capInput = { ...paymentInput, store: capStore, attemptScope: "cap:turn", callId: "cap-first" };
+await executeAgentcashPayment({ ...capInput, operation: async () => ({
+  type: "before_payment", surface: "fetch", cause: "amount_exceeds_max_amount",
+}) });
+await executeAgentcashPayment({ ...capInput, callId: "cap-approved", toolInput: { ...parsedFetch, maxAmount: 1 } });
 
 const legacyStore = new MemoryOperationStore();
 let legacyCalls = 0;

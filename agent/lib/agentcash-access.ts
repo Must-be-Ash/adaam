@@ -1,6 +1,8 @@
 import type { SessionContext } from "eve/context";
 import type { ApprovalContext, ApprovalStatus } from "eve/tools";
 
+import { assertAgentcashRetryAllowed, type AgentcashOperationStoreClient } from "./agentcash-operation-store";
+
 import {
   InteractiveToolCapabilityDeniedError,
   requireInteractiveToolCapabilities,
@@ -61,6 +63,17 @@ export function agentcashMaximumPaymentUsd(
   return value;
 }
 
+export function agentcashApprovalThresholdUsd(
+  environment: NodeJS.ProcessEnv = process.env,
+): number {
+  const raw = environment.AGENTCASH_APPROVAL_THRESHOLD_USD?.trim();
+  const value = raw ? Number(raw) : 1;
+  if (!Number.isFinite(value) || value <= 0 || value > 100) {
+    throw new Error("AGENTCASH_APPROVAL_THRESHOLD_USD must be greater than 0 and no more than 100.");
+  }
+  return value;
+}
+
 export function agentcashPrincipalAllowed(
   session: Session,
   environment: NodeJS.ProcessEnv = process.env,
@@ -98,7 +111,7 @@ export function requireAgentcashAccess(
 }
 
 export function agentcashPaymentApproval(
-  ctx: Pick<ApprovalContext, "session">,
+  ctx: Pick<ApprovalContext, "session" | "toolInput">,
   environment: NodeJS.ProcessEnv = process.env,
 ): ApprovalStatus {
   if (!agentcashPrincipalAllowed(ctx.session, environment)) {
@@ -114,7 +127,15 @@ export function agentcashPaymentApproval(
     };
   }
   try {
-    agentcashMaximumPaymentUsd(environment);
+    const maximum = agentcashMaximumPaymentUsd(environment);
+    const threshold = agentcashApprovalThresholdUsd(environment);
+    const ceiling = ctx.toolInput?.maxAmount;
+    if (typeof ceiling === "number" && Number.isFinite(ceiling) && ceiling > 0) {
+      if (ceiling > maximum) {
+        return { type: "denied", reason: "The requested AgentCash ceiling exceeds the deployment limit." };
+      }
+      if (ceiling < threshold) return "not-applicable";
+    }
   } catch (error) {
     return {
       type: "denied",
@@ -143,6 +164,8 @@ export async function requireAgentcashToolAccess(
 
 export async function agentcashInteractivePaymentApproval(
   ctx: ApprovalContext,
+  environment: NodeJS.ProcessEnv = process.env,
+  store?: AgentcashOperationStoreClient,
 ): Promise<ApprovalStatus> {
   try {
     await requireInteractiveToolCapabilities({
@@ -157,5 +180,17 @@ export async function agentcashInteractivePaymentApproval(
       reason: "AgentCash is not available in the current strategy session.",
     };
   }
-  return agentcashPaymentApproval(ctx);
+  const decision = agentcashPaymentApproval(ctx, environment);
+  if (typeof decision === "object" && decision?.type === "denied") return decision;
+  try {
+    await assertAgentcashRetryAllowed({
+      attemptScope: `${ctx.session.id}:${ctx.session.turn.id}`,
+      principalId: agentcashPrincipalId(ctx.session)!,
+      toolInput: ctx.toolInput ?? {},
+      store,
+    });
+  } catch (error) {
+    return { type: "denied", reason: error instanceof Error ? error.message : "AgentCash payment safety storage is unavailable." };
+  }
+  return decision;
 }

@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { z } from "zod";
 
+import { normalizeAgentcashFetchInput } from "#agentcash-policy";
+
 import {
   agentcashRequestHash,
   legacyAgentcashRequestHash,
@@ -126,7 +128,44 @@ function existingResult(
   );
 }
 
+interface AttemptIdentity {
+  readonly attemptScope: string;
+  readonly principalId: string;
+  readonly toolInput: Record<string, unknown>;
+  readonly store?: AgentcashOperationStoreClient;
+}
+
+function attemptKey(input: AttemptIdentity): string {
+  // Changing payment options must not turn a failed purchase into a new attempt.
+  const normalized = normalizeAgentcashFetchInput(input.toolInput);
+  const { maxAmount, paymentNetwork, paymentProtocol, timeout, ...resource } = normalized;
+  resource.headers = Object.fromEntries(new Headers(normalized.headers).entries());
+  return `${KEY_PREFIX}attempt:${sha256(`${input.principalId}\0${input.attemptScope}\0${agentcashRequestHash(resource)}`)}`;
+}
+
+export async function assertAgentcashRetryAllowed(input: AttemptIdentity): Promise<void> {
+  const previous = parseOperation(await (input.store ?? operationStore()).get(attemptKey(input)));
+  if (previous && previous.state !== "succeeded") {
+    throw new Error("This AgentCash purchase was already attempted in this turn. Do not retry or switch payment protocols; report the failure and check payment history first.");
+  }
+}
+
+function hasFailedPaymentResult(result: unknown): boolean {
+  if (!result || typeof result !== "object") return false;
+  const record = result as Record<string, unknown>;
+  // A price-cap rejection is explicitly before payment, so a newly approved
+  // higher cap can proceed. HTTP errors after the SDK payment flow are not.
+  if (record.type === "before_payment") return false;
+  if (record.isError === true || record.success === false ||
+      (record.surface === "fetch" && typeof record.cause === "string")) return true;
+  return Array.isArray(record.content) && record.content.some((entry) => {
+    if (entry?.type !== "text" || typeof entry.text !== "string") return false;
+    try { return hasFailedPaymentResult(JSON.parse(entry.text)); } catch { return false; }
+  });
+}
+
 export async function executeAgentcashPayment(input: {
+  readonly attemptScope?: string;
   readonly callId: string;
   readonly operation: () => Promise<unknown>;
   readonly principalId: string;
@@ -159,8 +198,26 @@ export async function executeAgentcashPayment(input: {
     throw new Error("The AgentCash payment safety receipt could not be created.");
   }
 
+  const scopedIdentity = input.attemptScope ? { ...input, attemptScope: input.attemptScope } : null;
+  let scopedKey: string | undefined;
+  if (scopedIdentity) {
+    await assertAgentcashRetryAllowed(scopedIdentity);
+    scopedKey = attemptKey(scopedIdentity);
+    const previous = await store.get(scopedKey);
+    const previousAttempt = parseOperation(previous);
+    if (previousAttempt && previousAttempt.state !== "succeeded") {
+      throw new Error("This AgentCash purchase was already attempted. Do not retry.");
+    }
+    const expected = previous === null ? null : typeof previous === "string" ? previous : JSON.stringify(previous);
+    if (!(await store.compareAndSet(scopedKey, expected, started))) {
+      throw new Error("This AgentCash purchase is already being attempted. Do not retry.");
+    }
+  }
   try {
     const result = (await input.operation()) ?? null;
+    if (hasFailedPaymentResult(result)) {
+      throw new Error("AgentCash could not complete the payment request. Do not retry or switch payment protocols. Payment completion is unconfirmed; report the blocker and inspect provider or wallet history first.");
+    }
     const succeeded = JSON.stringify(
       operationSchema.parse({
         createdAtMs: now,
@@ -172,6 +229,13 @@ export async function executeAgentcashPayment(input: {
       }),
     );
     await store.compareAndSet(key, started, succeeded).catch(() => false);
+    if (scopedKey) {
+      const completedAttempt = JSON.stringify({
+        createdAtMs: now, inputHash, schemaVersion: 1,
+        state: "succeeded", updatedAtMs: Date.now(),
+      });
+      await store.compareAndSet(scopedKey, started, completedAttempt).catch(() => false);
+    }
     return result;
   } catch (error) {
     const uncertain = JSON.stringify(
@@ -184,6 +248,7 @@ export async function executeAgentcashPayment(input: {
       }),
     );
     await store.compareAndSet(key, started, uncertain).catch(() => false);
+    if (scopedKey) await store.compareAndSet(scopedKey, started, uncertain).catch(() => false);
     throw error;
   }
 }

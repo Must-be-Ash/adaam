@@ -1,5 +1,5 @@
 ---
-description: Use AgentCash to discover, inspect, and call x402- or MPP-protected APIs with the deployment wallet and one native approval for each paid request.
+description: Use AgentCash to discover, inspect, and call x402- or MPP-protected APIs with the deployment wallet and threshold-based native approval for paid requests.
 ---
 
 # AgentCash x402 access
@@ -22,18 +22,28 @@ proofs using a deployment wallet that is available only to allowlisted users.
    - travel: `https://stabletravel.dev`
    - browser automation: `https://stablebrowser.dev`
 2. Only when no known origin fits, call `agentcash_search`.
-3. Discover the origin and read its endpoint guidance.
+3. Discover the origin and read its endpoint guidance. Public HTTPS providers
+   are supported without operator registration. Discovery can follow safe
+   public redirects.
 4. Call `agentcash_check_endpoint_schema` for the exact endpoint and method.
    It reads only the provider's published OpenAPI document and never probes the
-   operation. If the provider does not publish that schema, do not guess the
+   operation. Use its returned canonical URL for the paid request, including
+   after a provider-domain redirect. Never forward a payment proof or body to
+   a redirect target or automatically retry an uncertain payment. If the provider does not publish that schema, do not guess the
    request shape or treat a dynamic price as exact.
 5. Call `agentcash_get_balance` before an expensive request. If funds are
    insufficient, call `agentcash_list_accounts` and give the user the returned
    deposit link; never expose private keys.
 6. Show the endpoint, purpose, quoted or maximum cost, protocol/network when
    known, and a request summary. Then call `agentcash_fetch` with the smallest
-   safe `maxAmount`. Eve's native tool approval is the single approval prompt
-   for the charge; do not ask for a separate conversational approval first.
+   safe `maxAmount`, matching the quoted price when known. By default, a cap
+   strictly below $1 runs without an approval prompt; $1 and above requires one
+   native approval. `agentcash_access_status` exposes the deployment's actual
+   `approvalThresholdUsd` and maximum payment ceiling. Never choose an inflated
+   cap, split a purchase to evade approval, or ask conversational permission
+   for a call already permitted by this policy. For a free quote use a plain
+   unauthenticated web read, not a paid request. After approval, continue the
+   exact approved call; do not issue a second paid call for the same request.
    The deployment ceiling is authoritative.
 7. When a successful paid request returns an async `pollUrl`, call
    `agentcash_fetch_free` for status checks. It verifies that the exact GET
@@ -47,3 +57,7 @@ inspect provider or wallet history first.
 
 Never pass authorization, cookie, API-key, private-key, or wallet-secret
 headers. AgentCash owns authentication and payment.
+
+On iMessage, the channel sends “on it!” when the first AgentCash workflow tool
+is requested. Do not send a duplicate acknowledgement. Continue to return the
+result or a clear blocker when the task finishes.

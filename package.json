@@ -12,7 +12,9 @@
     "#mcp-response-limit": "./agent/lib/mcp-response-limit.ts",
     "#mcp-tool-result": "./agent/lib/mcp-tool-result.ts",
     "#photon-approval-store": "./agent/lib/photon-approval-store.ts",
-    "#public-app-url": "./agent/lib/public-app-url.ts"
+    "#public-app-url": "./agent/lib/public-app-url.ts",
+    "#agentcash-url": "./agent/lib/agentcash-url.ts",
+    "#public-network-address": "./agent/lib/public-network-address.ts"
   },
   "scripts": {
     "acquire:congressional-house-roster": "jiti scripts/acquire-official-house-roster.ts",
@@ -183,6 +185,7 @@
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
     "tailwind-merge": "^3.6.0",
+    "undici": "7.29.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
