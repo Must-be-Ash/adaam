@@ -1,5 +1,5 @@
 export interface AgentcashPhotonProgress {
-  readonly id: "price-cap-rejected" | "provider-working";
+  readonly id: "price-cap-rejected" | "started";
   readonly message: string;
 }
 
@@ -19,23 +19,26 @@ function usd(value: string): string | null {
     : null;
 }
 
-function textContent(output: Record<string, unknown>): unknown[] {
-  if (!Array.isArray(output.content) || output.content.length > 20) return [];
-  return output.content.flatMap((entry) => {
-    const item = record(entry);
-    if (
-      item?.type !== "text" ||
-      typeof item.text !== "string" ||
-      item.text.length > 10_000
-    ) {
-      return [];
-    }
-    try {
-      return [JSON.parse(item.text) as unknown];
-    } catch {
-      return [];
-    }
-  });
+export function agentcashPhotonAcknowledgement(
+  actions: readonly { kind: string; toolName?: string }[],
+): AgentcashPhotonProgress | null {
+  return actions.some((action) => action.kind === "tool-call" && [
+    "agentcash_search",
+    "agentcash_discover_api_endpoints",
+    "agentcash_check_endpoint_schema",
+    "agentcash_fetch",
+    "agentcash_fetch_free",
+  ].includes(action.toolName ?? ""))
+    ? { id: "started", message: "on it!" }
+    : null;
+}
+
+export function agentcashPhotonProgressEventId(
+  sessionId: string,
+  turnId: string,
+  id: string,
+): string {
+  return `agentcash-progress:v3:${sessionId}:${turnId}:${id}`;
 }
 
 export function agentcashPhotonProgress(
@@ -60,29 +63,5 @@ export function agentcashPhotonProgress(
     };
   }
 
-  const payloads = textContent(result).map(record).filter(Boolean);
-  const pending = payloads.some(
-    (payload) =>
-      payload?.success === true &&
-      payload.status === "pending" &&
-      typeof payload.jobId === "string" &&
-      typeof payload.pollUrl === "string" &&
-      (() => {
-        try {
-          return new URL(payload.pollUrl).protocol === "https:";
-        } catch {
-          return false;
-        }
-      })(),
-  );
-  const paymentSucceeded = payloads.some(
-    (payload) => record(payload?.payment)?.success === true,
-  );
-  if (pending && paymentSucceeded) {
-    return {
-      id: "provider-working",
-      message: "on it!",
-    };
-  }
   return null;
 }

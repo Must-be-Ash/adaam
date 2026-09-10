@@ -1,62 +1,16 @@
 import { z } from "zod";
 
-const DEFAULT_AGENTCASH_ORIGINS = new Set([
-  "https://dripstack.com",
-  "https://stablebrowser.dev",
-  "https://stableemail.dev",
-  "https://stableenrich.dev",
-  "https://stablejobs.dev",
-  "https://stablephone.dev",
-  "https://stablesocial.dev",
-  "https://stablestudio.dev",
-  "https://stabletravel.dev",
-  "https://stableupload.dev",
-]);
-
-function configuredAgentcashOrigins(environment: NodeJS.ProcessEnv): Set<string> {
-  const configured = (environment.AGENTCASH_ALLOWED_ORIGINS ?? "")
-    .split(/[\n,]/u)
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .flatMap((value) => {
-      try {
-        const parsed = new URL(value);
-        return parsed.protocol === "https:" &&
-          !parsed.username &&
-          !parsed.password &&
-          parsed.pathname === "/" &&
-          !parsed.search &&
-          !parsed.hash
-          ? [parsed.origin]
-          : [];
-      } catch {
-        return [];
-      }
-    });
-  return new Set([...DEFAULT_AGENTCASH_ORIGINS, ...configured]);
-}
-
-export function agentcashAllowedOrigins(
-  environment: NodeJS.ProcessEnv = process.env,
-): string[] {
-  return [...configuredAgentcashOrigins(environment)].sort();
-}
+import { isAgentcashPublicUrl } from "#agentcash-url";
 
 export function isAgentcashUrlAllowed(
   value: string,
   environment: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  try {
-    const parsed = new URL(value);
-    return Boolean(
-      parsed.protocol === "https:" &&
-        !parsed.username &&
-        !parsed.password &&
-        configuredAgentcashOrigins(environment).has(parsed.origin)
-    );
-  } catch {
-    return false;
-  }
+  if (!isAgentcashPublicUrl(value)) return false;
+  // Optional deployment restriction, never a catalog of built-in providers.
+  const origins = (environment.AGENTCASH_ALLOWED_ORIGINS ?? "")
+    .split(/[\n,]/u).map((origin) => origin.trim()).filter(Boolean);
+  return origins.length === 0 || origins.includes(new URL(value).origin);
 }
 
 const httpsUrlSchema = z.url().superRefine((value, ctx) => {
@@ -72,7 +26,7 @@ const httpsUrlSchema = z.url().superRefine((value, ctx) => {
     ctx.addIssue({
       code: "custom",
       message:
-        "AgentCash endpoints must use an approved AgentCash provider origin.",
+        "AgentCash endpoints must use a public HTTPS destination permitted by deployment policy.",
     });
   }
 });

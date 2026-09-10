@@ -7,7 +7,7 @@ Your own AI investment & research agent built on top of Eve by Vercel
 - **Personal markets agent** that investigates public companies, strategy ideas, and news on demand
 - **iMessage-native** — talk to Adaam from your phone (optional HTTP + Telegram adapters too)
 - **Guarded brokerage** via Coinbase — read balances freely; every trade needs your explicit approval, principal allowlist, and exact-order preview
-- **Paid API access** via AgentCash — x402/MPP requests use a deployment wallet, principal allowlist, per-call ceiling, replay guard, and explicit approval
+- **Paid API access** via AgentCash — x402/MPP requests use a deployment wallet, principal allowlist, per-call ceiling, replay guard, and approval from $1
 - **Research artifacts** — shareable reports, charts, and media at stable URLs
 - **Specialized workflows** — currently the IPO Filings, Public Commentary Tracker, and Inverse Cramer strategy packs (more in progress)
 
@@ -59,8 +59,12 @@ from creating an ephemeral wallet for a missing network. Then set
 `AGENTCASH_ALLOWED_PRINCIPALS` to
 the exact private-channel principal returned by `agentcash_access_status`.
 `AGENTCASH_MAX_PAYMENT_USD` limits each approved request and defaults to $5.
-Requests are limited to the built-in AgentCash provider origins; add an exact
-HTTPS origin to `AGENTCASH_ALLOWED_ORIGINS` only after approving that provider.
+Public HTTPS providers work without a built-in provider list. Anonymous discovery
+reads can follow up to three public HTTPS redirects; authenticated requests and
+request bodies never redirect. An optional `AGENTCASH_ALLOWED_ORIGINS` list can
+restrict tool requests to exact origins. Calls capped below $1 run without a
+prompt; $1 and above requires approval. `AGENTCASH_APPROVAL_THRESHOLD_USD`
+configures that boundary. Coinbase trade approval is separate and unchanged.
 Use a dedicated, minimally funded wallet and never put its private key in chat,
 source, logs, Preview environments, or command arguments.
 Before promotion, run `npm run accept:agentcash:no-spend` with the production-

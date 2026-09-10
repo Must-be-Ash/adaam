@@ -27,9 +27,26 @@ import {
   photonApprovalAppUrl,
   photonArtifactPresentation,
 } from "../agent/lib/photon-mini-app.ts";
-import { agentcashPhotonProgress } from "../agent/lib/agentcash-photon-progress.ts";
+import { agentcashPhotonProgress, agentcashPhotonAcknowledgement, agentcashPhotonProgressEventId } from "../agent/lib/agentcash-photon-progress.ts";
 import { agentcashFetchSchema } from "../agent/lib/agentcash-policy.ts";
 import { agentcashRequestHash } from "../agent/lib/agentcash-request.ts";
+
+for (const toolName of ["agentcash_search", "agentcash_discover_api_endpoints", "agentcash_check_endpoint_schema", "agentcash_fetch", "agentcash_fetch_free"]) {
+  assert.deepEqual(agentcashPhotonAcknowledgement([{ kind: "tool-call", toolName }]),
+    { id: "started", message: "on it!" });
+}
+assert.equal(agentcashPhotonAcknowledgement([{ kind: "tool-call", toolName: "agentcash_get_balance" }]), null);
+assert.equal(agentcashPhotonAcknowledgement([{ kind: "subagent-call", toolName: "agentcash_fetch" }]), null);
+assert.equal(agentcashPhotonAcknowledgement([]), null);
+const firstDiscovery = agentcashPhotonAcknowledgement([{ kind: "tool-call", toolName: "agentcash_search" }]);
+const laterPayment = agentcashPhotonAcknowledgement([{ kind: "tool-call", toolName: "agentcash_fetch" }]);
+assert.equal(agentcashPhotonProgressEventId("session", "turn", firstDiscovery.id),
+  agentcashPhotonProgressEventId("session", "turn", laterPayment.id),
+  "Discovery, payment, and replay share one acknowledgement receipt within a turn");
+assert.notEqual(agentcashPhotonProgressEventId("session", "turn", "started"),
+  agentcashPhotonProgressEventId("session", "next-turn", "started"));
+assert.notEqual(agentcashPhotonProgressEventId("session", "turn", "started"),
+  agentcashPhotonProgressEventId("other-session", "turn", "started"));
 
 assert.deepEqual(
   agentcashPhotonProgress({
@@ -67,10 +84,8 @@ assert.deepEqual(
       },
     ],
   }),
-  {
-    id: "provider-working",
-    message: "on it!",
-  },
+  null,
+  "Pending results do not send a second acknowledgement",
 );
 assert.equal(
   agentcashPhotonProgress({
@@ -804,8 +819,10 @@ assert.equal(
   false,
   "approval details stay in the card instead of the chat companion",
 );
+assert.ok(photonChannelSource.includes('async "actions.requested"'),
+  "Paid-tool acknowledgement must be sent before tool execution");
 const agentcashProgressStart = photonChannelSource.indexOf(
-  'async "action.result"',
+  'async function deliverAgentcashProgress',
 );
 const agentcashProgressEnd = photonChannelSource.indexOf(
   'async "message.completed"',
@@ -820,8 +837,8 @@ const agentcashProgressHandler = photonChannelSource.slice(
   agentcashProgressEnd,
 );
 assert.ok(
-  agentcashProgressHandler.includes("agentcash-progress:v2:"),
-  "AgentCash progress uses the concise-copy receipt namespace",
+  agentcashProgressHandler.includes("agentcashPhotonProgressEventId(sessionId, turnId, progress.id)"),
+  "AgentCash progress is deduplicated by session and turn",
 );
 assert.ok(
   agentcashProgressHandler.includes("createPhotonResponseDeliveryReceipt"),
@@ -833,11 +850,11 @@ assert.ok(
 );
 assert.ok(
   agentcashProgressHandler.indexOf('state: "delivering"') <
-    agentcashProgressHandler.indexOf("channel.thread.post"),
+    agentcashProgressHandler.indexOf("thread.post"),
   "AgentCash progress is marked delivering before posting",
 );
 assert.ok(
-  agentcashProgressHandler.indexOf("channel.thread.post") <
+  agentcashProgressHandler.indexOf("thread.post") <
     agentcashProgressHandler.indexOf('state: "delivered"'),
   "AgentCash progress is marked delivered only after posting",
 );

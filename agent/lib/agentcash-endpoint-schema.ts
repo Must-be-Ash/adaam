@@ -5,6 +5,7 @@ import {
   type HttpMethod,
 } from "@agentcash/discovery";
 
+import { guardAgentcashProviderFetch } from "./agentcash-fetch-guard";
 import { safeAgentcashReadInput } from "./agentcash-policy";
 
 const INSPECTABLE_METHODS = [
@@ -120,10 +121,10 @@ async function boundedOpenApiDocument(
   origin: string,
   headers: Record<string, string> | undefined,
   signal: AbortSignal | undefined,
-): Promise<unknown | null> {
+): Promise<{ document: unknown; origin: string } | null> {
   let response: Response;
   try {
-    response = await fetch(`${origin}/openapi.json`, {
+    response = await guardAgentcashProviderFetch(fetch)(`${origin}/openapi.json`, {
       headers: { Accept: "application/json", ...headers },
       method: "GET",
       redirect: "manual",
@@ -169,7 +170,7 @@ async function boundedOpenApiDocument(
   }
   assertBoundedOpenApi(document);
   assertSafeOpenApiReferences(document);
-  return document;
+  return { document, origin: new URL(response.url || origin).origin };
 }
 
 export async function inspectAgentcashEndpointSchema(
@@ -180,17 +181,31 @@ export async function inspectAgentcashEndpointSchema(
     url: input.url,
   });
   const endpoint = new URL(input.url);
-  const document = await boundedOpenApiDocument(
+  const loaded = await boundedOpenApiDocument(
     endpoint.origin,
     input.headers,
     input.signal,
   );
-  if (!document) return { results: [], url: input.url };
+  if (!loaded) return { results: [], url: input.url };
+  const { document } = loaded;
+  // A schema may be served by a CDN. Only its explicit OpenAPI server URL,
+  // not the document hosting origin, can identify a canonical API origin.
+  const servers = document && typeof document === "object" && "servers" in document
+    ? document.servers : undefined;
+  const server = Array.isArray(servers) && servers.length === 1 ? servers[0] : undefined;
+  const serverUrl = server && typeof server.url === "string" &&
+    server.url.startsWith("https://") && !server.url.includes("{")
+    ? new URL(server.url, loaded.origin) : null;
+  const canonicalOrigin = serverUrl && serverUrl.pathname === "/" &&
+    !serverUrl.username && !serverUrl.password && !serverUrl.search && !serverUrl.hash
+    ? serverUrl.origin : endpoint.origin;
+  const canonicalEndpoint = new URL(endpoint.pathname + endpoint.search, canonicalOrigin);
+  safeAgentcashReadInput("check_endpoint_schema", { url: canonicalEndpoint.href });
   const encodedDocument = Buffer.from(JSON.stringify(document)).toString(
     "base64",
   );
   const openApiResult = await getOpenAPI(
-    endpoint.origin,
+    loaded.origin,
     undefined,
     input.signal,
     `data:application/json;base64,${encodedDocument}`,
@@ -222,7 +237,7 @@ export async function inspectAgentcashEndpointSchema(
   } catch {
     throw new Error("The endpoint's OpenAPI schema could not be loaded safely.");
   }
-  const result = { results, url: input.url };
+  const result = { results, url: canonicalEndpoint.href };
   if (
     Buffer.byteLength(JSON.stringify(result), "utf8") > MAX_SCHEMA_RESULT_BYTES
   ) {

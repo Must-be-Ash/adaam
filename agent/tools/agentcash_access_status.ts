@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   agentcashMaximumPaymentUsd,
+  agentcashApprovalThresholdUsd,
   agentcashPrincipalAllowed,
   agentcashPrincipalId,
   agentcashWalletStatus,
@@ -15,9 +16,11 @@ export default defineTool({
   execute(_input, ctx) {
     const supportedWallets = agentcashWalletStatus();
     let maximumPaymentUsd: number | null = null;
+    let approvalThresholdUsd: number | null = null;
     let configurationError: string | null = null;
     try {
       maximumPaymentUsd = agentcashMaximumPaymentUsd();
+      approvalThresholdUsd = agentcashApprovalThresholdUsd();
     } catch (error) {
       configurationError =
         error instanceof Error ? error.message : "Invalid AgentCash settings.";
@@ -25,6 +28,7 @@ export default defineTool({
     return {
       allowed: agentcashPrincipalAllowed(ctx.session),
       configurationError,
+      approvalThresholdUsd,
       maximumPaymentUsd,
       principalId: agentcashPrincipalId(ctx.session),
       requiredConfiguration: {
