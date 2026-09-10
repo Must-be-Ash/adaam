@@ -1,3 +1,4 @@
+import { agentcashPaymentDiagnostic } from "../agent/lib/agentcash-payment-diagnostic";
 import assert from "node:assert/strict";
 import { base58 } from "@scure/base";
 
@@ -566,6 +567,10 @@ const rejectedPaymentInput = {
   }) }] }),
 };
 await assert.rejects(executeAgentcashPayment(rejectedPaymentInput), /Do not retry/u);
+assert.ok([...rejectedPaymentStore.values.values()].some((value) => {
+  const receipt = JSON.parse(value);
+  return receipt.state === "uncertain" && receipt.result?.diagnostic?.statusCode === 402;
+}), "Failed payments retain a sanitized diagnostic receipt");
 await assert.rejects(executeAgentcashPayment({
   ...rejectedPaymentInput, callId: "protocol-fallback",
   toolInput: { ...parsedFetch, paymentProtocol: "mpp", paymentNetwork: "base" },
@@ -741,3 +746,17 @@ await assert.rejects(
 );
 
 console.log("AgentCash access, payment policy, and replay checks passed.");
+
+const diagnosticFixture = { content: [
+  {type: "text", text: JSON.stringify({statusCode: 402, message: "secret-response-body"})},
+  {type: "text", text: JSON.stringify({protocol: "x402", network: "base", payment: null, headers: {
+    authorization: "secret-token", "payment-signature": "secret-signature",
+    "payment-required": Buffer.from(JSON.stringify({error: 'Facilitator verify failed (400): {"correlationId":"fixture-IAD","errorMessage":"paymentPayload is invalid secret-provider-detail"}'})).toString("base64"),
+  }})},
+] };
+assert.deepEqual(agentcashPaymentDiagnostic(diagnosticFixture), {
+  category: "facilitator_payload_rejected", statusCode: 402, protocol: "x402", network: "base", upstreamCorrelationId: "fixture-IAD",
+});
+assert.ok(!JSON.stringify(agentcashPaymentDiagnostic(diagnosticFixture)).includes("secret"));
+assert.deepEqual(agentcashPaymentDiagnostic({headers: {"payment-required": "invalid"}}), {category: "unclassified_failure"});
+assert.deepEqual(agentcashPaymentDiagnostic({payment: {success: false}}), {category: "unclassified_failure", settlementSuccess: false});

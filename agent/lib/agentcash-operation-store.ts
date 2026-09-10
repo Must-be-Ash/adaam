@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { z } from "zod";
 
+import { agentcashPaymentDiagnostic } from "./agentcash-payment-diagnostic";
+
 import { normalizeAgentcashFetchInput } from "#agentcash-policy";
 
 import {
@@ -213,9 +215,11 @@ export async function executeAgentcashPayment(input: {
       throw new Error("This AgentCash purchase is already being attempted. Do not retry.");
     }
   }
+  let diagnostic = agentcashPaymentDiagnostic(null);
   try {
     const result = (await input.operation()) ?? null;
     if (hasFailedPaymentResult(result)) {
+      diagnostic = agentcashPaymentDiagnostic(result);
       throw new Error("AgentCash could not complete the payment request. Do not retry or switch payment protocols. Payment completion is unconfirmed; report the blocker and inspect provider or wallet history first.");
     }
     const succeeded = JSON.stringify(
@@ -238,12 +242,14 @@ export async function executeAgentcashPayment(input: {
     }
     return result;
   } catch (error) {
+    console.error("agentcash.payment.failed", { inputHash, ...diagnostic });
     const uncertain = JSON.stringify(
       operationSchema.parse({
         createdAtMs: now,
         inputHash,
         schemaVersion: 1,
         state: "uncertain",
+        result: { diagnostic },
         updatedAtMs: Date.now(),
       }),
     );
