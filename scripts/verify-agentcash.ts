@@ -210,6 +210,30 @@ const parsedFetch = agentcashFetchSchema.parse({
   paymentProtocol: "x402",
   url: "https://stableenrich.dev/api/exa/search",
 });
+const dripstackUrl = "https://dripstack.com/api/v2/stock-picks";
+assert.equal(
+  isAgentcashUrlAllowed(dripstackUrl, {}),
+  true,
+  "DripStack stock picks must be an approved AgentCash provider",
+);
+assert.equal(
+  agentcashFetchSchema.parse({ maxAmount: 1, url: dripstackUrl }).url,
+  dripstackUrl,
+);
+for (const toolName of ["discover_api_endpoints", "check_endpoint_schema"]) {
+  assert.equal(
+    safeAgentcashReadInput(toolName, { url: dripstackUrl }).url,
+    dripstackUrl,
+  );
+}
+assert.equal(isAgentcashUrlAllowed("https://dripstack.com.evil.test/api", {}), false);
+assert.equal(isAgentcashUrlAllowed("http://dripstack.com/api", {}), false);
+assert.ok(
+  agentcashChildEnvironment(configuredEnvironment)
+    .EVE_AGENTCASH_ALLOWED_ORIGINS?.split(",")
+    .includes("https://dripstack.com"),
+  "The CLI redirect guard must receive the approved DripStack origin",
+);
 assert.deepEqual(enforceAgentcashFetch(parsedFetch, 0.5), parsedFetch);
 assert.throws(() => enforceAgentcashFetch(parsedFetch, 0.1), /deployment limit/u);
 assert.throws(
