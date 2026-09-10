@@ -112,6 +112,11 @@ end
 if ARGV[4] ~= "" and record.principalHash ~= ARGV[4] then
   return cjson.encode({status = "forbidden"})
 end
+-- Automatic cleanup can only deny an expired, still-active approval. Check
+-- atomically so a concurrently replaced or approved request is never denied.
+if ARGV[8] == "expired-only" and (ARGV[1] ~= "deny" or record.state ~= "active" or tonumber(record.expiresAtMs) >= tonumber(ARGV[2])) then
+  return cjson.encode({status = "unavailable"})
+end
 local activatedAtMs = record.activatedAtMs or record.createdAtMs
 if ARGV[5] ~= "" and tonumber(ARGV[5]) + tonumber(ARGV[6]) < tonumber(activatedAtMs) then
   return cjson.encode({status = "stale"})
@@ -359,7 +364,7 @@ export type PhotonApprovalClaim =
         | "unavailable";
     };
 
-export type PhotonApprovalActivity = "pending" | "processing";
+export type PhotonApprovalActivity = "pending" | "processing" | "expired";
 export type PhotonApprovalExecutionState =
   | "safe-failure"
   | "succeeded"
@@ -512,6 +517,7 @@ async function claimRecord(input: {
   client: PhotonApprovalStoreClient;
   decision: PhotonApprovalDecision;
   decisionSentAtMs?: number;
+  expiredOnly?: boolean;
   expectedPrincipalHash?: string;
   processingKey: string;
   recordKey: string;
@@ -527,6 +533,7 @@ async function claimRecord(input: {
       input.decisionSentAtMs ?? "",
       TEXT_DECISION_CLOCK_SKEW_MS,
       PROCESSING_TTL_SECONDS,
+      input.expiredOnly ? "expired-only" : "",
     ],
   );
   const claimed = parseClaimResponse(raw);
@@ -649,6 +656,7 @@ export async function claimCurrentPhotonApprovalDecision(
   input: {
     decision: PhotonApprovalDecision;
     decisionSentAtMs?: number;
+    expiredOnly?: boolean;
     principalId: string;
     threadId: string;
   },
@@ -669,6 +677,7 @@ export async function claimCurrentPhotonApprovalDecision(
     client,
     decision: input.decision,
     decisionSentAtMs: input.decisionSentAtMs,
+    expiredOnly: input.expiredOnly,
     expectedPrincipalHash: principalHash(input.principalId),
     processingKey: processingApprovalKey(record.sessionId),
     recordKey,
@@ -886,6 +895,7 @@ export async function getCurrentPhotonApprovalActivity(
   if (record.state === "delivering" && record.decision === "approve") {
     return "processing";
   }
+  if (record.state === "active" && record.expiresAtMs < Date.now()) return "expired";
   return record.state === "unavailable" ? null : "pending";
 }
 

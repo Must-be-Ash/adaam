@@ -61,3 +61,7 @@ headers. AgentCash owns authentication and payment.
 On iMessage, the channel sends “on it!” when the first AgentCash workflow tool
 is requested. Do not send a duplicate acknowledgement. Continue to return the
 result or a clear blocker when the task finishes.
+
+## Reporting failed or expired attempts
+
+Distinguish a payment attempt from an approval that expired or was denied before execution. Do not describe a denied or invalid approval response as a second payment attempt. Identify older attempts as historical when resuming after an approval delay. An unchanged wallet balance alone does not prove that no payment settled or that there is no double-charge risk; report the observed balance and whether a settlement receipt or transaction was verified. A facilitator payload rejection does not by itself establish which integration is at fault.
