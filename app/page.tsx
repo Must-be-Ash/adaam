@@ -16,9 +16,10 @@ export default function Page() {
               <span>iMessage</span>
             </h1>
             <p className="dek">
-              Copy trade Pelosi, inverse trade Cramer, or value invest like
-              Buffett. Your agents watch each strategy around the clock and ping
-              you when they find a signal. All via text.
+              Choose a strategy like tracking congressional trades, following
+              specific X accounts, watching new IPO filings, or build your
+              own. You set the conditions, your agent runs around the clock
+              and texts you the moment it spots a signal.
             </p>
             <CopyPrompt />
           </section>
