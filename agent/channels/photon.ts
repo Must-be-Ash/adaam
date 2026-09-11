@@ -1219,14 +1219,17 @@ async function dispatch(
     await thread.post("Eve's iMessage rollout configuration is incomplete. No message was sent.");
     return;
   }
-  if (rolloutMode === "durable") {
-    try {
-      requirePhotonOwnerAccess({ principalId, resource: "session" });
-    } catch (error) {
-      if (!(error instanceof OwnerIdentityDeniedError)) throw error;
-      await thread.post("This iMessage identity is not authorized to use Eve.");
-      return;
-    }
+  // Fail closed: enforce the owner allowlist on every inbound message,
+  // independent of the ingress rollout mode. In legacy mode the owner config is
+  // absent, so requirePhotonOwnerAccess denies everyone rather than dispatching
+  // to Eve without an owner gate. This makes it impossible to silently reopen
+  // access by unsetting the durable-mode environment variables.
+  try {
+    requirePhotonOwnerAccess({ principalId, resource: "session" });
+  } catch (error) {
+    if (!(error instanceof OwnerIdentityDeniedError)) throw error;
+    await thread.post("This iMessage identity is not authorized to use Eve.");
+    return;
   }
   const ingressIdentity = rolloutMode === "durable"
     ? resolvePhotonOwnerConversationIdentity({
