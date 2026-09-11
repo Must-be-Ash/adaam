@@ -884,6 +884,11 @@ const completedTurnHandler = photonChannelSource.slice(
   completedTurnStart,
   completedTurnEnd,
 );
+assert.equal(
+  [...completedTurnHandler.matchAll(/threadId: physicalPhotonThreadId\(channel\.thread\.id\)/gu)].length,
+  2,
+  "Both completion approval lookups must use the physical conversation key",
+);
 assert.ok(
   completedTurnHandler.indexOf("const approvalWasActive") <
     completedTurnHandler.indexOf("releaseApprovedOrderGuard"),

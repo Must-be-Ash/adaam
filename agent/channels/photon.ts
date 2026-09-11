@@ -481,7 +481,7 @@ const bridge = chatSdkChannel({
         principalId && channel.thread
           ? await hasCurrentPhotonApproval({
               principalId,
-              threadId: channel.thread.id,
+              threadId: physicalPhotonThreadId(channel.thread.id),
             })
           : false;
       const release = await releaseApprovedOrderGuard(ctx.session.id);
@@ -499,7 +499,7 @@ const bridge = chatSdkChannel({
         approvalWasActive ||
         (await hasCurrentPhotonApproval({
           principalId,
-          threadId: channel.thread.id,
+          threadId: physicalPhotonThreadId(channel.thread.id),
         }))
       ) {
         return;
