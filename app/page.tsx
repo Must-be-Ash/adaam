@@ -17,7 +17,6 @@ export default function Page() {
             <path d="M8 19c-3 .9-3-1.5-4-2" />
           </svg>
           <span>GitHub</span>
-          <span aria-hidden="true">↗</span>
         </a>
       </header>
 
