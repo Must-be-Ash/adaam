@@ -72,7 +72,7 @@ shaped wallet environment. It validates both wallets and live provider
 discovery without making a paid request.
 
 > [!WARNING]
-> Early and experimental — not intended for production use. Three strategies work today (IPO Filings, Public Commentary Tracker, and Inverse Cramer); others are in progress. Not financial advice.
+> Early and experimental — not intended for production use. Three strategies work today (IPO Filings, Public Commentary Tracker, and Inverse Cramer); others are in progress. Not financial advice. Use of this sample application may cause a negative financial impact.
 
 ---
 
